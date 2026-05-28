@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import CopyGenerator from '@/components/copy/CopyGenerator'
 
+const ADMIN_EMAILS = ['arne.smets@sporthousegroup.com', 'deryan.spiessens@sporthousegroup.com']
+
 interface Props {
   params: Promise<{ id: string }>
 }
@@ -10,13 +12,16 @@ export default async function CopyPage({ params }: Props) {
   const { id } = await params
   const supabase = await createClient()
 
-  const { data: client } = await supabase
-    .from('clients')
-    .select('id, name')
-    .eq('id', id)
-    .single()
+  const [{ data: client }, { data: { user } }] = await Promise.all([
+    supabase.from('clients').select('id, name').eq('id', id).single(),
+    supabase.auth.getUser(),
+  ])
 
   if (!client) notFound()
+
+  const sections: string[] = user?.user_metadata?.permissions?.sections ?? []
+  const isAdmin = ADMIN_EMAILS.includes(user?.email ?? '') || sections.includes('beheer')
+  const canManageExamples = isAdmin || sections.includes('stijlvoorbeelden')
 
   return (
     <div className="h-full overflow-y-auto">
@@ -28,7 +33,7 @@ export default async function CopyPage({ params }: Props) {
           </p>
         </div>
 
-        <CopyGenerator clientId={id} clientName={client.name} />
+        <CopyGenerator clientId={id} clientName={client.name} canManageExamples={canManageExamples} />
       </div>
     </div>
   )

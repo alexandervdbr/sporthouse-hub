@@ -33,6 +33,7 @@ interface CopyExample {
 interface Props {
   clientId: string
   clientName: string
+  canManageExamples?: boolean
 }
 
 // ─── Copy block ───────────────────────────────────────────────────────────────
@@ -90,7 +91,7 @@ function parseOptions(text: string): string[] {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function CopyGenerator({ clientId, clientName }: Props) {
+export default function CopyGenerator({ clientId, clientName, canManageExamples = false }: Props) {
   const types = CLIENT_COPY_TYPES[clientName] ?? []
   const hasTypes = types.length > 0
   const singleType = types.length === 1 ? types[0] : null
@@ -428,27 +429,29 @@ export default function CopyGenerator({ clientId, clientName }: Props) {
             </p>
           </div>
 
-          <div className="space-y-3 p-4 bg-zinc-900 border border-zinc-800 rounded-xl">
-            <p className="text-xs font-medium text-zinc-400">Nieuw voorbeeld toevoegen</p>
-            <textarea
-              value={newExample}
-              onChange={e => setNewExample(e.target.value)}
-              placeholder={`Plak hier een voorbeeld${selectedType ? ` van ${selectedType.toLowerCase()}` : ''} voor ${clientName}...`}
-              rows={4}
-              className="w-full px-3 py-2.5 bg-zinc-950 border border-zinc-800 rounded-lg text-sm text-sh-grey placeholder:text-zinc-600 focus:outline-none focus:border-zinc-700 transition-colors resize-none"
-            />
-            <button
-              onClick={handleSaveExample}
-              disabled={!newExample.trim() || savingExample}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white rounded-lg disabled:opacity-50 transition-colors"
-              style={{ backgroundColor: '#3A913F' }}
-            >
-              {savingExample
-                ? <><Loader2 size={11} className="animate-spin" /> Opslaan...</>
-                : <><Plus size={11} /> Toevoegen</>
-              }
-            </button>
-          </div>
+          {canManageExamples && (
+            <div className="space-y-3 p-4 bg-zinc-900 border border-zinc-800 rounded-xl">
+              <p className="text-xs font-medium text-zinc-400">Nieuw voorbeeld toevoegen</p>
+              <textarea
+                value={newExample}
+                onChange={e => setNewExample(e.target.value)}
+                placeholder={`Plak hier een voorbeeld${selectedType ? ` van ${selectedType.toLowerCase()}` : ''} voor ${clientName}...`}
+                rows={4}
+                className="w-full px-3 py-2.5 bg-zinc-950 border border-zinc-800 rounded-lg text-sm text-sh-grey placeholder:text-zinc-600 focus:outline-none focus:border-zinc-700 transition-colors resize-none"
+              />
+              <button
+                onClick={handleSaveExample}
+                disabled={!newExample.trim() || savingExample}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white rounded-lg disabled:opacity-50 transition-colors"
+                style={{ backgroundColor: '#3A913F' }}
+              >
+                {savingExample
+                  ? <><Loader2 size={11} className="animate-spin" /> Opslaan...</>
+                  : <><Plus size={11} /> Toevoegen</>
+                }
+              </button>
+            </div>
+          )}
 
           {loadingExamples ? (
             <div className="flex items-center gap-2 text-xs text-zinc-600">
@@ -468,12 +471,14 @@ export default function CopyGenerator({ clientId, clientName }: Props) {
               {examples.map(ex => (
                 <div key={ex.id} className="group relative p-4 bg-zinc-900 border border-zinc-800 rounded-xl">
                   <p className="text-sm text-zinc-400 leading-relaxed whitespace-pre-wrap pr-8">{ex.content}</p>
-                  <button
-                    onClick={() => handleDeleteExample(ex.id)}
-                    className="absolute top-3 right-3 p-1.5 rounded-lg bg-zinc-800 opacity-0 group-hover:opacity-100 transition-all hover:bg-red-900/40 hover:text-red-400 text-zinc-600"
-                  >
-                    <Trash2 size={11} />
-                  </button>
+                  {canManageExamples && (
+                    <button
+                      onClick={() => handleDeleteExample(ex.id)}
+                      className="absolute top-3 right-3 p-1.5 rounded-lg bg-zinc-800 opacity-0 group-hover:opacity-100 transition-all hover:bg-red-900/40 hover:text-red-400 text-zinc-600"
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

@@ -142,6 +142,12 @@ const SECTION_GROUPS = [
       { key: 'administratie_beheren',  label: 'Documenten uploaden & verwijderen' },
     ],
   },
+  {
+    title: 'Copy Generator',
+    sections: [
+      { key: 'stijlvoorbeelden', label: 'Stijlvoorbeelden toevoegen & verwijderen' },
+    ],
+  },
 ]
 
 const SECTIONS = SECTION_GROUPS.flatMap(g => g.sections)
