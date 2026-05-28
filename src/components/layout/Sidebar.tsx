@@ -216,7 +216,7 @@ export default function Sidebar({ clients }: SidebarProps) {
         {/* Main nav items */}
         <div className="mb-5 space-y-0.5">
           {([
-            { href: '/dashboard',   icon: LayoutDashboard, label: 'Dashboard',      section: 'dashboard',      external: false },
+            { href: '/dashboard',   icon: LayoutDashboard, label: 'DASHBOARD',      section: 'dashboard',      external: false },
             { href: '/projects',    icon: KanbanSquare,    label: 'Projecten',      section: 'projecten',      external: false },
             { href: '/planning',    icon: CalendarDays,    label: 'Planning',       section: 'planning',       external: false },
             { href: '/events',      icon: CalendarRange,   label: 'Projectkalender', section: 'projectkalender', external: false },
