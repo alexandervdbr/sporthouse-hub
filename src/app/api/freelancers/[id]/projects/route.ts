@@ -1,5 +1,16 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 
+const ADMIN_EMAILS = ['arne.smets@sporthousegroup.com', 'deryan.spiessens@sporthousegroup.com']
+
+async function requireFreelancerAdmin() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+  const sections: string[] = user.user_metadata?.permissions?.sections ?? []
+  const ok = ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer') || sections.includes('freelancers')
+  return ok ? user : null
+}
+
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -23,9 +34,8 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return new Response('Unauthorized', { status: 401 })
+  const user = await requireFreelancerAdmin()
+  if (!user) return new Response('Forbidden', { status: 403 })
 
   const { id } = await params
   const body = await req.json()

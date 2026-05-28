@@ -1,7 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import Image from 'next/image'
+import Link from 'next/link'
 import { Client } from '@/types/database'
+
+const ADMIN_EMAILS = ['arne.smets@sporthousegroup.com', 'deryan.spiessens@sporthousegroup.com']
 
 const LOGO_MAP: Record<string, string> = {
   'Pro League':               '/logos/proleague.jpg',
@@ -22,6 +25,7 @@ const LOGO_MAP: Record<string, string> = {
   'Jan Vertonghen Foundation':'/logos/jan-vertonghen-foundation.jpg',
   'Verstappen.com':           '/logos/verstappen-com.jpg',
   'Sporthouse':               '/logos/sporthouse.jpg',
+  'Shirtlist':                '/logos/shirtlist.jpg',
   'Friends of Sports':        '/logos/friends-of-sports.jpeg',
   'Kevin De Bruyne':          '/logos/kevin-de-bruyne.webp',
   'Kos Karetsas':             '/logos/karetsas.webp',
@@ -51,13 +55,26 @@ export default async function ClientLayout({ children, params }: Props) {
   const { id } = await params
   const supabase = await createClient()
 
-  const { data: client } = await supabase
-    .from('clients')
-    .select('*')
-    .eq('id', id)
-    .single()
+  const [{ data: client }, { data: { user } }] = await Promise.all([
+    supabase.from('clients').select('*').eq('id', id).single(),
+    supabase.auth.getUser(),
+  ])
 
   if (!client) notFound()
+
+  // Check client access permissions
+  if (user) {
+    const sections: string[] = user.user_metadata?.permissions?.sections ?? []
+    const perms: { sections: string[]; clients: string[] } | null = user.user_metadata?.permissions ?? null
+    const isAdmin = ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer')
+    if (!isAdmin && perms !== null) {
+      const allowedClients: string[] = perms.clients ?? []
+      // If a non-empty clients restriction is configured and this client isn't in it, block
+      if (allowedClients.length > 0 && !allowedClients.includes(id)) {
+        redirect('/dashboard')
+      }
+    }
+  }
 
   const c = client as Client
 
@@ -74,36 +91,38 @@ export default async function ClientLayout({ children, params }: Props) {
     <div className="flex flex-col h-full">
       <div className="px-8 py-5 flex-shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(14,14,14,0.8)', backdropFilter: 'blur(12px)' }}>
         <div className="flex items-center gap-4">
-          {logo ? (
-            <Image
-              src={logo}
-              alt={c.name}
-              width={40}
-              height={40}
-              className="rounded-xl object-cover flex-shrink-0 ring-1 ring-zinc-700"
-              style={{ width: 40, height: 40 }}
-            />
-          ) : (
-            <div
-              className="w-10 h-10 rounded-xl flex-shrink-0 ring-1 ring-zinc-700"
-              style={{ backgroundColor: c.color ? `${c.color}22` : '#1a1a1a' }}
-            >
-              <div className="w-full h-full flex items-center justify-center">
-                <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: c.color || '#71717a' }} />
+          <Link href={`/clients/${id}`} className="flex items-center gap-4 group">
+            {logo ? (
+              <Image
+                src={logo}
+                alt={c.name}
+                width={40}
+                height={40}
+                className="rounded-xl object-cover flex-shrink-0 ring-1 ring-zinc-700 group-hover:ring-zinc-500 transition-all"
+                style={{ width: 40, height: 40 }}
+              />
+            ) : (
+              <div
+                className="w-10 h-10 rounded-xl flex-shrink-0 ring-1 ring-zinc-700 group-hover:ring-zinc-500 transition-all"
+                style={{ backgroundColor: c.color ? `${c.color}22` : '#1a1a1a' }}
+              >
+                <div className="w-full h-full flex items-center justify-center">
+                  <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: c.color || '#71717a' }} />
+                </div>
               </div>
-            </div>
-          )}
-          <div>
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-[15px] font-semibold text-zinc-100 tracking-tight">{c.name}</h1>
-              <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700">
-                {categoryLabel[c.category] || c.category}
-              </span>
-            </div>
-            {c.description && (
-              <p className="text-sm text-zinc-500 mt-0.5 leading-relaxed">{c.description}</p>
             )}
-          </div>
+            <div>
+              <div className="flex items-center gap-2.5">
+                <h1 className="text-[15px] font-semibold text-zinc-100 tracking-tight group-hover:text-white transition-colors">{c.name}</h1>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700">
+                  {categoryLabel[c.category] || c.category}
+                </span>
+              </div>
+              {c.description && (
+                <p className="text-sm text-zinc-500 mt-0.5 leading-relaxed">{c.description}</p>
+              )}
+            </div>
+          </Link>
         </div>
       </div>
 

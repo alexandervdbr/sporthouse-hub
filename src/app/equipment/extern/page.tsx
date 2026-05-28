@@ -7,7 +7,13 @@ const ADMIN_EMAILS = ['arne.smets@sporthousegroup.com', 'deryan.spiessens@sporth
 export default async function ExternalRentalsPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user || !ADMIN_EMAILS.includes(user.email ?? '')) redirect('/equipment')
+  if (!user) redirect('/login')
+
+  const permsObj = user.user_metadata?.permissions ?? null
+  const sections: string[] = permsObj?.sections ?? []
+  const isAdmin = ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer')
+  const hasAccess = isAdmin || permsObj === null || sections.includes('materiaal_extern')
+  if (!hasAccess) redirect('/equipment')
 
   return <ExternalRentals />
 }

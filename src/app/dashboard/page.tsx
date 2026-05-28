@@ -4,6 +4,7 @@ import Image from 'next/image'
 import { Client } from '@/types/database'
 import { ArrowRight, Users, Mic2, Building2, FileText } from 'lucide-react'
 import { getLogo } from '@/lib/logos'
+import { filterClientsForUser } from '@/lib/filter-clients'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -166,13 +167,25 @@ function Section({
 export default async function DashboardPage() {
   const supabase = await createClient()
 
-  const { data: clients } = await supabase
-    .from('clients')
-    .select('*, files(count)')
-    .order('name')
+  const [{ data: clients }, { data: { user } }] = await Promise.all([
+    supabase.from('clients').select('*, files(count)').order('name'),
+    supabase.auth.getUser(),
+  ])
 
-  const all = (clients as ClientWithDocs[]) || []
+  const allRaw = (clients as ClientWithDocs[]) || []
+  const all = filterClientsForUser(allRaw, user) as ClientWithDocs[]
 
+  const INTERN_ORDER = ['Sporthouse', 'Friends of Sports', 'Shirtlist']
+  const intern   = all
+    .filter(c => c.category === 'intern')
+    .sort((a, b) => {
+      const ai = INTERN_ORDER.indexOf(a.name)
+      const bi = INTERN_ORDER.indexOf(b.name)
+      if (ai === -1 && bi === -1) return a.name.localeCompare(b.name)
+      if (ai === -1) return 1
+      if (bi === -1) return -1
+      return ai - bi
+    })
   const klanten  = all.filter(c => c.category === 'klant')
   const atleten  = all.filter(c => c.category === 'atleet')
   const podcasts = all.filter(c => c.category === 'podcast')
@@ -203,6 +216,7 @@ export default async function DashboardPage() {
         <StatCard label="Documenten" value={totalDocs}       icon={FileText}  color="#f59e0b" />
       </div>
 
+      <Section title="Intern"                        clients={intern}   color="#f59e0b" />
       <Section title="Klanten"                      clients={klanten}  color="#3A913F" />
       <Section title="Atleten"                      clients={atleten}  color="#3b82f6" />
       <Section title="Friends Of Sports — Podcasts" clients={podcasts} color="#a855f7" />

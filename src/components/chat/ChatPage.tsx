@@ -433,6 +433,12 @@ export default function ChatPage() {
   useEffect(() => {
     if (!activeChannel) return
     loadMessages(activeChannel.id)
+    // Mark channel as read
+    fetch('/api/chat/read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channelId: activeChannel.id }),
+    }).catch(() => {})
   }, [activeChannel?.id])
 
   // ── Realtime subscription ──────────────────────────────────
@@ -449,6 +455,12 @@ export default function ChatPage() {
             if (prev.find(m => m.id === (payload.new as Message).id)) return prev
             return [...prev, payload.new as Message]
           })
+          // Mark as read since we're actively watching this channel
+          fetch('/api/chat/read', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ channelId: activeChannel.id }),
+          }).catch(() => {})
         }
       )
       .on(

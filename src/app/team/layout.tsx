@@ -2,7 +2,9 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Sidebar from '@/components/layout/Sidebar'
 import TopBar from '@/components/layout/TopBar'
+import PreviewBanner from '@/components/layout/PreviewBanner'
 import { Client } from '@/types/database'
+import { filterClientsForUser } from '@/lib/filter-clients'
 
 export default async function TeamLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
@@ -15,10 +17,13 @@ export default async function TeamLayout({ children }: { children: React.ReactNo
     .select('*')
     .order('name')
 
+  const visibleClients = filterClientsForUser((clients as Client[]) || [], user)
+
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar clients={(clients as Client[]) || []} />
+      <Sidebar clients={visibleClients} />
       <main className="flex-1 flex flex-col overflow-hidden bg-zinc-950">
+        <PreviewBanner />
         <TopBar />
         <div className="flex-1 overflow-y-auto">
           {children}

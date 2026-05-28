@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import { RecordingProvider } from '@/contexts/RecordingContext'
+import { PreviewProvider } from '@/lib/preview-context'
 
 export const metadata: Metadata = {
   title: 'Sporthouse Hub',
@@ -15,9 +16,11 @@ export default function RootLayout({
   return (
     <html lang="nl">
       <body>
-        <RecordingProvider>
-          {children}
-        </RecordingProvider>
+        <PreviewProvider>
+          <RecordingProvider>
+            {children}
+          </RecordingProvider>
+        </PreviewProvider>
       </body>
     </html>
   )

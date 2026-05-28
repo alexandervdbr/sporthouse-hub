@@ -203,6 +203,118 @@ function EquipmentInfoModal({ item, onClose }: { item: EquipmentItem; onClose: (
   )
 }
 
+// ─── Add Equipment Modal ──────────────────────────────────────────────────────
+
+function AddEquipmentModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void
+  onCreated: (item: EquipmentItem) => void
+}) {
+  const [name,        setName]        = useState('')
+  const [category,    setCategory]    = useState('')
+  const [description, setDescription] = useState('')
+  const [saving,      setSaving]      = useState(false)
+  const [error,       setError]       = useState('')
+
+  const allCategories = CATEGORY_ORDER
+
+  async function handleSubmit() {
+    if (!name.trim())     { setError('Geef een naam op.'); return }
+    if (!category.trim()) { setError('Selecteer een categorie.'); return }
+    setSaving(true); setError('')
+    try {
+      const r = await fetch('/api/equipment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, category, description }),
+      })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error || data || 'Onbekende fout')
+      onCreated(data)
+      onClose()
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Fout bij opslaan')
+    }
+    setSaving(false)
+  }
+
+  return (
+    <Modal onClose={onClose} wide>
+      <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-zinc-100">Materiaal toevoegen</h2>
+        <button onClick={onClose} className="text-zinc-600 hover:text-zinc-300 transition-colors">
+          <X size={15} />
+        </button>
+      </div>
+
+      <div className="px-5 py-4 space-y-4">
+        <div>
+          <label className="block text-xs text-zinc-500 uppercase tracking-wider mb-1.5">Naam</label>
+          <input
+            autoFocus
+            type="text"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="bijv. Sony FX3"
+            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors"
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs text-zinc-500 uppercase tracking-wider mb-1.5">Categorie</label>
+          <select
+            value={category}
+            onChange={e => setCategory(e.target.value)}
+            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 focus:outline-none focus:border-zinc-500 transition-colors"
+          >
+            <option value="">Kies een categorie…</option>
+            {allCategories.map(cat => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-xs text-zinc-500 uppercase tracking-wider mb-1.5">
+            Inhoud / omschrijving <span className="text-zinc-700 normal-case">(optioneel)</span>
+          </label>
+          <textarea
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            placeholder="Inhoud van de set, specificaties…"
+            rows={4}
+            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors resize-none"
+          />
+        </div>
+
+        {error && (
+          <div className="flex items-start gap-2 px-3 py-2.5 bg-red-950/40 border border-red-900/40 rounded-lg">
+            <AlertCircle size={13} className="text-red-400 mt-0.5 flex-shrink-0" />
+            <p className="text-sm text-red-400">{error}</p>
+          </div>
+        )}
+      </div>
+
+      <div className="px-5 py-3 border-t border-zinc-800 flex items-center gap-2">
+        <button onClick={onClose} className="px-4 py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors">
+          Annuleren
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={saving}
+          className="ml-auto flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 transition-colors"
+          style={{ backgroundColor: '#3A913F' }}
+        >
+          {saving && <Loader2 size={13} className="animate-spin" />}
+          Toevoegen
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
 // ─── Reservation Create Modal ─────────────────────────────────────────────────
 
 interface CreateModalProps {
@@ -445,11 +557,12 @@ interface ViewModalProps {
   reservation: Reservation
   currentUser: string
   isAdmin: boolean
+  canDeleteReservation: boolean
   onClose: () => void
   onDeleted: (reservationId: string, equipmentId: string, pickupDatetime: string | null) => void
 }
 
-function ReservationViewModal({ equipment, reservation: res, currentUser, isAdmin, onClose, onDeleted }: ViewModalProps) {
+function ReservationViewModal({ equipment, reservation: res, currentUser, isAdmin, canDeleteReservation, onClose, onDeleted }: ViewModalProps) {
   const [deleting, setDeleting] = useState(false)
   const [error,    setError]    = useState('')
   const color     = catColor(equipment.category)
@@ -478,7 +591,7 @@ function ReservationViewModal({ equipment, reservation: res, currentUser, isAdmi
     setDeleting(false)
   }
 
-  const canDelete = isAdmin || res.reserved_by === currentUser
+  const canDelete = isAdmin || canDeleteReservation || res.reserved_by === currentUser
 
   return (
     <Modal onClose={onClose}>
@@ -584,11 +697,20 @@ export default function EquipmentPlanner() {
   const [editingDay,         setEditingDay]         = useState<string | null>(null)
   const [editValue,          setEditValue]          = useState('')
   const [searchQuery,        setSearchQuery]        = useState('')
+  const [canReserveren,           setCanReserveren]           = useState(true)
+  const [canToevoegen,            setCanToevoegen]            = useState(false)
+  const [canVerwijderen,          setCanVerwijderen]          = useState(false)
+  const [canReserveringVerwijderen, setCanReserveringVerwijderen] = useState(false)
+  const [canStats,                setCanStats]                = useState(false)
+  const [canExtern,               setCanExtern]               = useState(false)
 
   // Modals
-  const [viewModal, setViewModal] = useState<{ equipment: EquipmentItem; date: string; reservation: Reservation } | null>(null)
-  const [createModal, setCreateModal] = useState<{ equipment?: EquipmentItem; date?: string } | null>(null)
-  const [infoItem,    setInfoItem]    = useState<EquipmentItem | null>(null)
+  const [viewModal,      setViewModal]      = useState<{ equipment: EquipmentItem; date: string; reservation: Reservation } | null>(null)
+  const [createModal,    setCreateModal]    = useState<{ equipment?: EquipmentItem; date?: string } | null>(null)
+  const [infoItem,       setInfoItem]       = useState<EquipmentItem | null>(null)
+  const [addEquipModal,  setAddEquipModal]  = useState(false)
+  const [deleteConfirm,  setDeleteConfirm]  = useState<EquipmentItem | null>(null)
+  const [deleting,       setDeleting]       = useState(false)
 
   const daysInMonth   = getDaysInMonth(year, month)
   const days          = Array.from({ length: daysInMonth }, (_, i) => new Date(year, month, i + 1))
@@ -608,14 +730,24 @@ export default function EquipmentPlanner() {
     })
   }
 
-  // Load user + role
+  // Load user + role + permissions
   useEffect(() => {
     const supabase = createClient()
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) return
       const meta = user.user_metadata ?? {}
       setCurrentUser(meta.full_name ?? meta.name ?? meta.email ?? user.email ?? '')
-      setIsAdmin(ADMIN_EMAILS.includes(user.email ?? ''))
+      const permsObj = meta.permissions ?? null
+      const sections: string[] = permsObj?.sections ?? []
+      const admin = ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer')
+      setIsAdmin(admin)
+      const unrestricted = admin || permsObj === null
+      setCanReserveren(unrestricted || sections.includes('materiaal_reserveren'))
+      setCanToevoegen(admin || (permsObj === null) || sections.includes('materiaal_toevoegen'))
+      setCanVerwijderen(admin || (permsObj === null) || sections.includes('materiaal_verwijderen'))
+      setCanReserveringVerwijderen(admin || (permsObj === null) || sections.includes('reservering_verwijderen'))
+      setCanStats(admin || (permsObj === null) || sections.includes('stats_materiaal'))
+      setCanExtern(admin || (permsObj === null) || sections.includes('materiaal_extern'))
     })
   }, [])
 
@@ -671,6 +803,25 @@ export default function EquipmentPlanner() {
         ? prev.filter(r => !(r.equipment_id === equipmentId && r.pickup_datetime === pickupDatetime))
         : prev.filter(r => r.id !== reservationId)
     )
+  }
+
+  function handleEquipmentCreated(item: EquipmentItem) {
+    setEquipment(prev => [...prev, item])
+  }
+
+  async function handleEquipmentDelete(item: EquipmentItem) {
+    setDeleting(true)
+    try {
+      await fetch('/api/equipment', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: item.id }),
+      })
+      setEquipment(prev => prev.filter(e => e.id !== item.id))
+      setReservations(prev => prev.filter(r => r.equipment_id !== item.id))
+    } catch (e) { console.error(e) }
+    setDeleting(false)
+    setDeleteConfirm(null)
   }
 
   // Lookup map
@@ -730,14 +881,24 @@ export default function EquipmentPlanner() {
             )}
           </div>
 
-          {/* Reserve button */}
-          <button
-            onClick={() => setCreateModal({})}
-            className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-white rounded-lg transition-colors"
-            style={{ backgroundColor: '#3A913F' }}
-          >
-            + Reserveren
-          </button>
+          {canToevoegen && (
+            <button
+              onClick={() => setAddEquipModal(true)}
+              className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-zinc-300 border border-zinc-700 hover:border-zinc-500 hover:text-zinc-100 rounded-lg transition-colors"
+            >
+              + Materiaal toevoegen
+            </button>
+          )}
+
+          {canReserveren && (
+            <button
+              onClick={() => setCreateModal({})}
+              className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-white rounded-lg transition-colors"
+              style={{ backgroundColor: '#3A913F' }}
+            >
+              + Reserveren
+            </button>
+          )}
 
           <div className="w-px h-5 bg-zinc-800" />
 
@@ -754,19 +915,19 @@ export default function EquipmentPlanner() {
             <ChevronRight size={15} />
           </button>
           <div className="w-px h-5 bg-zinc-800" />
-          {isAdmin && (
-            <>
-              <Link href="/equipment/stats"
-                className="flex items-center gap-2 px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 hover:border-zinc-600 hover:bg-zinc-800 rounded-lg transition-colors">
-                <BarChart3 size={13} />
-                Stats
-              </Link>
-              <Link href="/equipment/extern"
-                className="flex items-center gap-2 px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 hover:border-zinc-600 hover:bg-zinc-800 rounded-lg transition-colors">
-                <Calendar size={13} />
-                Extern
-              </Link>
-            </>
+          {canStats && (
+            <Link href="/equipment/stats"
+              className="flex items-center gap-2 px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 hover:border-zinc-600 hover:bg-zinc-800 rounded-lg transition-colors">
+              <BarChart3 size={13} />
+              Stats
+            </Link>
+          )}
+          {canExtern && (
+            <Link href="/equipment/extern"
+              className="flex items-center gap-2 px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 hover:border-zinc-600 hover:bg-zinc-800 rounded-lg transition-colors">
+              <Calendar size={13} />
+              Extern
+            </Link>
           )}
         </div>
       </div>
@@ -841,15 +1002,24 @@ export default function EquipmentPlanner() {
                   const color = catColor(cat)
                   return visibleEquipment.filter(e => e.category === cat).map(item => (
                     <th key={item.id}
-                      className="sticky top-0 z-20 border-b border-r border-zinc-800/60 bg-zinc-950 cursor-pointer group/th"
-                      style={{ width: EQUIP_COL_W, minWidth: EQUIP_COL_W, padding: '0 2px', height: HEADER_H }}
-                      onClick={() => setInfoItem(item)}
-                      title={`Klik voor inhoud: ${item.name}`}>
-                      <div className="flex items-start justify-center pt-2 px-1.5 relative" style={{ height: HEADER_H }}>
+                      className="sticky top-0 z-20 border-b border-r border-zinc-800/60 bg-zinc-950 group/th"
+                      style={{ width: EQUIP_COL_W, minWidth: EQUIP_COL_W, padding: '0 2px', height: HEADER_H }}>
+                      <div className="flex items-start justify-center pt-2 px-1.5 relative cursor-pointer" style={{ height: HEADER_H }}
+                        onClick={() => setInfoItem(item)}
+                        title={`Klik voor inhoud: ${item.name}`}>
                         <Info size={9} className="absolute top-1.5 right-1.5 opacity-0 group-hover/th:opacity-60 transition-opacity" style={{ color }} />
                         <span className="text-[11px] font-medium leading-snug text-center transition-colors group-hover/th:opacity-80" style={{ color }}>
                           {item.name}
                         </span>
+                        {canVerwijderen && (
+                          <button
+                            onClick={e => { e.stopPropagation(); setDeleteConfirm(item) }}
+                            title="Materiaal verwijderen"
+                            className="absolute bottom-1.5 left-1/2 -translate-x-1/2 opacity-0 group-hover/th:opacity-100 transition-opacity p-0.5 rounded text-red-500 hover:text-red-400 hover:bg-red-950/40"
+                          >
+                            <Trash2 size={9} />
+                          </button>
+                        )}
                       </div>
                     </th>
                   ))
@@ -886,6 +1056,15 @@ export default function EquipmentPlanner() {
                           <span className={`text-[10px] uppercase tracking-wider ${weekend ? 'text-zinc-600' : 'text-zinc-500'}`}>
                             {dayName}
                           </span>
+                          {!isPast && canReserveren && (
+                            <button
+                              onClick={() => setCreateModal({ date: iso })}
+                              title="Materiaal reserveren voor deze dag"
+                              className="opacity-0 group-hover:opacity-100 w-4 h-4 flex items-center justify-center rounded text-zinc-500 hover:text-white hover:bg-zinc-700 transition-all text-xs leading-none flex-shrink-0"
+                            >
+                              +
+                            </button>
+                          )}
                         </div>
                         {isEditing ? (
                           <input autoFocus value={editValue}
@@ -992,6 +1171,7 @@ export default function EquipmentPlanner() {
           reservation={viewModal.reservation}
           currentUser={currentUser}
           isAdmin={isAdmin}
+          canDeleteReservation={canReserveringVerwijderen}
           onClose={() => setViewModal(null)}
           onDeleted={(resId, equipId, pickupDt) => handleDeleted(resId, equipId, pickupDt)}
         />
@@ -1008,6 +1188,41 @@ export default function EquipmentPlanner() {
       )}
       {infoItem && (
         <EquipmentInfoModal item={infoItem} onClose={() => setInfoItem(null)} />
+      )}
+      {addEquipModal && (
+        <AddEquipmentModal
+          onClose={() => setAddEquipModal(false)}
+          onCreated={handleEquipmentCreated}
+        />
+      )}
+      {deleteConfirm && (
+        <Modal onClose={() => setDeleteConfirm(null)}>
+          <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-zinc-100">Materiaal verwijderen</h2>
+            <button onClick={() => setDeleteConfirm(null)} className="text-zinc-600 hover:text-zinc-300 transition-colors">
+              <X size={15} />
+            </button>
+          </div>
+          <div className="px-5 py-4">
+            <p className="text-sm text-zinc-300">
+              Ben je zeker dat je <span className="font-semibold text-zinc-100">{deleteConfirm.name}</span> wil verwijderen?
+            </p>
+            <p className="text-xs text-zinc-500 mt-1">Alle reservaties voor dit materiaal worden ook verwijderd.</p>
+          </div>
+          <div className="px-5 py-3 border-t border-zinc-800 flex items-center gap-2">
+            <button onClick={() => setDeleteConfirm(null)} className="px-4 py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors">
+              Annuleren
+            </button>
+            <button
+              onClick={() => handleEquipmentDelete(deleteConfirm)}
+              disabled={deleting}
+              className="ml-auto flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-700 hover:bg-red-600 rounded-lg disabled:opacity-50 transition-colors"
+            >
+              {deleting && <Loader2 size={13} className="animate-spin" />}
+              Verwijderen
+            </button>
+          </div>
+        </Modal>
       )}
     </div>
   )

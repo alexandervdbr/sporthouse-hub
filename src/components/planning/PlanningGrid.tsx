@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
-import { DEPARTMENTS, DUTCH_MONTHS, getDaysInMonth, cellKey } from '@/lib/planning-config'
+import { ChevronLeft, ChevronRight, Loader2, Settings } from 'lucide-react'
+import { DEPARTMENTS, DUTCH_MONTHS, getDaysInMonth, cellKey, Department } from '@/lib/planning-config'
+import PlanningConfigModal from '@/components/planning/PlanningConfigModal'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,8 @@ interface Sel {
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
+
+const ADMIN_EMAILS_P = ['arne.smets@sporthousegroup.com', 'deryan.spiessens@sporthousegroup.com']
 
 const DAY_W  = 100
 const DATE_W = 48
@@ -51,19 +54,20 @@ const TEXT_COLORS = [
 ]
 
 const BG_COLORS = [
-  { label: 'Geen',    value: null,      display: 'transparent' },
-  { label: 'Rood',    value: '#450a0a',  display: '#7f1d1d' },
-  { label: 'Oranje',  value: '#431407',  display: '#9a3412' },
-  { label: 'Geel',    value: '#422006',  display: '#92400e' },
-  { label: 'Groen',   value: '#052e16',  display: '#14532d' },
-  { label: 'Blauw',   value: '#0c1a3a',  display: '#1e3a5f' },
-  { label: 'Paars',   value: '#2e1065',  display: '#4c1d95' },
-  { label: 'Roze',    value: '#4a0020',  display: '#831843' },
-  { label: 'Grijs',   value: '#1c1c1c',  display: '#3f3f46' },
+  { label: 'Geen',      value: null,       display: 'transparent' },
+  { label: 'Rood',      value: '#dc2626',  display: '#dc2626' },
+  { label: 'Oranje',    value: '#ea580c',  display: '#ea580c' },
+  { label: 'Geel',      value: '#ca8a04',  display: '#ca8a04' },
+  { label: 'Fluogeel',  value: '#eeff00',  display: '#eeff00' },
+  { label: 'Groen',     value: '#16a34a',  display: '#16a34a' },
+  { label: 'Blauw',     value: '#2563eb',  display: '#2563eb' },
+  { label: 'Paars',     value: '#9333ea',  display: '#9333ea' },
+  { label: 'Roze',      value: '#db2777',  display: '#db2777' },
+  { label: 'Grijs',     value: '#52525b',  display: '#52525b' },
 ]
 
 function emptyCell(): CellData {
-  return { value: '', bold: false, textColor: null, bgColor: null }
+  return { value: '', bold: true, textColor: '#ffffff', bgColor: null }
 }
 
 // ─── Toolbar ──────────────────────────────────────────────────────────────────
@@ -90,24 +94,6 @@ function FormattingToolbar({
       <div className="w-px h-4 bg-zinc-800 flex-shrink-0" />
 
       <div className="flex items-center gap-1.5">
-        <span className="text-[10px] text-zinc-400 select-none">Tekst</span>
-        {TEXT_COLORS.map(c => (
-          <button key={c.label}
-            onMouseDown={e => { e.preventDefault(); onFormat('textColor', c.value) }}
-            disabled={!hasActive} title={c.label}
-            className="transition-transform hover:scale-110 disabled:opacity-30 rounded-full focus:outline-none"
-            style={{
-              width: 16, height: 16, flexShrink: 0,
-              backgroundColor: c.display,
-              border: cell?.textColor === c.value ? '2px solid #fff' : c.value === null ? '2px solid #52525b' : '2px solid transparent',
-            }}
-          />
-        ))}
-      </div>
-
-      <div className="w-px h-4 bg-zinc-800 flex-shrink-0" />
-
-      <div className="flex items-center gap-1.5">
         <span className="text-[10px] text-zinc-400 select-none">Achtergrond</span>
         {BG_COLORS.map(c => (
           <button key={c.label}
@@ -127,10 +113,10 @@ function FormattingToolbar({
 
       <span className="text-[10px] text-zinc-400 select-none">
         {selCount > 1
-          ? `${selCount} cellen geselecteerd · Ctrl+C kopiëren · Ctrl+V plakken`
+          ? `${selCount} cellen geselecteerd · Del wissen · Ctrl+C/V kopiëren`
           : !hasActive
-          ? 'Klik een cel om te bewerken · Klik rijlabel voor rij · Klik kolomlabel voor kolom'
-          : 'Ctrl+C kopiëren · Shift+klik / sleep voor bereik'}
+          ? 'Klik cel om te typen · pijltoetsen navigeren · Del wissen'
+          : 'Typ direct · pijltoetsen · Del wissen · Shift+klik voor bereik'}
       </span>
     </div>
   )
@@ -142,8 +128,10 @@ export default function PlanningGrid() {
   const now = new Date()
   const [year, setYear]   = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1)
+  const [activeDepts, setActiveDepts] = useState<Department[]>(DEPARTMENTS)
   const [data, setData]   = useState<PlanningData>({})
   const [loading, setLoading] = useState(true)
+  const [showConfig, setShowConfig] = useState(false)
 
   // Selection state
   const [sel, setSel]           = useState<Sel | null>(null)
@@ -151,15 +139,62 @@ export default function PlanningGrid() {
   const [editingKey, setEditingKey] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
 
+  // Planning column permissions
+  const [canEditAll, setCanEditAll] = useState(true)
+  const [myColumn,   setMyColumn]   = useState<string | null>(null)
+
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   const containerRef = useRef<HTMLDivElement>(null)
+  const dragMovedRef = useRef(false)
   const supabase = createClient()
   const days = getDaysInMonth(year, month)
 
   // All columns in order
   const allColumns = useMemo(() =>
-    DEPARTMENTS.flatMap(dept => dept.employees.map(emp => ({ dept: dept.name, emp }))),
-  [])
+    activeDepts.flatMap(dept => dept.employees.map(emp => ({ dept: dept.name, emp }))),
+  [activeDepts])
+
+  // ── Load planning permissions ───────────────────────────────────────────────
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return
+      const permsObj = user.user_metadata?.permissions ?? null
+      const sections: string[] = permsObj?.sections ?? []
+      const isAdmin = ADMIN_EMAILS_P.includes(user.email ?? '') || sections.includes('beheer')
+      if (isAdmin || permsObj === null || sections.includes('planning_volledig')) {
+        setCanEditAll(true)
+      } else {
+        setCanEditAll(false)
+        setMyColumn(permsObj.planning_column ?? null)
+      }
+    })
+  }, [])
+
+  // ── Load departments config from Supabase ───────────────────────────────────
+  useEffect(() => {
+    fetch('/api/planning/config')
+      .then(r => r.json())
+      .then((data: Department[] | null) => {
+        if (Array.isArray(data) && data.length > 0) setActiveDepts(data)
+      })
+      .catch(() => { /* silently fall back to hardcoded DEPARTMENTS */ })
+  }, [])
+
+  async function handleSaveConfig(newDepts: Department[]) {
+    await fetch('/api/planning/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newDepts),
+    })
+    setActiveDepts(newDepts)
+  }
+
+  const canEditCol = useCallback((emp: string): boolean => {
+    if (canEditAll) return true
+    if (myColumn === '__none__') return false
+    if (myColumn === null) return true
+    return myColumn === emp
+  }, [canEditAll, myColumn])
 
   // ── Derived: selected cells set ─────────────────────────────────────────────
   const selectedKeys = useMemo(() => {
@@ -191,8 +226,8 @@ export default function PlanningGrid() {
       const map: PlanningData = {}
       for (const r of rows ?? []) {
         map[cellKey(r.day, r.department, r.employee)] = {
-          value: r.value, bold: r.bold ?? false,
-          textColor: r.text_color ?? null, bgColor: r.bg_color ?? null,
+          value: r.value, bold: r.bold ?? true,
+          textColor: r.text_color ?? '#ffffff', bgColor: r.bg_color ?? null,
         }
       }
       setData(map)
@@ -239,19 +274,32 @@ export default function PlanningGrid() {
   // ── Text change ─────────────────────────────────────────────────────────────
   const handleTextChange = useCallback((day: number, dept: string, emp: string, value: string) => {
     const key = cellKey(day, dept, emp)
-    applyUpdates({ [key]: { ...(data[key] ?? emptyCell()), value } })
+    applyUpdates({ [key]: { ...(data[key] ?? emptyCell()), value: value.toUpperCase(), bold: true, textColor: '#ffffff' } })
   }, [data, applyUpdates])
 
   // ── Format (applies to all selected cells) ──────────────────────────────────
   const handleFormat = useCallback((fmtKey: keyof CellData, value: unknown) => {
-    const keys = selectedKeys.size > 0 ? Array.from(selectedKeys) : activeKey ? [activeKey] : []
+    const keys = (selectedKeys.size > 0 ? Array.from(selectedKeys) : activeKey ? [activeKey] : [])
+      .filter(k => canEditCol(k.split('|')[2]))
     if (keys.length === 0) return
     const updates: Record<string, CellData> = {}
     for (const k of keys) {
       updates[k] = { ...(data[k] ?? emptyCell()), [fmtKey]: value }
     }
     applyUpdates(updates)
-  }, [selectedKeys, activeKey, data, applyUpdates])
+  }, [selectedKeys, activeKey, data, applyUpdates, canEditCol])
+
+  // ── Clear selected cells ────────────────────────────────────────────────────
+  const handleClear = useCallback(() => {
+    const keys = (selectedKeys.size > 0 ? Array.from(selectedKeys) : activeKey ? [activeKey] : [])
+      .filter(k => canEditCol(k.split('|')[2]))
+    if (keys.length === 0) return
+    const updates: Record<string, CellData> = {}
+    for (const k of keys) {
+      updates[k] = emptyCell()
+    }
+    applyUpdates(updates)
+  }, [selectedKeys, activeKey, applyUpdates, canEditCol])
 
   // ── Copy ────────────────────────────────────────────────────────────────────
   const handleCopy = useCallback(() => {
@@ -305,6 +353,12 @@ export default function PlanningGrid() {
     applyUpdates(updates)
   }, [sel, activeKey, data, days, allColumns, applyUpdates])
 
+  // ── Helper: focus input for a given key ─────────────────────────────────────
+  function focusCell(key: string) {
+    const input = document.querySelector<HTMLInputElement>(`input[data-key="${key}"]`)
+    if (input) { input.focus(); input.select() }
+  }
+
   // ── Keyboard shortcuts ──────────────────────────────────────────────────────
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -312,17 +366,12 @@ export default function PlanningGrid() {
       const ctrl = isMac ? e.metaKey : e.ctrlKey
 
       if (ctrl && e.key === 'c') {
-        // Only intercept if multiple cells selected (otherwise let browser handle)
         if (sel && (sel.startDay !== sel.endDay || sel.startCol !== sel.endCol)) {
-          e.preventDefault()
-          handleCopy()
+          e.preventDefault(); handleCopy()
         }
       }
       if (ctrl && e.key === 'v') {
-        if (sel || activeKey) {
-          e.preventDefault()
-          handlePaste()
-        }
+        if (sel || activeKey) { e.preventDefault(); handlePaste() }
       }
       if (ctrl && e.key === 'b') {
         if (sel || activeKey) {
@@ -332,14 +381,70 @@ export default function PlanningGrid() {
         }
       }
       if (e.key === 'Escape') {
-        setSel(null)
-        setActiveKey(null)
         setEditingKey(null)
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+        return
+      }
+
+      // Delete/Backspace when not editing → clear selected cells
+      if (!editingKey && (e.key === 'Delete' || e.key === 'Backspace') && (activeKey || sel)) {
+        e.preventDefault()
+        handleClear()
+        return
+      }
+
+      // Enter when active but not editing → enter edit mode
+      if (!editingKey && activeKey && e.key === 'Enter' && !ctrl) {
+        e.preventDefault()
+        setEditingKey(activeKey)
+        focusCell(activeKey)
+        return
+      }
+
+      // Enter when editing → confirm and move down
+      if (editingKey && e.key === 'Enter' && !ctrl) {
+        e.preventDefault()
+        const parts = editingKey.split('|')
+        const curDay = Number(parts[0])
+        const curDept = parts[1]
+        const curEmp  = parts[2]
+        const colIdx = allColumns.findIndex(c => c.dept === curDept && c.emp === curEmp)
+        const dayIdx = days.findIndex(d => d.day === curDay)
+        const nd = Math.min(dayIdx + 1, days.length - 1)
+        const { dept, emp } = allColumns[colIdx]
+        const newKey = cellKey(days[nd].day, dept, emp)
+        setEditingKey(null)
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+        setActiveKey(newKey)
+        setSel({ startDay: days[nd].day, endDay: days[nd].day, startCol: colIdx, endCol: colIdx })
+        return
+      }
+
+      // Arrow-key navigation — always navigate (blurs current editing cell first)
+      if (activeKey && !ctrl && ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) {
+        e.preventDefault()
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+        setEditingKey(null)
+        const parts = activeKey.split('|')
+        const curDay = Number(parts[0])
+        const curDept = parts[1]
+        const curEmp  = parts[2]
+        const colIdx = allColumns.findIndex(c => c.dept === curDept && c.emp === curEmp)
+        const dayIdx = days.findIndex(d => d.day === curDay)
+        let nd = dayIdx, nc = colIdx
+        if (e.key === 'ArrowDown')  nd = Math.min(dayIdx + 1, days.length - 1)
+        if (e.key === 'ArrowUp')    nd = Math.max(dayIdx - 1, 0)
+        if (e.key === 'ArrowRight') nc = Math.min(colIdx + 1, allColumns.length - 1)
+        if (e.key === 'ArrowLeft')  nc = Math.max(colIdx - 1, 0)
+        const { dept, emp } = allColumns[nc]
+        const newKey = cellKey(days[nd].day, dept, emp)
+        setActiveKey(newKey)
+        setSel({ startDay: days[nd].day, endDay: days[nd].day, startCol: nc, endCol: nc })
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [sel, activeKey, handleCopy, handlePaste, handleFormat, data, allColumns])
+  }, [sel, activeKey, editingKey, handleCopy, handlePaste, handleFormat, handleClear, data, allColumns, days])
 
   // ── Mouse up (stop drag) ────────────────────────────────────────────────────
   useEffect(() => {
@@ -350,6 +455,7 @@ export default function PlanningGrid() {
 
   // ── Cell mouse handlers ─────────────────────────────────────────────────────
   function onCellMouseDown(day: number, colIdx: number, e: React.MouseEvent) {
+    dragMovedRef.current = false
     if (e.shiftKey && sel) {
       setSel(prev => prev ? { ...prev, endDay: day, endCol: colIdx } : { startDay: day, endDay: day, startCol: colIdx, endCol: colIdx })
     } else {
@@ -361,13 +467,16 @@ export default function PlanningGrid() {
 
   function onCellMouseEnter(day: number, colIdx: number) {
     if (!isDragging) return
+    dragMovedRef.current = true
     setSel(prev => prev ? { ...prev, endDay: day, endCol: colIdx } : null)
   }
 
-  function onCellDoubleClick(day: number, colIdx: number) {
+  function onCellClick(day: number, colIdx: number, e: React.MouseEvent) {
+    if (dragMovedRef.current || e.shiftKey) return
+    if (!canEditCol(allColumns[colIdx].emp)) return
     const key = cellKey(day, allColumns[colIdx].dept, allColumns[colIdx].emp)
     setEditingKey(key)
-    setActiveKey(key)
+    focusCell(key)
   }
 
   // ── Row header click → select whole row ─────────────────────────────────────
@@ -407,6 +516,15 @@ export default function PlanningGrid() {
           <ChevronRight size={15} />
         </button>
         {loading && <Loader2 size={13} className="animate-spin text-zinc-600 ml-1" />}
+        {canEditAll && (
+          <button
+            onClick={() => setShowConfig(true)}
+            className="ml-auto w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700 transition-colors"
+            title="Planning configuratie"
+          >
+            <Settings size={15} />
+          </button>
+        )}
       </div>
 
       {/* Formatting toolbar */}
@@ -438,7 +556,7 @@ export default function PlanningGrid() {
                 className="border-b border-r-2 border-zinc-700 px-2 py-2 text-center font-semibold text-zinc-500">
                 #
               </th>
-              {DEPARTMENTS.map(dept => (
+              {activeDepts.map(dept => (
                 <th key={dept.name} colSpan={dept.employees.length}
                   style={{ backgroundColor: BG_HEAD, borderLeft: '2px solid #3f3f46' }}
                   className="border-b border-zinc-800 px-2 py-2 text-center font-semibold text-sh-grey whitespace-nowrap">
@@ -454,21 +572,25 @@ export default function PlanningGrid() {
               <th style={{ position: 'sticky', left: DAY_W, zIndex: 40, width: DATE_W, minWidth: DATE_W, backgroundColor: BG_HEAD }}
                 className="border-b-2 border-r-2 border-zinc-700" />
               {allColumns.map(({ dept, emp }, ci) => {
-                const isFirstInDept = DEPARTMENTS.find(d => d.name === dept)?.employees[0] === emp
+                const isFirstInDept = activeDepts.find(d => d.name === dept)?.employees[0] === emp
                 const isColSelected = sel &&
                   ci >= Math.min(sel.startCol, sel.endCol) &&
                   ci <= Math.max(sel.startCol, sel.endCol)
+                const isOwn   = !canEditAll && myColumn === emp
+                const isLocked = !canEditCol(emp)
                 return (
                   <th key={`h-${dept}-${emp}-${ci}`}
                     onClick={() => onColHeaderClick(ci)}
                     style={{
                       width: CELL_W, minWidth: CELL_W, maxWidth: CELL_W,
-                      backgroundColor: isColSelected ? 'rgba(59,130,246,0.15)' : BG_HEAD,
+                      backgroundColor: isColSelected ? 'rgba(59,130,246,0.15)' : isOwn ? 'rgba(58,145,63,0.1)' : BG_HEAD,
                       borderLeft: isFirstInDept ? '2px solid #3f3f46' : '1px solid #27272a',
                       cursor: 'pointer',
                     }}
-                    className="border-b-2 border-zinc-700 px-1 py-1.5 text-center font-medium text-zinc-400 hover:bg-zinc-800 transition-colors select-none">
-                    <span className="block truncate px-1">{emp}</span>
+                    className="border-b-2 border-zinc-700 px-1 py-1.5 text-center font-medium transition-colors select-none">
+                    <span className={`block truncate px-1 ${isOwn ? 'text-green-400' : isLocked ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                      {emp}
+                    </span>
                   </th>
                 )
               })}
@@ -521,7 +643,8 @@ export default function PlanningGrid() {
                     const isActive = activeKey === key
                     const isSelected = selectedKeys.has(key)
                     const isEditing = editingKey === key
-                    const isFirstInDept = DEPARTMENTS.find(d => d.name === dept)?.employees[0] === emp
+                    const isFirstInDept = activeDepts.find(d => d.name === dept)?.employees[0] === emp
+                    const locked = !canEditCol(emp)
 
                     const cellBg = cell.bgColor
                       ?? (isSelected ? SEL_BG : isWeekend ? BG_WKND : isToday ? BG_TODAY : 'transparent')
@@ -531,7 +654,7 @@ export default function PlanningGrid() {
                         key={`${day}-${dept}-${emp}-${ci}`}
                         onMouseDown={e => onCellMouseDown(day, ci, e)}
                         onMouseEnter={() => onCellMouseEnter(day, ci)}
-                        onDoubleClick={() => onCellDoubleClick(day, ci)}
+                        onClick={e => onCellClick(day, ci, e)}
                         style={{
                           width: CELL_W, minWidth: CELL_W, maxWidth: CELL_W,
                           padding: 0,
@@ -539,19 +662,22 @@ export default function PlanningGrid() {
                           borderLeft: isFirstInDept ? '2px solid #3f3f46' : '1px solid #1a1a1a',
                           outline: isActive ? '2px solid #3A913F' : isSelected ? `1px solid ${SEL_BDR}` : undefined,
                           outlineOffset: isActive ? '-2px' : '-1px',
-                          cursor: 'cell',
+                          cursor: locked ? 'default' : 'text',
                           userSelect: 'none',
+                          opacity: locked ? 0.45 : 1,
                         }}
                         className="border-b border-zinc-800/60"
                       >
                         <input
+                          data-key={key}
                           type="text"
                           value={cell.value}
-                          onChange={e => handleTextChange(day, dept, emp, e.target.value)}
+                          onChange={e => !locked && handleTextChange(day, dept, emp, e.target.value)}
                           onFocus={() => {
+                            if (locked) return
                             setActiveKey(key)
                             setEditingKey(key)
-                            if (!sel || (!selectedKeys.has(key))) {
+                            if (!sel || !selectedKeys.has(key)) {
                               setSel({ startDay: day, endDay: day, startCol: ci, endCol: ci })
                             }
                           }}
@@ -559,18 +685,26 @@ export default function PlanningGrid() {
                             setEditingKey(null)
                             setActiveKey(prev => prev === key ? null : prev)
                           }}
-                          readOnly={!isEditing && !isActive}
+                          readOnly={locked}
                           style={{
+                            fontFamily: 'inherit',
+                            fontSize: 'inherit',
+                            lineHeight: 'inherit',
+                            letterSpacing: 'inherit',
                             fontWeight: cell.bold ? 'bold' : 'normal',
-                            color: cell.textColor ?? '#c4c4c1',
-                            minHeight: 32,
-                            fontSize: 11,
+                            color: cell.textColor ?? '#ffffff',
+                            textTransform: 'uppercase',
+                            minHeight: 36,
                             backgroundColor: 'transparent',
                             width: '100%',
-                            padding: '0 6px',
+                            padding: '0 4px',
                             outline: 'none',
-                            cursor: isEditing ? 'text' : 'cell',
+                            cursor: locked ? 'default' : isEditing ? 'text' : 'cell',
                             userSelect: isEditing ? 'auto' : 'none',
+                            textAlign: 'center',
+                            overflow: 'hidden',
+                            whiteSpace: 'nowrap',
+                            textOverflow: 'ellipsis',
                           }}
                           tabIndex={-1}
                         />
@@ -600,6 +734,14 @@ export default function PlanningGrid() {
         </div>
         <span className="text-[10px] text-zinc-500 ml-auto">Automatisch opgeslagen · Ctrl+C kopiëren · Ctrl+V plakken · Ctrl+B vet</span>
       </div>
+
+      {showConfig && (
+        <PlanningConfigModal
+          departments={activeDepts}
+          onSave={handleSaveConfig}
+          onClose={() => setShowConfig(false)}
+        />
+      )}
     </div>
   )
 }

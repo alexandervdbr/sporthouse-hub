@@ -50,5 +50,23 @@ export async function POST(req: Request) {
     .single()
 
   if (error) return new Response(error.message, { status: 500 })
+
+  // Send push notification to all other subscribers
+  try {
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || `https://${req.headers.get('host')}`
+    await fetch(`${baseUrl}/api/push/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: userName,
+        body: content?.trim() || '📎 Bijlage',
+        url: '/chat',
+        excludeUserId: user.id,
+      }),
+    })
+  } catch {
+    // push is non-critical
+  }
+
   return Response.json(data, { status: 201 })
 }

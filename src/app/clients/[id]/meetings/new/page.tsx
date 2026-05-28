@@ -1,8 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import MeetingRecorder from '@/components/clients/MeetingRecorder'
 import { ArrowLeft } from 'lucide-react'
+
+const ADMIN_EMAILS = ['arne.smets@sporthousegroup.com', 'deryan.spiessens@sporthousegroup.com']
 
 interface Props {
   params: Promise<{ id: string }>
@@ -12,13 +14,18 @@ export default async function NewMeetingPage({ params }: Props) {
   const { id } = await params
   const supabase = await createClient()
 
-  const { data: client } = await supabase
-    .from('clients')
-    .select('id, name')
-    .eq('id', id)
-    .single()
+  const [{ data: client }, { data: { user } }] = await Promise.all([
+    supabase.from('clients').select('id, name').eq('id', id).single(),
+    supabase.auth.getUser(),
+  ])
 
   if (!client) notFound()
+
+  const isAdmin  = ADMIN_EMAILS.includes(user?.email ?? '')
+  const permsObj = user?.user_metadata?.permissions ?? null
+  const sections: string[] = permsObj?.sections ?? []
+  const canAccess = isAdmin || permsObj === null || sections.includes('vergaderingen')
+  if (!canAccess) redirect(`/clients/${id}`)
 
   return (
     <div className="h-full overflow-y-auto">

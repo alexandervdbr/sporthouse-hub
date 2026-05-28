@@ -1,7 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { FolderOpen, Mic, PenLine, BrainCircuit, ArrowRight, Gift, Scissors, CalendarDays } from 'lucide-react'
+import { FolderOpen, Mic, PenLine, BrainCircuit, ArrowRight, Gift, Scissors, CalendarDays, CalendarRange, GraduationCap, BarChart2, Landmark, ClipboardList } from 'lucide-react'
+
+const ADMIN_EMAILS = ['arne.smets@sporthousegroup.com', 'deryan.spiessens@sporthousegroup.com']
 
 
 interface Tool {
@@ -22,13 +24,19 @@ export default async function ClientToolsPage({ params }: Props) {
   const { id } = await params
   const supabase = await createClient()
 
-  const { data: client } = await supabase
-    .from('clients')
-    .select('*')
-    .eq('id', id)
-    .single()
+  const [{ data: client }, { data: { user } }] = await Promise.all([
+    supabase.from('clients').select('*').eq('id', id).single(),
+    supabase.auth.getUser(),
+  ])
 
   if (!client) notFound()
+
+  const permsObj = user?.user_metadata?.permissions ?? null
+  const sections: string[] = permsObj?.sections ?? []
+  const isAdmin = ADMIN_EMAILS.includes(user?.email ?? '') || sections.includes('beheer')
+  const canSeeWelkom = isAdmin || permsObj === null || sections.includes('welkom_stagiair')
+  const canSeeFinancien = isAdmin || sections.includes('financien_bekijken') || sections.includes('financien_beheren')
+  const canSeeAdministratie = isAdmin || sections.includes('administratie_bekijken') || sections.includes('administratie_beheren')
 
   const tools: Tool[] = [
     {
@@ -68,6 +76,15 @@ export default async function ClientToolsPage({ params }: Props) {
       available: true,
     },
     {
+      id: 'events',
+      href: `/clients/${id}/events`,
+      icon: CalendarRange,
+      label: 'Projectkalender',
+      description: 'Overzicht van events, shoots, wedstrijden en deadlines.',
+      color: '#a855f7',
+      available: true,
+    },
+    {
       id: 'files',
       href: `/clients/${id}/files`,
       icon: FolderOpen,
@@ -83,6 +100,42 @@ export default async function ClientToolsPage({ params }: Props) {
       label: 'Mogelijke Snippits',
       description: 'Plak een transcript en AI selecteert de sterkste fragmenten voor Instagram Reels, TikTok en YouTube Shorts.',
       color: '#a21caf',
+      available: true,
+    }] : []),
+    ...(client.name === 'Sporthouse' && canSeeWelkom ? [{
+      id: 'welcome',
+      href: `/welcome`,
+      icon: GraduationCap,
+      label: 'Welkom stagiair',
+      description: 'Alles wat je moet weten als je start bij Sporthouse — klanten, team, tools en praktische info.',
+      color: '#f59e0b',
+      available: true,
+    }] : []),
+    ...(client.name === 'Sporthouse' && isAdmin ? [{
+      id: 'analytics',
+      href: `/clients/${id}/analytics`,
+      icon: BarChart2,
+      label: 'Analytics',
+      description: 'Website statistieken van sporthouse.be — sessies, gebruikers, verkeersbronnen en trends.',
+      color: '#0ea5e9',
+      available: true,
+    }] : []),
+    ...(client.name === 'Sporthouse' && canSeeFinancien ? [{
+      id: 'finance',
+      href: `/clients/${id}/finance`,
+      icon: Landmark,
+      label: 'Financiën',
+      description: 'Financiële documenten uploaden en raadplegen — facturen, budgetten en rapporten.',
+      color: '#0ea5e9',
+      available: true,
+    }] : []),
+    ...(client.name === 'Sporthouse' && canSeeAdministratie ? [{
+      id: 'administration',
+      href: `/clients/${id}/administration`,
+      icon: ClipboardList,
+      label: 'Administratie',
+      description: 'Administratieve documenten uploaden en raadplegen — contracten, HR en beleid.',
+      color: '#a855f7',
       available: true,
     }] : []),
     ...(client.name === 'Unibet Experts' ? [{

@@ -1,9 +1,11 @@
 import { createClient } from '@/lib/supabase/server'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { Meeting } from '@/types/database'
 import MeetingList from '@/components/clients/MeetingList'
 import { Plus } from 'lucide-react'
+
+const ADMIN_EMAILS = ['arne.smets@sporthousegroup.com', 'deryan.spiessens@sporthousegroup.com']
 
 interface Props {
   params: Promise<{ id: string }>
@@ -19,6 +21,12 @@ export default async function ClientMeetingsPage({ params }: Props) {
   ])
 
   if (!client) notFound()
+
+  const isAdmin  = ADMIN_EMAILS.includes(user?.email ?? '')
+  const permsObj = user?.user_metadata?.permissions ?? null
+  const sections: string[] = permsObj?.sections ?? []
+  const canAccess = isAdmin || permsObj === null || sections.includes('vergaderingen')
+  if (!canAccess) redirect(`/clients/${id}`)
 
   const { data: meetings } = await supabase
     .from('meetings')

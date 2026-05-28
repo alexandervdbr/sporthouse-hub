@@ -95,6 +95,26 @@ interface MatchResult extends Freelancer {
   match_rank: number
 }
 
+interface FreelancerAssignmentFile {
+  id: string
+  file_name: string
+  file_url: string
+  file_size: number | null
+  file_type: string | null
+}
+
+interface FreelancerAssignment {
+  id: string
+  freelancer_id: string
+  title: string
+  briefing: string | null
+  deadline: string | null
+  client_name: string | null
+  status: 'nieuw' | 'in_behandeling' | 'afgerond'
+  created_at: string
+  freelancer_assignment_files: FreelancerAssignmentFile[]
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function initials(name: string) {
@@ -384,11 +404,14 @@ function FreelancerDetail({ freelancer, onClose, onDeleted, onUpdated, onProject
   onProjectDeleted: (projectId: string, newRating: number | null) => void
   isAdmin: boolean
 }) {
-  const [projects,        setProjects]        = useState<FreelancerProject[]>([])
-  const [loadingProjects, setLoadingProjects]  = useState(true)
-  const [addingProject,   setAddingProject]   = useState(false)
-  const [confirmDelete,   setConfirmDelete]   = useState(false)
-  const [deleting,        setDeleting]        = useState(false)
+  const [projects,          setProjects]          = useState<FreelancerProject[]>([])
+  const [loadingProjects,   setLoadingProjects]   = useState(true)
+  const [addingProject,     setAddingProject]     = useState(false)
+  const [confirmDelete,     setConfirmDelete]     = useState(false)
+  const [deleting,          setDeleting]          = useState(false)
+  const [assignments,       setAssignments]       = useState<FreelancerAssignment[]>([])
+  const [loadingAssignments,setLoadingAssignments]= useState(true)
+  const [addingAssignment,  setAddingAssignment]  = useState(false)
 
   // ── Avatar upload ──────────────────────────────────────────────────────────
   const avatarInputRef = useRef<HTMLInputElement>(null)
@@ -481,7 +504,15 @@ function FreelancerDetail({ freelancer, onClose, onDeleted, onUpdated, onProject
     setLoadingProjects(false)
   }, [freelancer.id])
 
+  const loadAssignments = useCallback(async () => {
+    setLoadingAssignments(true)
+    const r = await fetch(`/api/freelancers/${freelancer.id}/assignments`)
+    if (r.ok) setAssignments(await r.json())
+    setLoadingAssignments(false)
+  }, [freelancer.id])
+
   useEffect(() => { loadProjects() }, [loadProjects])
+  useEffect(() => { loadAssignments() }, [loadAssignments])
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { if (editing) { setEditing(false) } else { onClose() } }
@@ -719,6 +750,36 @@ function FreelancerDetail({ freelancer, onClose, onDeleted, onUpdated, onProject
                 </div>
               )}
 
+              {/* Assignments */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[10px] text-zinc-500 uppercase tracking-wider">
+                    Opdrachten <span className="text-zinc-600">({assignments.length})</span>
+                  </p>
+                  <button onClick={() => setAddingAssignment(true)}
+                    className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-200 transition-colors">
+                    <Plus size={12} /> Opdracht
+                  </button>
+                </div>
+
+                {loadingAssignments ? (
+                  <div className="flex justify-center py-4"><Loader2 size={16} className="animate-spin text-zinc-600" /></div>
+                ) : assignments.length === 0 ? (
+                  <p className="text-xs text-zinc-600 italic py-3 text-center">Nog geen opdrachten.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {assignments.map(a => (
+                      <AssignmentAdminRow key={a.id} assignment={a}
+                        onDelete={async () => {
+                          await fetch(`/api/freelancers/${freelancer.id}/assignments/${a.id}`, { method: 'DELETE' })
+                          setAssignments(prev => prev.filter(x => x.id !== a.id))
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {/* Projects */}
               <div>
                 <div className="flex items-center justify-between mb-3">
@@ -794,7 +855,191 @@ function FreelancerDetail({ freelancer, onClose, onDeleted, onUpdated, onProject
           onAdded={(p, newRating) => { setProjects(prev => [p, ...prev]); onProjectAdded(p, newRating) }}
         />
       )}
+
+      {addingAssignment && (
+        <AddAssignmentModal
+          freelancerId={freelancer.id}
+          freelancerName={freelancer.name}
+          onClose={() => setAddingAssignment(false)}
+          onAdded={(a) => setAssignments(prev => [a, ...prev])}
+        />
+      )}
     </>
+  )
+}
+
+// ─── Assignment Admin Row ─────────────────────────────────────────────────────
+
+const ASSIGNMENT_STATUS_LABELS: Record<string, { label: string; color: string }> = {
+  nieuw:          { label: 'Nieuw',          color: '#3b82f6' },
+  in_behandeling: { label: 'In behandeling', color: '#f59e0b' },
+  afgerond:       { label: 'Afgerond',       color: '#22c55e' },
+}
+
+function AssignmentAdminRow({ assignment: a, onDelete }: {
+  assignment: FreelancerAssignment
+  onDelete: () => Promise<void>
+}) {
+  const [confirmDel, setConfirmDel] = useState(false)
+  const [deleting,   setDeleting]   = useState(false)
+  const st = ASSIGNMENT_STATUS_LABELS[a.status] ?? { label: a.status, color: '#71717a' }
+
+  return (
+    <div className="px-3 py-2.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-0.5">
+            <span className="text-xs font-medium text-zinc-200 truncate">{a.title}</span>
+            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ color: st.color, backgroundColor: `${st.color}18` }}>
+              {st.label}
+            </span>
+          </div>
+          <div className="flex items-center gap-3 text-[10px] text-zinc-600">
+            {a.client_name && <span>{a.client_name}</span>}
+            {a.deadline && <span>{new Date(a.deadline).toLocaleDateString('nl-BE', { day: 'numeric', month: 'short', year: 'numeric' })}</span>}
+            {a.freelancer_assignment_files.length > 0 && <span>{a.freelancer_assignment_files.length} bestand{a.freelancer_assignment_files.length !== 1 ? 'en' : ''}</span>}
+          </div>
+        </div>
+        {confirmDel ? (
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <button onClick={async () => { setDeleting(true); await onDelete(); setDeleting(false) }} disabled={deleting}
+              className="text-[10px] font-medium text-red-400 hover:text-red-300 transition-colors">
+              {deleting ? <Loader2 size={10} className="animate-spin inline" /> : 'Verwijder'}
+            </button>
+            <button onClick={() => setConfirmDel(false)} className="text-[10px] text-zinc-600 hover:text-zinc-400 ml-1">Nee</button>
+          </div>
+        ) : (
+          <button onClick={() => setConfirmDel(true)} className="text-zinc-700 hover:text-red-400 transition-colors flex-shrink-0">
+            <Trash2 size={12} />
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Add Assignment Modal ─────────────────────────────────────────────────────
+
+function AddAssignmentModal({ freelancerId, freelancerName, onClose, onAdded }: {
+  freelancerId: string
+  freelancerName: string
+  onClose: () => void
+  onAdded: (a: FreelancerAssignment) => void
+}) {
+  const [title,      setTitle]      = useState('')
+  const [briefing,   setBriefing]   = useState('')
+  const [deadline,   setDeadline]   = useState('')
+  const [clientName, setClientName] = useState('')
+  const [saving,     setSaving]     = useState(false)
+  const [error,      setError]      = useState('')
+  const [files,      setFiles]      = useState<File[]>([])
+  const [uploadingFiles, setUploadingFiles] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const inputClass = "w-full px-3 py-2 rounded-lg text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none"
+  const inputStyle = { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }
+
+  async function handleSubmit() {
+    if (!title.trim()) { setError('Geef een titel op.'); return }
+    setSaving(true); setError('')
+
+    const r = await fetch(`/api/freelancers/${freelancerId}/assignments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: title.trim(), briefing: briefing.trim() || null, deadline: deadline || null, client_name: clientName.trim() || null }),
+    })
+
+    if (!r.ok) { setError('Fout bij aanmaken.'); setSaving(false); return }
+    const assignment: FreelancerAssignment = await r.json()
+
+    // Upload files if any
+    if (files.length > 0) {
+      setUploadingFiles(true)
+      await Promise.all(files.map(async file => {
+        const fd = new FormData()
+        fd.append('file', file)
+        const fr = await fetch(`/api/freelancers/${freelancerId}/assignments/${assignment.id}/files`, { method: 'POST', body: fd })
+        if (fr.ok) {
+          const savedFile = await fr.json()
+          assignment.freelancer_assignment_files.push(savedFile)
+        }
+      }))
+      setUploadingFiles(false)
+    }
+
+    onAdded(assignment)
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden"
+        style={{ background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.12)' }}>
+        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+          <h2 className="text-sm font-semibold text-white">Opdracht voor {freelancerName}</h2>
+          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200 transition-colors"><X size={16} /></button>
+        </div>
+        <div className="p-5 space-y-3">
+          <div>
+            <label className="block text-[10px] text-zinc-500 uppercase tracking-wide mb-1">Titel *</label>
+            <input autoFocus type="text" placeholder="bv. Social content KRC Genk — mei" value={title}
+              onChange={e => setTitle(e.target.value)} className={inputClass} style={inputStyle} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[10px] text-zinc-500 uppercase tracking-wide mb-1">Klant</label>
+              <input type="text" placeholder="bv. KRC Genk" value={clientName}
+                onChange={e => setClientName(e.target.value)} className={inputClass} style={inputStyle} />
+            </div>
+            <div>
+              <label className="block text-[10px] text-zinc-500 uppercase tracking-wide mb-1">Deadline</label>
+              <input type="date" value={deadline} onChange={e => setDeadline(e.target.value)}
+                className={inputClass} style={{ ...inputStyle, colorScheme: 'dark' }} />
+            </div>
+          </div>
+          <div>
+            <label className="block text-[10px] text-zinc-500 uppercase tracking-wide mb-1">Briefing & instructies</label>
+            <textarea rows={5} placeholder="Geef hier de volledige briefing, instructies en verwachtingen…"
+              value={briefing} onChange={e => setBriefing(e.target.value)}
+              className={`${inputClass} resize-none leading-relaxed`} style={inputStyle} />
+          </div>
+          <div>
+            <label className="block text-[10px] text-zinc-500 uppercase tracking-wide mb-1">Bestanden</label>
+            <div onClick={() => fileRef.current?.click()}
+              className="flex items-center gap-2 px-3 py-2.5 rounded-lg cursor-pointer text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
+              style={{ border: '1px dashed rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.02)' }}>
+              <Plus size={13} />
+              {files.length > 0 ? `${files.length} bestand${files.length !== 1 ? 'en' : ''} geselecteerd` : 'Bestanden toevoegen'}
+              <input ref={fileRef} type="file" multiple className="hidden"
+                onChange={e => { if (e.target.files) setFiles(prev => [...prev, ...Array.from(e.target.files!)]) }} />
+            </div>
+            {files.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {files.map((f, i) => (
+                  <div key={i} className="flex items-center justify-between gap-2 px-2 py-1 rounded text-xs text-zinc-400"
+                    style={{ background: 'rgba(255,255,255,0.04)' }}>
+                    <span className="truncate">{f.name}</span>
+                    <button onClick={() => setFiles(prev => prev.filter((_, j) => j !== i))}
+                      className="text-zinc-600 hover:text-red-400 flex-shrink-0"><X size={10} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          {error && <p className="text-xs text-red-400">{error}</p>}
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+          <button onClick={onClose} className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors">Annuleren</button>
+          <button onClick={handleSubmit} disabled={saving || uploadingFiles || !title.trim()}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-40"
+            style={{ background: '#3A913F' }}>
+            {(saving || uploadingFiles) && <Loader2 size={13} className="animate-spin" />}
+            {uploadingFiles ? 'Bestanden uploaden…' : saving ? 'Opslaan…' : 'Opdracht aanmaken'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -945,15 +1190,15 @@ function ProjectRow({ project: p, onDelete }: { project: FreelancerProject; onDe
   )
 }
 
-// ─── Freelancer Card ──────────────────────────────────────────────────────────
+// ─── Freelancer Row ───────────────────────────────────────────────────────────
 
 const RANK_STYLES = [
-  { label: '#1', bg: 'rgba(251,191,36,0.12)', border: 'rgba(251,191,36,0.35)', text: '#fbbf24', dot: '#fbbf24' }, // gold
-  { label: '#2', bg: 'rgba(148,163,184,0.10)', border: 'rgba(148,163,184,0.25)', text: '#94a3b8', dot: '#94a3b8' }, // silver
-  { label: '#3', bg: 'rgba(180,120,80,0.10)', border: 'rgba(180,120,80,0.25)', text: '#cd7f32', dot: '#cd7f32' }, // bronze
+  { label: '#1', bg: 'rgba(251,191,36,0.12)', border: 'rgba(251,191,36,0.35)', text: '#fbbf24', dot: '#fbbf24' },
+  { label: '#2', bg: 'rgba(148,163,184,0.10)', border: 'rgba(148,163,184,0.25)', text: '#94a3b8', dot: '#94a3b8' },
+  { label: '#3', bg: 'rgba(180,120,80,0.10)', border: 'rgba(180,120,80,0.25)', text: '#cd7f32', dot: '#cd7f32' },
 ]
 
-function FreelancerCard({ freelancer, onClick, matchReason, matchConcern, matchRank, variant = 'vast' }: {
+function FreelancerRow({ freelancer, onClick, matchReason, matchConcern, matchRank, variant = 'vast' }: {
   freelancer: Freelancer
   onClick: () => void
   matchReason?: string
@@ -962,69 +1207,80 @@ function FreelancerCard({ freelancer, onClick, matchReason, matchConcern, matchR
   variant?: 'vast' | 'te_testen'
 }) {
   const isTeTesten = variant === 'te_testen'
-  const isMatch = matchReason !== undefined
   const rankStyle = matchRank ? RANK_STYLES[matchRank - 1] : null
 
   return (
-    <button
+    <div
       onClick={onClick}
-      className="w-full text-left rounded-2xl p-5 transition-all hover:scale-[1.02] active:scale-[0.98] flex flex-col items-center text-center"
+      role="button"
+      tabIndex={0}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onClick() }}
+      className="w-full text-left flex items-center gap-4 px-4 py-3.5 rounded-xl transition-all hover:brightness-110 active:scale-[0.99] cursor-pointer"
       style={rankStyle
         ? { background: rankStyle.bg, border: `1.5px solid ${rankStyle.border}` }
         : isTeTesten
-          ? { background: 'rgba(14,14,14,0.97)', border: '1.5px dashed rgba(255,255,255,0.08)' }
-          : { background: 'rgba(22,22,22,0.97)', border: '1px solid rgba(255,255,255,0.10)' }
+          ? { background: 'rgba(14,14,14,0.97)', border: '1px dashed rgba(255,255,255,0.07)' }
+          : { background: 'rgba(22,22,22,0.97)', border: '1px solid rgba(255,255,255,0.09)' }
       }
     >
-      {/* Match rank + reason */}
-      {isMatch && rankStyle && (
-        <div className="w-full mb-4 space-y-2 text-left">
-          <div className="flex items-start gap-2.5">
-            <span className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold"
-              style={{ backgroundColor: `${rankStyle.dot}22`, color: rankStyle.dot, border: `1px solid ${rankStyle.dot}44` }}>
-              {rankStyle.label}
-            </span>
-            <p className="text-xs leading-relaxed" style={{ color: '#d4d4d8' }}>{matchReason}</p>
-          </div>
-          {matchConcern && (
-            <div className="flex items-start gap-1.5 px-2.5 py-2 rounded-lg bg-amber-950/30 border border-amber-900/30">
-              <span className="text-amber-400 text-xs flex-shrink-0 mt-0.5">⚠</span>
-              <p className="text-xs text-amber-400/80 leading-relaxed">{matchConcern}</p>
-            </div>
-          )}
+      {/* Rank badge */}
+      {rankStyle && (
+        <div className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold"
+          style={{ backgroundColor: `${rankStyle.dot}22`, color: rankStyle.dot, border: `1px solid ${rankStyle.dot}44` }}>
+          {rankStyle.label}
         </div>
       )}
 
       {/* Avatar */}
-      <Avatar name={freelancer.name} avatarUrl={freelancer.avatar_url} size={72} opacity={isTeTesten ? 0.55 : 1} />
+      <Avatar name={freelancer.name} avatarUrl={freelancer.avatar_url} size={40} opacity={isTeTesten ? 0.5 : 1} />
 
-      {/* Name */}
-      <p className={`mt-3 text-base font-semibold leading-tight ${isTeTesten ? 'text-zinc-500' : 'text-zinc-100'}`}>
-        {freelancer.name}
-      </p>
+      {/* Main info */}
+      <div className="flex-1 min-w-0">
+        <p className={`text-sm font-semibold leading-tight ${isTeTesten ? 'text-zinc-500' : 'text-zinc-100'}`}>
+          {freelancer.name}
+        </p>
+        {freelancer.types?.length > 0 && (
+          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+            {freelancer.types.map(t => <TypeBadge key={t} type={t} small />)}
+          </div>
+        )}
+        {matchReason && (
+          <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">{matchReason}</p>
+        )}
+        {matchConcern && (
+          <div className="flex items-start gap-1.5 mt-1 px-2 py-1 rounded bg-amber-950/30 border border-amber-900/30">
+            <span className="text-amber-400 text-xs flex-shrink-0">⚠</span>
+            <p className="text-xs text-amber-400/80 leading-relaxed">{matchConcern}</p>
+          </div>
+        )}
+      </div>
 
-      {/* Rating */}
-      {freelancer.rating ? (
-        <div className="mt-2">
-          <RatingStars value={freelancer.rating} size={16} />
-        </div>
-      ) : (
-        <div className="mt-2 h-4" />
-      )}
-
-      {/* Type badges */}
-      {freelancer.types?.length > 0 && (
-        <div className="flex flex-wrap justify-center gap-1.5 mt-3">
-          {freelancer.types.map(t => <TypeBadge key={t} type={t} />)}
-        </div>
-      )}
-    </button>
+      {/* Right: rating + price */}
+      <div className="flex-shrink-0 flex flex-col items-end gap-1.5">
+        {freelancer.rating
+          ? <RatingStars value={freelancer.rating} size={13} />
+          : <span className="text-xs text-zinc-700">–</span>
+        }
+        {freelancer.price_info && (
+          <span className="text-xs text-zinc-500">{freelancer.price_info}</span>
+        )}
+      </div>
+    </div>
   )
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 const FREELANCER_ADMIN = 'deryan.spiessens@sporthousegroup.com'
+
+function sortByRating<T extends Freelancer>(arr: T[]): T[] {
+  return [...arr].sort((a, b) => {
+    if (a.rating === b.rating) return 0
+    if (a.rating === null) return 1
+    if (b.rating === null) return -1
+    return b.rating - a.rating
+  })
+}
 
 export default function FreelancersPage() {
   const [freelancers,  setFreelancers]  = useState<Freelancer[]>([])
@@ -1036,6 +1292,7 @@ export default function FreelancersPage() {
   const [matchLoading, setMatchLoading] = useState(false)
   const [matchError,   setMatchError]   = useState('')
   const [isAdmin,      setIsAdmin]      = useState(false)
+  const [typeFilters,  setTypeFilters]  = useState<FreelancerType[]>([])
 
   useEffect(() => {
     import('@/lib/supabase/client').then(({ createClient }) => {
@@ -1071,9 +1328,16 @@ export default function FreelancersPage() {
 
   const displayFreelancers = matchResults ?? freelancers
 
-  // Split into two groups
-  const vasteFreelancers = displayFreelancers.filter(f => f.tested === 'ja')
-  const teTesten         = displayFreelancers.filter(f => f.tested !== 'ja')
+  // Types that are actually in use — for filter chips
+  const usedTypes = TYPES.filter(t => freelancers.some(f => f.types?.includes(t)))
+
+  // Split, filter by types (OR logic), sort by rating
+  const applyFilters = <T extends Freelancer>(arr: T[]) =>
+    sortByRating(typeFilters.length > 0 ? arr.filter(f => typeFilters.some(t => f.types?.includes(t))) : arr)
+
+  const vasteFreelancers = applyFilters(displayFreelancers.filter(f => f.tested === 'ja') as MatchResult[])
+  const teTesten         = applyFilters(displayFreelancers.filter(f => f.tested !== 'ja') as MatchResult[])
+  const totalVisible     = vasteFreelancers.length + teTesten.length
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -1097,7 +1361,7 @@ export default function FreelancersPage() {
       </div>
 
       {/* AI Match */}
-      <div className="flex-shrink-0 px-6 py-4 border-b border-zinc-800">
+      <div className="flex-shrink-0 px-6 pt-4 pb-3 border-b border-zinc-800">
         <div className="flex gap-2">
           <div className="relative flex-1">
             <Sparkles size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" />
@@ -1126,8 +1390,35 @@ export default function FreelancersPage() {
         {matchError && <p className="text-xs text-red-400 mt-2">{matchError}</p>}
         {matchResults && (
           <p className="text-xs text-zinc-500 mt-2">
-            Top {matchResults.length} beste {matchResults.length === 1 ? 'match' : 'matches'} gevonden — gerangschikt van beste naar minste fit
+            Top {matchResults.length} beste {matchResults.length === 1 ? 'match' : 'matches'} — gerangschikt van beste naar minste fit
           </p>
+        )}
+
+        {/* Type filter chips */}
+        {usedTypes.length > 0 && !matchResults && (
+          <div className="flex items-center gap-1.5 mt-3 flex-wrap">
+            {usedTypes.map(t => {
+              const active = typeFilters.includes(t)
+              const s = TYPE_STYLES[t]
+              return (
+                <button key={t} onClick={() => setTypeFilters(prev => active ? prev.filter(x => x !== t) : [...prev, t])}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all"
+                  style={active
+                    ? { backgroundColor: s.bg, color: s.text, border: `1px solid ${s.border}` }
+                    : { backgroundColor: 'rgba(255,255,255,0.04)', color: '#71717a', border: '1px solid rgba(255,255,255,0.08)' }
+                  }>
+                  {TYPE_ICONS[t]}
+                  {t}
+                </button>
+              )
+            })}
+            {typeFilters.length > 0 && (
+              <button onClick={() => setTypeFilters([])}
+                className="flex items-center gap-1 px-2 py-1 rounded-full text-xs text-zinc-600 hover:text-zinc-400 transition-colors">
+                <X size={10} /> Wis filters
+              </button>
+            )}
+          </div>
         )}
       </div>
 
@@ -1137,9 +1428,11 @@ export default function FreelancersPage() {
           <div className="flex items-center justify-center py-20">
             <Loader2 size={20} className="animate-spin text-zinc-600" />
           </div>
-        ) : displayFreelancers.length === 0 ? (
+        ) : totalVisible === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <p className="text-sm text-zinc-500">{matchResults ? 'Geen matches gevonden.' : 'Nog geen freelancers toegevoegd.'}</p>
+            <p className="text-sm text-zinc-500">
+              {matchResults ? 'Geen matches gevonden.' : typeFilters.length > 0 ? 'Geen freelancers gevonden voor deze filters.' : 'Nog geen freelancers toegevoegd.'}
+            </p>
           </div>
         ) : (
           <>
@@ -1148,14 +1441,12 @@ export default function FreelancersPage() {
               <div>
                 <div className="flex items-center gap-2 mb-3">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
-                  <p className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">
-                    Vaste freelancers
-                  </p>
+                  <p className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">Vaste freelancers</p>
                   <span className="text-xs text-zinc-600">{vasteFreelancers.length}</span>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div className="space-y-2">
                   {vasteFreelancers.map(f => (
-                    <FreelancerCard
+                    <FreelancerRow
                       key={f.id}
                       freelancer={f}
                       variant="vast"
@@ -1174,14 +1465,12 @@ export default function FreelancersPage() {
               <div>
                 <div className="flex items-center gap-2 mb-3">
                   <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
-                  <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
-                    Te testen
-                  </p>
+                  <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Te testen</p>
                   <span className="text-xs text-zinc-600">{teTesten.length}</span>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div className="space-y-2">
                   {teTesten.map(f => (
-                    <FreelancerCard
+                    <FreelancerRow
                       key={f.id}
                       freelancer={f}
                       variant="te_testen"

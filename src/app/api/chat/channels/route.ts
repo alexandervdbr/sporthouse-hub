@@ -22,7 +22,8 @@ export async function POST(req: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return new Response('Unauthorized', { status: 401 })
-  if (!ADMIN_EMAILS.includes(user.email ?? '')) return new Response('Forbidden', { status: 403 })
+  const sections: string[] = user.user_metadata?.permissions?.sections ?? []
+  if (!ADMIN_EMAILS.includes(user.email ?? '') && !sections.includes('beheer')) return new Response('Forbidden', { status: 403 })
 
   const { name, description, category, color } = await req.json()
   if (!name?.trim()) return new Response('name required', { status: 400 })

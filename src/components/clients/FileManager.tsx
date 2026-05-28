@@ -9,8 +9,20 @@ import {
   FileArchive, File, FileCode, FileType2,
   AlertCircle, GripVertical,
 } from 'lucide-react'
+import { useEditor, EditorContent } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
+
+function escapeHtml(s: string) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function textToHtml(text: string) {
+  return text.split('\n').map(line => `<p>${escapeHtml(line)}</p>`).join('')
+}
 
 const ADMIN_EMAILS = ['arne.smets@sporthousegroup.com', 'deryan.spiessens@sporthousegroup.com']
+
+const TEXT_EXTENSIONS = new Set(['txt', 'csv', 'md', 'json', 'xml', 'html', 'rtf', 'css', 'js', 'ts', 'yaml', 'yml', 'sh', 'sql'])
 
 interface FolderRecord {
   id: string
@@ -118,6 +130,31 @@ export default function FileManager({ clientId, currentUserEmail }: Props) {
   // File actions
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
+
+  // Inline text edit
+  const [editingFile, setEditingFile] = useState<FileRecord | null>(null)
+  const [editContent, setEditContent] = useState('')
+  const [loadingEdit, setLoadingEdit] = useState(false)
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+  const [wasRtf, setWasRtf] = useState(false)
+
+  const editor = useEditor({
+    extensions: [StarterKit],
+    content: '',
+    editorProps: {
+      attributes: {
+        class: 'prose prose-invert prose-sm max-w-none focus:outline-none px-4 py-4 min-h-full',
+      },
+    },
+  })
+
+  // Set editor content whenever the loaded text changes (handles editor-not-ready timing)
+  useEffect(() => {
+    if (!editor || !editContent) return
+    editor.commands.setContent(textToHtml(editContent))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editContent, editor])
 
   // Global search across all folders
   const [globalResults, setGlobalResults] = useState<(FileRecord & { folder?: { id: string; name: string } | null })[]>([])
@@ -311,6 +348,56 @@ export default function FileManager({ clientId, currentUserEmail }: Props) {
     setPendingFile(null); setDescription(''); loadData(); setUploading(false)
   }
 
+  // ── Inline text edit ────────────────────────────────────────────────────────
+
+  async function openEdit(file: FileRecord) {
+    setLoadingEdit(true)
+    setEditError(null)
+    setEditContent('')
+    editor?.commands.clearContent()
+    setWasRtf(file.file_type.toLowerCase() === 'rtf')
+    setEditingFile(file)
+    try {
+      const res = await fetch(`/api/files?id=${file.id}&mode=content`)
+      if (!res.ok) throw new Error('Fout bij laden')
+      const text = await res.text()
+      setEditContent(text)
+    } catch {
+      setEditError('Kon bestandsinhoud niet laden.')
+    }
+    setLoadingEdit(false)
+  }
+
+  async function saveEdit() {
+    if (!editingFile) return
+    setSavingEdit(true)
+    setEditError(null)
+    const content = editor ? editor.getText({ blockSeparator: '\n' }) : editContent
+    try {
+      const res = await fetch(`/api/files?id=${editingFile.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      })
+      if (!res.ok) {
+        const { error } = await res.json()
+        setEditError(error ?? 'Opslaan mislukt.')
+        setSavingEdit(false)
+        return
+      }
+      setFiles(prev => prev.map(f =>
+        f.id === editingFile.id
+          ? { ...f, file_size: new TextEncoder().encode(content).byteLength }
+          : f
+      ))
+      setEditingFile(null)
+      editor?.commands.clearContent()
+    } catch {
+      setEditError('Verbindingsfout.')
+    }
+    setSavingEdit(false)
+  }
+
   // ── File actions ────────────────────────────────────────────────────────────
 
   async function handleDownload(file: FileRecord) {
@@ -480,6 +567,8 @@ export default function FileManager({ clientId, currentUserEmail }: Props) {
                 {filteredGlobal.map((file) => {
                   const { icon: Icon, color, bg } = getFileIcon(file.file_type)
                   const canDelete = isAdmin || file.uploaded_by === currentUserEmail
+                  const canEdit = isAdmin || file.uploaded_by === currentUserEmail
+                  const isText = TEXT_EXTENSIONS.has(file.file_type.toLowerCase())
                   return (
                     <div
                       key={file.id}
@@ -503,6 +592,15 @@ export default function FileManager({ clientId, currentUserEmail }: Props) {
                         </div>
                       </div>
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {isText && canEdit && (
+                          <button
+                            onClick={() => openEdit(file)}
+                            title="Bewerken"
+                            className="p-1.5 rounded-md text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-all"
+                          >
+                            <Pencil size={13} />
+                          </button>
+                        )}
                         <button
                           onClick={() => handleDownload(file)}
                           disabled={downloadingId === file.id}
@@ -651,6 +749,8 @@ export default function FileManager({ clientId, currentUserEmail }: Props) {
               {filteredFiles.map((file) => {
                 const { icon: Icon, color, bg } = getFileIcon(file.file_type)
                 const canDelete = isAdmin || file.uploaded_by === currentUserEmail
+                const canEdit = isAdmin || file.uploaded_by === currentUserEmail
+                const isText = TEXT_EXTENSIONS.has(file.file_type.toLowerCase())
                 const isDraggingThis = draggingFileId === file.id
                 return (
                   <div
@@ -689,6 +789,15 @@ export default function FileManager({ clientId, currentUserEmail }: Props) {
                     </div>
 
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {isText && canEdit && (
+                        <button
+                          onClick={() => openEdit(file)}
+                          title="Bewerken"
+                          className="p-1.5 rounded-md text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-all"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                      )}
                       <button
                         onClick={() => handleDownload(file)}
                         disabled={downloadingId === file.id}
@@ -821,6 +930,80 @@ export default function FileManager({ clientId, currentUserEmail }: Props) {
       {/* Backdrop to close menus */}
       {menuOpenId && (
         <div className="fixed inset-0 z-0" onClick={() => setMenuOpenId(null)} />
+      )}
+
+      {/* ── Inline text edit modal ── */}
+      {editingFile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div
+            className="w-full max-w-6xl flex flex-col rounded-2xl overflow-hidden"
+            style={{
+              background: 'rgba(18,18,18,0.98)',
+              border: '1px solid rgba(255,255,255,0.10)',
+              boxShadow: '0 25px 60px rgba(0,0,0,0.8)',
+              height: '90vh',
+            }}
+          >
+            {/* Header */}
+            <div className="flex items-center gap-3 px-5 py-4 border-b border-zinc-800 flex-shrink-0">
+              <Pencil size={15} className="text-blue-400 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-white truncate">{editingFile.filename}</p>
+                {wasRtf && (
+                  <p className="text-xs text-amber-400/80 mt-0.5">
+                    RTF-opmaak verwijderd — opgeslagen als platte tekst
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => { setEditingFile(null); editor?.commands.clearContent() }}
+                className="p-1.5 rounded-md text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors flex-shrink-0"
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-hidden flex flex-col p-4 gap-3 min-h-0">
+              {loadingEdit ? (
+                <div className="flex items-center justify-center py-16">
+                  <Loader2 size={20} className="animate-spin text-zinc-500" />
+                </div>
+              ) : (
+                <div className="flex-1 overflow-y-auto bg-zinc-900 border border-zinc-800 rounded-xl min-h-0 cursor-text [&_.ProseMirror]:min-h-[200px] [&_.ProseMirror]:text-zinc-200 [&_.ProseMirror]:text-sm [&_.ProseMirror_p]:my-1 [&_.ProseMirror_p:empty]:min-h-[1.4em] focus-within:border-zinc-600 transition-colors">
+                  <EditorContent editor={editor} />
+                </div>
+              )}
+              {editError && (
+                <div className="flex items-center gap-2 px-3 py-2 bg-red-950/50 border border-red-900/50 rounded-lg flex-shrink-0">
+                  <AlertCircle size={13} className="text-red-400 flex-shrink-0" />
+                  <p className="text-xs text-red-400">{editError}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-zinc-800 flex-shrink-0">
+              <button
+                onClick={() => { setEditingFile(null); editor?.commands.clearContent() }}
+                disabled={savingEdit}
+                className="px-4 py-2 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors"
+              >
+                Annuleren
+              </button>
+              <button
+                onClick={saveEdit}
+                disabled={savingEdit || loadingEdit}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                style={{ backgroundColor: '#2563eb' }}
+              >
+                {savingEdit
+                  ? <><Loader2 size={13} className="animate-spin" /> Opslaan...</>
+                  : <><Check size={13} /> Opslaan</>}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

@@ -5,14 +5,14 @@ import { createClient } from '@/lib/supabase/client'
 import ReactMarkdown from 'react-markdown'
 import {
   Send, Loader2, MessageSquare, AlertTriangle, PenSquare,
-  FolderOpen, Trash2,
+  FolderOpen, Trash2, Pencil,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ChatMessage {
   id?: string
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'meta'
   content: string
   created_at?: string
 }
@@ -20,6 +20,7 @@ interface ChatMessage {
 interface Session {
   session_id: string
   title: string
+  customTitle?: string
   created_at: string
 }
 
@@ -46,20 +47,20 @@ function formatRelative(dateStr: string) {
 function AssistantMessage({ content }: { content: string }) {
   return (
     <div className="expert-prose prose prose-invert max-w-none
-      prose-p:text-[15px] prose-p:leading-[1.75] prose-p:my-2.5 prose-p:text-zinc-200
+      prose-p:text-[15px] prose-p:leading-[1.85] prose-p:my-4 prose-p:text-zinc-200
       prose-headings:font-semibold prose-headings:text-zinc-100 prose-headings:tracking-normal
-      prose-h1:text-[17px] prose-h1:mt-6 prose-h1:mb-2
-      prose-h2:text-[15px] prose-h2:mt-5 prose-h2:mb-1.5
-      prose-h3:text-[14px] prose-h3:mt-4 prose-h3:mb-1
-      prose-ul:my-2.5 prose-ul:pl-5
-      prose-ol:my-2.5 prose-ol:pl-5
-      prose-li:text-[15px] prose-li:leading-[1.75] prose-li:text-zinc-200 prose-li:my-0.5
+      prose-h1:text-[17px] prose-h1:mt-8 prose-h1:mb-3
+      prose-h2:text-[15px] prose-h2:mt-7 prose-h2:mb-2.5
+      prose-h3:text-[14px] prose-h3:mt-6 prose-h3:mb-2
+      prose-ul:my-4 prose-ul:pl-5
+      prose-ol:my-4 prose-ol:pl-5
+      prose-li:text-[15px] prose-li:leading-[1.85] prose-li:text-zinc-200 prose-li:my-1.5
       prose-strong:text-zinc-100 prose-strong:font-semibold
       prose-em:text-zinc-300 prose-em:italic
       prose-code:text-emerald-300 prose-code:bg-zinc-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-[13px] prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
-      prose-pre:bg-zinc-800/70 prose-pre:border prose-pre:border-zinc-700/60 prose-pre:rounded-lg prose-pre:text-[13px]
-      prose-blockquote:border-l-2 prose-blockquote:border-zinc-600 prose-blockquote:text-zinc-400 prose-blockquote:not-italic prose-blockquote:pl-4
-      prose-hr:border-zinc-700/60
+      prose-pre:bg-zinc-800/70 prose-pre:border prose-pre:border-zinc-700/60 prose-pre:rounded-lg prose-pre:text-[13px] prose-pre:my-5
+      prose-blockquote:border-l-2 prose-blockquote:border-zinc-600 prose-blockquote:text-zinc-400 prose-blockquote:not-italic prose-blockquote:pl-4 prose-blockquote:my-5
+      prose-hr:border-zinc-700/60 prose-hr:my-6
       prose-a:text-emerald-400 prose-a:no-underline hover:prose-a:underline">
       <ReactMarkdown>{content}</ReactMarkdown>
     </div>
@@ -87,6 +88,8 @@ export default function ExpertChat({ clientId, clientName }: Props) {
   const [loadingMessages, setLoadingMessages] = useState(true)
   const [fileCount, setFileCount] = useState(0)
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null)
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -101,7 +104,14 @@ export default function ExpertChat({ clientId, clientName }: Props) {
       .order('created_at', { ascending: true })
 
     const map = new Map<string, Session>()
+    const customTitles: Record<string, string> = {}
+
     for (const msg of data ?? []) {
+      // Parse custom titles from meta messages
+      if (msg.role === 'meta') {
+        try { customTitles[msg.session_id] = JSON.parse(msg.content).title } catch { /* ignore */ }
+        continue
+      }
       if (!map.has(msg.session_id)) {
         map.set(msg.session_id, {
           session_id: msg.session_id,
@@ -115,9 +125,9 @@ export default function ExpertChat({ clientId, clientName }: Props) {
       }
     }
 
-    const sorted = Array.from(map.values()).sort(
-      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    )
+    const sorted = Array.from(map.values())
+      .map(s => ({ ...s, customTitle: customTitles[s.session_id] }))
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     setSessions(sorted)
   }, [clientId])
 
@@ -131,7 +141,7 @@ export default function ExpertChat({ clientId, clientName }: Props) {
       .eq('session_id', sessionId)
       .order('created_at', { ascending: true })
       .limit(100)
-    setMessages((data as ChatMessage[]) ?? [])
+    setMessages(((data as ChatMessage[]) ?? []).filter(m => m.role !== 'meta'))
     setLoadingMessages(false)
   }, [clientId])
 
@@ -184,6 +194,34 @@ export default function ExpertChat({ clientId, clientName }: Props) {
     setSessions(prev => prev.filter(s => s.session_id !== sessionId))
     if (sessionId === currentSessionId) handleNewSession()
     setDeletingSessionId(null)
+  }
+
+  // ── Rename session ────────────────────────────────────────
+  async function saveRename(sessionId: string) {
+    const title = renameValue.trim()
+    setRenamingId(null)
+    if (!title) return
+
+    setSessions(prev => prev.map(s =>
+      s.session_id === sessionId ? { ...s, customTitle: title } : s
+    ))
+
+    const { data: existing } = await supabase
+      .from('expert_messages')
+      .select('id')
+      .eq('client_id', clientId)
+      .eq('session_id', sessionId)
+      .eq('role', 'meta')
+      .maybeSingle()
+
+    if (existing) {
+      await supabase.from('expert_messages')
+        .update({ content: JSON.stringify({ title }) })
+        .eq('id', existing.id)
+    } else {
+      await supabase.from('expert_messages')
+        .insert({ client_id: clientId, session_id: sessionId, role: 'meta', content: JSON.stringify({ title }) })
+    }
   }
 
   // ── Send message ──────────────────────────────────────────
@@ -329,21 +367,46 @@ export default function ExpertChat({ clientId, clientName }: Props) {
                   )}
                   <div className="flex items-start justify-between gap-1 min-w-0">
                     <div className="flex-1 min-w-0">
-                      <p className={`text-[12px] leading-snug truncate ${isActive ? 'text-zinc-200' : 'text-zinc-400'}`}>
-                        {s.title.length > 45 ? s.title.slice(0, 45) + '…' : s.title}
-                      </p>
+                      {renamingId === s.session_id ? (
+                        <input
+                          autoFocus
+                          value={renameValue}
+                          onChange={e => setRenameValue(e.target.value)}
+                          onBlur={() => saveRename(s.session_id)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') saveRename(s.session_id)
+                            if (e.key === 'Escape') setRenamingId(null)
+                          }}
+                          onClick={e => e.stopPropagation()}
+                          className="w-full bg-zinc-800 border border-zinc-600 rounded px-1.5 py-0.5 text-[12px] text-zinc-100 focus:outline-none focus:border-zinc-400"
+                        />
+                      ) : (
+                        <p className={`text-[12px] leading-snug truncate ${isActive ? 'text-zinc-200' : 'text-zinc-400'}`}>
+                          {(() => { const t = s.customTitle ?? s.title; return t.length > 45 ? t.slice(0, 45) + '…' : t })()}
+                        </p>
+                      )}
                       <p className="text-[10px] text-zinc-600 mt-0.5">{formatRelative(s.created_at)}</p>
                     </div>
-                    <button
-                      onClick={(e) => handleDeleteSession(s.session_id, e)}
-                      disabled={deletingSessionId === s.session_id}
-                      className="flex-shrink-0 opacity-0 group-hover:opacity-100 p-1 rounded text-zinc-600 hover:text-red-400 transition-all"
-                    >
-                      {deletingSessionId === s.session_id
-                        ? <Loader2 size={10} className="animate-spin" />
-                        : <Trash2 size={10} />
-                      }
-                    </button>
+                    <div className="flex-shrink-0 flex items-center opacity-0 group-hover:opacity-100 transition-all">
+                      <button
+                        onClick={e => { e.stopPropagation(); setRenamingId(s.session_id); setRenameValue(s.customTitle ?? s.title) }}
+                        className="p-1 rounded text-zinc-600 hover:text-zinc-300 transition-colors"
+                        title="Hernoemen"
+                      >
+                        <Pencil size={10} />
+                      </button>
+                      <button
+                        onClick={(e) => handleDeleteSession(s.session_id, e)}
+                        disabled={deletingSessionId === s.session_id}
+                        className="p-1 rounded text-zinc-600 hover:text-red-400 transition-colors"
+                        title="Verwijderen"
+                      >
+                        {deletingSessionId === s.session_id
+                          ? <Loader2 size={10} className="animate-spin" />
+                          : <Trash2 size={10} />
+                        }
+                      </button>
+                    </div>
                   </div>
                 </button>
               )

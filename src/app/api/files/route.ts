@@ -172,12 +172,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(data ?? [])
   }
 
-  // Download mode: return signed URL for a single file
+  // Download/content mode: return signed URL (or plain text) for a single file
   if (!id) return NextResponse.json({ error: 'File ID ontbreekt.' }, { status: 400 })
+
+  const mode = searchParams.get('mode')
 
   const { data: file, error: fileError } = await admin
     .from('files')
-    .select('storage_path, filename')
+    .select('storage_path, filename, file_type')
     .eq('id', id)
     .single()
 
@@ -185,12 +187,47 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Bestand niet gevonden.' }, { status: 404 })
   }
 
-  // Create signed URL with forced download (sets Content-Disposition: attachment)
+  // 'content' mode: download file server-side and return as plain text
+  if (mode === 'content') {
+    const { data: blob, error: dlErr } = await admin.storage
+      .from('files')
+      .download(file.storage_path)
+
+    if (dlErr || !blob) {
+      return NextResponse.json({ error: 'Kon bestand niet downloaden.' }, { status: 500 })
+    }
+
+    const rawText = await blob.text()
+    const ext = (file.file_type ?? '').toLowerCase()
+
+    if (ext === 'rtf') {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { parseOffice } = require('officeparser')
+        const arrayBuffer = await blob.arrayBuffer()
+        const buffer = Buffer.from(arrayBuffer)
+        // officeparser v7 returns an OfficeParserAST; .toText() gives plain text
+        // with single \n between paragraphs and empty paragraphs dropped.
+        // We expand every \n to \n\n so each RTF paragraph gets a visible blank line.
+        const ast = await parseOffice(buffer)
+        const raw: string = typeof ast === 'string' ? ast : (ast.toText?.() ?? '')
+        const plainText = raw
+          .replace(/\n/g, '\n\n')       // paragraph break → blank line
+          .replace(/\n{4,}/g, '\n\n\n') // cap at two consecutive blank lines
+          .trim()
+        return new Response(plainText, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
+      } catch {
+        return new Response(rawText, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
+      }
+    }
+
+    return new Response(rawText, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
+  }
+
+  // Normal download: signed URL with forced download header
   const { data: signed, error: signError } = await admin.storage
     .from('files')
-    .createSignedUrl(file.storage_path, 120, {
-      download: file.filename,  // forces browser to download instead of preview
-    })
+    .createSignedUrl(file.storage_path, 120, { download: file.filename })
 
   if (signError || !signed) {
     console.error('Signed URL error:', signError)
@@ -209,12 +246,40 @@ export async function PATCH(request: NextRequest) {
   const id = searchParams.get('id')
   if (!id) return NextResponse.json({ error: 'File ID ontbreekt.' }, { status: 400 })
 
-  const { folderId } = await request.json()
+  const body = await request.json()
   const admin = adminClient()
 
+  // Content update: inline text editor
+  if ('content' in body) {
+    const { data: file } = await admin
+      .from('files')
+      .select('storage_path, uploaded_by')
+      .eq('id', id)
+      .single()
+
+    if (!file) return NextResponse.json({ error: 'Bestand niet gevonden.' }, { status: 404 })
+
+    const ADMIN_EMAILS = ['arne.smets@sporthousegroup.com', 'deryan.spiessens@sporthousegroup.com']
+    const canEdit = ADMIN_EMAILS.includes(user.email ?? '') || file.uploaded_by === user.email
+    if (!canEdit) return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 })
+
+    if (typeof body.content !== 'string') return NextResponse.json({ error: 'Ongeldige inhoud.' }, { status: 400 })
+
+    const bytes = Buffer.from(body.content, 'utf-8')
+    const { error: storErr } = await admin.storage
+      .from('files')
+      .update(file.storage_path, bytes, { contentType: 'text/plain; charset=utf-8', upsert: true })
+
+    if (storErr) return NextResponse.json({ error: storErr.message }, { status: 500 })
+
+    await admin.from('files').update({ file_size: bytes.byteLength }).eq('id', id)
+    return NextResponse.json({ success: true })
+  }
+
+  // Folder move
   const { error } = await admin
     .from('files')
-    .update({ folder_id: folderId ?? null })
+    .update({ folder_id: body.folderId ?? null })
     .eq('id', id)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
