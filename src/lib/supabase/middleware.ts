@@ -57,8 +57,16 @@ export async function updateSession(request: NextRequest) {
       return NextResponse.redirect(url)
     }
 
-    // Unauthorized user trying to access main app (not portal, not api, not login)
-    if (!authorized && !isLoginPage && !isPortalPage && !isApiPage) {
+    // Freelancer trying to access main app → redirect to portal
+    const isFreelancer = user.user_metadata?.freelancer === true
+    if (!authorized && isFreelancer && !isPortalPage && !isApiPage && !isLoginPage) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/portal'
+      return NextResponse.redirect(url)
+    }
+
+    // Unauthorized non-freelancer trying to access main app
+    if (!authorized && !isFreelancer && !isLoginPage && !isPortalPage && !isApiPage) {
       await supabase.auth.signOut()
       const url = request.nextUrl.clone()
       url.pathname = '/login'

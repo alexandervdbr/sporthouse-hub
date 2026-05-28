@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 
 export async function GET() {
   const supabase = await createClient()
@@ -44,5 +44,17 @@ export async function POST(req: Request) {
     .single()
 
   if (error) return new Response(error.message, { status: 500 })
+
+  // Pre-create Supabase Auth account so freelancer can log in when signups are disabled
+  if (email?.trim()) {
+    const admin = createAdminClient()
+    await admin.auth.admin.createUser({
+      email: email.trim(),
+      user_metadata: { freelancer: true, full_name: name.trim() },
+      email_confirm: true,
+    })
+    // Ignore error if user already exists
+  }
+
   return Response.json(data, { status: 201 })
 }

@@ -32,15 +32,19 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/dashboard`)
   }
 
-  // Check if user is a freelancer
+  // Check if user is a freelancer (via metadata or DB)
   const admin = createAdminClient()
-  const { data: freelancer } = await admin
-    .from('freelancers')
-    .select('id')
-    .eq('email', user.email ?? '')
-    .maybeSingle()
-
-  if (freelancer) {
+  const isFreelancer = user.user_metadata?.freelancer === true
+  if (!isFreelancer) {
+    const { data: freelancerRow } = await admin
+      .from('freelancers')
+      .select('id')
+      .eq('email', user.email ?? '')
+      .maybeSingle()
+    if (freelancerRow) {
+      return NextResponse.redirect(`${origin}/portal`)
+    }
+  } else {
     return NextResponse.redirect(`${origin}/portal`)
   }
 
