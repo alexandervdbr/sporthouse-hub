@@ -108,6 +108,9 @@ export default function ContentPlanner({
   const [asanaGidInput, setAsanaGidInput] = useState('')
   const [savingGid, setSavingGid] = useState(false)
   const [savedGid, setSavedGid] = useState(false)
+  const [asanaProjects, setAsanaProjects] = useState<{ gid: string; name: string }[]>([])
+  const [loadingProjects, setLoadingProjects] = useState(false)
+  const [newProjectSelectedGid, setNewProjectSelectedGid] = useState('')
 
   // Load rows from localStorage
   useEffect(() => {
@@ -162,6 +165,17 @@ export default function ContentPlanner({
       .then(setTeamContacts)
       .catch(() => {})
   }, [isAdmin])
+
+  // Fetch Asana projects when config tab opens
+  useEffect(() => {
+    if (activeTab !== 'config' || !isAdmin || asanaProjects.length > 0) return
+    setLoadingProjects(true)
+    fetch('/api/content-planner/asana-projects')
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data)) setAsanaProjects(data) })
+      .catch(() => {})
+      .finally(() => setLoadingProjects(false))
+  }, [activeTab, isAdmin, asanaProjects.length])
 
   // Derived
   const designers = members.filter(m => m.role === 'designer')
@@ -349,8 +363,13 @@ export default function ContentPlanner({
   }
 
   async function handleAddExtraProject() {
-    if (!newProjectGid.trim()) return
-    const entry = { gid: newProjectGid.trim(), label: newProjectLabel.trim() }
+    const gid = newProjectSelectedGid || newProjectGid.trim()
+    if (!gid) return
+    const matchedProject = asanaProjects.find(p => p.gid === gid)
+    const entry = {
+      gid,
+      label: newProjectLabel.trim() || matchedProject?.name || '',
+    }
     const updated = [...extraProjects, entry]
     setSavingExtra(true)
     try {
@@ -358,6 +377,7 @@ export default function ContentPlanner({
       setExtraProjects(updated)
       setNewProjectGid('')
       setNewProjectLabel('')
+      setNewProjectSelectedGid('')
     } finally {
       setSavingExtra(false)
     }
@@ -722,21 +742,37 @@ export default function ContentPlanner({
               </div>
             </div>
 
-            {/* Asana Project GID */}
+            {/* Asana Hoofdproject */}
             <div>
-              <h3 className="text-sm font-semibold text-zinc-300 mb-1">Asana Project GID</h3>
+              <h3 className="text-sm font-semibold text-zinc-300 mb-1">Asana Hoofdproject</h3>
               <p className="text-xs text-zinc-500 mb-3">
-                Te vinden in de URL van het Asana-project:{' '}
-                <span className="text-zinc-400">asana.com/0/<strong>GID</strong>/…</span>
+                Alle taken worden altijd aan dit project toegevoegd.
               </p>
               <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={asanaGidInput}
-                  onChange={e => setAsanaGidInput(e.target.value)}
-                  placeholder="bv. 1234567890123456"
-                  className="flex-1 bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm px-3 py-2 rounded-lg outline-none focus:border-zinc-500 placeholder:text-zinc-600"
-                />
+                {loadingProjects ? (
+                  <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-sm text-zinc-500">
+                    <Loader2 size={13} className="animate-spin" /> Projecten ophalen…
+                  </div>
+                ) : asanaProjects.length > 0 ? (
+                  <select
+                    value={asanaGidInput}
+                    onChange={e => setAsanaGidInput(e.target.value)}
+                    className="flex-1 bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm px-3 py-2 rounded-lg outline-none focus:border-zinc-500 appearance-none"
+                  >
+                    <option value="">Kies een project…</option>
+                    {asanaProjects.map(p => (
+                      <option key={p.gid} value={p.gid}>{p.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={asanaGidInput}
+                    onChange={e => setAsanaGidInput(e.target.value)}
+                    placeholder="bv. 1234567890123456"
+                    className="flex-1 bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm px-3 py-2 rounded-lg outline-none focus:border-zinc-500 placeholder:text-zinc-600"
+                  />
+                )}
                 <button
                   onClick={handleSaveGid}
                   disabled={savingGid || !asanaGidInput.trim()}
@@ -786,23 +822,31 @@ export default function ContentPlanner({
               )}
 
               <div className="flex items-center gap-2 flex-wrap">
-                <input
-                  type="text"
-                  value={newProjectLabel}
-                  onChange={e => setNewProjectLabel(e.target.value)}
-                  placeholder="Naam (optioneel)"
-                  className="w-36 bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm px-3 py-2 rounded-lg outline-none focus:border-zinc-500 placeholder:text-zinc-600"
-                />
-                <input
-                  type="text"
-                  value={newProjectGid}
-                  onChange={e => setNewProjectGid(e.target.value)}
-                  placeholder="Project GID"
-                  className="flex-1 min-w-0 bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm px-3 py-2 rounded-lg outline-none focus:border-zinc-500 placeholder:text-zinc-600"
-                />
+                {asanaProjects.length > 0 ? (
+                  <select
+                    value={newProjectSelectedGid}
+                    onChange={e => setNewProjectSelectedGid(e.target.value)}
+                    className="flex-1 min-w-0 bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm px-3 py-2 rounded-lg outline-none focus:border-zinc-500 appearance-none"
+                  >
+                    <option value="">Kies een project…</option>
+                    {asanaProjects
+                      .filter(p => p.gid !== asanaGidInput && !extraProjects.some(e => e.gid === p.gid))
+                      .map(p => (
+                        <option key={p.gid} value={p.gid}>{p.name}</option>
+                      ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={newProjectGid}
+                    onChange={e => setNewProjectGid(e.target.value)}
+                    placeholder="Project GID"
+                    className="flex-1 min-w-0 bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm px-3 py-2 rounded-lg outline-none focus:border-zinc-500 placeholder:text-zinc-600"
+                  />
+                )}
                 <button
                   onClick={handleAddExtraProject}
-                  disabled={!newProjectGid.trim() || savingExtra}
+                  disabled={(!newProjectSelectedGid && !newProjectGid.trim()) || savingExtra}
                   className="flex items-center gap-1.5 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 rounded-lg text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   {savingExtra ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
