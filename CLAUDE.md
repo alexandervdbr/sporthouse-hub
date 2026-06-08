@@ -30,9 +30,9 @@ Nooit rechtstreeks committen of pushen naar `main`.
    # Daarna gewoon: git push
    ```
 
-5. Open een Pull Request op GitHub, wijs de andere developer aan als reviewer.
+5. Open een Pull Request op GitHub. Een reviewer is optioneel — je mag zelf mergen als je zeker bent van de wijzigingen.
 
-6. Na goedkeuring: merge naar main → Vercel deployt automatisch.
+6. Merge naar main → Vercel deployt automatisch.
 
 7. Ruim de branch op na merge:
    ```bash
