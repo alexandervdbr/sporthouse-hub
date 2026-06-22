@@ -141,6 +141,17 @@ export async function POST(req: Request) {
     }
 
     results.push({ rowTitle: row.title, pm: pmResult, designer: designerResult })
+
+    // Log succesvolle pushes voor de stats tab
+    if (pmResult.ok && designerResult.ok) {
+      await admin.from('content_planner_push_log').insert({
+        client_id: clientId,
+        post_date: row.date,
+        post_title: row.title,
+        designer: row.designer ?? '',
+        pushed_by: user.email ?? '',
+      })
+    }
   }
 
   return Response.json({ results })

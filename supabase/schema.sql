@@ -616,3 +616,26 @@ CREATE POLICY "Authenticated users can read briefing_builder_members"
   ON briefing_builder_members FOR SELECT TO authenticated USING (true);
 CREATE POLICY "Service role full access briefing_builder_members"
   ON briefing_builder_members FOR ALL TO service_role USING (true);
+
+-- ============================================================
+-- CONTENT PLANNER STATS LOG
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS content_planner_push_log (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  post_date DATE NOT NULL,
+  post_title TEXT NOT NULL,
+  designer TEXT NOT NULL DEFAULT '',
+  pushed_by TEXT NOT NULL DEFAULT '',
+  pushed_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE content_planner_push_log ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Authenticated users can read content_planner_push_log" ON content_planner_push_log;
+DROP POLICY IF EXISTS "Service role full access content_planner_push_log" ON content_planner_push_log;
+CREATE POLICY "Authenticated users can read content_planner_push_log"
+  ON content_planner_push_log FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Service role full access content_planner_push_log"
+  ON content_planner_push_log FOR ALL TO service_role USING (true);

@@ -83,7 +83,7 @@ export default function ContentPlanner({
 }) {
   const STORAGE_KEY = `cp_rows_${clientId}`
 
-  const [activeTab, setActiveTab] = useState<'planning' | 'whatsapp' | 'config'>('planning')
+  const [activeTab, setActiveTab] = useState<'planning' | 'whatsapp' | 'stats' | 'config'>('planning')
   const [rows, setRows] = useState<Row[]>([])
   const [members, setMembers] = useState<Member[]>([])
   const [config, setConfig] = useState<{ asana_project_gid: string; asana_extra_project_gids: { gid: string; label: string }[]; active_pm_email: string | null } | null>(null)
@@ -112,6 +112,17 @@ export default function ContentPlanner({
   const [asanaProjects, setAsanaProjects] = useState<{ gid: string; name: string }[]>([])
   const [loadingProjects, setLoadingProjects] = useState(false)
   const [newProjectSelectedGid, setNewProjectSelectedGid] = useState('')
+
+  // Stats state
+  const [statsPeriod, setStatsPeriod] = useState<'1m' | 'prev' | '3m' | '1y'>('3m')
+  const [statsData, setStatsData] = useState<{
+    totalPosts: number
+    avgPerWeek: number
+    topDesigner: string
+    perWeek: { week: string; count: number }[]
+    perDesigner: { name: string; count: number }[]
+  } | null>(null)
+  const [loadingStats, setLoadingStats] = useState(false)
 
   // Load rows from localStorage
   useEffect(() => {
@@ -166,6 +177,17 @@ export default function ContentPlanner({
       .then(setTeamContacts)
       .catch(() => {})
   }, [isAdmin])
+
+  // Fetch stats when stats tab opens or period changes
+  useEffect(() => {
+    if (activeTab !== 'stats') return
+    setLoadingStats(true)
+    fetch(`/api/content-planner/stats?clientId=${clientId}&period=${statsPeriod}`)
+      .then(r => r.json())
+      .then(setStatsData)
+      .catch(() => {})
+      .finally(() => setLoadingStats(false))
+  }, [activeTab, statsPeriod, clientId])
 
   // Fetch Asana projects when config tab opens
   useEffect(() => {
@@ -430,9 +452,10 @@ export default function ContentPlanner({
     )
   }
 
-  const tabs: { key: 'planning' | 'whatsapp' | 'config'; label: string }[] = [
+  const tabs: { key: 'planning' | 'whatsapp' | 'stats' | 'config'; label: string }[] = [
     { key: 'planning', label: 'Planning' },
     { key: 'whatsapp', label: 'WhatsApp' },
+    { key: 'stats', label: 'Stats' },
     ...(isAdmin ? [{ key: 'config' as const, label: 'Config' }] : []),
   ]
 
@@ -676,6 +699,115 @@ export default function ContentPlanner({
               {waCopied ? <Check size={14} /> : <Copy size={14} />}
               {waCopied ? 'Gekopieerd!' : 'Kopieer tekst'}
             </button>
+          </div>
+        )}
+
+        {/* ── Stats ── */}
+        {activeTab === 'stats' && (
+          <div>
+            {/* Periode selector */}
+            <div className="flex gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-fit mb-6">
+              {([
+                { key: '1m', label: 'Deze maand' },
+                { key: 'prev', label: 'Vorige maand' },
+                { key: '3m', label: 'Laatste 3 maanden' },
+                { key: '1y', label: 'Dit jaar' },
+              ] as const).map(p => (
+                <button
+                  key={p.key}
+                  onClick={() => setStatsPeriod(p.key)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                    statsPeriod === p.key
+                      ? 'bg-white text-zinc-900'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            {loadingStats ? (
+              <div className="flex items-center justify-center h-40">
+                <Loader2 size={18} className="animate-spin text-zinc-600" />
+              </div>
+            ) : !statsData || statsData.totalPosts === 0 ? (
+              <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-6 py-10 text-center">
+                <p className="text-sm text-zinc-500">Nog geen pushes gelogd voor deze periode.</p>
+                <p className="text-xs text-zinc-600 mt-1">Stats worden bijgehouden vanaf de eerste succesvolle Asana push.</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+
+                {/* Kerncijfers */}
+                <div className="grid grid-cols-3 gap-4">
+                  {[
+                    { label: 'Posts totaal', value: String(statsData.totalPosts) },
+                    { label: 'Gemiddeld / week', value: String(statsData.avgPerWeek) },
+                    { label: 'Meest actieve designer', value: statsData.topDesigner },
+                  ].map(stat => (
+                    <div key={stat.label} className="bg-zinc-900 border border-zinc-800 rounded-xl px-5 py-4">
+                      <p className="text-xs text-zinc-500 mb-1">{stat.label}</p>
+                      <p className="text-lg font-semibold text-white truncate">{stat.value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Posts per week */}
+                {statsData.perWeek.length > 0 && (
+                  <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+                    <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-4">Posts per week</h3>
+                    <div className="space-y-2">
+                      {(() => {
+                        const max = Math.max(...statsData.perWeek.map(w => w.count), 1)
+                        return statsData.perWeek.map(({ week, count }) => (
+                          <div key={week} className="flex items-center gap-3">
+                            <span className="text-xs text-zinc-500 w-16 flex-shrink-0 font-mono">{week}</span>
+                            <div className="flex-1 bg-zinc-800 rounded-full h-2 overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-white transition-all"
+                                style={{ width: `${(count / max) * 100}%` }}
+                              />
+                            </div>
+                            <span className="text-xs text-zinc-300 w-6 text-right flex-shrink-0">{count}</span>
+                          </div>
+                        ))
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+                {/* Verdeling per designer */}
+                {statsData.perDesigner.length > 0 && (
+                  <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+                    <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-4">Verdeling per designer</h3>
+                    <div className="space-y-3">
+                      {(() => {
+                        const total = statsData.perDesigner.reduce((s, d) => s + d.count, 0)
+                        return statsData.perDesigner.map(({ name, count }) => (
+                          <div key={name} className="flex items-center gap-3">
+                            <div className="w-6 h-6 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-[10px] font-semibold text-zinc-300 flex-shrink-0">
+                              {name.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2)}
+                            </div>
+                            <span className="text-sm text-zinc-300 flex-1 min-w-0 truncate">{name}</span>
+                            <div className="w-24 bg-zinc-800 rounded-full h-1.5 overflow-hidden flex-shrink-0">
+                              <div
+                                className="h-full rounded-full bg-white"
+                                style={{ width: `${(count / total) * 100}%` }}
+                              />
+                            </div>
+                            <span className="text-xs text-zinc-400 w-16 text-right flex-shrink-0">
+                              {count} ({Math.round((count / total) * 100)}%)
+                            </span>
+                          </div>
+                        ))
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+              </div>
+            )}
           </div>
         )}
 
