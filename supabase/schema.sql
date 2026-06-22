@@ -577,3 +577,42 @@ ADD COLUMN IF NOT EXISTS level INTEGER DEFAULT NULL;
 -- Content Planner: actieve PM per project
 ALTER TABLE content_planner_config
 ADD COLUMN IF NOT EXISTS active_pm_email TEXT DEFAULT NULL;
+
+-- ============================================================
+-- BRIEFING BUILDER TABLES
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS briefing_builder_config (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  asana_project_gid TEXT NOT NULL DEFAULT '',
+  asana_extra_project_gids JSONB DEFAULT '[]',
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT briefing_builder_config_client_unique UNIQUE(client_id)
+);
+
+CREATE TABLE IF NOT EXISTS briefing_builder_members (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  contact_name TEXT NOT NULL,
+  contact_email TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT briefing_builder_members_unique UNIQUE(client_id, contact_email)
+);
+
+ALTER TABLE briefing_builder_config ENABLE ROW LEVEL SECURITY;
+ALTER TABLE briefing_builder_members ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Authenticated users can read briefing_builder_config" ON briefing_builder_config;
+DROP POLICY IF EXISTS "Service role full access briefing_builder_config" ON briefing_builder_config;
+CREATE POLICY "Authenticated users can read briefing_builder_config"
+  ON briefing_builder_config FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Service role full access briefing_builder_config"
+  ON briefing_builder_config FOR ALL TO service_role USING (true);
+
+DROP POLICY IF EXISTS "Authenticated users can read briefing_builder_members" ON briefing_builder_members;
+DROP POLICY IF EXISTS "Service role full access briefing_builder_members" ON briefing_builder_members;
+CREATE POLICY "Authenticated users can read briefing_builder_members"
+  ON briefing_builder_members FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Service role full access briefing_builder_members"
+  ON briefing_builder_members FOR ALL TO service_role USING (true);

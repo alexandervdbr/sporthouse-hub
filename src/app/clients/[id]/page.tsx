@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { FolderOpen, Mic, PenLine, BrainCircuit, ArrowRight, Gift, Scissors, CalendarDays, CalendarRange, GraduationCap, BarChart2, Landmark, ClipboardList, LayoutList, Search } from 'lucide-react'
+import { FolderOpen, Mic, PenLine, BrainCircuit, ArrowRight, Gift, Scissors, CalendarDays, CalendarRange, GraduationCap, BarChart2, Landmark, ClipboardList, LayoutList, Search, FileText } from 'lucide-react'
 
 const ADMIN_EMAILS = ['arne.smets@sporthousegroup.com', 'deryan.spiessens@sporthousegroup.com']
 
@@ -136,6 +136,15 @@ export default async function ClientToolsPage({ params }: Props) {
       label: 'Administratie',
       description: 'Administratieve documenten uploaden en raadplegen — contracten, HR en beleid.',
       color: '#a855f7',
+      available: true,
+    }] : []),
+    ...(client.name === 'i-fitness' ? [{
+      id: 'briefing-builder',
+      href: `/clients/${id}/briefing-builder`,
+      icon: FileText,
+      label: 'Briefing Builder',
+      description: 'Stel taken op met een volledige briefing en push ze naar Asana of kopieer ze per mail.',
+      color: '#0ea5e9',
       available: true,
     }] : []),
     ...(client.name === 'Unibet Experts' ? [{
