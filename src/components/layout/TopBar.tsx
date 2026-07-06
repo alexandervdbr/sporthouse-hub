@@ -1,8 +1,9 @@
 'use client'
 
-import { Search, Square } from 'lucide-react'
+import { Search, Square, HelpCircle } from 'lucide-react'
 import SearchModal from '@/components/search/SearchModal'
 import { useRecording } from '@/contexts/RecordingContext'
+import { useTour } from '@/contexts/TourContext'
 import { useRouter } from 'next/navigation'
 
 const MAX_DURATION = 90 * 60
@@ -63,20 +64,33 @@ function RecordingBar() {
 }
 
 export default function TopBar() {
+  const { start } = useTour()
+
   return (
     <>
       <SearchModal />
       <div className="flex-shrink-0 h-12 border-b border-zinc-700/60 bg-zinc-900/60 flex items-center justify-between px-6 gap-4">
         <RecordingBar />
 
-        <button
-          onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }))}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 hover:border-zinc-600 hover:bg-zinc-800/70 transition-all ml-auto"
-        >
-          <Search size={12} />
-          <span>Zoeken…</span>
-          <kbd className="ml-1 text-zinc-500 font-sans">⌘K</kbd>
-        </button>
+        <div className="flex items-center gap-2 ml-auto">
+          <button
+            onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }))}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 hover:border-zinc-600 hover:bg-zinc-800/70 transition-all"
+          >
+            <Search size={12} />
+            <span>Zoeken…</span>
+            <kbd className="ml-1 text-zinc-500 font-sans">⌘K</kbd>
+          </button>
+
+          <button
+            data-tour="tour-button"
+            onClick={start}
+            title="Platform rondleiding"
+            className="flex items-center justify-center w-8 h-8 rounded-lg text-zinc-500 hover:text-zinc-200 border border-zinc-700 hover:border-zinc-600 hover:bg-zinc-800/70 transition-all"
+          >
+            <HelpCircle size={14} />
+          </button>
+        </div>
       </div>
     </>
   )

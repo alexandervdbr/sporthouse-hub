@@ -2,6 +2,8 @@ import type { Metadata } from 'next'
 import './globals.css'
 import { RecordingProvider } from '@/contexts/RecordingContext'
 import { PreviewProvider } from '@/lib/preview-context'
+import { TourProvider } from '@/contexts/TourContext'
+import TourOverlay from '@/components/tour/TourOverlay'
 
 export const metadata: Metadata = {
   title: 'Sporthouse Hub',
@@ -18,7 +20,10 @@ export default function RootLayout({
       <body>
         <PreviewProvider>
           <RecordingProvider>
-            {children}
+            <TourProvider>
+              {children}
+              <TourOverlay />
+            </TourProvider>
           </RecordingProvider>
         </PreviewProvider>
       </body>

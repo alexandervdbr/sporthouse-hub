@@ -19,6 +19,7 @@ function ClientCard({ client }: { client: ClientWithDocs }) {
   return (
     <Link
       href={`/clients/${client.id}`}
+      data-tour="client-card"
       className="group relative flex items-center gap-3 p-3.5 rounded-xl transition-all duration-200 overflow-hidden"
       style={{
         background: 'rgba(24,24,24,0.97)',
@@ -209,17 +210,19 @@ export default async function DashboardPage() {
         <p className="text-sm text-zinc-400">Overzicht van alle klanten, atleten en podcasts</p>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-12">
+      <div data-tour="stat-cards" className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-12">
         <StatCard label="Klanten"    value={klanten.length}  icon={Building2} color="#3A913F" />
         <StatCard label="Atleten"    value={atleten.length}  icon={Users}     color="#3b82f6" />
         <StatCard label="Podcasts"   value={podcasts.length} icon={Mic2}      color="#a855f7" />
         <StatCard label="Documenten" value={totalDocs}       icon={FileText}  color="#f59e0b" />
       </div>
 
-      <Section title="Intern"                        clients={intern}   color="#f59e0b" />
-      <Section title="Klanten"                      clients={klanten}  color="#3A913F" />
-      <Section title="Atleten"                      clients={atleten}  color="#3b82f6" />
-      <Section title="Friends Of Sports — Podcasts" clients={podcasts} color="#a855f7" />
+      <div data-tour="client-grid">
+        <Section title="Intern"                        clients={intern}   color="#f59e0b" />
+        <Section title="Klanten"                      clients={klanten}  color="#3A913F" />
+        <Section title="Atleten"                      clients={atleten}  color="#3b82f6" />
+        <Section title="Friends Of Sports — Podcasts" clients={podcasts} color="#a855f7" />
+      </div>
     </div>
   )
 }

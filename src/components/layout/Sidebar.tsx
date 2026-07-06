@@ -185,7 +185,7 @@ export default function Sidebar({ clients }: SidebarProps) {
       }}
     >
       {/* Brand */}
-      <div className="relative px-5 py-5 flex justify-center"
+      <div data-tour="sidebar-brand" className="relative px-5 py-5 flex justify-center"
         style={{ borderBottom: '1px solid rgba(255,255,255,0.09)' }}
       >
         {/* Subtle green glow behind logo */}
@@ -214,7 +214,7 @@ export default function Sidebar({ clients }: SidebarProps) {
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-4 px-2">
         {/* Main nav items */}
-        <div className="mb-5 space-y-0.5">
+        <div data-tour="nav-items" className="mb-5 space-y-0.5">
           {([
             { href: '/dashboard',   icon: LayoutDashboard, label: 'DASHBOARD',      section: 'dashboard',      external: false },
             { href: '/projects',    icon: KanbanSquare,    label: 'Projecten',      section: 'projecten',      external: false },
@@ -290,10 +290,12 @@ export default function Sidebar({ clients }: SidebarProps) {
         {/* Divider */}
         <div className="mx-3 mb-5" style={{ borderTop: '1px solid rgba(255,255,255,0.09)' }} />
 
-        <NavGroup title="Intern"         clients={intern}   pathname={pathname} />
-        <NavGroup title="Klanten"        clients={klanten}  pathname={pathname} />
-        <NavGroup title="Atleten"        clients={atleten}  pathname={pathname} />
-        <NavGroup title="FOS — Podcasts" clients={podcasts} pathname={pathname} />
+        <div data-tour="sidebar-clients">
+          <NavGroup title="Intern"         clients={intern}   pathname={pathname} />
+          <NavGroup title="Klanten"        clients={klanten}  pathname={pathname} />
+          <NavGroup title="Atleten"        clients={atleten}  pathname={pathname} />
+          <NavGroup title="FOS — Podcasts" clients={podcasts} pathname={pathname} />
+        </div>
       </nav>
 
       {/* Bottom actions */}

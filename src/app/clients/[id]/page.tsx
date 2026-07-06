@@ -180,7 +180,7 @@ export default async function ClientToolsPage({ params }: Props) {
   return (
     <div className="h-full overflow-y-auto">
       <div className="p-8 max-w-5xl mx-auto">
-        <div className="mb-8">
+        <div data-tour="tools-header" className="mb-8">
           <h2 className="text-base font-semibold text-white mb-1">Tools</h2>
           <p className="text-sm text-zinc-300">Kies een tool om te openen voor {client.name}.</p>
         </div>
@@ -193,6 +193,7 @@ export default async function ClientToolsPage({ params }: Props) {
               <Link
                 key={tool.id}
                 href={tool.href}
+                data-tour={`tool-${tool.id}`}
                 className="group flex flex-col gap-4 p-5 rounded-xl tool-card"
                 style={{
                   '--tool-color': tool.color,
