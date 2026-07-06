@@ -74,6 +74,7 @@ export default function TopBar() {
 
         <div className="flex items-center gap-2 ml-auto">
           <button
+            data-tour="search-button"
             onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }))}
             className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 hover:border-zinc-600 hover:bg-zinc-800/70 transition-all"
           >

@@ -178,7 +178,7 @@ export default function Sidebar({ clients }: SidebarProps) {
   const podcasts = allowed.filter(c => c.category === 'podcast')
 
   return (
-    <aside className="w-60 flex-shrink-0 flex flex-col h-screen sticky top-0"
+    <aside data-tour="sidebar" className="w-60 flex-shrink-0 flex flex-col h-screen sticky top-0"
       style={{
         background: 'linear-gradient(180deg, #181818 0%, #141414 100%)',
         borderRight: '1px solid rgba(255,255,255,0.09)',
