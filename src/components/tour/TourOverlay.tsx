@@ -201,13 +201,23 @@ export default function TourOverlay() {
     if (!s) return
 
     if (s.requiresPage && !pathname.startsWith(s.requiresPage)) {
-      setRunning(false)
-      setPendingStep(targetStep)
       if (s.requiresPage === '/clients/') {
         const firstCard = document.querySelector('[data-tour="client-card"]') as HTMLAnchorElement
         const href = firstCard?.getAttribute('href')
-        if (href) { router.push(href); return }
+        if (!href) {
+          // User has no accessible clients — skip all client-specific steps
+          const fallback = STEPS.findIndex((step, i) => i > targetStep && !step.requiresPage)
+          if (fallback !== -1) goToStep(fallback)
+          else stop()
+          return
+        }
+        setRunning(false)
+        setPendingStep(targetStep)
+        router.push(href)
+        return
       }
+      setRunning(false)
+      setPendingStep(targetStep)
       router.push(s.requiresPage)
     } else {
       goToStep(targetStep)
