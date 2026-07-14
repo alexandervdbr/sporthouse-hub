@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { FileText, Download, ChevronRight, ChevronDown, Calendar, Building2, Loader2, CheckCircle2, Clock, AlertCircle, Paperclip } from 'lucide-react'
+import { DriveThumbnail } from '@/components/shared/DrivePreview'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -11,6 +12,8 @@ interface AssignmentFile {
   file_url: string
   file_size: number | null
   file_type: string | null
+  storage_provider?: string | null
+  thumbnail_link?: string | null
 }
 
 interface Assignment {
@@ -47,49 +50,28 @@ const STATUS_ORDER: Assignment['status'][] = ['nieuw', 'in_behandeling', 'afgero
 
 // ─── File row ─────────────────────────────────────────────────────────────────
 
-function FileRow({ file, assignmentId }: { file: AssignmentFile; assignmentId: string }) {
-  const [loading, setLoading] = useState(false)
-
-  async function handleDownload() {
-    setLoading(true)
-    try {
-      const res = await fetch('/api/portal/files', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filePath: file.file_url, assignmentId }),
-      })
-      if (!res.ok) throw new Error('Download mislukt')
-      const { url } = await res.json()
-      const a = document.createElement('a')
-      a.href = url
-      a.download = file.file_name
-      a.click()
-    } catch {
-      alert('Download mislukt. Probeer opnieuw.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
+function FileRow({ file }: { file: AssignmentFile }) {
   const ext = file.file_name.split('.').pop()?.toUpperCase() ?? 'FILE'
+  const isVideo = file.file_type?.startsWith('video/') ?? false
+  const hasThumbnail = file.storage_provider === 'drive' && !!file.thumbnail_link
 
   return (
     <div className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl"
       style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-      <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-[10px] font-bold text-zinc-400"
+      <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center flex-shrink-0 text-[10px] font-bold text-zinc-400"
         style={{ background: 'rgba(255,255,255,0.07)' }}>
-        {ext}
+        {hasThumbnail ? <DriveThumbnail src={file.thumbnail_link!} alt={file.file_name} video={isVideo} /> : ext}
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm text-zinc-200 truncate">{file.file_name}</p>
         {file.file_size && <p className="text-[11px] text-zinc-600 mt-0.5">{formatSize(file.file_size)}</p>}
       </div>
-      <button onClick={handleDownload} disabled={loading}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white transition-all disabled:opacity-50 flex-shrink-0"
+      <a href={`/api/portal/files?id=${file.id}`} download={file.file_name}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white transition-all flex-shrink-0"
         style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}>
-        {loading ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-        {loading ? 'Laden…' : 'Downloaden'}
-      </button>
+        <Download size={12} />
+        Downloaden
+      </a>
     </div>
   )
 }
@@ -187,7 +169,7 @@ function AssignmentCard({
               </p>
               <div className="space-y-2">
                 {assignment.freelancer_assignment_files.map(f => (
-                  <FileRow key={f.id} file={f} assignmentId={assignment.id} />
+                  <FileRow key={f.id} file={f} />
                 ))}
               </div>
             </div>
