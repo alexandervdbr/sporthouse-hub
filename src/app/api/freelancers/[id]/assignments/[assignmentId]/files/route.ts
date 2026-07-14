@@ -1,16 +1,15 @@
 import { Readable } from 'stream'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { isDriveStorageConfigured, uploadFile, deleteFile, downloadFile, getOrCreateFolderPath, driveRootFolderId } from '@/lib/drive-storage'
+import { ADMIN_EMAILS } from '@/lib/auth-permissions'
 
 export const maxDuration = 60
-
-const ADMIN_EMAILS = ['arne.smets@sporthousegroup.com', 'deryan.spiessens@sporthousegroup.com']
 
 async function assertAdmin() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
-  const sections: string[] = user.user_metadata?.permissions?.sections ?? []
+  const sections: string[] = user.app_metadata?.permissions?.sections ?? []
   return ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer') ? user : null
 }
 
