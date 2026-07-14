@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  Plus, Trash2, Loader2, X, Star, Sparkles,
+  Plus, Trash2, Loader2, X, Star, Sparkles, Download,
   Phone, Mail, AlertCircle, Check, ExternalLink, Globe,
   FileText, Video, Camera, Palette, BookOpen, Clapperboard,
   Users, Layers, Wand2, PenTool, MonitorPlay, Zap, Mic, Pencil, ImagePlus,
 } from 'lucide-react'
+import { DriveThumbnail } from '@/components/shared/DrivePreview'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -101,6 +102,8 @@ interface FreelancerAssignmentFile {
   file_url: string
   file_size: number | null
   file_type: string | null
+  storage_provider?: string | null
+  thumbnail_link?: string | null
 }
 
 interface FreelancerAssignment {
@@ -412,6 +415,7 @@ function FreelancerDetail({ freelancer, onClose, onDeleted, onUpdated, onProject
   const [assignments,       setAssignments]       = useState<FreelancerAssignment[]>([])
   const [loadingAssignments,setLoadingAssignments]= useState(true)
   const [addingAssignment,  setAddingAssignment]  = useState(false)
+  const [editingAssignment, setEditingAssignment] = useState<FreelancerAssignment | null>(null)
 
   // ── Avatar upload ──────────────────────────────────────────────────────────
   const avatarInputRef = useRef<HTMLInputElement>(null)
@@ -770,6 +774,7 @@ function FreelancerDetail({ freelancer, onClose, onDeleted, onUpdated, onProject
                   <div className="space-y-2">
                     {assignments.map(a => (
                       <AssignmentAdminRow key={a.id} assignment={a}
+                        onClick={() => setEditingAssignment(a)}
                         onDelete={async () => {
                           await fetch(`/api/freelancers/${freelancer.id}/assignments/${a.id}`, { method: 'DELETE' })
                           setAssignments(prev => prev.filter(x => x.id !== a.id))
@@ -864,6 +869,16 @@ function FreelancerDetail({ freelancer, onClose, onDeleted, onUpdated, onProject
           onAdded={(a) => setAssignments(prev => [a, ...prev])}
         />
       )}
+
+      {editingAssignment && (
+        <EditAssignmentModal
+          key={editingAssignment.id}
+          freelancerId={freelancer.id}
+          assignment={editingAssignment}
+          onClose={() => setEditingAssignment(null)}
+          onSaved={(a) => setAssignments(prev => prev.map(x => x.id === a.id ? a : x))}
+        />
+      )}
     </>
   )
 }
@@ -876,8 +891,9 @@ const ASSIGNMENT_STATUS_LABELS: Record<string, { label: string; color: string }>
   afgerond:       { label: 'Afgerond',       color: '#22c55e' },
 }
 
-function AssignmentAdminRow({ assignment: a, onDelete }: {
+function AssignmentAdminRow({ assignment: a, onClick, onDelete }: {
   assignment: FreelancerAssignment
+  onClick: () => void
   onDelete: () => Promise<void>
 }) {
   const [confirmDel, setConfirmDel] = useState(false)
@@ -885,7 +901,8 @@ function AssignmentAdminRow({ assignment: a, onDelete }: {
   const st = ASSIGNMENT_STATUS_LABELS[a.status] ?? { label: a.status, color: '#71717a' }
 
   return (
-    <div className="px-3 py-2.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
+    <div onClick={onClick} className="px-3 py-2.5 rounded-lg cursor-pointer transition-colors hover:bg-white/[0.06]"
+      style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-0.5">
@@ -901,7 +918,7 @@ function AssignmentAdminRow({ assignment: a, onDelete }: {
           </div>
         </div>
         {confirmDel ? (
-          <div className="flex items-center gap-1 flex-shrink-0">
+          <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
             <button onClick={async () => { setDeleting(true); await onDelete(); setDeleting(false) }} disabled={deleting}
               className="text-[10px] font-medium text-red-400 hover:text-red-300 transition-colors">
               {deleting ? <Loader2 size={10} className="animate-spin inline" /> : 'Verwijder'}
@@ -909,13 +926,27 @@ function AssignmentAdminRow({ assignment: a, onDelete }: {
             <button onClick={() => setConfirmDel(false)} className="text-[10px] text-zinc-600 hover:text-zinc-400 ml-1">Nee</button>
           </div>
         ) : (
-          <button onClick={() => setConfirmDel(true)} className="text-zinc-700 hover:text-red-400 transition-colors flex-shrink-0">
+          <button onClick={e => { e.stopPropagation(); setConfirmDel(true) }} className="text-zinc-700 hover:text-red-400 transition-colors flex-shrink-0">
             <Trash2 size={12} />
           </button>
         )}
       </div>
     </div>
   )
+}
+
+// Fetches the client list once for the assignment modals' client dropdown —
+// client_name on an assignment stays a plain text column (no schema change),
+// this just replaces free typing with picking from the existing client list.
+function useClientNames(): string[] {
+  const [names, setNames] = useState<string[]>([])
+  useEffect(() => {
+    fetch('/api/clients')
+      .then(r => r.ok ? r.json() : [])
+      .then((data: { name: string }[]) => setNames(data.map(c => c.name)))
+      .catch(() => {})
+  }, [])
+  return names
 }
 
 // ─── Add Assignment Modal ─────────────────────────────────────────────────────
@@ -935,6 +966,7 @@ function AddAssignmentModal({ freelancerId, freelancerName, onClose, onAdded }: 
   const [files,      setFiles]      = useState<File[]>([])
   const [uploadingFiles, setUploadingFiles] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const clientNames = useClientNames()
 
   const inputClass = "w-full px-3 py-2 rounded-lg text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none"
   const inputStyle = { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }
@@ -989,8 +1021,10 @@ function AddAssignmentModal({ freelancerId, freelancerName, onClose, onAdded }: 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-[10px] text-zinc-500 uppercase tracking-wide mb-1">Klant</label>
-              <input type="text" placeholder="bv. KRC Genk" value={clientName}
-                onChange={e => setClientName(e.target.value)} className={inputClass} style={inputStyle} />
+              <select value={clientName} onChange={e => setClientName(e.target.value)} className={inputClass} style={inputStyle}>
+                <option value="">— Geen klant —</option>
+                {clientNames.map(name => <option key={name} value={name}>{name}</option>)}
+              </select>
             </div>
             <div>
               <label className="block text-[10px] text-zinc-500 uppercase tracking-wide mb-1">Deadline</label>
@@ -1036,6 +1070,199 @@ function AddAssignmentModal({ freelancerId, freelancerName, onClose, onAdded }: 
             style={{ background: '#3A913F' }}>
             {(saving || uploadingFiles) && <Loader2 size={13} className="animate-spin" />}
             {uploadingFiles ? 'Bestanden uploaden…' : saving ? 'Opslaan…' : 'Opdracht aanmaken'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Edit Assignment Modal ────────────────────────────────────────────────────
+// Doubles as the "view detail" screen — clicking an assignment row opens this
+// pre-filled, since there was previously no way to see a briefing again (or
+// change anything) once an assignment had been created.
+
+function EditAssignmentModal({ freelancerId, assignment, onClose, onSaved }: {
+  freelancerId: string
+  assignment: FreelancerAssignment
+  onClose: () => void
+  onSaved: (a: FreelancerAssignment) => void
+}) {
+  const [title,      setTitle]      = useState(assignment.title)
+  const [briefing,   setBriefing]   = useState(assignment.briefing ?? '')
+  const [deadline,   setDeadline]   = useState(assignment.deadline ? assignment.deadline.slice(0, 10) : '')
+  const [clientName, setClientName] = useState(assignment.client_name ?? '')
+  const [status,     setStatus]     = useState(assignment.status)
+  const [files,      setFiles]      = useState(assignment.freelancer_assignment_files)
+  const [newFiles,   setNewFiles]   = useState<File[]>([])
+  const [saving,         setSaving]         = useState(false)
+  const [uploadingFiles, setUploadingFiles] = useState(false)
+  const [deletingFileId, setDeletingFileId] = useState<string | null>(null)
+  const [error,      setError]      = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
+  const clientNames = useClientNames()
+
+  const inputClass = "w-full px-3 py-2 rounded-lg text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none"
+  const inputStyle = { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }
+
+  async function handleDeleteFile(fileId: string) {
+    setDeletingFileId(fileId)
+    await fetch(`/api/freelancers/${freelancerId}/assignments/${assignment.id}/files`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId }),
+    })
+    setFiles(prev => prev.filter(f => f.id !== fileId))
+    setDeletingFileId(null)
+  }
+
+  async function handleSave() {
+    if (!title.trim()) { setError('Geef een titel op.'); return }
+    setSaving(true); setError('')
+
+    let allFiles = files
+    if (newFiles.length > 0) {
+      setUploadingFiles(true)
+      const uploaded = await Promise.all(newFiles.map(async file => {
+        const fd = new FormData()
+        fd.append('file', file)
+        const fr = await fetch(`/api/freelancers/${freelancerId}/assignments/${assignment.id}/files`, { method: 'POST', body: fd })
+        return fr.ok ? await fr.json() as FreelancerAssignmentFile : null
+      }))
+      allFiles = [...files, ...uploaded.filter((f): f is FreelancerAssignmentFile => f !== null)]
+      setFiles(allFiles)
+      setNewFiles([])
+      setUploadingFiles(false)
+    }
+
+    const r = await fetch(`/api/freelancers/${freelancerId}/assignments/${assignment.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: title.trim(),
+        briefing: briefing.trim() || null,
+        deadline: deadline || null,
+        client_name: clientName.trim() || null,
+        status,
+      }),
+    })
+
+    if (!r.ok) { setError('Fout bij opslaan.'); setSaving(false); return }
+    const updated: FreelancerAssignment = await r.json()
+    onSaved({ ...updated, freelancer_assignment_files: allFiles })
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+        style={{ background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.12)', maxHeight: '85vh' }}>
+        <div className="flex items-center justify-between px-5 py-4 flex-shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+          <h2 className="text-sm font-semibold text-white">Opdracht bewerken</h2>
+          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200 transition-colors"><X size={16} /></button>
+        </div>
+        <div className="p-5 space-y-3 overflow-y-auto">
+          <div>
+            <label className="block text-[10px] text-zinc-500 uppercase tracking-wide mb-1">Titel *</label>
+            <input autoFocus type="text" value={title}
+              onChange={e => setTitle(e.target.value)} className={inputClass} style={inputStyle} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[10px] text-zinc-500 uppercase tracking-wide mb-1">Klant</label>
+              <select value={clientName} onChange={e => setClientName(e.target.value)} className={inputClass} style={inputStyle}>
+                <option value="">— Geen klant —</option>
+                {/* Preserve a legacy/renamed client_name that no longer matches
+                    any current client, so opening this modal can't silently
+                    swap it to a different value on save. */}
+                {clientName && !clientNames.includes(clientName) && (
+                  <option value={clientName}>{clientName}</option>
+                )}
+                {clientNames.map(name => <option key={name} value={name}>{name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] text-zinc-500 uppercase tracking-wide mb-1">Deadline</label>
+              <input type="date" value={deadline} onChange={e => setDeadline(e.target.value)}
+                className={inputClass} style={{ ...inputStyle, colorScheme: 'dark' }} />
+            </div>
+          </div>
+          <div>
+            <label className="block text-[10px] text-zinc-500 uppercase tracking-wide mb-1">Status</label>
+            <select value={status} onChange={e => setStatus(e.target.value as FreelancerAssignment['status'])}
+              className={inputClass} style={inputStyle}>
+              <option value="nieuw">Nieuw</option>
+              <option value="in_behandeling">In behandeling</option>
+              <option value="afgerond">Afgerond</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-[10px] text-zinc-500 uppercase tracking-wide mb-1">Briefing & instructies</label>
+            <textarea rows={5} placeholder="Geef hier de volledige briefing, instructies en verwachtingen…"
+              value={briefing} onChange={e => setBriefing(e.target.value)}
+              className={`${inputClass} resize-none leading-relaxed`} style={inputStyle} />
+          </div>
+          <div>
+            <label className="block text-[10px] text-zinc-500 uppercase tracking-wide mb-1">Bestanden</label>
+            {files.length > 0 && (
+              <div className="space-y-1 mb-2">
+                {files.map(f => {
+                  const isVideo = f.file_type?.startsWith('video/') ?? false
+                  const hasThumbnail = f.storage_provider === 'drive' && !!f.thumbnail_link
+                  return (
+                  <div key={f.id} className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded text-xs text-zinc-300"
+                    style={{ background: 'rgba(255,255,255,0.04)' }}>
+                    <a href={`/api/freelancers/${freelancerId}/assignments/${assignment.id}/files?fileId=${f.id}`}
+                      className="flex items-center gap-1.5 truncate hover:text-white transition-colors min-w-0">
+                      {hasThumbnail ? (
+                        <div className="w-5 h-5 rounded overflow-hidden flex-shrink-0">
+                          <DriveThumbnail src={f.thumbnail_link!} alt={f.file_name} video={isVideo} />
+                        </div>
+                      ) : (
+                        <Download size={11} className="flex-shrink-0 text-zinc-600" />
+                      )}
+                      <span className="truncate">{f.file_name}</span>
+                    </a>
+                    <button onClick={() => handleDeleteFile(f.id)} disabled={deletingFileId === f.id}
+                      className="text-zinc-600 hover:text-red-400 flex-shrink-0 disabled:opacity-40">
+                      {deletingFileId === f.id ? <Loader2 size={11} className="animate-spin" /> : <X size={11} />}
+                    </button>
+                  </div>
+                  )
+                })}
+              </div>
+            )}
+            <div onClick={() => fileRef.current?.click()}
+              className="flex items-center gap-2 px-3 py-2.5 rounded-lg cursor-pointer text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
+              style={{ border: '1px dashed rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.02)' }}>
+              <Plus size={13} />
+              {newFiles.length > 0 ? `${newFiles.length} nieuw bestand${newFiles.length !== 1 ? 'en' : ''}` : 'Bestanden toevoegen'}
+              <input ref={fileRef} type="file" multiple className="hidden"
+                onChange={e => { if (e.target.files) setNewFiles(prev => [...prev, ...Array.from(e.target.files!)]) }} />
+            </div>
+            {newFiles.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {newFiles.map((f, i) => (
+                  <div key={i} className="flex items-center justify-between gap-2 px-2 py-1 rounded text-xs text-zinc-400"
+                    style={{ background: 'rgba(255,255,255,0.04)' }}>
+                    <span className="truncate">{f.name}</span>
+                    <button onClick={() => setNewFiles(prev => prev.filter((_, j) => j !== i))}
+                      className="text-zinc-600 hover:text-red-400 flex-shrink-0"><X size={10} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          {error && <p className="text-xs text-red-400">{error}</p>}
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-4 flex-shrink-0" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+          <button onClick={onClose} className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors">Annuleren</button>
+          <button onClick={handleSave} disabled={saving || uploadingFiles || !title.trim()}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-40"
+            style={{ background: '#3A913F' }}>
+            {(saving || uploadingFiles) && <Loader2 size={13} className="animate-spin" />}
+            {uploadingFiles ? 'Bestanden uploaden…' : saving ? 'Opslaan…' : 'Opslaan'}
           </button>
         </div>
       </div>
