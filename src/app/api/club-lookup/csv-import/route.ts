@@ -26,14 +26,16 @@ export async function POST(req: Request) {
   const user = await requireAdmin()
   if (!user) return new Response('Forbidden', { status: 403 })
 
-  const { clientId, csv } = await req.json()
+  // req.json() is `any`, which made `csv` — and everything derived from it —
+  // untyped further down. Naming the shape here types the whole CSV parse.
+  const { clientId, csv } = await req.json() as { clientId?: string; csv?: string }
   if (!clientId || !csv) return new Response('clientId en csv zijn verplicht', { status: 400 })
 
   const text = csv.replace(/^﻿/, '')
   const lines = text.trim().split(/\r?\n/)
   if (lines.length < 2) return new Response('Leeg CSV bestand', { status: 400 })
 
-  const headers = lines[0].split(',').map((h: string) => h.replace(/"/g, '').trim().toLowerCase())
+  const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim().toLowerCase())
   const idx = {
     full: headers.indexOf('full_name'),
     short: headers.indexOf('short_name'),
