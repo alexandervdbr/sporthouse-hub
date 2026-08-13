@@ -1312,7 +1312,12 @@ export default function EquipmentPlanner() {
                     <td className="sticky left-0 z-10 border-b border-r border-zinc-800/60"
                       style={{
                         width: DATE_COL_W, minWidth: DATE_COL_W, height: ROW_H, padding: '0 10px',
-                        background: isToday ? 'rgba(58,145,63,0.12)' : weekend ? '#0c0c0c' : '#09090b',
+                        // Must stay fully opaque: this cell is sticky, so the
+                        // equipment columns scroll underneath it. A translucent
+                        // highlight here lets their content show through, which
+                        // is why only today's row looked doubled up.
+                        // #0f1911 is rgba(58,145,63,0.12) composited over #09090b.
+                        background: isToday ? '#0f1911' : weekend ? '#0c0c0c' : '#09090b',
                       }}>
                       <div className="flex items-center justify-between gap-2 w-full">
                         <div className="flex items-center gap-1.5 flex-shrink-0">

@@ -746,7 +746,12 @@ export default function PlanningGrid() {
                     style={{
                       position: 'sticky', left: 0, zIndex: 20,
                       width: DAY_W, minWidth: DAY_W,
-                      backgroundColor: isRowSelected ? 'rgba(59,130,246,0.15)' : rowBg,
+                      // Sticky cells must stay opaque — the data columns scroll
+                      // underneath them. So the selection tint is layered over
+                      // an opaque base instead of replacing it, which would let
+                      // the moving content show through.
+                      backgroundColor: rowBg,
+                      backgroundImage: isRowSelected ? `linear-gradient(${SEL_BG}, ${SEL_BG})` : undefined,
                       cursor: 'pointer',
                     }}
                     className={`border-b border-r border-zinc-800 px-3 py-0 font-medium whitespace-nowrap hover:bg-zinc-800 transition-colors select-none ${
@@ -761,7 +766,8 @@ export default function PlanningGrid() {
                     style={{
                       position: 'sticky', left: DAY_W, zIndex: 20,
                       width: DATE_W, minWidth: DATE_W,
-                      backgroundColor: isRowSelected ? 'rgba(59,130,246,0.15)' : rowBg,
+                      backgroundColor: rowBg,
+                      backgroundImage: isRowSelected ? `linear-gradient(${SEL_BG}, ${SEL_BG})` : undefined,
                       cursor: 'pointer',
                     }}
                     className={`border-b border-r-2 border-zinc-700 px-2 py-0 text-center font-semibold select-none ${
