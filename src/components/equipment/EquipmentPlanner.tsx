@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { ADMIN_EMAILS } from '@/lib/auth-permissions'
 import {
   ChevronLeft, ChevronRight, ChevronDown, ChevronRight as ChevronRightIcon,
-  X, Loader2, AlertCircle, Trash2, BarChart3, Search, Info, Calendar
+  X, Loader2, AlertCircle, Trash2, BarChart3, Search, Info, Calendar, Plus
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -878,6 +878,27 @@ export default function EquipmentPlanner() {
     return sum + visibleEquipment.filter(e => e.category === cat).length * EQUIP_COL_W
   }, 0)
 
+  // ── Mobile: one day at a time ───────────────────────────────────────────────
+  // The dates × equipment grid can't shrink to a phone, and scrolling it
+  // sideways means hunting for the column you want. Below lg we show a single
+  // day as a list of that day's reservations instead.
+  const [mobileDay, setMobileDay] = useState(isCurrentMonth ? today.getDate() : 1)
+
+  useEffect(() => {
+    setMobileDay(prev => Math.min(prev, daysInMonth) || 1)
+  }, [month, year, daysInMonth])
+
+  const mobileDate = toISO(new Date(year, month, mobileDay))
+
+  // Every reservation on the selected day, with its equipment resolved.
+  const mobileReservations = useMemo(() => {
+    return visibleEquipment
+      .map(item => ({ item, res: resMap.get(`${item.id}_${mobileDate}`) }))
+      .filter((x): x is { item: EquipmentItem; res: Reservation } => !!x.res)
+      .sort((a, b) =>
+        a.item.category.localeCompare(b.item.category) || a.item.name.localeCompare(b.item.name))
+  }, [visibleEquipment, resMap, mobileDate])
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -964,8 +985,99 @@ export default function EquipmentPlanner() {
         </div>
       </div>
 
-      {/* Grid */}
-      <div className="flex-1 overflow-auto">
+      {/* ── Mobile: one day, listed as reservations ── */}
+      <div className="lg:hidden flex flex-col flex-1 min-h-0 px-4 pt-3 gap-3">
+        <div className="scroll-x flex-shrink-0 -mx-1 px-1">
+          <div className="flex gap-1.5">
+            {days.map(d => {
+              const dayNum = d.getDate()
+              const iso    = toISO(d)
+              const isSel  = dayNum === mobileDay
+              const count  = visibleEquipment.filter(item => resMap.has(`${item.id}_${iso}`)).length
+              return (
+                <button
+                  key={dayNum}
+                  onClick={() => setMobileDay(dayNum)}
+                  className={`relative flex-shrink-0 w-11 py-1.5 rounded-lg border text-center transition-colors ${
+                    isSel
+                      ? 'bg-zinc-700 border-zinc-500 text-white'
+                      : iso === todayISO
+                        ? 'bg-[#111d11] border-[#3A913F]/50 text-zinc-300'
+                        : isWeekend(d)
+                          ? 'bg-zinc-900/60 border-zinc-800 text-zinc-500'
+                          : 'bg-zinc-900 border-zinc-800 text-zinc-400'
+                  }`}
+                >
+                  <span className="block text-[9px] uppercase tracking-wide opacity-70">{getDayName(d).slice(0, 2)}</span>
+                  <span className="block text-sm font-semibold leading-tight">{dayNum}</span>
+                  {count > 0 && !isSel && (
+                    <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-[#3A913F] text-[9px] font-bold text-white flex items-center justify-center">
+                      {count}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between flex-shrink-0">
+          <span className="text-sm font-semibold text-zinc-200">
+            {getDayName(new Date(year, month, mobileDay))} {mobileDay} {MONTH_NAMES[month]}
+          </span>
+          {canReserveren && (
+            <button
+              onClick={() => setCreateModal({ date: mobileDate })}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-xs text-zinc-200"
+            >
+              <Plus size={13} /> Reserveren
+            </button>
+          )}
+        </div>
+
+        <div className="flex-1 overflow-y-auto pb-4 space-y-2">
+          {loading ? (
+            <div className="flex items-center justify-center h-40">
+              <Loader2 size={22} className="animate-spin text-zinc-600" />
+            </div>
+          ) : mobileReservations.length === 0 ? (
+            <div className="py-12 text-center text-sm text-zinc-600">
+              Niets gereserveerd op deze dag.
+            </div>
+          ) : (
+            mobileReservations.map(({ item, res }) => (
+              <button
+                key={res.id}
+                onClick={() => setViewModal({ equipment: item, date: mobileDate, reservation: res })}
+                className="w-full text-left rounded-xl border border-zinc-800 bg-zinc-900/60 p-3 flex items-start gap-3"
+              >
+                <span className="w-1 self-stretch rounded-full flex-shrink-0" style={{ backgroundColor: catColor(item.category) }} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-sm font-medium text-zinc-100 truncate">{item.name}</span>
+                    <span className="text-[10px] uppercase tracking-wide flex-shrink-0" style={{ color: catColor(item.category) }}>
+                      {item.category}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: getUserColor(res.reserved_by) }} />
+                    <span className="text-xs text-zinc-400 truncate">{getFirstName(res.reserved_by)}</span>
+                  </div>
+                  {(res.pickup_datetime || res.return_datetime) && (
+                    <p className="mt-1 text-[11px] text-zinc-500">
+                      {formatDT(res.pickup_datetime)} → {formatDT(res.return_datetime)}
+                    </p>
+                  )}
+                  {res.project && <p className="mt-0.5 text-[11px] text-zinc-500 truncate">{res.project}</p>}
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* Grid — desktop only */}
+      <div className="hidden lg:block flex-1 overflow-auto">
         {loading ? (
           <div className="flex items-center justify-center h-40">
             <Loader2 size={22} className="animate-spin text-zinc-600" />
