@@ -691,9 +691,9 @@ export default function ClubLookup({
               {showAdd && (
                 <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-5">
                   <h3 className="text-sm font-semibold text-white mb-4">Club toevoegen</h3>
-                  <div className="grid grid-cols-2 gap-2 mb-2">
-                    <input value={addForm.full_name} onChange={e => setAddForm(f => ({ ...f, full_name: e.target.value }))} placeholder="Volledige naam *" className="col-span-2 bg-zinc-800 border border-zinc-700 text-zinc-200 text-sm px-3 py-2 rounded-lg outline-none focus:border-zinc-500 placeholder:text-zinc-600" />
-                    <input value={addForm.short_name} onChange={e => setAddForm(f => ({ ...f, short_name: e.target.value }))} placeholder="Interne naam *" className="col-span-2 bg-zinc-800 border border-zinc-600 text-white text-sm px-3 py-2 rounded-lg outline-none focus:border-zinc-400 placeholder:text-zinc-600 font-medium" />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+                    <input value={addForm.full_name} onChange={e => setAddForm(f => ({ ...f, full_name: e.target.value }))} placeholder="Volledige naam *" className="sm:col-span-2 bg-zinc-800 border border-zinc-700 text-zinc-200 text-sm px-3 py-2 rounded-lg outline-none focus:border-zinc-500 placeholder:text-zinc-600" />
+                    <input value={addForm.short_name} onChange={e => setAddForm(f => ({ ...f, short_name: e.target.value }))} placeholder="Interne naam *" className="sm:col-span-2 bg-zinc-800 border border-zinc-600 text-white text-sm px-3 py-2 rounded-lg outline-none focus:border-zinc-400 placeholder:text-zinc-600 font-medium" />
                     <input value={addForm.competition} onChange={e => setAddForm(f => ({ ...f, competition: e.target.value }))} placeholder="Competitie" className="bg-zinc-800 border border-zinc-700 text-zinc-200 text-sm px-3 py-2 rounded-lg outline-none focus:border-zinc-500 placeholder:text-zinc-600" />
                     <input value={addForm.country} onChange={e => setAddForm(f => ({ ...f, country: e.target.value }))} placeholder="Land" className="bg-zinc-800 border border-zinc-700 text-zinc-200 text-sm px-3 py-2 rounded-lg outline-none focus:border-zinc-500 placeholder:text-zinc-600" />
                   </div>

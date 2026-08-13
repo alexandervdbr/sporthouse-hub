@@ -556,8 +556,8 @@ export default function ContentPlanner({
                 )}
 
                 {/* Table */}
-                <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden mb-4">
-                  <table className="w-full">
+                <div className="bg-zinc-900 border border-zinc-800 rounded-xl mb-4 scroll-x">
+                  <table className="w-full min-w-[640px] sm:min-w-0">
                     <thead>
                       <tr className="border-b border-zinc-800">
                         <th className="w-8 px-3 py-2.5 text-left text-xs font-medium text-zinc-600 uppercase tracking-wide">#</th>
@@ -740,7 +740,7 @@ export default function ContentPlanner({
               <div className="space-y-6">
 
                 {/* Kerncijfers */}
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   {[
                     { label: 'Posts totaal', value: String(statsData.totalPosts) },
                     { label: 'Gemiddeld / week', value: String(statsData.avgPerWeek) },

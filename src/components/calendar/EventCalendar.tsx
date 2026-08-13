@@ -200,7 +200,7 @@ function EventModal({ event, defaultDate, defaultClientId, clients, canDelete, o
           </div>
 
           {/* Datum + Tijdstip */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="text-[11px] text-zinc-500 mb-1.5 block font-medium uppercase tracking-wide">Datum *</label>
               <input type="date" value={date} onChange={e => setDate(e.target.value)}
@@ -318,7 +318,7 @@ function MonthView({ anchor, events, clients, today, onDayClick, onEventClick }:
     <div className="border border-zinc-800 rounded-xl overflow-hidden">
       <div className="grid grid-cols-7 bg-zinc-900/80 border-b border-zinc-800">
         {WEEK_DAYS.map((d,i) => (
-          <div key={d} className={`px-3 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wider ${i>=5?'text-zinc-600':'text-zinc-500'}`}>{d}</div>
+          <div key={d} className={`px-1 sm:px-3 py-2 sm:py-2.5 text-center text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider ${i>=5?'text-zinc-600':'text-zinc-500'}`}>{d}</div>
         ))}
       </div>
       <div className="grid grid-cols-7">
@@ -330,11 +330,23 @@ function MonthView({ anchor, events, clients, today, onDayClick, onEventClick }:
           const isLastRow = idx >= 35
           return (
             <div key={idx} onClick={() => isCurrentMonth && onDayClick(dateStr)}
-              className={`min-h-[110px] border-b border-r border-zinc-800/50 p-2 relative group transition-colors ${isLastRow?'border-b-0':''} ${isCurrentMonth ? isWeekend ? 'bg-zinc-900/20 hover:bg-zinc-900/50 cursor-pointer' : 'bg-transparent hover:bg-zinc-900/30 cursor-pointer' : 'bg-zinc-950/60 cursor-default'}`}>
-              <div className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-semibold mb-1.5 ${isToday?'bg-[#3A913F] text-white':isCurrentMonth?isWeekend?'text-zinc-600':'text-zinc-400':'text-zinc-700'}`}>
+              className={`min-h-[62px] sm:min-h-[110px] border-b border-r border-zinc-800/50 p-1 sm:p-2 relative group transition-colors ${isLastRow?'border-b-0':''} ${isCurrentMonth ? isWeekend ? 'bg-zinc-900/20 hover:bg-zinc-900/50 cursor-pointer' : 'bg-transparent hover:bg-zinc-900/30 cursor-pointer' : 'bg-zinc-950/60 cursor-default'}`}>
+              <div className={`w-6 h-6 flex items-center justify-center rounded-full text-[11px] sm:text-xs font-semibold mb-1 sm:mb-1.5 ${isToday?'bg-[#3A913F] text-white':isCurrentMonth?isWeekend?'text-zinc-600':'text-zinc-400':'text-zinc-700'}`}>
                 {date.getDate()}
               </div>
-              <div className="flex flex-col gap-0.5">
+
+              {/* Phone columns are ~55px — too narrow for titled chips, so each
+                  event becomes a dot and tapping the day opens it. */}
+              {dayEvents.length > 0 && (
+                <div className="flex flex-wrap gap-1 sm:hidden">
+                  {dayEvents.slice(0, 4).map(ev => (
+                    <span key={ev.id} className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: eventColor(ev, clients) }} />
+                  ))}
+                  {dayEvents.length > 4 && <span className="text-[9px] leading-none text-zinc-500">+{dayEvents.length - 4}</span>}
+                </div>
+              )}
+
+              <div className="hidden sm:flex flex-col gap-0.5">
                 {dayEvents.slice(0,3).map(ev => {
                   const color = eventColor(ev, clients)
                   const client = clients.find(c => c.id === ev.client_id)
@@ -373,7 +385,10 @@ function WeekView({ anchor, events, clients, today, onDayClick, onEventClick }: 
   const weekDays = getWeekDays(anchor)
 
   return (
-    <div className="border border-zinc-800 rounded-xl overflow-hidden">
+    // A week column carries full event cards and can't shrink to phone width,
+    // so below sm the week scrolls sideways rather than being squeezed.
+    <div className="border border-zinc-800 rounded-xl overflow-hidden scroll-x">
+      <div className="min-w-[700px] sm:min-w-0">
       <div className="grid grid-cols-7 bg-zinc-900/80 border-b border-zinc-800">
         {weekDays.map((day, i) => {
           const isToday = formatDate(day)===today
@@ -420,6 +435,7 @@ function WeekView({ anchor, events, clients, today, onDayClick, onEventClick }: 
             </div>
           )
         })}
+      </div>
       </div>
     </div>
   )

@@ -276,7 +276,7 @@ function PostModal({ post, defaultDate, clientId, teamMembers, projectEvents, ca
           </div>
 
           {/* Datum + Online */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="text-[11px] text-zinc-500 mb-1.5 block font-medium uppercase tracking-wide">Datum *</label>
               <input type="date" value={date} onChange={e => setDate(e.target.value)}
@@ -440,7 +440,7 @@ function MonthView({ anchor, posts, today, onDayClick, onPostClick }: {
     <div className="border border-zinc-800 rounded-xl overflow-hidden">
       <div className="grid grid-cols-7 bg-zinc-900/80 border-b border-zinc-800">
         {WEEK_DAYS.map((day, i) => (
-          <div key={day} className={`px-3 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wider ${i >= 5 ? 'text-zinc-600' : 'text-zinc-500'}`}>{day}</div>
+          <div key={day} className={`px-1 sm:px-3 py-2 sm:py-2.5 text-center text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider ${i >= 5 ? 'text-zinc-600' : 'text-zinc-500'}`}>{day}</div>
         ))}
       </div>
       <div className="grid grid-cols-7">
@@ -452,11 +452,24 @@ function MonthView({ anchor, posts, today, onDayClick, onPostClick }: {
           const isLastRow = idx >= 35
           return (
             <div key={idx} onClick={() => isCurrentMonth && onDayClick(dateStr)}
-              className={`min-h-[108px] border-b border-r border-zinc-800/50 p-2 relative group transition-colors ${isLastRow ? 'border-b-0' : ''} ${isCurrentMonth ? isWeekend ? 'bg-zinc-900/20 hover:bg-zinc-900/50 cursor-pointer' : 'bg-transparent hover:bg-zinc-900/30 cursor-pointer' : 'bg-zinc-950/60 cursor-default'}`}>
-              <div className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-semibold mb-1.5 ${isToday ? 'bg-[#3A913F] text-white' : isCurrentMonth ? isWeekend ? 'text-zinc-600' : 'text-zinc-400' : 'text-zinc-700'}`}>
+              className={`min-h-[62px] sm:min-h-[108px] border-b border-r border-zinc-800/50 p-1 sm:p-2 relative group transition-colors ${isLastRow ? 'border-b-0' : ''} ${isCurrentMonth ? isWeekend ? 'bg-zinc-900/20 hover:bg-zinc-900/50 cursor-pointer' : 'bg-transparent hover:bg-zinc-900/30 cursor-pointer' : 'bg-zinc-950/60 cursor-default'}`}>
+              <div className={`w-6 h-6 flex items-center justify-center rounded-full text-[11px] sm:text-xs font-semibold mb-1 sm:mb-1.5 ${isToday ? 'bg-[#3A913F] text-white' : isCurrentMonth ? isWeekend ? 'text-zinc-600' : 'text-zinc-400' : 'text-zinc-700'}`}>
                 {date.getDate()}
               </div>
-              <div className="flex flex-col gap-0.5">
+
+              {/* A phone column is ~55px wide, far too narrow for the titled
+                  chips below — so on small screens each post becomes a dot and
+                  tapping the day opens it. */}
+              {dayPosts.length > 0 && (
+                <div className="flex flex-wrap gap-1 sm:hidden">
+                  {dayPosts.slice(0, 4).map(post => (
+                    <span key={post.id} className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: postColor(post) }} />
+                  ))}
+                  {dayPosts.length > 4 && <span className="text-[9px] leading-none text-zinc-500">+{dayPosts.length - 4}</span>}
+                </div>
+              )}
+
+              <div className="hidden sm:flex flex-col gap-0.5">
                 {dayPosts.slice(0, 3).map(post => {
                   const color = postColor(post)
                   const plts  = parsePlatforms(post.platform)
@@ -494,7 +507,11 @@ function WeekView({ anchor, posts, today, onDayClick, onPostClick }: {
 }) {
   const weekDays = getWeekDays(anchor)
   return (
-    <div className="border border-zinc-800 rounded-xl overflow-hidden">
+    // Unlike the month view, a week column carries full post cards and can't
+    // usefully shrink to a phone's ~55px — so below sm the week scrolls
+    // sideways at a readable width instead of being squeezed.
+    <div className="border border-zinc-800 rounded-xl overflow-hidden scroll-x">
+      <div className="min-w-[700px] sm:min-w-0">
       <div className="grid grid-cols-7 bg-zinc-900/80 border-b border-zinc-800">
         {weekDays.map((day, i) => {
           const isToday = formatDate(day) === today
@@ -548,6 +565,7 @@ function WeekView({ anchor, posts, today, onDayClick, onPostClick }: {
             </div>
           )
         })}
+      </div>
       </div>
     </div>
   )

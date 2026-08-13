@@ -376,7 +376,7 @@ function InviteModal({ clients, onClose, onInvited }: { clients: ClientOption[];
                   placeholder="Voornaam Achternaam"
                   className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors" />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs text-zinc-500 uppercase tracking-wider mb-1.5">Telefoonnummer</label>
                   <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
@@ -1027,7 +1027,7 @@ export default function UsersPage() {
         </div>
 
         {/* Table */}
-        <div className="border border-zinc-800 rounded-xl overflow-hidden flex-1 overflow-y-auto">
+        <div className="border border-zinc-800 rounded-xl flex-1 overflow-y-auto scroll-x">
           {loading ? (
             <div className="flex items-center justify-center py-16 gap-2 text-zinc-600">
               <Loader2 size={16} className="animate-spin" /><span className="text-sm">Laden…</span>
@@ -1037,7 +1037,7 @@ export default function UsersPage() {
               {search ? 'Geen gebruikers gevonden.' : 'Nog geen gebruikers.'}
             </div>
           ) : (
-            <table className="w-full">
+            <table className="w-full min-w-[720px] sm:min-w-0">
               <thead>
                 <tr className="border-b border-zinc-800 bg-zinc-900/50">
                   <th className="px-4 py-3 text-left text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Gebruiker</th>

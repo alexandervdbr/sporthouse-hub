@@ -849,7 +849,7 @@ export default function ProjectsBoard({ initialProjects, clients, contacts, curr
       </div>
 
       {/* ── Kanban columns ── */}
-      <div className="grid grid-cols-3 gap-5 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
         {COLUMNS.map(col => (
           <KanbanColumn
             key={col.value}

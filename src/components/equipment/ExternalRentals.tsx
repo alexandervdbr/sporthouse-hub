@@ -123,7 +123,7 @@ function AddRentalModal({
           </div>
 
           {/* Dates */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-zinc-500 uppercase tracking-wider mb-1.5">Van *</label>
               <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
@@ -276,7 +276,7 @@ export default function ExternalRentals() {
         ) : (
           <>
             {/* Yearly summary */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <SummaryCard icon={Package} label="Huuritems" value={yearCount} color="#3A913F" />
               <SummaryCard icon={Clock}   label="Totaal dagen" value={yearTotalDays} color="#0ea5e9" />
               <SummaryCard icon={Euro}    label="Totale kost" value={formatEur(yearTotalCost || null)} color="#f59e0b" />
