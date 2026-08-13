@@ -890,6 +890,10 @@ export default function EquipmentPlanner() {
 
   const mobileDate = toISO(new Date(year, month, mobileDay))
 
+  // 'dag' lists that day's reservations; 'materiaal' is the equipment overview
+  // itself, which the grid provided on desktop but the day list had no room for.
+  const [mobileTab, setMobileTab] = useState<'dag' | 'materiaal'>('dag')
+
   // Every reservation on the selected day, with its equipment resolved.
   const mobileReservations = useMemo(() => {
     return visibleEquipment
@@ -902,20 +906,22 @@ export default function EquipmentPlanner() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-zinc-800">
-        <div className="flex items-center gap-3">
-          <div>
-            <h1 className="text-lg font-semibold text-zinc-100">Materiaalplanning</h1>
-            <p className="text-sm text-zinc-400 mt-0.5">{MONTH_NAMES[month]} {year}</p>
+      <div className="flex-shrink-0 flex items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-zinc-800">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="min-w-0">
+            <h1 className="text-base sm:text-lg font-semibold text-zinc-100 truncate">Materiaalplanning</h1>
+            <p className="text-xs sm:text-sm text-zinc-400 mt-0.5">{MONTH_NAMES[month]} {year}</p>
           </div>
           {isAdmin && (
-            <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold"
+            <span className="hidden sm:inline px-2 py-0.5 rounded-full text-[11px] font-semibold flex-shrink-0"
               style={{ background: 'rgba(251,191,36,0.15)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)' }}>
               Beheerder
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        {/* Desktop control cluster. On mobile these live in the day view below,
+            where they fit — this row has no space for them on a phone. */}
+        <div className="hidden lg:flex items-center gap-2">
           {/* Search */}
           <div className="relative">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
@@ -987,6 +993,123 @@ export default function EquipmentPlanner() {
 
       {/* ── Mobile: one day, listed as reservations ── */}
       <div className="lg:hidden flex flex-col flex-1 min-h-0 px-4 pt-3 gap-3">
+        {/* Month navigation — the desktop cluster is hidden on phones, so
+            without this there is no way to leave the current month. */}
+        <div className="flex items-center justify-between gap-2 flex-shrink-0">
+          <button onClick={prevMonth} aria-label="Vorige maand"
+            className="w-9 h-9 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400">
+            <ChevronLeft size={16} />
+          </button>
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-sm font-semibold text-zinc-200 truncate">{MONTH_NAMES[month]} {year}</span>
+            {!isCurrentMonth && (
+              <button
+                onClick={() => { setYear(today.getFullYear()); setMonth(today.getMonth()); setMobileDay(today.getDate()) }}
+                className="px-2 py-1 text-[11px] text-zinc-400 border border-zinc-700 rounded-lg flex-shrink-0"
+              >
+                Vandaag
+              </button>
+            )}
+          </div>
+          <button onClick={nextMonth} aria-label="Volgende maand"
+            className="w-9 h-9 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400">
+            <ChevronRight size={16} />
+          </button>
+        </div>
+
+        {/* Dag ↔ Materiaal */}
+        <div className="flex p-0.5 rounded-lg bg-zinc-900 border border-zinc-800 flex-shrink-0">
+          {(['dag', 'materiaal'] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setMobileTab(tab)}
+              className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                mobileTab === tab ? 'bg-zinc-700 text-white' : 'text-zinc-400'
+              }`}
+            >
+              {tab === 'dag' ? 'Dag' : 'Materiaal'}
+            </button>
+          ))}
+        </div>
+
+        {mobileTab === 'materiaal' ? (
+          <>
+            <div className="relative flex-shrink-0">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Zoek materiaal…"
+                className="w-full pl-9 pr-9 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
+              />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery('')} aria-label="Zoekopdracht wissen"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500">
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+
+            {(canToevoegen || canStats) && (
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {canToevoegen && (
+                  <button
+                    onClick={() => setAddEquipModal(true)}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border border-zinc-700 text-xs text-zinc-300"
+                  >
+                    <Plus size={13} /> Materiaal toevoegen
+                  </button>
+                )}
+                {canStats && (
+                  <Link href="/equipment/stats"
+                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-zinc-700 text-xs text-zinc-400"
+                  >
+                    <BarChart3 size={13} /> Stats
+                  </Link>
+                )}
+              </div>
+            )}
+
+            <div className="flex-1 overflow-y-auto pb-4 space-y-4">
+              {categories.length === 0 ? (
+                <div className="py-12 text-center text-sm text-zinc-600">Geen materiaal gevonden.</div>
+              ) : categories.map(cat => (
+                <div key={cat}>
+                  <p className="section-label mb-1.5" style={{ color: catColor(cat) }}>{cat}</p>
+                  <div className="space-y-1.5">
+                    {visibleEquipment.filter(e => e.category === cat).map(item => {
+                      const res = resMap.get(`${item.id}_${mobileDate}`)
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => res
+                            ? setViewModal({ equipment: item, date: mobileDate, reservation: res })
+                            : canReserveren
+                              ? setCreateModal({ equipment: item, date: mobileDate })
+                              : setInfoItem(item)}
+                          className="w-full text-left rounded-xl border border-zinc-800 bg-zinc-900/60 p-2.5 flex items-center gap-2.5"
+                        >
+                          <span className="w-1 self-stretch rounded-full flex-shrink-0" style={{ backgroundColor: catColor(cat) }} />
+                          <span className="flex-1 min-w-0 text-sm text-zinc-100 truncate">{item.name}</span>
+                          {res ? (
+                            <span className="flex items-center gap-1.5 flex-shrink-0">
+                              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: getUserColor(res.reserved_by) }} />
+                              <span className="text-[11px] text-zinc-400">{getFirstName(res.reserved_by)}</span>
+                            </span>
+                          ) : (
+                            <span className="text-[11px] text-zinc-600 flex-shrink-0">Vrij</span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+        <>
         <div className="scroll-x flex-shrink-0 -mx-1 px-1">
           <div className="flex gap-1.5">
             {days.map(d => {
@@ -1053,12 +1176,12 @@ export default function EquipmentPlanner() {
               >
                 <span className="w-1 self-stretch rounded-full flex-shrink-0" style={{ backgroundColor: catColor(item.category) }} />
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-sm font-medium text-zinc-100 truncate">{item.name}</span>
-                    <span className="text-[10px] uppercase tracking-wide flex-shrink-0" style={{ color: catColor(item.category) }}>
-                      {item.category}
-                    </span>
-                  </div>
+                  {/* Category names run long ("Ballieman + mobiele studio"), so
+                      they sit under the name rather than competing with it. */}
+                  <span className="block text-sm font-medium text-zinc-100 truncate">{item.name}</span>
+                  <span className="block text-[10px] uppercase tracking-wide truncate" style={{ color: catColor(item.category) }}>
+                    {item.category}
+                  </span>
                   <div className="mt-1 flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: getUserColor(res.reserved_by) }} />
                     <span className="text-xs text-zinc-400 truncate">{getFirstName(res.reserved_by)}</span>
@@ -1074,6 +1197,8 @@ export default function EquipmentPlanner() {
             ))
           )}
         </div>
+        </>
+        )}
       </div>
 
       {/* Grid — desktop only */}
