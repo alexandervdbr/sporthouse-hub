@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import { ADMIN_EMAILS } from '@/lib/auth-permissions'
 import {
@@ -357,13 +357,16 @@ function AddEquipmentModal({
 interface CreateModalProps {
   equipment: EquipmentItem[]
   resMap: Map<string, Reservation>
+  // Every reservation, so the modal can show each chosen item's previous and
+  // next booking relative to the dates being picked.
+  allReservations: Reservation[]
   initialEquipment?: EquipmentItem
   initialDate?: string
   onClose: () => void
   onCreated: (reservations: Reservation[]) => void
 }
 
-function ReservationCreateModal({ equipment, resMap, initialEquipment, initialDate, onClose, onCreated }: CreateModalProps) {
+function ReservationCreateModal({ equipment, resMap, allReservations, initialEquipment, initialDate, onClose, onCreated }: CreateModalProps) {
   const today = toISO(new Date())
 
   const [query,       setQuery]       = useState('')
@@ -393,6 +396,23 @@ function ReservationCreateModal({ equipment, resMap, initialEquipment, initialDa
     () => getOccupiedDates(pickupDate, pickupTime, returnDate, returnTime),
     [pickupDate, pickupTime, returnDate, returnTime]
   )
+
+  // Per chosen item: who had it last before this pickup, and who gets it next
+  // after this return. Measured against the dates in the form, so it updates
+  // as you change them.
+  const history = useMemo(() => {
+    const map = new Map<string, { last?: Reservation; next?: Reservation }>()
+    for (const r of allReservations) {
+      const entry = map.get(r.equipment_id) ?? {}
+      if (r.date < pickupDate) {
+        if (!entry.last || r.date > entry.last.date) entry.last = r
+      } else if (r.date > returnDate) {
+        if (!entry.next || r.date < entry.next.date) entry.next = r
+      }
+      map.set(r.equipment_id, entry)
+    }
+    return map
+  }, [allReservations, pickupDate, returnDate])
 
   // Which of the chosen items are already booked on any of these dates.
   const conflicts = useMemo(
@@ -482,6 +502,17 @@ function ReservationCreateModal({ equipment, resMap, initialEquipment, initialDa
                         <p className="text-sm font-medium text-zinc-100 truncate">{item.name}</p>
                         <p className="text-[10px] uppercase tracking-wider" style={{ color: itemConflict ? '#f87171' : c }}>
                           {itemConflict ? `Bezet op ${itemConflict.dates.length} van deze dagen` : item.category}
+                        </p>
+                        {/* Who had it before, who gets it after — the same
+                            context the Materiaal tab gives. */}
+                        <p className="text-[10px] leading-relaxed text-zinc-500 mt-0.5">
+                          {(() => {
+                            const h = history.get(item.id)
+                            const parts: string[] = []
+                            if (h?.last) parts.push(`Laatst: ${getFirstName(h.last.reserved_by)} · ${shortDate(h.last.date)}`)
+                            if (h?.next) parts.push(`Daarna: ${getFirstName(h.next.reserved_by)} · ${shortDate(h.next.date)}`)
+                            return parts.length ? parts.join('   ') : 'Geen andere reservaties'
+                          })()}
                         </p>
                       </div>
                     </div>
@@ -935,11 +966,24 @@ export default function EquipmentPlanner() {
   // The dates × equipment grid can't shrink to a phone, and scrolling it
   // sideways means hunting for the column you want. Below lg we show a single
   // day as a list of that day's reservations instead.
-  const [mobileDay, setMobileDay] = useState(isCurrentMonth ? today.getDate() : 1)
+  const todayDate = today.getDate()
+  const [mobileDay, setMobileDay] = useState(isCurrentMonth ? todayDate : 1)
 
+  // Landing on a month always lands on today when it's the current one.
   useEffect(() => {
-    setMobileDay(prev => Math.min(prev, daysInMonth) || 1)
-  }, [month, year, daysInMonth])
+    setMobileDay(isCurrentMonth ? Math.min(todayDate, daysInMonth) : 1)
+  }, [month, year, isCurrentMonth, daysInMonth, todayDate])
+
+  // The strip holds a whole month, so the selected day is usually off-screen on
+  // a phone. Without this you open the page on today but are looking at the 1st.
+  const dayStripRef    = useRef<HTMLDivElement>(null)
+  const selectedDayRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    const strip = dayStripRef.current
+    const btn   = selectedDayRef.current
+    if (!strip || !btn) return
+    strip.scrollLeft = btn.offsetLeft - strip.clientWidth / 2 + btn.clientWidth / 2
+  }, [mobileDay, month, year])
 
   const mobileDate = toISO(new Date(year, month, mobileDay))
 
@@ -1099,7 +1143,7 @@ export default function EquipmentPlanner() {
 
         {/* Day strip — shared by both tabs: the selected day drives the
             reservation list and the status shown per item. */}
-        <div className="scroll-x flex-shrink-0 -mx-1 px-1">
+        <div ref={dayStripRef} className="scroll-x flex-shrink-0 -mx-1 px-1">
           <div className="flex gap-1.5">
             {days.map(d => {
               const dayNum = d.getDate()
@@ -1109,6 +1153,7 @@ export default function EquipmentPlanner() {
               return (
                 <button
                   key={dayNum}
+                  ref={isSel ? selectedDayRef : undefined}
                   onClick={() => setMobileDay(dayNum)}
                   className={`relative flex-shrink-0 w-11 py-1.5 rounded-lg border text-center transition-colors ${
                     isSel
@@ -1553,6 +1598,7 @@ export default function EquipmentPlanner() {
         <ReservationCreateModal
           equipment={equipment}
           resMap={resMap}
+          allReservations={allReservations}
           initialEquipment={createModal.equipment}
           initialDate={createModal.date}
           onClose={() => setCreateModal(null)}
