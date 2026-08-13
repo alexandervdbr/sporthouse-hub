@@ -39,11 +39,28 @@ interface Breadcrumb {
   name: string
 }
 
+// Describes which backend this manager talks to. Both backends expose the same
+// REST contract; only the paths, the scope parameter and a couple of labels
+// differ, so the entire UI below is shared verbatim between client files and
+// the Sporthouse Intern documents (Financiën/Administratie).
+export interface FileManagerBackend {
+  filesApi: string   // e.g. '/api/files' — also hosts /download, /restore, /purge, /upload-session, /finalize
+  foldersApi: string // e.g. '/api/folders'
+  scopeKey: string   // 'clientId' | 'section'
+  scopeValue: string // a client uuid, or 'finance' | 'administration'
+  rootLabel: string  // breadcrumb label for the root folder
+}
+
 interface Props {
-  clientId: string
+  backend: FileManagerBackend
   currentUserEmail: string | null
   isAdmin: boolean
   canDeleteFiles: boolean
+  // Hides every mutating control (upload, new folder, rename/delete folder).
+  // Client files leave this on for any logged-in user; the Sporthouse Intern
+  // sections pass the section's *_beheren permission, so a view-only user
+  // isn't shown buttons the API would refuse anyway.
+  canManage?: boolean
 }
 
 interface PendingEntry {
@@ -107,6 +124,8 @@ const UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024
 // response back to us, so everything below still reads like talking to Drive
 // directly. Resolves { done: true, driveFileId } once Drive confirms the
 // file is complete (final chunk), or { done: false } if more are expected.
+// The relay itself is backend-agnostic — it only forwards bytes to whichever
+// Drive session URL it's handed — so both backends share this one route.
 function putChunk(uploadUrl: string, file: File, start: number, end: number): Promise<{ done: boolean; driveFileId?: string }> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
@@ -281,11 +300,17 @@ function formatSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export default function FileManager({ clientId, currentUserEmail, isAdmin, canDeleteFiles }: Props) {
+export default function FileManager({ backend, currentUserEmail, isAdmin, canDeleteFiles, canManage = true }: Props) {
+  const { filesApi, foldersApi, scopeKey, scopeValue, rootLabel } = backend
+  // `clientId=<uuid>` or `section=finance` — appended to every scoped request.
+  const scopeQuery = `${scopeKey}=${encodeURIComponent(scopeValue)}`
+  // Namespaces the remembered breadcrumb trail per tab, so Financiën,
+  // Administratie and each client's files don't restore each other's folder.
+  const scopeStorageKey = `${filesApi}:${scopeValue}`
 
   // Navigation
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null)
-  const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([{ id: null, name: 'Bestanden' }])
+  const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([{ id: null, name: rootLabel }])
 
   // Restore the last-visited folder for this client after a reload, instead
   // of always dropping back to the root. Done in an effect (not a lazy
@@ -294,7 +319,7 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
   // mismatch.
   useEffect(() => {
     try {
-      const raw = sessionStorage.getItem(`files-breadcrumbs-${clientId}`)
+      const raw = sessionStorage.getItem(`files-breadcrumbs-${scopeStorageKey}`)
       if (!raw) return
       const saved: Breadcrumb[] = JSON.parse(raw)
       if (Array.isArray(saved) && saved.length > 0) {
@@ -307,13 +332,13 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
       }
     } catch { /* ignore malformed/unavailable storage */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientId])
+  }, [scopeStorageKey])
 
   useEffect(() => {
     try {
-      sessionStorage.setItem(`files-breadcrumbs-${clientId}`, JSON.stringify(breadcrumbs))
+      sessionStorage.setItem(`files-breadcrumbs-${scopeStorageKey}`, JSON.stringify(breadcrumbs))
     } catch { /* ignore, e.g. private-browsing storage restrictions */ }
-  }, [breadcrumbs, clientId])
+  }, [breadcrumbs, scopeStorageKey])
 
   // Data
   const [folders, setFolders] = useState<FolderRecord[]>([])
@@ -425,13 +450,13 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
     setLoading(true)
     const fid = currentFolderId ?? 'null'
     const [foldersRes, filesRes] = await Promise.all([
-      fetch(`/api/folders?clientId=${clientId}&parentId=${fid}`),
-      fetch(`/api/files?clientId=${clientId}&folderId=${fid}`),
+      fetch(`${foldersApi}?${scopeQuery}&parentId=${fid}`),
+      fetch(`${filesApi}?${scopeQuery}&folderId=${fid}`),
     ])
     if (foldersRes.ok) setFolders(await foldersRes.json())
     if (filesRes.ok) setFiles(await filesRes.json())
     setLoading(false)
-  }, [clientId, currentFolderId])
+  }, [foldersApi, filesApi, scopeQuery, currentFolderId])
 
   useEffect(() => { loadData() }, [loadData])
 
@@ -444,10 +469,10 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
 
   const loadTrash = useCallback(async () => {
     setTrashLoading(true)
-    const res = await fetch(`/api/files?clientId=${clientId}&trashed=true`)
+    const res = await fetch(`${filesApi}?${scopeQuery}&trashed=true`)
     if (res.ok) setTrashedFiles(await res.json())
     setTrashLoading(false)
-  }, [clientId])
+  }, [filesApi, scopeQuery])
 
   useEffect(() => { if (showTrash) loadTrash() }, [showTrash, loadTrash])
 
@@ -456,12 +481,12 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
     if (!search.trim()) { setGlobalResults([]); return }
     let cancelled = false
     setGlobalLoading(true)
-    fetch(`/api/files?clientId=${clientId}&all=true`)
+    fetch(`${filesApi}?${scopeQuery}&all=true`)
       .then(r => r.ok ? r.json() : [])
       .then(data => { if (!cancelled) { setGlobalResults(data); setGlobalLoading(false) } })
       .catch(() => { if (!cancelled) setGlobalLoading(false) })
     return () => { cancelled = true }
-  }, [search, clientId])
+  }, [search, filesApi, scopeQuery])
 
   function navigateInto(folder: FolderRecord) {
     setCurrentFolderId(folder.id)
@@ -490,10 +515,10 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
     if (!newFolderName.trim()) return
     setCreatingFolder(true)
     setCreateFolderError(null)
-    const res = await fetch('/api/folders', {
+    const res = await fetch(foldersApi, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientId, name: newFolderName.trim(), parentId: currentFolderId }),
+      body: JSON.stringify({ [scopeKey]: scopeValue, name: newFolderName.trim(), parentId: currentFolderId }),
     })
     if (res.ok) {
       setNewFolderName('')
@@ -502,7 +527,7 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
     } else {
       const text = await res.text()
       setCreateFolderError(
-        text.includes('file_folders') || text.includes('does not exist')
+        text.includes('file_folders') || text.includes('sporthouse_document_folders') || text.includes('does not exist')
           ? 'Voer eerst de SQL uit in Supabase om mappen te activeren.'
           : `Fout: ${text}`
       )
@@ -512,7 +537,7 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
 
   async function handleRenameFolder(id: string) {
     if (!renameValue.trim()) { setRenamingId(null); return }
-    await fetch(`/api/folders/${id}`, {
+    await fetch(`${foldersApi}/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: renameValue.trim() }),
@@ -524,7 +549,7 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
   function openDeleteFolderConfirm(folder: FolderRecord) {
     setFolderToDelete(folder)
     setFolderDeleteContentsCount(null)
-    fetch(`/api/folders/${folder.id}/contents`)
+    fetch(`${foldersApi}/${folder.id}/contents`)
       .then(r => r.ok ? r.json() : null)
       .then((data: { files: unknown[] } | null) => { if (data) setFolderDeleteContentsCount(data.files.length) })
       .catch(() => {})
@@ -533,7 +558,7 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
   async function performFolderDelete(mode: 'delete' | 'move') {
     if (!folderToDelete) return
     setDeletingFolderBusy(true)
-    await fetch(`/api/folders/${folderToDelete.id}?mode=${mode}`, { method: 'DELETE' })
+    await fetch(`${foldersApi}/${folderToDelete.id}?mode=${mode}`, { method: 'DELETE' })
     setDeletingFolderBusy(false)
     setFolderToDelete(null)
     loadData()
@@ -572,7 +597,7 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
     setDragOverFolderId(null)
     setDraggingFileId(null)
     if (!fileId) return
-    await fetch(`/api/files?id=${fileId}`, {
+    await fetch(`${filesApi}?id=${fileId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ folderId: targetFolderId }),
@@ -587,7 +612,7 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
     setDragOverRoot(false)
     setDraggingFileId(null)
     if (!fileId) return
-    await fetch(`/api/files?id=${fileId}`, {
+    await fetch(`${filesApi}?id=${fileId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ folderId: targetFolderId }),
@@ -699,15 +724,15 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
       const parentPath = idx === -1 ? '' : dirPath.slice(0, idx)
       const parentId = await resolveFolderId(parentPath)
 
-      const listRes = await fetch(`/api/folders?clientId=${clientId}&parentId=${parentId ?? 'null'}`)
+      const listRes = await fetch(`${foldersApi}?${scopeQuery}&parentId=${parentId ?? 'null'}`)
       const existing: FolderRecord[] = listRes.ok ? await listRes.json() : []
       let match = existing.find(f => f.name === name)
 
       if (!match) {
-        const createRes = await fetch('/api/folders', {
+        const createRes = await fetch(foldersApi, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ clientId, name, parentId }),
+          body: JSON.stringify({ [scopeKey]: scopeValue, name, parentId }),
         })
         match = createRes.ok ? await createRes.json() : undefined
       }
@@ -744,11 +769,11 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
           const folderId = folderCache.get(dirOf(entry.relativePath)) ?? null
 
           // 1. Open a Drive resumable-upload session (small, fast, no bytes).
-          const sessionRes = await fetch('/api/files/upload-session', {
+          const sessionRes = await fetch(`${filesApi}/upload-session`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              clientId,
+              [scopeKey]: scopeValue,
               folderId,
               filename: entry.file.name,
               mimeType: entry.file.type || 'application/octet-stream',
@@ -767,11 +792,11 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
           })
 
           // 3. Tell our server what landed, so it can write the DB row.
-          const finalizeRes = await fetch('/api/files/finalize', {
+          const finalizeRes = await fetch(`${filesApi}/finalize`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              clientId,
+              [scopeKey]: scopeValue,
               folderId,
               description: description.trim() || null,
               driveFileId,
@@ -814,7 +839,7 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
     setWasRtf(file.file_type.toLowerCase() === 'rtf')
     setEditingFile(file)
     try {
-      const res = await fetch(`/api/files?id=${file.id}&mode=content`)
+      const res = await fetch(`${filesApi}?id=${file.id}&mode=content`)
       if (!res.ok) throw new Error('Fout bij laden')
       const text = await res.text()
       setEditContent(text)
@@ -830,7 +855,7 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
     setEditError(null)
     const content = editor ? editor.getText({ blockSeparator: '\n' }) : editContent
     try {
-      const res = await fetch(`/api/files?id=${editingFile.id}`, {
+      const res = await fetch(`${filesApi}?id=${editingFile.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content }),
@@ -859,7 +884,7 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
   async function handleDownload(file: FileRecord) {
     setDownloadingId(file.id)
     try {
-      const res = await fetch(`/api/files?id=${file.id}`)
+      const res = await fetch(`${filesApi}?id=${file.id}`)
       const result = await res.json()
       if (!result.url) throw new Error('Geen URL')
       const blob = await (await fetch(result.url)).blob()
@@ -874,7 +899,7 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
 
   async function handleDeleteFile(fileId: string) {
     setDeletingId(fileId)
-    const res = await fetch(`/api/files?id=${fileId}`, { method: 'DELETE' })
+    const res = await fetch(`${filesApi}?id=${fileId}`, { method: 'DELETE' })
     const result = await res.json().catch(() => null)
     setDeleteWarning(result?.warning ?? null)
     loadData(); setDeletingId(null)
@@ -899,7 +924,7 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
   // ── Zip download ────────────────────────────────────────────────────────────
 
   async function fetchFolderContents(folderId: string): Promise<{ folderName: string; files: { id: string; filename: string; relativePath: string }[] }> {
-    const res = await fetch(`/api/folders/${folderId}/contents`)
+    const res = await fetch(`${foldersApi}/${folderId}/contents`)
     if (!res.ok) throw new Error('Kon mapinhoud niet ophalen.')
     return res.json()
   }
@@ -923,14 +948,14 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
       await Promise.all(Array.from(selectedIds).map(async (id) => {
         const file = files.find(f => f.id === id)
         if (!file) return
-        const blob = await fetch(`/api/files/download?id=${id}`).then(r => r.blob())
+        const blob = await fetch(`${filesApi}/download?id=${id}`).then(r => r.blob())
         zip.file(file.filename, blob)
       }))
 
       await Promise.all(Array.from(selectedFolderIds).map(async (folderId) => {
         const { folderName, files: folderFiles } = await fetchFolderContents(folderId)
         await Promise.all(folderFiles.map(async (f) => {
-          const blob = await fetch(`/api/files/download?id=${f.id}`).then(r => r.blob())
+          const blob = await fetch(`${filesApi}/download?id=${f.id}`).then(r => r.blob())
           zip.file(`${folderName}/${f.relativePath}`, blob)
         }))
       }))
@@ -938,7 +963,7 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
       const single = selectedIds.size === 0 && selectedFolderIds.size === 1
         ? folders.find(f => f.id === Array.from(selectedFolderIds)[0])?.name
         : null
-      await saveZip(zip, `${single ?? 'Bestanden'}.zip`)
+      await saveZip(zip, `${single ?? rootLabel}.zip`)
     } catch {
       setZipError('Kon de download niet voltooien.')
     }
@@ -953,7 +978,7 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
       const { folderName, files: folderFiles } = await fetchFolderContents(currentFolderId)
       const zip = new JSZip()
       await Promise.all(folderFiles.map(async (f) => {
-        const blob = await fetch(`/api/files/download?id=${f.id}`).then(r => r.blob())
+        const blob = await fetch(`${filesApi}/download?id=${f.id}`).then(r => r.blob())
         zip.file(f.relativePath, blob)
       }))
       await saveZip(zip, `${folderName}.zip`)
@@ -970,7 +995,7 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
 
     setBulkDeleting(true)
     const results = await Promise.all(
-      ids.map(id => fetch(`/api/files?id=${id}`, { method: 'DELETE' }).then(r => r.json().catch(() => null)))
+      ids.map(id => fetch(`${filesApi}?id=${id}`, { method: 'DELETE' }).then(r => r.json().catch(() => null)))
     )
     const warnings = results.filter(r => r?.warning).length
     setDeleteWarning(warnings > 0 ? `${warnings} van de ${ids.length} bestanden werden verwijderd uit de app, maar niet volledig naar de prullenbak in Drive verplaatst.` : null)
@@ -981,7 +1006,7 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
 
   async function handleRestore(fileId: string) {
     setRestoringId(fileId)
-    await fetch(`/api/files/restore?id=${fileId}`, { method: 'POST' })
+    await fetch(`${filesApi}/restore?id=${fileId}`, { method: 'POST' })
     await loadTrash()
     setRestoringId(null)
   }
@@ -989,7 +1014,7 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
   async function handlePurge(fileId: string) {
     if (!confirm('Definitief verwijderen? Dit bestand kan hierna niet meer teruggezet worden.')) return
     setPurgingId(fileId)
-    await fetch(`/api/files/purge?id=${fileId}`, { method: 'DELETE' })
+    await fetch(`${filesApi}/purge?id=${fileId}`, { method: 'DELETE' })
     await loadTrash()
     setPurgingId(null)
   }
@@ -1076,17 +1101,19 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
             className="w-full pl-9 pr-4 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-700 transition-colors"
           />
         </div>
-        <button
-          onClick={() => {
-            setShowNewFolder(true)
-            setCreateFolderError(null)
-            setTimeout(() => newFolderRef.current?.focus(), 50)
-          }}
-          className="flex items-center gap-2 px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-sm text-white rounded-lg transition-colors flex-shrink-0"
-        >
-          <FolderPlus size={14} />
-          Nieuwe map
-        </button>
+        {canManage && (
+          <button
+            onClick={() => {
+              setShowNewFolder(true)
+              setCreateFolderError(null)
+              setTimeout(() => newFolderRef.current?.focus(), 50)
+            }}
+            className="flex items-center gap-2 px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-sm text-white rounded-lg transition-colors flex-shrink-0"
+          >
+            <FolderPlus size={14} />
+            Nieuwe map
+          </button>
+        )}
         {!showTrash && !isGlobalSearch && breadcrumbs.length > 1 && (
           <button
             onClick={handleDownloadCurrentFolder}
@@ -1483,7 +1510,7 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
 
                     {/* 3-dot menu */}
                     {renamingId !== folder.id && (
-                      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                      <div className={`absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10 ${canManage ? '' : 'hidden'}`}>
                         <button
                           onClick={(e) => {
                             e.stopPropagation()
@@ -1646,7 +1673,7 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
       <div className="max-w-5xl mx-auto">
 
       {/* ── Upload zone ── */}
-      {!showTrash && (
+      {!showTrash && canManage && (
       <div className="mt-6 pt-6 border-t border-zinc-800 space-y-3">
         <p className="text-xs text-zinc-500 font-medium uppercase tracking-wider">
           Uploaden{breadcrumbs.length > 1 ? ` in "${breadcrumbs[breadcrumbs.length - 1].name}"` : ''}
@@ -1936,7 +1963,7 @@ export default function FileManager({ clientId, currentUserEmail, isAdmin, canDe
           driveFileId={previewFile.drive_file_id}
           title={previewFile.filename}
           webViewLink={previewFile.web_view_link}
-          downloadHref={`/api/files/download?id=${previewFile.id}`}
+          downloadHref={`${filesApi}/download?id=${previewFile.id}`}
           onClose={() => setPreviewFile(null)}
         />
       )}

@@ -19,7 +19,10 @@ export interface Document {
 
 export interface FileRecord {
   id: string
-  client_id: string
+  // Client files are scoped by client_id, Sporthouse Intern documents by
+  // section — the shared FileManager renders either, so both are optional.
+  client_id?: string
+  section?: 'finance' | 'administration'
   filename: string
   description: string | null
   file_type: string

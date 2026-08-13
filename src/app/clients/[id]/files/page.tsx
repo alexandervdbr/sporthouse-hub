@@ -28,7 +28,15 @@ export default async function ClientFilesPage({ params }: Props) {
 
   return (
     <div className="h-full overflow-y-auto">
-      <FileManager clientId={id} currentUserEmail={user?.email ?? null}
+      <FileManager
+        backend={{
+          filesApi: '/api/files',
+          foldersApi: '/api/folders',
+          scopeKey: 'clientId',
+          scopeValue: id,
+          rootLabel: 'Bestanden',
+        }}
+        currentUserEmail={user?.email ?? null}
         isAdmin={isAdmin} canDeleteFiles={canDeleteFiles} />
     </div>
   )
