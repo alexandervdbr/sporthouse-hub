@@ -499,6 +499,23 @@ export default function PlanningGrid() {
   const activeCell = activeKey ? (data[activeKey] ?? emptyCell()) : null
   const selCount = selectedKeys.size
 
+  // ── Mobile: one day at a time ───────────────────────────────────────────────
+  // A month × employees spreadsheet can't be made legible on a phone, and
+  // scrolling it sideways is worse than useless. Below lg we show a single day
+  // as a list of people instead — the same data, the shape a phone can hold.
+  const isCurrentMonth = month === now.getMonth() + 1 && year === now.getFullYear()
+  const [mobileDay, setMobileDay] = useState(isCurrentMonth ? now.getDate() : 1)
+  const [openPaletteKey, setOpenPaletteKey] = useState<string | null>(null)
+
+  // Changing month must not leave the day picker on a day that doesn't exist
+  // (e.g. 31 → February).
+  useEffect(() => {
+    setMobileDay(prev => Math.min(prev, days.length) || 1)
+    setOpenPaletteKey(null)
+  }, [month, year, days.length])
+
+  const mobileDayInfo = days.find(d => d.day === mobileDay) ?? days[0]
+
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col gap-3 h-full" ref={containerRef}>
@@ -526,17 +543,135 @@ export default function PlanningGrid() {
         )}
       </div>
 
-      {/* Formatting toolbar */}
-      <FormattingToolbar
-        cell={activeCell}
-        hasActive={!!activeKey || selCount > 0}
-        selCount={selCount}
-        onFormat={handleFormat}
-      />
+      {/* Formatting toolbar — multi-select, copy/paste and bulk colouring are
+          desktop interactions, so it's hidden on the mobile day view. */}
+      <div className="hidden lg:block">
+        <FormattingToolbar
+          cell={activeCell}
+          hasActive={!!activeKey || selCount > 0}
+          selCount={selCount}
+          onFormat={handleFormat}
+        />
+      </div>
 
-      {/* Scrollable grid */}
+      {/* ── Mobile: single day, listed per person ── */}
+      <div className="lg:hidden flex flex-col gap-3 flex-1 min-h-0">
+        {/* Day strip — scrolls horizontally, current day centred by the browser */}
+        <div className="scroll-x flex-shrink-0 -mx-1 px-1">
+          <div className="flex gap-1.5">
+            {days.map(d => {
+              const isSel = d.day === mobileDay
+              return (
+                <button
+                  key={d.day}
+                  onClick={() => { setMobileDay(d.day); setOpenPaletteKey(null) }}
+                  className={`flex-shrink-0 w-11 py-1.5 rounded-lg border text-center transition-colors ${
+                    isSel
+                      ? 'bg-zinc-700 border-zinc-500 text-white'
+                      : d.isToday
+                        ? 'bg-[#111d11] border-[#3A913F]/50 text-zinc-300'
+                        : d.isWeekend
+                          ? 'bg-zinc-900/60 border-zinc-800 text-zinc-500'
+                          : 'bg-zinc-900 border-zinc-800 text-zinc-400'
+                  }`}
+                >
+                  <span className="block text-[9px] uppercase tracking-wide opacity-70">{d.dayName.slice(0, 2)}</span>
+                  <span className="block text-sm font-semibold leading-tight">{d.day}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between flex-shrink-0">
+          <button
+            onClick={() => setMobileDay(d => Math.max(1, d - 1))}
+            disabled={mobileDay <= 1}
+            className="w-9 h-9 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 disabled:opacity-30"
+            aria-label="Vorige dag"
+          >
+            <ChevronLeft size={15} />
+          </button>
+          <span className="text-sm font-semibold text-sh-grey">
+            {mobileDayInfo?.dayName} {mobileDay} {DUTCH_MONTHS[month - 1]}
+          </span>
+          <button
+            onClick={() => setMobileDay(d => Math.min(days.length, d + 1))}
+            disabled={mobileDay >= days.length}
+            className="w-9 h-9 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 disabled:opacity-30"
+            aria-label="Volgende dag"
+          >
+            <ChevronRight size={15} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto space-y-4 pb-4">
+          {activeDepts.map(dept => (
+            <div key={dept.name}>
+              <p className="section-label mb-1.5">{dept.name}</p>
+              <div className="space-y-1.5">
+                {dept.employees.map(emp => {
+                  const key    = cellKey(mobileDay, dept.name, emp)
+                  const cell   = data[key] ?? emptyCell()
+                  const locked = !canEditCol(emp)
+                  return (
+                    <div key={emp} className="rounded-xl border border-zinc-800 bg-zinc-900/60 overflow-hidden">
+                      <div className="flex items-center gap-2 p-2">
+                        <span className="w-24 flex-shrink-0 text-xs text-zinc-400 truncate">{emp}</span>
+                        <input
+                          value={cell.value}
+                          disabled={locked}
+                          onChange={e => handleTextChange(mobileDay, dept.name, emp, e.target.value)}
+                          placeholder={locked ? '—' : 'Leeg'}
+                          className="flex-1 min-w-0 bg-transparent px-2 py-1.5 rounded-lg outline-none text-sm placeholder:text-zinc-600 disabled:opacity-50"
+                          style={{
+                            backgroundColor: cell.bgColor ?? 'transparent',
+                            color: cell.bgColor ? '#ffffff' : (cell.textColor ?? '#e4e4e7'),
+                            fontWeight: cell.bold ? 600 : 400,
+                          }}
+                        />
+                        {!locked && (
+                          <button
+                            onClick={() => setOpenPaletteKey(k => k === key ? null : key)}
+                            aria-label="Kleur kiezen"
+                            className="w-8 h-8 flex-shrink-0 rounded-lg border border-zinc-700 flex items-center justify-center"
+                            style={{ backgroundColor: cell.bgColor ?? 'transparent' }}
+                          >
+                            {!cell.bgColor && <span className="w-3 h-3 rounded-full border border-zinc-600" />}
+                          </button>
+                        )}
+                      </div>
+                      {openPaletteKey === key && !locked && (
+                        <div className="flex flex-wrap gap-2 px-2 pb-2 pt-1 border-t border-zinc-800">
+                          {BG_COLORS.map(c => (
+                            <button
+                              key={c.label}
+                              onClick={() => {
+                                applyUpdates({ [key]: { ...cell, bgColor: c.value } })
+                                setOpenPaletteKey(null)
+                              }}
+                              title={c.label}
+                              className="w-7 h-7 rounded-full"
+                              style={{
+                                backgroundColor: c.display,
+                                border: cell.bgColor === c.value ? '2px solid #fff' : c.value === null ? '2px dashed #52525b' : '2px solid transparent',
+                              }}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Scrollable grid — desktop only */}
       <div
-        className="overflow-auto flex-1 border border-zinc-800 rounded-xl select-none"
+        className="hidden lg:block overflow-auto flex-1 border border-zinc-800 rounded-xl select-none"
         style={{ minWidth: 0 }}
         onMouseLeave={() => { if (isDragging) setIsDragging(false) }}
       >
