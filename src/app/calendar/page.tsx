@@ -109,7 +109,7 @@ export default async function CalendarOverviewPage() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="p-8 max-w-6xl mx-auto">
+      <div className="p-4 sm:p-8 max-w-6xl mx-auto">
 
         {/* Header */}
         <div className="mb-8">

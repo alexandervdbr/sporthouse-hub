@@ -1258,7 +1258,7 @@ export default function ChatPage() {
                   <ColorPicker value={newChannelColor} onChange={setNewChannelColor} />
                 </div>
               </div>
-              <div className="flex items-center justify-end gap-3 p-5" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+              <div className="flex flex-wrap items-center justify-end gap-3 p-5" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
                 <button onClick={() => setShowNewChannel(false)} className="px-4 py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors">
                   Annuleren
                 </button>
@@ -1319,7 +1319,7 @@ export default function ChatPage() {
                 </div>
               </div>
             </div>
-            <div className="flex items-center justify-end gap-3 p-5" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+            <div className="flex flex-wrap items-center justify-end gap-3 p-5" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
               <button onClick={() => setShowNewCategory(false)} className="px-4 py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors">
                 Annuleren
               </button>
@@ -1387,7 +1387,7 @@ export default function ChatPage() {
                 <ColorPicker value={editColor} onChange={setEditColor} />
               </div>
             </div>
-            <div className="flex items-center justify-end gap-3 p-5" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+            <div className="flex flex-wrap items-center justify-end gap-3 p-5" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
               <button onClick={() => setEditingChannel(null)} className="px-4 py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors">
                 Annuleren
               </button>

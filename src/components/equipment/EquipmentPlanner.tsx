@@ -329,7 +329,7 @@ function AddEquipmentModal({
         )}
       </div>
 
-      <div className="px-5 py-3 border-t border-zinc-800 flex items-center gap-2">
+      <div className="px-5 py-3 border-t border-zinc-800 flex flex-wrap items-center gap-2">
         <button onClick={onClose} className="px-4 py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors">
           Annuleren
         </button>
@@ -566,7 +566,7 @@ function ReservationCreateModal({ equipment, resMap, initialEquipment, initialDa
       </div>
 
       {/* Footer */}
-      <div className="px-5 py-3 border-t border-zinc-800 flex items-center gap-2">
+      <div className="px-5 py-3 border-t border-zinc-800 flex flex-wrap items-center gap-2">
         <button onClick={onClose} className="px-4 py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors">
           Annuleren
         </button>
@@ -697,7 +697,7 @@ function ReservationViewModal({ equipment, reservation: res, currentUser, isAdmi
         )}
       </div>
 
-      <div className="px-5 py-3 border-t border-zinc-800 flex items-center gap-2">
+      <div className="px-5 py-3 border-t border-zinc-800 flex flex-wrap items-center gap-2">
         {canDelete && (
           <button onClick={handleDelete} disabled={deleting}
             className="flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:text-red-300 bg-red-950/30 hover:bg-red-950/50 border border-red-900/40 rounded-lg transition-colors disabled:opacity-50">
@@ -1483,7 +1483,7 @@ export default function EquipmentPlanner() {
             </p>
             <p className="text-xs text-zinc-500 mt-1">Alle reservaties voor dit materiaal worden ook verwijderd.</p>
           </div>
-          <div className="px-5 py-3 border-t border-zinc-800 flex items-center gap-2">
+          <div className="px-5 py-3 border-t border-zinc-800 flex flex-wrap items-center gap-2">
             <button onClick={() => setDeleteConfirm(null)} className="px-4 py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors">
               Annuleren
             </button>

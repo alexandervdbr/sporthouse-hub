@@ -461,7 +461,7 @@ export default function ContentPlanner({
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="p-8 max-w-4xl mx-auto">
+      <div className="p-4 sm:p-8 max-w-4xl mx-auto">
 
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
@@ -474,12 +474,12 @@ export default function ContentPlanner({
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-fit mb-6">
+        <div className="flex gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-fit max-w-full overflow-x-auto mb-6">
           {tabs.map(tab => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all flex-shrink-0 whitespace-nowrap ${
                 activeTab === tab.key
                   ? 'bg-white text-zinc-900'
                   : 'text-zinc-400 hover:text-zinc-200'
@@ -517,7 +517,7 @@ export default function ContentPlanner({
                     </div>
                   ))}
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <button
                     onClick={handleReset}
                     className="px-4 py-2 bg-white text-zinc-900 rounded-lg text-sm font-medium hover:bg-zinc-100 transition-colors"
@@ -662,7 +662,7 @@ export default function ContentPlanner({
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <button
                     onClick={handlePush}
                     disabled={!canPush || pushing}
@@ -706,7 +706,7 @@ export default function ContentPlanner({
         {activeTab === 'stats' && (
           <div>
             {/* Periode selector */}
-            <div className="flex gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-fit mb-6">
+            <div className="flex gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-fit max-w-full overflow-x-auto mb-6">
               {([
                 { key: '1m', label: 'Deze maand' },
                 { key: 'prev', label: 'Vorige maand' },

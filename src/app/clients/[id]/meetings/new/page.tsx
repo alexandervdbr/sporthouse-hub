@@ -28,7 +28,7 @@ export default async function NewMeetingPage({ params }: Props) {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="p-8 max-w-3xl mx-auto">
+      <div className="p-4 sm:p-8 max-w-3xl mx-auto">
         <div className="mb-8">
           <Link
             href={`/clients/${id}/meetings`}
