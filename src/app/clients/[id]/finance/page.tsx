@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound, redirect } from 'next/navigation'
-import DocumentManager from '@/components/sporthouse/DocumentManager'
+import FileManager from '@/components/clients/FileManager'
 import { ADMIN_EMAILS } from '@/lib/auth-permissions'
 
 interface Props {
@@ -28,10 +28,18 @@ export default async function FinancePage({ params }: Props) {
 
   return (
     <div className="h-full overflow-y-auto">
-      <DocumentManager
-        section="finance"
-        canManage={canManage}
+      <FileManager
+        backend={{
+          filesApi: '/api/sporthouse/documents',
+          foldersApi: '/api/sporthouse/folders',
+          scopeKey: 'section',
+          scopeValue: 'finance',
+          rootLabel: 'Financiën',
+        }}
         currentUserEmail={user?.email ?? null}
+        isAdmin={isAdmin}
+        canDeleteFiles={canManage}
+        canManage={canManage}
       />
     </div>
   )
