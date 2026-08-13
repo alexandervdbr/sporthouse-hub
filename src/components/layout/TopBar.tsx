@@ -1,9 +1,10 @@
 'use client'
 
-import { Search, Square, HelpCircle } from 'lucide-react'
+import { Search, Square, HelpCircle, Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import SearchModal from '@/components/search/SearchModal'
 import { useRecording } from '@/contexts/RecordingContext'
 import { useTour } from '@/contexts/TourContext'
+import { useSidebar } from '@/contexts/SidebarContext'
 import { useRouter } from 'next/navigation'
 
 const MAX_DURATION = 90 * 60
@@ -65,29 +66,52 @@ function RecordingBar() {
 
 export default function TopBar() {
   const { start } = useTour()
+  const { collapsed, toggleCollapsed, openMobile } = useSidebar()
 
   return (
     <>
       <SearchModal />
-      <div className="flex-shrink-0 h-12 border-b border-zinc-700/60 bg-zinc-900/60 flex items-center justify-between px-6 gap-4">
+      <div className="flex-shrink-0 h-12 border-b border-zinc-700/60 bg-zinc-900/60 flex items-center justify-between px-3 sm:px-6 gap-2 sm:gap-4">
+        {/* Opens the drawer on mobile; from lg the sidebar is always in the page. */}
+        <button
+          onClick={openMobile}
+          aria-label="Menu openen"
+          className="flex items-center justify-center w-9 h-9 -ml-1 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/70 transition-colors lg:hidden"
+        >
+          <Menu size={18} />
+        </button>
+
+        {/* Collapses the sidebar to an icon rail on desktop. */}
+        <button
+          onClick={toggleCollapsed}
+          aria-label={collapsed ? 'Zijbalk uitklappen' : 'Zijbalk inklappen'}
+          title={`${collapsed ? 'Zijbalk uitklappen' : 'Zijbalk inklappen'} (⌘\\)`}
+          className="hidden lg:flex items-center justify-center w-8 h-8 rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/70 transition-colors"
+        >
+          {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+        </button>
+
         <RecordingBar />
 
         <div className="flex items-center gap-2 ml-auto">
           <button
             data-tour="search-button"
             onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }))}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 hover:border-zinc-600 hover:bg-zinc-800/70 transition-all"
+            aria-label="Zoeken"
+            className="flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 hover:border-zinc-600 hover:bg-zinc-800/70 transition-all"
           >
             <Search size={12} />
-            <span>Zoeken…</span>
-            <kbd className="ml-1 text-zinc-500 font-sans">⌘K</kbd>
+            {/* The label and shortcut are noise on a phone — the icon is enough. */}
+            <span className="hidden sm:inline">Zoeken…</span>
+            <kbd className="ml-1 text-zinc-500 font-sans hidden sm:inline">⌘K</kbd>
           </button>
 
           <button
             data-tour="tour-button"
             onClick={start}
             title="Platform rondleiding"
-            className="flex items-center justify-center w-8 h-8 rounded-lg text-zinc-500 hover:text-zinc-200 border border-zinc-700 hover:border-zinc-600 hover:bg-zinc-800/70 transition-all"
+            aria-label="Platform rondleiding"
+            className="hidden sm:flex items-center justify-center w-8 h-8 rounded-lg text-zinc-500 hover:text-zinc-200 border border-zinc-700 hover:border-zinc-600 hover:bg-zinc-800/70 transition-all"
           >
             <HelpCircle size={14} />
           </button>

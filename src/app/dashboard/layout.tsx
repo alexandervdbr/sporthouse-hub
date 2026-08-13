@@ -1,9 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import Sidebar from '@/components/layout/Sidebar'
-import TopBar from '@/components/layout/TopBar'
-import PushNotificationSetup from '@/components/layout/PushNotificationSetup'
-import PreviewBanner from '@/components/layout/PreviewBanner'
+import AppShell from '@/components/layout/AppShell'
 import { Client } from '@/types/database'
 import { filterClientsForUser } from '@/lib/filter-clients'
 
@@ -25,16 +22,8 @@ export default async function DashboardLayout({
   const visibleClients = filterClientsForUser((clients as Client[]) || [], user)
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <PushNotificationSetup />
-      <Sidebar clients={visibleClients} />
-      <main className="flex-1 flex flex-col overflow-hidden bg-zinc-950">
-        <PreviewBanner />
-        <TopBar />
-        <div className="flex-1 overflow-y-auto">
-          {children}
-        </div>
-      </main>
-    </div>
+    <AppShell clients={visibleClients} pushNotifications>
+      {children}
+    </AppShell>
   )
 }
