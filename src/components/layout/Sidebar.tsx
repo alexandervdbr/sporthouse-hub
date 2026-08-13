@@ -6,7 +6,8 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { Client } from '@/types/database'
-import { LayoutDashboard, KanbanSquare, CalendarDays, CalendarRange, Users, LogOut, Camera, UserCheck, MessageSquare, ShieldCheck, Sparkles, Lock, Layers } from 'lucide-react'
+import { LayoutDashboard, KanbanSquare, CalendarDays, CalendarRange, Users, LogOut, Camera, UserCheck, MessageSquare, ShieldCheck, Sparkles, Lock, Layers, X } from 'lucide-react'
+import { useSidebar } from '@/contexts/SidebarContext'
 import { cn } from '@/lib/utils'
 import { getLogo } from '@/lib/logos'
 import { usePreview } from '@/lib/preview-context'
@@ -16,17 +17,24 @@ interface SidebarProps {
   clients: Client[]
 }
 
-function NavGroup({ title, clients, pathname }: {
+function NavGroup({ title, clients, pathname, collapsed }: {
   title: string
   clients: Client[]
   pathname: string
+  collapsed: boolean
 }) {
   if (clients.length === 0) return null
   return (
     <div className="mb-5">
-      <p className="px-3 mb-1.5 text-[10px] font-semibold text-zinc-500 uppercase tracking-widest">
-        {title}
-      </p>
+      {/* In the collapsed rail the group heading has no room; a hairline keeps
+          the visual grouping without the text. */}
+      {collapsed ? (
+        <div className="mx-2 mb-1.5" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }} />
+      ) : (
+        <p className="px-3 mb-1.5 text-[10px] font-semibold text-zinc-500 uppercase tracking-widest">
+          {title}
+        </p>
+      )}
       {clients.map((client) => {
         const logo = getLogo(client.name, client.logo_url)
         const isActive = pathname.startsWith(`/clients/${client.id}`)
@@ -34,13 +42,17 @@ function NavGroup({ title, clients, pathname }: {
           <Link
             key={client.id}
             href={`/clients/${client.id}`}
+            title={collapsed ? client.name : undefined}
             className={cn(
               'group flex items-center gap-2.5 py-1.5 rounded-lg text-sm transition-all duration-150 mb-0.5 relative',
+              collapsed && 'justify-center',
               isActive
                 ? 'text-zinc-100 font-medium'
                 : 'text-zinc-400 hover:text-zinc-200'
             )}
-            style={isActive ? { paddingLeft: 10, paddingRight: 12 } : { paddingLeft: 12, paddingRight: 12 }}
+            style={collapsed
+              ? { paddingLeft: 0, paddingRight: 0 }
+              : isActive ? { paddingLeft: 10, paddingRight: 12 } : { paddingLeft: 12, paddingRight: 12 }}
           >
             {/* Active indicator bar */}
             {isActive && (
@@ -75,7 +87,7 @@ function NavGroup({ title, clients, pathname }: {
                   style={{ backgroundColor: isActive ? (client.color || '#3A913F') : '#52525b' }}
                 />
               )}
-              <span className="truncate">{client.name}</span>
+              {!collapsed && <span className="truncate">{client.name}</span>}
             </span>
           </Link>
         )
@@ -89,6 +101,7 @@ interface Permissions { sections: string[]; clients: string[] }
 export default function Sidebar({ clients }: SidebarProps) {
   const router = useRouter()
   const pathname = usePathname()
+  const { collapsed, mobileOpen, closeMobile } = useSidebar()
   const supabase = createClient()
   const { preview } = usePreview()
   const [realIsAdmin,     setRealIsAdmin]     = useState(false)
@@ -177,14 +190,35 @@ export default function Sidebar({ clients }: SidebarProps) {
   const podcasts = allowed.filter(c => c.category === 'podcast')
 
   return (
-    <aside data-tour="sidebar" className="w-60 flex-shrink-0 flex flex-col h-screen sticky top-0"
+    <>
+      {/* Scrim behind the mobile drawer. Desktop never sees it. */}
+      {mobileOpen && (
+        <div
+          onClick={closeMobile}
+          aria-hidden
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
+        />
+      )}
+
+    <aside data-tour="sidebar"
+      className={cn(
+        'flex flex-col h-[100dvh] z-50',
+        // Below lg the sidebar is an overlay drawer that slides in from the left.
+        'fixed inset-y-0 left-0 w-64 transform transition-transform duration-200 ease-out',
+        mobileOpen ? 'translate-x-0' : '-translate-x-full',
+        // From lg it returns to being a normal column in the flex row, and the
+        // only thing that animates is its width.
+        'lg:static lg:translate-x-0 lg:flex-shrink-0 lg:transition-[width] lg:duration-200',
+        collapsed ? 'lg:w-16' : 'lg:w-60'
+      )}
       style={{
         background: 'linear-gradient(180deg, #181818 0%, #141414 100%)',
         borderRight: '1px solid rgba(255,255,255,0.09)',
       }}
     >
       {/* Brand */}
-      <div data-tour="sidebar-brand" className="relative px-5 py-5 flex justify-center"
+      <div data-tour="sidebar-brand"
+        className={cn('relative py-5 flex justify-center', collapsed ? 'px-2' : 'px-5')}
         style={{ borderBottom: '1px solid rgba(255,255,255,0.09)' }}
       >
         {/* Subtle green glow behind logo */}
@@ -197,11 +231,19 @@ export default function Sidebar({ clients }: SidebarProps) {
             style={{ backgroundColor: '#3A913F' }}
           />
         </div>
+        {/* Drawer close button — mobile only, the desktop rail has the TopBar toggle. */}
+        <button
+          onClick={closeMobile}
+          aria-label="Menu sluiten"
+          className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors lg:hidden"
+        >
+          <X size={18} />
+        </button>
         <Link href="/dashboard" className="relative">
           <Image
             src="/logo.png"
             alt="Sporthouse"
-            width={120}
+            width={collapsed ? 32 : 120}
             height={32}
             className="object-contain opacity-90 hover:opacity-100 transition-opacity duration-200"
             style={{ filter: 'invert(1)' }}
@@ -232,10 +274,15 @@ export default function Sidebar({ clients }: SidebarProps) {
           .filter(item => item.section === 'admin' || item.external || canSeeSection(item.section))
           .map(({ href, icon: Icon, label, external }) => {
             const isActive = !external && pathname === href
-            const commonClass = "group flex items-center gap-2.5 py-1.5 rounded-lg text-sm transition-all duration-150 relative"
-            const commonStyle = isActive
-              ? { paddingLeft: 10, paddingRight: 12, color: '#e4e4e2', fontWeight: 500 }
-              : { paddingLeft: 12, paddingRight: 12, color: '#a1a1aa' }
+            const commonClass = cn(
+              "group flex items-center gap-2.5 py-1.5 rounded-lg text-sm transition-all duration-150 relative",
+              collapsed && "lg:justify-center"
+            )
+            const commonStyle = collapsed
+              ? { paddingLeft: 0, paddingRight: 0, color: isActive ? '#e4e4e2' : '#a1a1aa', fontWeight: isActive ? 500 : undefined }
+              : isActive
+                ? { paddingLeft: 10, paddingRight: 12, color: '#e4e4e2', fontWeight: 500 }
+                : { paddingLeft: 12, paddingRight: 12, color: '#a1a1aa' }
             const inner = (
               <>
                 {isActive && (
@@ -249,11 +296,18 @@ export default function Sidebar({ clients }: SidebarProps) {
                   isActive ? 'bg-zinc-800/70' : 'bg-transparent group-hover:bg-zinc-800/40'
                 )} />
                 <span className="relative flex items-center gap-2.5">
-                  <Icon size={15} />
-                  <span>{label}</span>
+                  <Icon size={15} className="flex-shrink-0" />
+                  {!collapsed && <span>{label}</span>}
                   {label === 'Chat' && unreadChat > 0 && (
                     <span
-                      className="ml-auto flex-shrink-0 min-w-[18px] h-[18px] rounded-full flex items-center justify-center text-[10px] font-bold text-white"
+                      className={cn(
+                        'flex-shrink-0 rounded-full flex items-center justify-center text-[10px] font-bold text-white',
+                        // Collapsed there's no room beside the icon, so the count
+                        // becomes a small badge pinned to its top-right corner.
+                        collapsed
+                          ? 'absolute -top-1 -right-1 min-w-[16px] h-[16px]'
+                          : 'ml-auto min-w-[18px] h-[18px]'
+                      )}
                       style={{ backgroundColor: '#ef4444', padding: '0 4px' }}
                     >
                       {unreadChat > 99 ? '99+' : unreadChat}
@@ -268,6 +322,7 @@ export default function Sidebar({ clients }: SidebarProps) {
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
+                title={collapsed ? label : undefined}
                 className={commonClass}
                 style={commonStyle}
               >
@@ -277,6 +332,7 @@ export default function Sidebar({ clients }: SidebarProps) {
               <Link
                 key={href}
                 href={href}
+                title={collapsed ? label : undefined}
                 className={commonClass}
                 style={commonStyle}
               >
@@ -290,10 +346,10 @@ export default function Sidebar({ clients }: SidebarProps) {
         <div className="mx-3 mb-5" style={{ borderTop: '1px solid rgba(255,255,255,0.09)' }} />
 
         <div data-tour="sidebar-clients">
-          <NavGroup title="Intern"         clients={intern}   pathname={pathname} />
-          <NavGroup title="Klanten"        clients={klanten}  pathname={pathname} />
-          <NavGroup title="Atleten"        clients={atleten}  pathname={pathname} />
-          <NavGroup title="FOS — Podcasts" clients={podcasts} pathname={pathname} />
+          <NavGroup title="Intern"         clients={intern}   pathname={pathname} collapsed={collapsed} />
+          <NavGroup title="Klanten"        clients={klanten}  pathname={pathname} collapsed={collapsed} />
+          <NavGroup title="Atleten"        clients={atleten}  pathname={pathname} collapsed={collapsed} />
+          <NavGroup title="FOS — Podcasts" clients={podcasts} pathname={pathname} collapsed={collapsed} />
         </div>
       </nav>
 
@@ -301,12 +357,17 @@ export default function Sidebar({ clients }: SidebarProps) {
       <div className="p-3 space-y-0.5" style={{ borderTop: '1px solid rgba(255,255,255,0.09)' }}>
         <button
           onClick={handleLogout}
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40 transition-all duration-150"
+          title={collapsed ? 'Uitloggen' : undefined}
+          className={cn(
+            'w-full flex items-center gap-2.5 py-2 rounded-lg text-sm text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40 transition-all duration-150',
+            collapsed ? 'justify-center px-0' : 'px-3'
+          )}
         >
-          <LogOut size={14} />
-          <span>Uitloggen</span>
+          <LogOut size={14} className="flex-shrink-0" />
+          {!collapsed && <span>Uitloggen</span>}
         </button>
       </div>
     </aside>
+    </>
   )
 }

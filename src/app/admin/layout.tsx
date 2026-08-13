@@ -1,8 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import Sidebar from '@/components/layout/Sidebar'
-import TopBar from '@/components/layout/TopBar'
-import PreviewBanner from '@/components/layout/PreviewBanner'
+import AppShell from '@/components/layout/AppShell'
 import { Client } from '@/types/database'
 import { ADMIN_EMAILS } from '@/lib/auth-permissions'
 
@@ -18,15 +16,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const { data: clients } = await supabase.from('clients').select('*').order('name')
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar clients={(clients as Client[]) || []} />
-      <main className="flex-1 flex flex-col overflow-hidden bg-zinc-950">
-        <PreviewBanner />
-        <TopBar />
-        <div className="flex-1 overflow-y-auto">
-          {children}
-        </div>
-      </main>
-    </div>
+    <AppShell clients={(clients as Client[]) || []}>
+      {children}
+    </AppShell>
   )
 }
