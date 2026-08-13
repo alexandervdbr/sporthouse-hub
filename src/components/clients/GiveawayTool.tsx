@@ -304,7 +304,7 @@ export default function GiveawayTool({ clientId }: { clientId: string }) {
           {step === 'filter' && (
             <div className="space-y-5">
               {/* Stats */}
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {[
                   { label: 'Totaal reacties', value: comments.length, icon: FileText },
                   { label: 'Correct antwoord', value: eligible.length, icon: Check },

@@ -310,7 +310,7 @@ function AddFreelancerModal({ onClose, onAdded }: {
           </div>
 
           {/* GSM + Email */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>GSM nummer</label>
               <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
@@ -640,7 +640,7 @@ function FreelancerDetail({ freelancer, onClose, onDeleted, onUpdated, onProject
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className={labelCls}>GSM nummer</label>
                   <input type="tel" value={editPhone} onChange={e => setEditPhone(e.target.value)} placeholder="+32 ..." className={inputCls} />
@@ -1018,7 +1018,7 @@ function AddAssignmentModal({ freelancerId, freelancerName, onClose, onAdded }: 
             <input autoFocus type="text" placeholder="bv. Social content KRC Genk — mei" value={title}
               onChange={e => setTitle(e.target.value)} className={inputClass} style={inputStyle} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-[10px] text-zinc-500 uppercase tracking-wide mb-1">Klant</label>
               <select value={clientName} onChange={e => setClientName(e.target.value)} className={inputClass} style={inputStyle}>
@@ -1168,7 +1168,7 @@ function EditAssignmentModal({ freelancerId, assignment, onClose, onSaved }: {
             <input autoFocus type="text" value={title}
               onChange={e => setTitle(e.target.value)} className={inputClass} style={inputStyle} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-[10px] text-zinc-500 uppercase tracking-wide mb-1">Klant</label>
               <select value={clientName} onChange={e => setClientName(e.target.value)} className={inputClass} style={inputStyle}>
@@ -1337,7 +1337,7 @@ function AddProjectModal({ freelancerId, freelancerName, onClose, onAdded }: {
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2}
               placeholder="Wat was de opdracht?" className={`${inputCls} resize-none`} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-zinc-500 uppercase tracking-wider mb-1.5">Klant</label>
               <input type="text" value={clientName} onChange={e => setClientName(e.target.value)}

@@ -278,7 +278,7 @@ export default function AnalyticsDashboard() {
 
         {loading ? (
           <div className="space-y-8">
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {[...Array(8)].map((_, i) => (
                 <div key={i} className="h-24 rounded-2xl animate-pulse" style={{ background: '#181818' }} />
               ))}

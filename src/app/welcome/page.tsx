@@ -147,7 +147,7 @@ export default async function WelcomePage() {
         {/* Wat we doen */}
         <Card>
           <SectionHeader icon={Dumbbell} title="Wat we doen" color="#3b82f6" />
-          <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
             {[
               { title: 'Contentcreatie', desc: 'Foto, video, graphics en social media content voor klanten en atleten.' },
               { title: 'Sportmarketing', desc: 'Strategische communicatie en branding rond sport en sporters.' },
@@ -199,7 +199,7 @@ export default async function WelcomePage() {
         {/* Tools */}
         <Card>
           <SectionHeader icon={Wrench} title="Tools die we gebruiken" color="#f59e0b" />
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <ToolTag label="Sporthouse Hub" sub="Dit platform — planning, klanten, materiaal, chat." />
             <ToolTag label="Kinopio" sub="Ons visueel inspiratiebord voor ideeën en moodboards." />
             <ToolTag label="Google Workspace" sub="Mail, Drive, Docs en Sheets voor dagelijkse communicatie." />

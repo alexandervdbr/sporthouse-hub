@@ -485,7 +485,7 @@ function ReservationCreateModal({ equipment, resMap, initialEquipment, initialDa
         </div>
 
         {/* Datetime */}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-xs text-zinc-500 uppercase tracking-wider mb-1.5">
               <span className="flex items-center gap-1"><Calendar size={11} /> Ophalen</span>
