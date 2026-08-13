@@ -93,6 +93,11 @@ function getDaysInMonth(year: number, month: number) {
   return new Date(year, month + 1, 0).getDate()
 }
 
+// "13 aug" — compact enough for the two history lines under each item.
+function shortDate(iso: string) {
+  return new Date(iso + 'T12:00').toLocaleDateString('nl-BE', { day: 'numeric', month: 'short' })
+}
+
 function getDayName(date: Date) {
   return date.toLocaleDateString('nl-BE', { weekday: 'short' })
 }
@@ -362,7 +367,9 @@ function ReservationCreateModal({ equipment, resMap, initialEquipment, initialDa
   const today = toISO(new Date())
 
   const [query,       setQuery]       = useState('')
-  const [selected,    setSelected]    = useState<EquipmentItem | null>(initialEquipment ?? null)
+  // A shoot usually needs several items on the same dates, so one reservation
+  // can cover a list rather than forcing a trip through the modal per item.
+  const [selected,    setSelected]    = useState<EquipmentItem[]>(initialEquipment ? [initialEquipment] : [])
   const [pickupDate,  setPickupDate]  = useState(initialDate ?? today)
   const [pickupTime,  setPickupTime]  = useState('09:00')
   const [returnDate,  setReturnDate]  = useState(initialDate ?? today)
@@ -375,47 +382,69 @@ function ReservationCreateModal({ equipment, resMap, initialEquipment, initialDa
   const filtered = useMemo(() => {
     if (!query.trim()) return []
     const q = query.toLowerCase()
-    return equipment.filter(e => e.name.toLowerCase().includes(q) || e.category.toLowerCase().includes(q)).slice(0, 8)
-  }, [query, equipment])
+    const chosen = new Set(selected.map(s => s.id))
+    return equipment
+      .filter(e => !chosen.has(e.id))
+      .filter(e => e.name.toLowerCase().includes(q) || e.category.toLowerCase().includes(q))
+      .slice(0, 8)
+  }, [query, equipment, selected])
 
   const occupiedDates = useMemo(
     () => getOccupiedDates(pickupDate, pickupTime, returnDate, returnTime),
     [pickupDate, pickupTime, returnDate, returnTime]
   )
 
+  // Which of the chosen items are already booked on any of these dates.
   const conflicts = useMemo(
-    () => selected ? occupiedDates.filter(d => resMap.has(`${selected.id}_${d}`)) : [],
+    () => selected
+      .map(item => ({ item, dates: occupiedDates.filter(d => resMap.has(`${item.id}_${d}`)) }))
+      .filter(c => c.dates.length > 0),
     [selected, occupiedDates, resMap]
   )
 
   async function handleSubmit() {
-    if (!selected) { setError('Selecteer eerst een materiaal.'); return }
+    if (selected.length === 0) { setError('Selecteer eerst materiaal.'); return }
     if (!pickupDate || !returnDate) { setError('Vul een datum in.'); return }
     setSaving(true); setError('')
     try {
-      const r = await fetch('/api/reservations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          equipment_id:     selected.id,
-          pickup_datetime:  makeISO(pickupDate, pickupTime),
-          return_datetime:  makeISO(returnDate, returnTime),
-          project,
-          note,
-        }),
-      })
-      const data = await r.json()
-      if (!r.ok) throw new Error(data.error || 'Onbekende fout')
-      onCreated(Array.isArray(data) ? data : [data])
-      onClose()
+      const created: Reservation[] = []
+      const failed: string[] = []
+
+      // Sequential rather than parallel: the API checks for conflicts per
+      // request, and firing them at once can let two items race past the
+      // same check.
+      for (const item of selected) {
+        const r = await fetch('/api/reservations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            equipment_id:     item.id,
+            pickup_datetime:  makeISO(pickupDate, pickupTime),
+            return_datetime:  makeISO(returnDate, returnTime),
+            project,
+            note,
+          }),
+        })
+        const data = await r.json()
+        if (!r.ok) { failed.push(`${item.name}: ${data.error || 'onbekende fout'}`); continue }
+        created.push(...(Array.isArray(data) ? data : [data]))
+      }
+
+      if (created.length) onCreated(created)
+      if (failed.length) {
+        // Keep the modal open so what did land isn't lost and the rest is clear.
+        setError(`Niet alles is gelukt — ${failed.join(' · ')}`)
+        setSelected(prev => prev.filter(i => failed.some(f => f.startsWith(`${i.name}:`))))
+      } else {
+        onClose()
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Fout bij opslaan')
     }
     setSaving(false)
   }
 
-  const color = selected ? catColor(selected.category) : '#3A913F'
-  const canSubmit = !!selected && !!pickupDate && !!returnDate && occupiedDates.length > 0 && conflicts.length === 0
+  const canSubmit = selected.length > 0 && !!pickupDate && !!returnDate && occupiedDates.length > 0 && conflicts.length === 0
 
   return (
     <Modal onClose={onClose} wide>
@@ -431,55 +460,75 @@ function ReservationCreateModal({ equipment, resMap, initialEquipment, initialDa
 
         {/* Equipment search */}
         <div>
-          <label className="block text-xs text-zinc-500 uppercase tracking-wider mb-1.5">Materiaal</label>
-          {selected ? (
-            <div className="flex items-center justify-between px-3 py-2.5 rounded-lg"
-              style={{ background: `${color}15`, border: `1px solid ${color}35` }}>
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-zinc-100 truncate">{selected.name}</p>
-                  <p className="text-[10px] uppercase tracking-wider" style={{ color }}>{selected.category}</p>
-                </div>
-              </div>
-              <button onClick={() => { setSelected(null); setQuery('') }}
-                className="text-zinc-600 hover:text-zinc-300 transition-colors ml-2 flex-shrink-0">
-                <X size={13} />
-              </button>
-            </div>
-          ) : (
-            <div className="relative">
-              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-              <input
-                autoFocus
-                type="text"
-                value={query}
-                onChange={e => setQuery(e.target.value)}
-                placeholder="Zoek materiaal…"
-                className="w-full pl-8 pr-3 py-2.5 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors"
-              />
-              {filtered.length > 0 && (
-                <div className="absolute top-full left-0 right-0 mt-1 bg-zinc-900 border border-zinc-700 rounded-lg overflow-hidden z-10 shadow-xl">
-                  {filtered.map(item => {
-                    const c = catColor(item.category)
-                    return (
-                      <button key={item.id} onClick={() => { setSelected(item); setQuery('') }}
-                        className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-zinc-800 transition-colors text-left">
-                        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: c }} />
-                        <span className="text-sm text-zinc-200 flex-1 truncate">{item.name}</span>
-                        <span className="text-[10px] uppercase tracking-wider flex-shrink-0" style={{ color: c }}>{item.category}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
+          <label className="block text-xs text-zinc-500 uppercase tracking-wider mb-1.5">
+            Materiaal{selected.length > 1 && <span className="ml-1 text-zinc-400 normal-case">· {selected.length} gekozen</span>}
+          </label>
+
+          {/* Chosen items */}
+          {selected.length > 0 && (
+            <div className="space-y-1.5 mb-2">
+              {selected.map(item => {
+                const c = catColor(item.category)
+                const itemConflict = conflicts.find(cf => cf.item.id === item.id)
+                return (
+                  <div key={item.id} className="flex items-center justify-between px-3 py-2 rounded-lg"
+                    style={{
+                      background: itemConflict ? 'rgba(220,38,38,0.10)' : `${c}15`,
+                      border: `1px solid ${itemConflict ? 'rgba(220,38,38,0.35)' : `${c}35`}`,
+                    }}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: c }} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-zinc-100 truncate">{item.name}</p>
+                        <p className="text-[10px] uppercase tracking-wider" style={{ color: itemConflict ? '#f87171' : c }}>
+                          {itemConflict ? `Bezet op ${itemConflict.dates.length} van deze dagen` : item.category}
+                        </p>
+                      </div>
+                    </div>
+                    <button onClick={() => setSelected(prev => prev.filter(i => i.id !== item.id))}
+                      aria-label={`${item.name} verwijderen`}
+                      className="text-zinc-600 hover:text-zinc-300 transition-colors ml-2 flex-shrink-0">
+                      <X size={13} />
+                    </button>
+                  </div>
+                )
+              })}
             </div>
           )}
-          {/* Description */}
-          {selected?.description && (
+
+          {/* Search stays available so more items can be added */}
+          <div className="relative">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+            <input
+              autoFocus={selected.length === 0}
+              type="text"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder={selected.length ? 'Nog materiaal toevoegen…' : 'Zoek materiaal…'}
+              className="w-full pl-8 pr-3 py-2.5 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors"
+            />
+            {filtered.length > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-zinc-900 border border-zinc-700 rounded-lg overflow-hidden z-10 shadow-xl">
+                {filtered.map(item => {
+                  const c = catColor(item.category)
+                  return (
+                    <button key={item.id} onClick={() => { setSelected(prev => [...prev, item]); setQuery('') }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-zinc-800 transition-colors text-left">
+                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: c }} />
+                      <span className="text-sm text-zinc-200 flex-1 truncate">{item.name}</span>
+                      <span className="text-[10px] uppercase tracking-wider flex-shrink-0" style={{ color: c }}>{item.category}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Set contents, only when a single item is chosen */}
+          {selected.length === 1 && selected[0].description && (
             <div className="mt-2 px-3 py-2 bg-zinc-800/60 rounded-lg">
               <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Inhoud set</p>
-              <p className="text-xs text-zinc-400 leading-relaxed">{selected.description}</p>
+              <p className="text-xs text-zinc-400 leading-relaxed">{selected[0].description}</p>
             </div>
           )}
         </div>
@@ -516,8 +565,10 @@ function ReservationCreateModal({ equipment, resMap, initialEquipment, initialDa
             </p>
             <div className="flex flex-wrap gap-1.5">
               {occupiedDates.map(d => {
-                const isConflict = selected ? resMap.has(`${selected.id}_${d}`) : false
-                const conflictRes = selected ? resMap.get(`${selected.id}_${d}`) : undefined
+                // A day counts as blocked if any of the chosen items is taken.
+                const blocked = selected.filter(item => resMap.has(`${item.id}_${d}`))
+                const isConflict = blocked.length > 0
+                const conflictRes = isConflict ? resMap.get(`${blocked[0].id}_${d}`) : undefined
                 return (
                   <span key={d}
                     className="px-2 py-0.5 rounded text-[11px] font-medium"
@@ -559,7 +610,9 @@ function ReservationCreateModal({ equipment, resMap, initialEquipment, initialDa
           <div className="flex items-start gap-2 px-3 py-2.5 bg-red-950/40 border border-red-900/40 rounded-lg">
             <AlertCircle size={13} className="text-red-400 mt-0.5 flex-shrink-0" />
             <p className="text-sm text-red-400">
-              {error || `Al gereserveerd op ${conflicts.length} ${conflicts.length === 1 ? 'dag' : 'dagen'} in deze maand.`}
+              {error || (conflicts.length === 1
+                ? `${conflicts[0].item.name} is al gereserveerd op ${conflicts[0].dates.length} van deze ${conflicts[0].dates.length === 1 ? 'dag' : 'dagen'}.`
+                : `${conflicts.length} items zijn al gereserveerd op een of meer van deze dagen.`)}
             </p>
           </div>
         )}
@@ -574,7 +627,7 @@ function ReservationCreateModal({ equipment, resMap, initialEquipment, initialDa
           className="ml-auto flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 transition-colors"
           style={{ backgroundColor: '#3A913F' }}>
           {saving && <Loader2 size={13} className="animate-spin" />}
-          Reserveren
+          {selected.length > 1 ? `${selected.length} reserveren` : 'Reserveren'}
         </button>
       </div>
     </Modal>
@@ -894,6 +947,33 @@ export default function EquipmentPlanner() {
   // itself, which the grid provided on desktop but the day list had no room for.
   const [mobileTab, setMobileTab] = useState<'dag' | 'materiaal'>('dag')
 
+  // The grid only ever loads the visible month, but "last rented" and "next
+  // out" routinely fall outside it. The whole table is a few hundred rows, so
+  // it's cheaper to hold all of it than to query around each date.
+  const [allReservations, setAllReservations] = useState<Reservation[]>([])
+  useEffect(() => {
+    fetch('/api/reservations?start=1970-01-01&end=2999-12-31')
+      .then(r => r.ok ? r.json() : [])
+      .then((rows: Reservation[]) => setAllReservations(Array.isArray(rows) ? rows : []))
+      .catch(() => { /* history is a nicety; the planner works without it */ })
+  }, [])
+
+  // Per item: the most recent booking strictly before the selected day, and the
+  // next one strictly after.
+  const rentalHistory = useMemo(() => {
+    const map = new Map<string, { last?: Reservation; next?: Reservation }>()
+    for (const r of allReservations) {
+      const entry = map.get(r.equipment_id) ?? {}
+      if (r.date < mobileDate) {
+        if (!entry.last || r.date > entry.last.date) entry.last = r
+      } else if (r.date > mobileDate) {
+        if (!entry.next || r.date < entry.next.date) entry.next = r
+      }
+      map.set(r.equipment_id, entry)
+    }
+    return map
+  }, [allReservations, mobileDate])
+
   // Every reservation on the selected day, with its equipment resolved.
   const mobileReservations = useMemo(() => {
     return visibleEquipment
@@ -1017,6 +1097,42 @@ export default function EquipmentPlanner() {
           </button>
         </div>
 
+        {/* Day strip — shared by both tabs: the selected day drives the
+            reservation list and the status shown per item. */}
+        <div className="scroll-x flex-shrink-0 -mx-1 px-1">
+          <div className="flex gap-1.5">
+            {days.map(d => {
+              const dayNum = d.getDate()
+              const iso    = toISO(d)
+              const isSel  = dayNum === mobileDay
+              const count  = visibleEquipment.filter(item => resMap.has(`${item.id}_${iso}`)).length
+              return (
+                <button
+                  key={dayNum}
+                  onClick={() => setMobileDay(dayNum)}
+                  className={`relative flex-shrink-0 w-11 py-1.5 rounded-lg border text-center transition-colors ${
+                    isSel
+                      ? 'bg-zinc-700 border-zinc-500 text-white'
+                      : iso === todayISO
+                        ? 'bg-[#111d11] border-[#3A913F]/50 text-zinc-300'
+                        : isWeekend(d)
+                          ? 'bg-zinc-900/60 border-zinc-800 text-zinc-500'
+                          : 'bg-zinc-900 border-zinc-800 text-zinc-400'
+                  }`}
+                >
+                  <span className="block text-[9px] uppercase tracking-wide opacity-70">{getDayName(d).slice(0, 2)}</span>
+                  <span className="block text-sm font-semibold leading-tight">{dayNum}</span>
+                  {count > 0 && !isSel && (
+                    <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-[#3A913F] text-[9px] font-bold text-white flex items-center justify-center">
+                      {count}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
         {/* Dag ↔ Materiaal */}
         <div className="flex p-0.5 rounded-lg bg-zinc-900 border border-zinc-800 flex-shrink-0">
           {(['dag', 'materiaal'] as const).map(tab => (
@@ -1088,18 +1204,34 @@ export default function EquipmentPlanner() {
                             : canReserveren
                               ? setCreateModal({ equipment: item, date: mobileDate })
                               : setInfoItem(item)}
-                          className="w-full text-left rounded-xl border border-zinc-800 bg-zinc-900/60 p-2.5 flex items-center gap-2.5"
+                          className="w-full text-left rounded-xl border border-zinc-800 bg-zinc-900/60 p-2.5 flex items-start gap-2.5"
                         >
                           <span className="w-1 self-stretch rounded-full flex-shrink-0" style={{ backgroundColor: catColor(cat) }} />
-                          <span className="flex-1 min-w-0 text-sm text-zinc-100 truncate">{item.name}</span>
-                          {res ? (
-                            <span className="flex items-center gap-1.5 flex-shrink-0">
-                              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: getUserColor(res.reserved_by) }} />
-                              <span className="text-[11px] text-zinc-400">{getFirstName(res.reserved_by)}</span>
+                          <span className="flex-1 min-w-0">
+                            <span className="flex items-center justify-between gap-2">
+                              <span className="text-sm text-zinc-100 truncate">{item.name}</span>
+                              {res ? (
+                                <span className="flex items-center gap-1.5 flex-shrink-0">
+                                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: getUserColor(res.reserved_by) }} />
+                                  <span className="text-[11px] text-zinc-400">{getFirstName(res.reserved_by)}</span>
+                                </span>
+                              ) : (
+                                <span className="text-[11px] text-zinc-600 flex-shrink-0">Vrij</span>
+                              )}
                             </span>
-                          ) : (
-                            <span className="text-[11px] text-zinc-600 flex-shrink-0">Vrij</span>
-                          )}
+                            {/* Where this item has been and where it's going —
+                                the question you actually have when deciding
+                                whether you can take it. */}
+                            <span className="mt-0.5 block text-[10px] leading-relaxed text-zinc-600">
+                              {(() => {
+                                const h = rentalHistory.get(item.id)
+                                const parts: string[] = []
+                                if (h?.last) parts.push(`Laatst: ${getFirstName(h.last.reserved_by)} · ${shortDate(h.last.date)}`)
+                                if (h?.next) parts.push(`Volgende: ${getFirstName(h.next.reserved_by)} · ${shortDate(h.next.date)}`)
+                                return parts.length ? parts.join('   ') : 'Nog niet gereserveerd'
+                              })()}
+                            </span>
+                          </span>
                         </button>
                       )
                     })}
@@ -1110,39 +1242,6 @@ export default function EquipmentPlanner() {
           </>
         ) : (
         <>
-        <div className="scroll-x flex-shrink-0 -mx-1 px-1">
-          <div className="flex gap-1.5">
-            {days.map(d => {
-              const dayNum = d.getDate()
-              const iso    = toISO(d)
-              const isSel  = dayNum === mobileDay
-              const count  = visibleEquipment.filter(item => resMap.has(`${item.id}_${iso}`)).length
-              return (
-                <button
-                  key={dayNum}
-                  onClick={() => setMobileDay(dayNum)}
-                  className={`relative flex-shrink-0 w-11 py-1.5 rounded-lg border text-center transition-colors ${
-                    isSel
-                      ? 'bg-zinc-700 border-zinc-500 text-white'
-                      : iso === todayISO
-                        ? 'bg-[#111d11] border-[#3A913F]/50 text-zinc-300'
-                        : isWeekend(d)
-                          ? 'bg-zinc-900/60 border-zinc-800 text-zinc-500'
-                          : 'bg-zinc-900 border-zinc-800 text-zinc-400'
-                  }`}
-                >
-                  <span className="block text-[9px] uppercase tracking-wide opacity-70">{getDayName(d).slice(0, 2)}</span>
-                  <span className="block text-sm font-semibold leading-tight">{dayNum}</span>
-                  {count > 0 && !isSel && (
-                    <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-[#3A913F] text-[9px] font-bold text-white flex items-center justify-center">
-                      {count}
-                    </span>
-                  )}
-                </button>
-              )
-            })}
-          </div>
-        </div>
 
         <div className="flex items-center justify-between flex-shrink-0">
           <span className="text-sm font-semibold text-zinc-200">
