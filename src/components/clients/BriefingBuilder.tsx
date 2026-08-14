@@ -745,14 +745,16 @@ export default function BriefingBuilder({
                 ) : (
                   <div className="divide-y divide-zinc-800">
                     {members.map(m => (
-                      <div key={m.id} className="flex items-center justify-between px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-7 h-7 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xs font-semibold text-zinc-300">
+                      <div key={m.id} className="flex items-center justify-between gap-2 px-3 sm:px-4 py-3">
+                        {/* Same reason as the Content Planner config list: an
+                            untruncated address sets the row width. */}
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <div className="w-7 h-7 flex-shrink-0 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xs font-semibold text-zinc-300">
                             {m.contact_name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)}
                           </div>
-                          <div>
-                            <p className="text-sm text-zinc-200">{m.contact_name}</p>
-                            <p className="text-xs text-zinc-500">{m.contact_email}</p>
+                          <div className="min-w-0">
+                            <p className="text-sm text-zinc-200 truncate">{m.contact_name}</p>
+                            <p className="text-xs text-zinc-500 truncate">{m.contact_email}</p>
                           </div>
                         </div>
                         <button
