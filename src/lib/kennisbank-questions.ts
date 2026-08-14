@@ -80,6 +80,20 @@ export const KENNISBANK_BLOCKS: KennisbankBlock[] = [
       { key: 'uitdagingen',     number: 25, question: 'Wat zijn openstaande uitdagingen of pijnpunten in de samenwerking?', long: true },
     ],
   },
+  {
+    key: 'aanvullend',
+    title: 'Aanvullend',
+    intro: 'Alles wat niet in de vragen hierboven past maar wel belangrijk is om te weten.',
+    questions: [
+      {
+        key: 'extra',
+        number: 26,
+        question: 'Overige afspraken, workflows of regels',
+        hint: 'bv. embargo\'s, liveshift-workflow, welke content op welk kanaal, merkregels',
+        long: true,
+      },
+    ],
+  },
 ]
 
 export const ALL_QUESTIONS: KennisbankQuestion[] = KENNISBANK_BLOCKS.flatMap(b => b.questions)
