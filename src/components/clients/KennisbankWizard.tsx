@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { X, Loader2, Check, ChevronLeft, ChevronRight, BookOpen } from 'lucide-react'
 import { KENNISBANK_BLOCKS, QUESTION_COUNT } from '@/lib/kennisbank-questions'
 
@@ -19,6 +20,8 @@ export default function KennisbankWizard({ clientId, clientName, onClose, onSave
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<Date | null>(null)
   const [error, setError] = useState('')
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
 
   // Wat er nog niet is weggeschreven. Bijhouden in een ref zodat de timer altijd
   // de laatste stand meeneemt zonder telkens opnieuw gezet te worden.
@@ -84,8 +87,15 @@ export default function KennisbankWizard({ clientId, clientName, onClose, onSave
   const answeredTotal = Object.values(answers).filter(a => a.trim()).length
   const answeredHere = block?.questions.filter(q => answers[q.key]?.trim()).length ?? 0
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4" onClick={close}>
+  // Via een portal naar body: de klantkop waarin de knop staat heeft een
+  // backdrop-filter, en zo'n element wordt het referentiekader voor alles wat
+  // position: fixed is. Zonder portal viel inset-0 dus samen met die balk in
+  // plaats van met het scherm — vandaar de half verduisterde achtergrond en
+  // het venster dat over de kaarten heen lag.
+  if (!mounted) return null
+
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4" onClick={close}>
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
       <div
         onClick={e => e.stopPropagation()}
@@ -205,6 +215,7 @@ export default function KennisbankWizard({ clientId, clientName, onClose, onSave
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
