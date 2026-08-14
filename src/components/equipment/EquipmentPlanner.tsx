@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
+import EquipmentAdminPanel from '@/components/equipment/EquipmentAdminPanel'
 import { ADMIN_EMAILS } from '@/lib/auth-permissions'
 import {
   ChevronLeft, ChevronRight, ChevronDown, ChevronRight as ChevronRightIcon,
-  X, Loader2, AlertCircle, Trash2, BarChart3, Search, Info, Calendar, Plus
+  X, Loader2, AlertCircle, Trash2, BarChart3, Search, Info, Calendar, Plus, Settings
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -16,6 +17,19 @@ interface EquipmentItem {
   name: string
   category: string
   description?: string
+  is_broken?: boolean
+  broken_note?: string | null
+}
+
+// Vast project waaronder gereserveerd kan worden. show_in_planner laat het
+// raster het project tonen in plaats van de persoon, zodat FoS- en De
+// Spor-blokken herkenbaar blijven terwijl de naam eronder bewaard blijft.
+interface EquipmentProject {
+  id: string
+  name: string
+  color: string
+  show_in_planner: boolean
+  sort_order: number
 }
 
 interface Reservation {
@@ -360,13 +374,14 @@ interface CreateModalProps {
   // Every reservation, so the modal can show each chosen item's previous and
   // next booking relative to the dates being picked.
   allReservations: Reservation[]
+  projects: EquipmentProject[]
   initialEquipment?: EquipmentItem
   initialDate?: string
   onClose: () => void
   onCreated: (reservations: Reservation[]) => void
 }
 
-function ReservationCreateModal({ equipment, resMap, allReservations, initialEquipment, initialDate, onClose, onCreated }: CreateModalProps) {
+function ReservationCreateModal({ equipment, resMap, allReservations, projects, initialEquipment, initialDate, onClose, onCreated }: CreateModalProps) {
   const today = toISO(new Date())
 
   const [query,       setQuery]       = useState('')
@@ -622,6 +637,28 @@ function ReservationCreateModal({ equipment, resMap, allReservations, initialEqu
         <div className="space-y-2">
           <div>
             <label className="block text-xs text-zinc-500 uppercase tracking-wider mb-1.5">Project</label>
+            {/* Vaste projecten als knopjes, maar het veld blijft vrije tekst:
+                een eenmalige shoot hoeft niet eerst aangemaakt te worden. */}
+            {projects.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {projects.map(p => {
+                  const active = project.trim().toLowerCase() === p.name.toLowerCase()
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setProject(active ? '' : p.name)}
+                      className="px-2.5 py-1 rounded-full text-xs font-medium transition-colors"
+                      style={active
+                        ? { backgroundColor: `${p.color}25`, border: `1px solid ${p.color}`, color: p.color }
+                        : { backgroundColor: 'transparent', border: '1px solid #3f3f46', color: '#a1a1aa' }}
+                    >
+                      {p.name}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
             <input type="text" value={project} onChange={e => setProject(e.target.value)}
               placeholder="bijv. Pro League — matchday"
               className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors" />
@@ -804,6 +841,7 @@ export default function EquipmentPlanner() {
   const [year,               setYear]               = useState(today.getFullYear())
   const [month,              setMonth]              = useState(today.getMonth())
   const [equipment,          setEquipment]          = useState<EquipmentItem[]>([])
+  const [projects,           setProjects]           = useState<EquipmentProject[]>([])
   const [reservations,       setReservations]       = useState<Reservation[]>([])
   const [dayProjects,        setDayProjects]        = useState<Record<string, string>>({})
   const [loading,            setLoading]            = useState(true)
@@ -825,6 +863,7 @@ export default function EquipmentPlanner() {
   const [createModal,    setCreateModal]    = useState<{ equipment?: EquipmentItem; date?: string } | null>(null)
   const [infoItem,       setInfoItem]       = useState<EquipmentItem | null>(null)
   const [addEquipModal,  setAddEquipModal]  = useState(false)
+  const [adminPanel,     setAdminPanel]     = useState(false)
   const [deleteConfirm,  setDeleteConfirm]  = useState<EquipmentItem | null>(null)
   const [deleting,       setDeleting]       = useState(false)
 
@@ -870,6 +909,7 @@ export default function EquipmentPlanner() {
   // Load equipment once
   useEffect(() => {
     fetch('/api/equipment').then(r => r.json()).then(setEquipment).catch(console.error)
+    fetch('/api/equipment-projects').then(r => r.json()).then(setProjects).catch(() => {})
   }, [])
 
   // Load day projects
@@ -948,12 +988,30 @@ export default function EquipmentPlanner() {
   }, [reservations])
 
   const visibleEquipment = useMemo(() => {
-    if (!searchQuery.trim()) return equipment
+    // Defect materiaal verdwijnt uit het raster, behalve voor beheerders — die
+    // moeten het kunnen terugzetten zodra het hersteld is.
+    const pool = isAdmin ? equipment : equipment.filter(e => !e.is_broken)
+    if (!searchQuery.trim()) return pool
     const q = searchQuery.toLowerCase()
-    return equipment.filter(e =>
+    return pool.filter(e =>
       e.name.toLowerCase().includes(q) || e.category.toLowerCase().includes(q)
     )
-  }, [equipment, searchQuery])
+  }, [equipment, searchQuery, isAdmin])
+
+  // Projectnaam -> project, om reservaties in het raster op projectnaam en
+  // -kleur te kunnen tonen in plaats van op persoon.
+  const projectByName = useMemo(() => {
+    const m = new Map<string, EquipmentProject>()
+    for (const p of projects) m.set(p.name.toLowerCase(), p)
+    return m
+  }, [projects])
+
+  // Wat een cel toont: het project als dat zo ingesteld staat, anders de persoon.
+  const cellLabel = useCallback((res: Reservation) => {
+    const p = res.project ? projectByName.get(res.project.toLowerCase()) : undefined
+    if (p?.show_in_planner) return { text: p.name, color: p.color, isProject: true }
+    return { text: getFirstName(res.reserved_by), color: getUserColor(res.reserved_by), isProject: false }
+  }, [projectByName])
 
   const categories = CATEGORY_ORDER.filter(cat => visibleEquipment.some(e => e.category === cat))
 
@@ -1098,6 +1156,16 @@ export default function EquipmentPlanner() {
             <ChevronRight size={15} />
           </button>
           <div className="w-px h-5 bg-zinc-800" />
+          {isAdmin && (
+            <button
+              onClick={() => setAdminPanel(true)}
+              className="flex items-center gap-2 px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 hover:border-zinc-600 hover:bg-zinc-800 rounded-lg transition-colors"
+            >
+              <Settings size={13} />
+              Beheer
+            </button>
+          )}
+
           {canStats && (
             <Link href="/equipment/stats"
               className="flex items-center gap-2 px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 hover:border-zinc-600 hover:bg-zinc-800 rounded-lg transition-colors">
@@ -1222,6 +1290,14 @@ export default function EquipmentPlanner() {
                     <Plus size={13} /> Materiaal toevoegen
                   </button>
                 )}
+                {isAdmin && (
+                  <button
+                    onClick={() => setAdminPanel(true)}
+                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-zinc-700 text-xs text-zinc-400"
+                  >
+                    <Settings size={13} /> Beheer
+                  </button>
+                )}
                 {canStats && (
                   <Link href="/equipment/stats"
                     className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-zinc-700 text-xs text-zinc-400"
@@ -1246,7 +1322,7 @@ export default function EquipmentPlanner() {
                           key={item.id}
                           onClick={() => res
                             ? setViewModal({ equipment: item, date: mobileDate, reservation: res })
-                            : canReserveren
+                            : canReserveren && !item.is_broken
                               ? setCreateModal({ equipment: item, date: mobileDate })
                               : setInfoItem(item)}
                           className="w-full text-left rounded-xl border border-zinc-800 bg-zinc-900/60 p-2.5 flex items-start gap-2.5"
@@ -1255,10 +1331,15 @@ export default function EquipmentPlanner() {
                           <span className="flex-1 min-w-0">
                             <span className="flex items-center justify-between gap-2">
                               <span className="text-sm text-zinc-100 truncate">{item.name}</span>
-                              {res ? (
+                              {item.is_broken ? (
+                                <span className="text-[11px] flex-shrink-0 px-1.5 py-0.5 rounded"
+                                  style={{ background: 'rgba(220,38,38,0.15)', color: '#f87171' }}>
+                                  Defect
+                                </span>
+                              ) : res ? (
                                 <span className="flex items-center gap-1.5 flex-shrink-0">
-                                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: getUserColor(res.reserved_by) }} />
-                                  <span className="text-[11px] text-zinc-400">{getFirstName(res.reserved_by)}</span>
+                                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: cellLabel(res).color }} />
+                                  <span className="text-[11px] text-zinc-400">{cellLabel(res).text}</span>
                                 </span>
                               ) : (
                                 <span className="text-[11px] text-zinc-600 flex-shrink-0">Vrij</span>
@@ -1327,8 +1408,8 @@ export default function EquipmentPlanner() {
                     {item.category}
                   </span>
                   <div className="mt-1 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: getUserColor(res.reserved_by) }} />
-                    <span className="text-xs text-zinc-400 truncate">{getFirstName(res.reserved_by)}</span>
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: cellLabel(res).color }} />
+                    <span className="text-xs text-zinc-400 truncate">{cellLabel(res).text}</span>
                   </div>
                   {(res.pickup_datetime || res.return_datetime) && (
                     <p className="mt-1 text-[11px] text-zinc-500">
@@ -1421,9 +1502,20 @@ export default function EquipmentPlanner() {
                         onClick={() => setInfoItem(item)}
                         title={`Klik voor inhoud: ${item.name}`}>
                         <Info size={9} className="absolute top-1.5 right-1.5 opacity-0 group-hover/th:opacity-60 transition-opacity" style={{ color }} />
-                        <span className="text-[11px] font-medium leading-snug text-center transition-colors group-hover/th:opacity-80" style={{ color }}>
+                        <span className={`text-[11px] font-medium leading-snug text-center transition-colors group-hover/th:opacity-80 ${item.is_broken ? 'line-through opacity-50' : ''}`} style={{ color }}>
                           {item.name}
                         </span>
+                        {/* Alleen beheerders zien defect materiaal nog staan;
+                            voor iedereen anders is de kolom er niet. */}
+                        {item.is_broken && (
+                          <span
+                            title={item.broken_note || 'Defect gemeld'}
+                            className="absolute top-1.5 left-1.5 px-1 rounded text-[8px] font-bold uppercase tracking-wide"
+                            style={{ background: 'rgba(220,38,38,0.2)', color: '#f87171', border: '1px solid rgba(220,38,38,0.4)' }}
+                          >
+                            defect
+                          </span>
+                        )}
                         {canVerwijderen && (
                           <button
                             onClick={e => { e.stopPropagation(); setDeleteConfirm(item) }}
@@ -1538,17 +1630,19 @@ export default function EquipmentPlanner() {
                       return catEquip.map(item => {
                         const res = resMap.get(`${item.id}_${iso}`)
                         if (res) {
-                          const userColor = getUserColor(res.reserved_by)
+                          const cell = cellLabel(res)
                           return (
                             <td key={item.id}
                               className="border-b border-r border-zinc-800/40 cursor-pointer"
                               style={{ height: ROW_H, padding: '3px' }}
                               onClick={() => setViewModal({ equipment: item, date: iso, reservation: res })}
+                              // De naam blijft altijd in de tooltip staan, ook wanneer
+                              // de cel het project toont.
                               title={`${res.reserved_by}${res.project ? ` — ${res.project}` : ''}${res.note ? ` — ${res.note}` : ''}`}>
                               <div className="h-full rounded flex items-center justify-center px-1 overflow-hidden"
-                                style={{ backgroundColor: `${userColor}22`, border: `1px solid ${userColor}55` }}>
-                                <span className="text-[10px] font-semibold truncate leading-none" style={{ color: userColor }}>
-                                  {getFirstName(res.reserved_by)}
+                                style={{ backgroundColor: `${cell.color}22`, border: `1px solid ${cell.color}55` }}>
+                                <span className="text-[10px] font-semibold truncate leading-none" style={{ color: cell.color }}>
+                                  {cell.text}
                                 </span>
                               </div>
                             </td>
@@ -1559,7 +1653,7 @@ export default function EquipmentPlanner() {
                           <td key={item.id}
                             className={`border-b border-r border-zinc-800/40 ${!isPast && canReserveren ? 'cursor-pointer group/cell' : ''}`}
                             style={{ height: ROW_H, padding: '3px' }}
-                            onClick={() => !isPast && canReserveren && setCreateModal({ equipment: item, date: iso })}>
+                            onClick={() => !isPast && canReserveren && !item.is_broken && setCreateModal({ equipment: item, date: iso })}>
                             <div className={`h-full rounded flex items-center justify-center transition-all ${
                               isPast ? 'opacity-20' : 'group-hover/cell:brightness-125'
                             }`}
@@ -1594,11 +1688,21 @@ export default function EquipmentPlanner() {
           onDeleted={(resId, equipId, pickupDt) => handleDeleted(resId, equipId, pickupDt)}
         />
       )}
+      {adminPanel && (
+        <EquipmentAdminPanel
+          equipment={equipment}
+          projects={projects}
+          onClose={() => setAdminPanel(false)}
+          onEquipmentChange={updated => setEquipment(prev => prev.map(e => e.id === updated.id ? updated : e))}
+          onProjectsChange={setProjects}
+        />
+      )}
       {createModal !== null && (
         <ReservationCreateModal
           equipment={equipment}
           resMap={resMap}
           allReservations={allReservations}
+          projects={projects}
           initialEquipment={createModal.equipment}
           initialDate={createModal.date}
           onClose={() => setCreateModal(null)}
