@@ -268,7 +268,7 @@ export default function CopyGenerator({ clientId, clientName, canManageExamples 
       )}
 
       {/* ── Tabs ──────────────────────────────────────────── */}
-      <div className="flex gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-fit max-w-full overflow-x-auto">
+      <div className="flex gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-full sm:w-fit overflow-x-auto">
         <button
           onClick={() => setTab('generate')}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex-shrink-0 whitespace-nowrap ${

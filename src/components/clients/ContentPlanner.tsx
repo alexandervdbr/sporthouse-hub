@@ -470,7 +470,7 @@ export default function ContentPlanner({
         </p>
 
         {/* Tabs */}
-        <div className="flex gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-fit max-w-full overflow-x-auto mb-6">
+        <div className="flex gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-full sm:w-fit overflow-x-auto mb-6">
           {tabs.map(tab => (
             <button
               key={tab.key}
@@ -778,7 +778,7 @@ export default function ContentPlanner({
         {activeTab === 'stats' && (
           <div>
             {/* Periode selector */}
-            <div className="flex gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-fit max-w-full overflow-x-auto mb-6">
+            <div className="flex gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-full sm:w-fit overflow-x-auto mb-6">
               {([
                 { key: '1m', label: 'Deze maand' },
                 { key: 'prev', label: 'Vorige maand' },

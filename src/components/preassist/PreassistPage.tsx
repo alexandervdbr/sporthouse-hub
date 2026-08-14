@@ -713,7 +713,7 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
       ) : (
         <>
           {/* Tabs */}
-          <div className="flex gap-1 mb-7 p-1 rounded-xl w-fit max-w-full overflow-x-auto"
+          <div className="flex gap-1 mb-7 p-1 rounded-xl w-full sm:w-fit overflow-x-auto"
             style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
             {(['content', 'inspiratie'] as Section[]).map(s => {
               const count = submissions.filter(sub => sub.section === s).length

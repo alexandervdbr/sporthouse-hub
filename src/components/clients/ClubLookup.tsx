@@ -426,7 +426,7 @@ export default function ClubLookup({
       {/* ── Header ── */}
       <div className="flex-shrink-0 px-4 sm:px-8 pt-4 sm:pt-6 pb-4 border-b border-zinc-900">
         <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-fit max-w-full overflow-x-auto">
+          <div className="flex gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-full sm:w-fit overflow-x-auto">
             {tabs.map(tab => (
               <button
                 key={tab.key}
