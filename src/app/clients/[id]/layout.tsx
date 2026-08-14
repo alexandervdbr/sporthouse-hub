@@ -4,6 +4,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { Client } from '@/types/database'
 import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import FavoriteToggle from '@/components/clients/FavoriteToggle'
 
 const LOGO_MAP: Record<string, string> = {
   'Pro League':               '/logos/proleague.jpg',
@@ -87,9 +88,9 @@ export default async function ClientLayout({ children, params }: Props) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-8 py-5 flex-shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(14,14,14,0.8)', backdropFilter: 'blur(12px)' }}>
-        <div className="flex items-center gap-4">
-          <Link href={`/clients/${id}`} className="flex items-center gap-4 group">
+      <div className="px-4 sm:px-8 py-4 sm:py-5 flex-shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(14,14,14,0.8)', backdropFilter: 'blur(12px)' }}>
+        <div className="flex items-center gap-3 sm:gap-4">
+          <Link href={`/clients/${id}`} className="flex items-center gap-3 sm:gap-4 group min-w-0 flex-1">
             {logo ? (
               <Image
                 src={logo}
@@ -109,18 +110,19 @@ export default async function ClientLayout({ children, params }: Props) {
                 </div>
               </div>
             )}
-            <div>
-              <div className="flex items-center gap-2.5">
-                <h1 className="text-[15px] font-semibold text-zinc-100 tracking-tight group-hover:text-white transition-colors">{c.name}</h1>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <h1 className="text-[15px] font-semibold text-zinc-100 tracking-tight group-hover:text-white transition-colors truncate">{c.name}</h1>
+                <span className="hidden sm:inline text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700 flex-shrink-0">
                   {categoryLabel[c.category] || c.category}
                 </span>
               </div>
               {c.description && (
-                <p className="text-sm text-zinc-500 mt-0.5 leading-relaxed">{c.description}</p>
+                <p className="text-sm text-zinc-500 mt-0.5 leading-relaxed truncate">{c.description}</p>
               )}
             </div>
           </Link>
+          <FavoriteToggle clientId={id} clientName={c.name} />
         </div>
       </div>
 

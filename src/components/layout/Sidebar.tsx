@@ -6,8 +6,9 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { Client } from '@/types/database'
-import { LayoutDashboard, KanbanSquare, CalendarDays, CalendarRange, Users, LogOut, Camera, UserCheck, MessageSquare, ShieldCheck, Sparkles, Lock, Layers, X } from 'lucide-react'
+import { LayoutDashboard, KanbanSquare, CalendarDays, CalendarRange, Users, LogOut, Camera, UserCheck, MessageSquare, ShieldCheck, Sparkles, Lock, Layers, X, Star } from 'lucide-react'
 import { useSidebar } from '@/contexts/SidebarContext'
+import { useFavorites } from '@/contexts/FavoritesContext'
 import { cn } from '@/lib/utils'
 import { getLogo } from '@/lib/logos'
 import { usePreview } from '@/lib/preview-context'
@@ -17,11 +18,12 @@ interface SidebarProps {
   clients: Client[]
 }
 
-function NavGroup({ title, clients, pathname, collapsed }: {
+function NavGroup({ title, clients, pathname, collapsed, icon: Icon }: {
   title: string
   clients: Client[]
   pathname: string
   collapsed: boolean
+  icon?: React.ElementType
 }) {
   if (clients.length === 0) return null
   return (
@@ -31,7 +33,8 @@ function NavGroup({ title, clients, pathname, collapsed }: {
       {collapsed ? (
         <div className="mx-2 mb-1.5" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }} />
       ) : (
-        <p className="px-3 mb-1.5 text-[10px] font-semibold text-zinc-500 uppercase tracking-widest">
+        <p className="px-3 mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold text-zinc-500 uppercase tracking-widest">
+          {Icon && <Icon size={10} className="text-amber-400/70" fill="currentColor" />}
           {title}
         </p>
       )}
@@ -102,6 +105,7 @@ export default function Sidebar({ clients }: SidebarProps) {
   const router = useRouter()
   const pathname = usePathname()
   const { collapsed, mobileOpen, closeMobile } = useSidebar()
+  const { favorites } = useFavorites()
   const supabase = createClient()
   const { preview } = usePreview()
   const [realIsAdmin,     setRealIsAdmin]     = useState(false)
@@ -176,7 +180,7 @@ export default function Sidebar({ clients }: SidebarProps) {
   const allowed = visibleClients()
   const INTERN_ORDER = ['Sporthouse', 'Friends of Sports']
   const intern = allowed
-    .filter(c => c.category === 'intern')
+    .filter(c => c.category === 'intern' && !favorites.has(c.id))
     .sort((a, b) => {
       const ai = INTERN_ORDER.indexOf(a.name)
       const bi = INTERN_ORDER.indexOf(b.name)
@@ -185,9 +189,15 @@ export default function Sidebar({ clients }: SidebarProps) {
       if (bi === -1) return -1
       return ai - bi
     })
-  const klanten  = allowed.filter(c => c.category === 'klant')
-  const atleten  = allowed.filter(c => c.category === 'atleet')
-  const podcasts = allowed.filter(c => c.category === 'podcast')
+  // Favourites are lifted out of their category rather than duplicated: seeing
+  // the same client twice is confusing, and removing it from the list below is
+  // the entire point — a shorter scroll.
+  const isFav = (c: Client) => favorites.has(c.id)
+  const favorited = allowed.filter(isFav).sort((a, b) => a.name.localeCompare(b.name))
+
+  const klanten  = allowed.filter(c => c.category === 'klant'   && !isFav(c))
+  const atleten  = allowed.filter(c => c.category === 'atleet'  && !isFav(c))
+  const podcasts = allowed.filter(c => c.category === 'podcast' && !isFav(c))
 
   return (
     <>
@@ -346,6 +356,7 @@ export default function Sidebar({ clients }: SidebarProps) {
         <div className="mx-3 mb-5" style={{ borderTop: '1px solid rgba(255,255,255,0.09)' }} />
 
         <div data-tour="sidebar-clients">
+          <NavGroup title="Favorieten"     clients={favorited} pathname={pathname} collapsed={collapsed} icon={Star} />
           <NavGroup title="Intern"         clients={intern}   pathname={pathname} collapsed={collapsed} />
           <NavGroup title="Klanten"        clients={klanten}  pathname={pathname} collapsed={collapsed} />
           <NavGroup title="Atleten"        clients={atleten}  pathname={pathname} collapsed={collapsed} />

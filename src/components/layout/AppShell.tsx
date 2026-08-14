@@ -5,6 +5,7 @@ import TopBar from '@/components/layout/TopBar'
 import PreviewBanner from '@/components/layout/PreviewBanner'
 import PushNotificationSetup from '@/components/layout/PushNotificationSetup'
 import { SidebarProvider } from '@/contexts/SidebarContext'
+import { FavoritesProvider } from '@/contexts/FavoritesContext'
 import { Client } from '@/types/database'
 
 interface Props {
@@ -26,6 +27,9 @@ interface Props {
 export default function AppShell({ clients, children, scroll = 'auto', pushNotifications = false }: Props) {
   return (
     <SidebarProvider>
+      {/* Wraps children too, so the star on the client header shares state with
+          the sidebar's favourites group. */}
+      <FavoritesProvider>
       <div className="flex h-[100dvh] overflow-hidden">
         {pushNotifications && <PushNotificationSetup />}
         <Sidebar clients={clients} />
@@ -37,6 +41,7 @@ export default function AppShell({ clients, children, scroll = 'auto', pushNotif
           </div>
         </main>
       </div>
+      </FavoritesProvider>
     </SidebarProvider>
   )
 }
