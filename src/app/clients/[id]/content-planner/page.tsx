@@ -24,7 +24,7 @@ export default async function ContentPlannerPage({ params }: Props) {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      <div className="flex-shrink-0 px-8 pt-8 pb-5 border-b border-zinc-900">
+      <div className="flex-shrink-0 px-4 sm:px-8 pt-5 sm:pt-8 pb-4 sm:pb-5 border-b border-zinc-900">
         <h2 className="text-base font-semibold text-sh-grey mb-1">Content Planner</h2>
         <p className="text-sm text-zinc-500">
           Plan posts tijdens de meeting en push ze in één klik naar Asana.
