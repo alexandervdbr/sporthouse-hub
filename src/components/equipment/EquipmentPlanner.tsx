@@ -277,7 +277,7 @@ function AddEquipmentModal({
               <select
                 value={category}
                 onChange={e => setCategory(e.target.value)}
-                className="flex-1 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 focus:outline-none focus:border-zinc-500 transition-colors"
+                className="flex-1 min-w-0 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 focus:outline-none focus:border-zinc-500 transition-colors"
               >
                 <option value="">Kies een categorie…</option>
                 {allCategories.map(cat => (

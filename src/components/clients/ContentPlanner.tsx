@@ -1002,16 +1002,16 @@ export default function ContentPlanner({
               <p className="text-xs text-zinc-500 mb-3">
                 Alle taken worden altijd aan dit project toegevoegd.
               </p>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {loadingProjects ? (
-                  <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-sm text-zinc-500">
+                  <div className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-sm text-zinc-500">
                     <Loader2 size={13} className="animate-spin" /> Projecten ophalen…
                   </div>
                 ) : asanaProjects.length > 0 ? (
                   <select
                     value={asanaGidInput}
                     onChange={e => setAsanaGidInput(e.target.value)}
-                    className="flex-1 bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm px-3 py-2 rounded-lg outline-none focus:border-zinc-500 appearance-none"
+                    className="flex-1 min-w-0 bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm px-3 py-2 rounded-lg outline-none focus:border-zinc-500 appearance-none"
                   >
                     <option value="">Kies een project…</option>
                     {asanaProjects.map(p => (
@@ -1024,13 +1024,13 @@ export default function ContentPlanner({
                     value={asanaGidInput}
                     onChange={e => setAsanaGidInput(e.target.value)}
                     placeholder="bv. 1234567890123456"
-                    className="flex-1 bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm px-3 py-2 rounded-lg outline-none focus:border-zinc-500 placeholder:text-zinc-600"
+                    className="flex-1 min-w-0 bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm px-3 py-2 rounded-lg outline-none focus:border-zinc-500 placeholder:text-zinc-600"
                   />
                 )}
                 <button
                   onClick={handleSaveGid}
                   disabled={savingGid || !asanaGidInput.trim()}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 rounded-lg text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors min-w-[88px] justify-center"
+                  className="flex items-center gap-1.5 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 rounded-lg text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors min-w-[88px] flex-shrink-0 justify-center"
                 >
                   {savingGid ? (
                     <Loader2 size={13} className="animate-spin" />

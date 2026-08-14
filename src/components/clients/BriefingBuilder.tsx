@@ -805,7 +805,7 @@ export default function BriefingBuilder({
                   <select
                     value={asanaGidInput}
                     onChange={e => setAsanaGidInput(e.target.value)}
-                    className="flex-1 bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm px-3 py-2 rounded-lg outline-none focus:border-zinc-500 appearance-none"
+                    className="flex-1 min-w-0 bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm px-3 py-2 rounded-lg outline-none focus:border-zinc-500 appearance-none"
                   >
                     <option value="">Kies een project…</option>
                     {asanaProjects.map(p => (
