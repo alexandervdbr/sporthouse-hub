@@ -64,6 +64,21 @@ export async function POST(req: Request) {
     return new Response('Missing required fields', { status: 400 })
   }
 
+  // Defect materiaal kan niet gereserveerd worden, ook niet door wie de
+  // knop nog in beeld heeft staan van voor het defect gemeld werd.
+  const { data: item } = await supabase
+    .from('equipment')
+    .select('name, is_broken')
+    .eq('id', equipment_id)
+    .maybeSingle()
+
+  if (item?.is_broken) {
+    return new Response(
+      JSON.stringify({ error: `${item.name} staat als defect gemeld en kan niet gereserveerd worden.` }),
+      { status: 409, headers: { 'Content-Type': 'application/json' } }
+    )
+  }
+
   // Compute occupied dates
   const occupiedDates = getOccupiedDates(pickup_datetime, return_datetime)
   if (occupiedDates.length === 0) {
