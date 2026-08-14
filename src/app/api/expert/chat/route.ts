@@ -2,6 +2,29 @@ import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { DEPARTMENTS, DUTCH_DAYS, DUTCH_MONTHS } from '@/lib/planning-config'
+import { downloadFile } from '@/lib/drive-storage'
+import { formatKennisbank } from '@/lib/kennisbank-questions'
+
+async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
+  const chunks: Buffer[] = []
+  for await (const chunk of stream) chunks.push(chunk as Buffer)
+  return Buffer.concat(chunks)
+}
+
+// RTF is opmaak, geen tekst: rechtstreeks uitlezen levert \rtf1\ansi… op in
+// plaats van de inhoud. officeparser haalt de eigenlijke tekst eruit.
+async function toPlainText(buffer: Buffer, fileType: string): Promise<string> {
+  if (fileType.toLowerCase() === 'rtf') {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { parseOffice } = require('officeparser')
+      const ast = await parseOffice(buffer)
+      const text: string = typeof ast === 'string' ? ast : (ast.toText?.() ?? '')
+      if (text.trim()) return text
+    } catch { /* val terug op ruwe tekst */ }
+  }
+  return buffer.toString('utf-8')
+}
 
 const TEXT_TYPES = ['txt', 'md', 'csv', 'json', 'xml', 'html', 'rtf']
 
@@ -145,7 +168,7 @@ export async function POST(request: NextRequest) {
     { data: dayProjCur },
     { data: dayProjNxt },
   ] = await Promise.all([
-    supabase.from('files').select('id, filename, description, file_type, storage_path').eq('client_id', clientId).order('created_at'),
+    supabase.from('files').select('id, filename, description, file_type, storage_path, storage_provider, drive_file_id').eq('client_id', clientId).is('deleted_at', null).order('created_at'),
     supabase.from('planning_entries').select('day, year, month, department, employee, value').eq('year', curY).eq('month', curM),
     supabase.from('planning_entries').select('day, year, month, department, employee, value').eq('year', nxt.year).eq('month', nxt.month),
     supabase.from('equipment').select('id, name, category').order('category').order('name'),
@@ -155,6 +178,22 @@ export async function POST(request: NextRequest) {
     supabase.from('day_projects').select('date, project_name').gte('date', next.start).lte('date', next.end),
   ])
 
+  // Kennisbank: de antwoorden op de vaste vragenlijst. Dit is het meest
+  // gerichte wat de AI over een klant kan weten — tone of voice, verboden
+  // onderwerpen, doelgroep — dus het staat vooraan in de prompt.
+  let kennisbankBlock = '(Nog niet ingevuld voor deze klant.)'
+  try {
+    const { data: knowledge } = await supabase
+      .from('client_knowledge')
+      .select('question_key, answer')
+      .eq('client_id', clientId)
+    if (knowledge?.length) {
+      const answers: Record<string, string> = {}
+      for (const row of knowledge) answers[row.question_key] = row.answer
+      kennisbankBlock = formatKennisbank(answers) || kennisbankBlock
+    }
+  } catch { /* tabel bestaat nog niet */ }
+
   // ── Build files context ────────────────────────────────────────────────────
   let docsBlock = ''
   if (files && files.length > 0) {
@@ -162,9 +201,17 @@ export async function POST(request: NextRequest) {
       const header = `### ${f.filename}${f.description ? ` — ${f.description}` : ''}`
       if (TEXT_TYPES.includes(f.file_type.toLowerCase())) {
         try {
-          const { data: blob } = await supabase.storage.from('files').download(f.storage_path)
-          if (blob) {
-            const text = await blob.text()
+          // Sinds de verhuizing naar Drive heeft het merendeel van de bestanden
+          // geen storage_path meer; die stonden hier stil als lege verwijzing.
+          let buffer: Buffer | null = null
+          if (f.storage_provider === 'drive' && f.drive_file_id) {
+            buffer = await streamToBuffer(await downloadFile(f.drive_file_id))
+          } else if (f.storage_path) {
+            const { data: blob } = await supabase.storage.from('files').download(f.storage_path)
+            if (blob) buffer = Buffer.from(await blob.arrayBuffer())
+          }
+          if (buffer) {
+            const text = await toPlainText(buffer, f.file_type)
             const trimmed = text.length > 20000 ? text.slice(0, 20000) + '\n...(bestand ingekort)' : text
             return `${header}\n${trimmed}`
           }
@@ -215,6 +262,12 @@ ${materiaalBlock}
 
 ---
 
+## KENNISBANK van ${clientName}
+
+${kennisbankBlock}
+
+---
+
 ## BESTANDEN & DOCUMENTEN voor ${clientName}
 
 ${docsBlock}
@@ -224,6 +277,7 @@ ${docsBlock}
 INSTRUCTIES:
 - Beantwoord altijd in het Nederlands
 - Je hebt actuele data van de planning en het materiaal — gebruik die actief bij vragen
+- De kennisbank beschrijft hoe deze klant communiceert; volg die tone of voice en respecteer wat er niet mag
 - Bij vragen over beschikbaarheid: kijk in de planningdata en geef een concreet antwoord
 - Bij vragen over materiaal: kijk welke items vrij of bezet zijn op de gevraagde datum
 - Help met concepten, briefings, content, strategie en planningsvragen
