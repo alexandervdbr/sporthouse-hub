@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ChevronLeft, ChevronRight, Loader2, Settings } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Loader2, Settings, Search, User, X } from 'lucide-react'
 import { DEPARTMENTS, DUTCH_MONTHS, getDaysInMonth, cellKey, Department } from '@/lib/planning-config'
 import PlanningConfigModal from '@/components/planning/PlanningConfigModal'
 import { ADMIN_EMAILS } from '@/lib/auth-permissions'
@@ -67,6 +67,67 @@ const BG_COLORS = [
 
 function emptyCell(): CellData {
   return { value: '', bold: true, textColor: '#ffffff', bgColor: null }
+}
+
+function norm(s: string) {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
+}
+
+const MY_NAME_STORAGE_KEY = 'planning-my-name'
+
+// ─── Naam-picker: "wie ben jij in dit rooster?" ────────────────────────────────
+// Nodig omdat myColumn (uit de permissies) enkel bestaat voor wie beperkt mag
+// bewerken — de meeste mensen met volledige rechten hebben hem niet. Deze
+// picker is de generieke oplossing die voor iedereen werkt, admin of niet.
+function NamePicker({
+  depts, guess, onPick, onCancel,
+}: {
+  depts: Department[]
+  guess: string | null
+  onPick: (name: string) => void
+  onCancel: () => void
+}) {
+  const [value, setValue] = useState(guess ?? '')
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onCancel}>
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+      <div onClick={e => e.stopPropagation()}
+        className="relative w-full max-w-sm rounded-2xl bg-zinc-900 border border-zinc-800 shadow-2xl p-5 space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold text-zinc-100">Wie ben jij in dit rooster?</h2>
+          <p className="text-xs text-zinc-500 mt-1">
+            Zo kan &ldquo;Alleen ik&rdquo; meteen jouw kolom tonen, ook de volgende keer.
+          </p>
+        </div>
+        <select
+          autoFocus
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          className="w-full px-3 py-2.5 bg-zinc-950 border border-zinc-700 rounded-lg text-sm text-zinc-200 outline-none focus:border-zinc-500"
+        >
+          <option value="">Kies je naam…</option>
+          {depts.map(d => (
+            <optgroup key={d.name} label={d.name}>
+              {d.employees.map(emp => <option key={emp} value={emp}>{emp}</option>)}
+            </optgroup>
+          ))}
+        </select>
+        <div className="flex items-center justify-end gap-2">
+          <button onClick={onCancel} className="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors">
+            Annuleren
+          </button>
+          <button
+            onClick={() => value && onPick(value)}
+            disabled={!value}
+            className="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-40 transition-colors"
+            style={{ backgroundColor: '#3A913F' }}
+          >
+            Bevestigen
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // ─── Toolbar ──────────────────────────────────────────────────────────────────
@@ -141,6 +202,41 @@ export default function PlanningGrid() {
   // Planning column permissions
   const [canEditAll, setCanEditAll] = useState(true)
   const [myColumn,   setMyColumn]   = useState<string | null>(null)
+  const [myName,     setMyName]     = useState('')
+
+  // Search & "alleen ik" ────────────────────────────────────────────────────
+  const [search, setSearch] = useState('')
+  const [onlyMine, setOnlyMine] = useState(false)
+  const [myIdentity, setMyIdentity] = useState<string | null>(null)
+  const [showNamePicker, setShowNamePicker] = useState(false)
+
+  // "Alleen ik" onthouden tussen bezoeken, zodat het niet elke keer opnieuw
+  // aangezet moet worden — dat was expliciet de vraag.
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(MY_NAME_STORAGE_KEY)
+      if (stored) setMyIdentity(stored)
+      if (localStorage.getItem('planning-only-mine') === 'true') setOnlyMine(true)
+    } catch { /* private browsing */ }
+  }, [])
+
+  useEffect(() => {
+    try { localStorage.setItem('planning-only-mine', String(onlyMine)) } catch { /* ignore */ }
+  }, [onlyMine])
+
+  function confirmIdentity(name: string) {
+    setMyIdentity(name)
+    try { localStorage.setItem(MY_NAME_STORAGE_KEY, name) } catch { /* ignore */ }
+    setShowNamePicker(false)
+    setOnlyMine(true)
+  }
+
+  function toggleOnlyMine() {
+    if (onlyMine) { setOnlyMine(false); return }
+    setSearch('')
+    if (myIdentity) setOnlyMine(true)
+    else setShowNamePicker(true)
+  }
 
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   const containerRef = useRef<HTMLDivElement>(null)
@@ -148,15 +244,54 @@ export default function PlanningGrid() {
   const supabase = createClient()
   const days = getDaysInMonth(year, month)
 
-  // All columns in order
-  const allColumns = useMemo(() =>
+  // Alle personen ongeacht filter — de "master"-lijst waartegen gezocht en
+  // geïdentificeerd wordt, en waaruit de naam-picker zijn opties haalt.
+  const everyEmployee = useMemo(() =>
     activeDepts.flatMap(dept => dept.employees.map(emp => ({ dept: dept.name, emp }))),
   [activeDepts])
+
+  // Zichtbare afdelingen na filter: leeg gebleven afdelingen vallen weg, zodat
+  // de kolomkoppen en de mobiele lijst geen lege groepen tonen.
+  const filteredDepts = useMemo(() => {
+    if (!onlyMine && !search.trim()) return activeDepts
+    const matches = (emp: string) =>
+      onlyMine ? emp === myIdentity : norm(emp).includes(norm(search))
+    return activeDepts
+      .map(dept => ({ ...dept, employees: dept.employees.filter(matches) }))
+      .filter(dept => dept.employees.length > 0)
+  }, [activeDepts, onlyMine, search, myIdentity])
+
+  // Dit is de kolomruimte die overal verder gebruikt wordt — selectie,
+  // toetsenbordnavigatie, kopiëren/plakken, rendering. Zonder filter is dit
+  // identiek aan de volledige lijst, dus bestaand gedrag verandert niet.
+  const allColumns = useMemo(() =>
+    filteredDepts.flatMap(dept => dept.employees.map(emp => ({ dept: dept.name, emp }))),
+  [filteredDepts])
+
+  // Filter (en dus de kolomruimte) wijzigt → oude selectie kan naar een kolom
+  // wijzen die niet meer bestaat of van betekenis veranderd is.
+  useEffect(() => {
+    setSel(null); setActiveKey(null); setEditingKey(null)
+  }, [onlyMine, search])
+
+  // Beste gok voor de naam-picker: eerste woord van je accountnaam vergelijken
+  // met het eerste woord van elke kolomnaam. Bij twijfel (0 of >1 treffers,
+  // zoals "Thijs" naast "Thijs M") wordt niets voorgesteld — dan kiest de
+  // gebruiker zelf, in plaats van dat er geraden wordt naar wiens planning het is.
+  const nameGuess = useMemo(() => {
+    if (!myName) return null
+    const myFirst = norm(myName).split(' ')[0]
+    if (!myFirst) return null
+    const candidates = [...new Set(everyEmployee.map(c => c.emp))]
+      .filter(emp => norm(emp).split(' ')[0] === myFirst)
+    return candidates.length === 1 ? candidates[0] : null
+  }, [myName, everyEmployee])
 
   // ── Load planning permissions ───────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) return
+      setMyName(user.user_metadata?.full_name ?? user.user_metadata?.name ?? '')
       const permsObj = user.app_metadata?.permissions ?? null
       const sections: string[] = permsObj?.sections ?? []
       const isAdmin = ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer')
@@ -168,6 +303,13 @@ export default function PlanningGrid() {
       }
     })
   }, [])
+
+  // myColumn (admin-toegekend, voor edit-beperking) is de meest betrouwbare
+  // bron als hij bestaat — geen giswerk nodig. Wie hem niet heeft (iedereen
+  // met volledige rechten) krijgt de zelf-gekozen of geraden identiteit.
+  useEffect(() => {
+    if (myColumn && myColumn !== '__none__') setMyIdentity(myColumn)
+  }, [myColumn])
 
   // ── Load departments config from Supabase ───────────────────────────────────
   useEffect(() => {
@@ -543,6 +685,59 @@ export default function PlanningGrid() {
         )}
       </div>
 
+      {/* Zoeken & "Alleen ik" — zelfde rij op mobiel en desktop, zodat je niet
+          telkens door de hele lijst hoeft te scrollen of te zoeken naar jezelf. */}
+      <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+        <div className="relative flex-1 min-w-[140px]">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => { setSearch(e.target.value); if (e.target.value) setOnlyMine(false) }}
+            placeholder="Zoek een naam…"
+            disabled={onlyMine}
+            className="w-full pl-8 pr-7 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600 transition-colors disabled:opacity-40"
+          />
+          {search && (
+            <button onClick={() => setSearch('')} aria-label="Zoekopdracht wissen"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors">
+              <X size={13} />
+            </button>
+          )}
+        </div>
+
+        <button
+          onClick={toggleOnlyMine}
+          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border transition-colors flex-shrink-0 ${
+            onlyMine
+              ? 'bg-[#3A913F]/15 border-[#3A913F]/40 text-green-400'
+              : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
+          }`}
+        >
+          <User size={13} />
+          Alleen ik{myIdentity && onlyMine ? ` (${myIdentity})` : ''}
+        </button>
+
+        {myIdentity && !myColumn && (
+          <button
+            onClick={() => setShowNamePicker(true)}
+            title="Wijzig wie jij bent in dit rooster"
+            className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors flex-shrink-0"
+          >
+            wijzig
+          </button>
+        )}
+      </div>
+
+      {showNamePicker && (
+        <NamePicker
+          depts={activeDepts}
+          guess={nameGuess}
+          onPick={confirmIdentity}
+          onCancel={() => setShowNamePicker(false)}
+        />
+      )}
+
       {/* Formatting toolbar — multi-select, copy/paste and bulk colouring are
           desktop interactions, so it's hidden on the mobile day view. */}
       <div className="hidden lg:block">
@@ -606,7 +801,12 @@ export default function PlanningGrid() {
         </div>
 
         <div className="flex-1 overflow-y-auto space-y-4 pb-4">
-          {activeDepts.map(dept => (
+          {filteredDepts.length === 0 && (
+            <p className="py-8 text-center text-sm text-zinc-600">
+              {onlyMine ? 'Je kolom is niet gevonden in dit rooster.' : `Niemand gevonden voor "${search}".`}
+            </p>
+          )}
+          {filteredDepts.map(dept => (
             <div key={dept.name}>
               <p className="section-label mb-1.5">{dept.name}</p>
               <div className="space-y-1.5">
@@ -675,7 +875,12 @@ export default function PlanningGrid() {
         style={{ minWidth: 0 }}
         onMouseLeave={() => { if (isDragging) setIsDragging(false) }}
       >
-        <table
+        {allColumns.length === 0 && (
+          <p className="py-12 text-center text-sm text-zinc-600">
+            {onlyMine ? 'Je kolom is niet gevonden in dit rooster.' : `Niemand gevonden voor "${search}".`}
+          </p>
+        )}
+        {allColumns.length > 0 && <table
           className="border-collapse text-xs"
           style={{ minWidth: DAY_W + DATE_W + allColumns.length * CELL_W }}
         >
@@ -690,7 +895,7 @@ export default function PlanningGrid() {
                 className="border-b border-r-2 border-zinc-700 px-2 py-2 text-center font-semibold text-zinc-500">
                 #
               </th>
-              {activeDepts.map(dept => (
+              {filteredDepts.map(dept => (
                 <th key={dept.name} colSpan={dept.employees.length}
                   style={{ backgroundColor: BG_HEAD, borderLeft: '2px solid #3f3f46' }}
                   className="border-b border-zinc-800 px-2 py-2 text-center font-semibold text-sh-grey whitespace-nowrap">
@@ -706,7 +911,7 @@ export default function PlanningGrid() {
               <th style={{ position: 'sticky', left: DAY_W, zIndex: 40, width: DATE_W, minWidth: DATE_W, backgroundColor: BG_HEAD }}
                 className="border-b-2 border-r-2 border-zinc-700" />
               {allColumns.map(({ dept, emp }, ci) => {
-                const isFirstInDept = activeDepts.find(d => d.name === dept)?.employees[0] === emp
+                const isFirstInDept = filteredDepts.find(d => d.name === dept)?.employees[0] === emp
                 const isColSelected = sel &&
                   ci >= Math.min(sel.startCol, sel.endCol) &&
                   ci <= Math.max(sel.startCol, sel.endCol)
@@ -783,7 +988,7 @@ export default function PlanningGrid() {
                     const isActive = activeKey === key
                     const isSelected = selectedKeys.has(key)
                     const isEditing = editingKey === key
-                    const isFirstInDept = activeDepts.find(d => d.name === dept)?.employees[0] === emp
+                    const isFirstInDept = filteredDepts.find(d => d.name === dept)?.employees[0] === emp
                     const locked = !canEditCol(emp)
 
                     const cellBg = cell.bgColor
@@ -855,7 +1060,7 @@ export default function PlanningGrid() {
               )
             })}
           </tbody>
-        </table>
+        </table>}
       </div>
 
       {/* Legend */}
