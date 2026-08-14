@@ -475,7 +475,7 @@ function EditionModal({ editions, onClose, onRefresh }: {
         <div className="flex gap-2">
           <input type="text" placeholder="bv. Q1 2026" value={newTitle}
             onChange={e => setNewTitle(e.target.value)} onKeyDown={e => e.key === 'Enter' && createEdition()}
-            className="flex-1 px-3 py-2 rounded-lg text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none"
+            className="flex-1 min-w-0 px-3 py-2 rounded-lg text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none"
             style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }} />
           <button onClick={createEdition} disabled={saving || !newTitle.trim()}
             className="px-3 py-2 rounded-lg text-white text-sm disabled:opacity-40 transition-all"

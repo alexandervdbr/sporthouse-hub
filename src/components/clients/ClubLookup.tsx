@@ -541,13 +541,13 @@ export default function ClubLookup({
                               value={editForm.country ?? ''}
                               onChange={e => setEditForm(f => ({ ...f, country: e.target.value }))}
                               placeholder="Land"
-                              className="flex-1 bg-zinc-900 border border-zinc-700 text-zinc-200 text-xs px-2 py-1.5 rounded-lg outline-none focus:border-zinc-500"
+                              className="flex-1 min-w-0 bg-zinc-900 border border-zinc-700 text-zinc-200 text-xs px-2 py-1.5 rounded-lg outline-none focus:border-zinc-500"
                             />
                             <input
                               value={editForm.sofascore_id ?? ''}
                               onChange={e => setEditForm(f => ({ ...f, sofascore_id: e.target.value }))}
                               placeholder="Sofascore ID"
-                              className="flex-1 bg-zinc-900 border border-zinc-700 text-zinc-200 text-xs px-2 py-1.5 rounded-lg outline-none focus:border-zinc-500 font-mono"
+                              className="flex-1 min-w-0 bg-zinc-900 border border-zinc-700 text-zinc-200 text-xs px-2 py-1.5 rounded-lg outline-none focus:border-zinc-500 font-mono"
                             />
                           </div>
                           <div className="flex gap-1.5 pt-1">
@@ -750,7 +750,7 @@ export default function ClubLookup({
                 )}
 
                 <div className="flex items-center gap-2 flex-wrap">
-                  <input value={newComp.name} onChange={e => setNewComp(f => ({ ...f, name: e.target.value }))} placeholder="Naam *" className="flex-1 min-w-32 bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm px-3 py-2 rounded-lg outline-none focus:border-zinc-500 placeholder:text-zinc-600" />
+                  <input value={newComp.name} onChange={e => setNewComp(f => ({ ...f, name: e.target.value }))} placeholder="Naam *" className="flex-1 min-w-0 min-w-32 bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm px-3 py-2 rounded-lg outline-none focus:border-zinc-500 placeholder:text-zinc-600" />
                   <input value={newComp.country} onChange={e => setNewComp(f => ({ ...f, country: e.target.value }))} placeholder="Land" className="w-28 bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm px-3 py-2 rounded-lg outline-none focus:border-zinc-500 placeholder:text-zinc-600" />
                   <input value={newComp.level} onChange={e => setNewComp(f => ({ ...f, level: e.target.value }))} placeholder="Niveau" type="number" min="1" className="w-20 bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm px-3 py-2 rounded-lg outline-none focus:border-zinc-500 placeholder:text-zinc-600" />
                   <button onClick={addCompetition} disabled={addingComp || !newComp.name} className="flex items-center gap-1.5 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 rounded-lg text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
