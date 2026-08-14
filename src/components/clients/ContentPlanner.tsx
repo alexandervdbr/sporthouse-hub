@@ -463,15 +463,11 @@ export default function ContentPlanner({
     <div className="h-full overflow-y-auto">
       <div className="p-8 max-w-4xl mx-auto">
 
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-base font-semibold text-white">Content Planner</h2>
-            <p className="text-sm text-zinc-500 mt-0.5">
-              {filledRows.length} {filledRows.length === 1 ? 'post' : 'posts'} ingevuld
-            </p>
-          </div>
-        </div>
+        {/* The page header above already carries the title, so only the
+            live count belongs here. */}
+        <p className="text-sm text-zinc-500 mb-4">
+          {filledRows.length} {filledRows.length === 1 ? 'post' : 'posts'} ingevuld
+        </p>
 
         {/* Tabs */}
         <div className="flex gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-fit mb-6">
@@ -555,9 +551,85 @@ export default function ContentPlanner({
                   </div>
                 )}
 
-                {/* Table */}
-                <div className="bg-zinc-900 border border-zinc-800 rounded-xl mb-4 scroll-x">
-                  <table className="w-full min-w-[640px] sm:min-w-0">
+                {/* ── Mobile: one card per post ──
+                    This is a data-entry grid, so scrolling it sideways means
+                    losing sight of the field you're filling in. Below sm each
+                    row becomes a labelled card instead. */}
+                <div className="sm:hidden space-y-2.5 mb-4">
+                  {sortedRows.map((row, i) => (
+                    <div key={row.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-3 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-zinc-500">Post {i + 1}</span>
+                        <button
+                          onClick={() => deleteRow(row.id)}
+                          aria-label={`Post ${i + 1} verwijderen`}
+                          className="w-8 h-8 -mr-1 rounded flex items-center justify-center text-zinc-600 hover:text-red-400 transition-colors"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] uppercase tracking-wide text-zinc-600 mb-1">Datum</label>
+                        <input
+                          type="date"
+                          value={row.date}
+                          onChange={e => updateRow(row.id, 'date', e.target.value)}
+                          className="w-full bg-zinc-800/60 border border-zinc-700/60 rounded-lg text-zinc-200 text-sm px-2.5 py-2 outline-none focus:border-zinc-600 [color-scheme:dark]"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] uppercase tracking-wide text-zinc-600 mb-1">Titel / insteek</label>
+                        <input
+                          type="text"
+                          value={row.title}
+                          onChange={e => updateRow(row.id, 'title', e.target.value)}
+                          placeholder="Schrijf de titel / insteek…"
+                          className="w-full bg-zinc-800/60 border border-zinc-700/60 rounded-lg text-zinc-200 text-sm px-2.5 py-2 outline-none focus:border-zinc-600 placeholder:text-zinc-600"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] uppercase tracking-wide text-zinc-600 mb-1">Designer</label>
+                        <select
+                          value={row.designer}
+                          onChange={e => updateRow(row.id, 'designer', e.target.value)}
+                          className="w-full bg-zinc-800/60 border border-zinc-700/60 rounded-lg text-zinc-200 text-sm px-2.5 py-2 outline-none focus:border-zinc-600"
+                        >
+                          <option value="">—</option>
+                          {designers.map(d => (
+                            <option key={d.id} value={d.contact_name}>{d.contact_name}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] uppercase tracking-wide text-zinc-600 mb-1">Notities</label>
+                        <textarea
+                          value={row.notes}
+                          onChange={e => updateRow(row.id, 'notes', e.target.value)}
+                          placeholder="Extra info, links, opmerkingen…"
+                          rows={2}
+                          className="w-full bg-zinc-800/60 border border-zinc-700/60 rounded-lg text-sm text-zinc-300 placeholder:text-zinc-600 px-2.5 py-2 outline-none focus:border-zinc-600 resize-none"
+                        />
+                      </div>
+                    </div>
+                  ))}
+
+                  <div className="flex flex-wrap gap-4 px-1">
+                    <button onClick={addRow} className="flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-300 transition-colors">
+                      <Plus size={14} /> Rij toevoegen
+                    </button>
+                    <button onClick={addRows5} className="flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-300 transition-colors">
+                      <Plus size={14} /> 5 rijen
+                    </button>
+                  </div>
+                </div>
+
+                {/* Table — sm and up */}
+                <div className="hidden sm:block bg-zinc-900 border border-zinc-800 rounded-xl mb-4 scroll-x">
+                  <table className="w-full">
                     <thead>
                       <tr className="border-b border-zinc-800">
                         <th className="w-8 px-3 py-2.5 text-left text-xs font-medium text-zinc-600 uppercase tracking-wide">#</th>
