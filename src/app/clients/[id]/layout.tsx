@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Client } from '@/types/database'
 import { ADMIN_EMAILS } from '@/lib/auth-permissions'
 import FavoriteToggle from '@/components/clients/FavoriteToggle'
+import KennisbankButton from '@/components/clients/KennisbankButton'
 
 const LOGO_MAP: Record<string, string> = {
   'Pro League':               '/logos/proleague.jpg',
@@ -122,6 +123,7 @@ export default async function ClientLayout({ children, params }: Props) {
               )}
             </div>
           </Link>
+          <KennisbankButton clientId={id} clientName={c.name} />
           <FavoriteToggle clientId={id} clientName={c.name} />
         </div>
       </div>

@@ -113,6 +113,12 @@ const SECTION_GROUPS = [
     ],
   },
   {
+    title: 'Kennisbank',
+    sections: [
+      { key: 'kennisbank_bewerken', label: 'Kennisbank invullen & bewerken' },
+    ],
+  },
+  {
     title: 'Pré-assist',
     sections: [
       { key: 'preassist',            label: 'Pré-assist bekijken' },
