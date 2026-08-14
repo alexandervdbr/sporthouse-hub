@@ -38,3 +38,7 @@ next-env.d.ts
 # data files
 *.csv
 .env*
+
+# Bronbestanden van de kennisbank-import: klantinfo, hoort niet in git
+kennisbanken/
+__pycache__/
