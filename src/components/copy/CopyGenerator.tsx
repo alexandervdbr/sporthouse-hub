@@ -268,10 +268,10 @@ export default function CopyGenerator({ clientId, clientName, canManageExamples 
       )}
 
       {/* ── Tabs ──────────────────────────────────────────── */}
-      <div className="flex gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-fit">
+      <div className="flex gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-fit max-w-full overflow-x-auto">
         <button
           onClick={() => setTab('generate')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex-shrink-0 whitespace-nowrap ${
             tab === 'generate' ? 'bg-zinc-800 text-sh-grey' : 'text-zinc-500 hover:text-zinc-400'
           }`}
         >
@@ -280,7 +280,7 @@ export default function CopyGenerator({ clientId, clientName, canManageExamples 
         </button>
         <button
           onClick={() => setTab('examples')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex-shrink-0 whitespace-nowrap ${
             tab === 'examples' ? 'bg-zinc-800 text-sh-grey' : 'text-zinc-500 hover:text-zinc-400'
           }`}
         >

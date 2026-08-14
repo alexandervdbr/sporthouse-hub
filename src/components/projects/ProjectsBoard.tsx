@@ -666,7 +666,7 @@ function NewProjectModal({ clients, contacts, defaultStatus, onClose, onSave }: 
           <ContactPicker contacts={contacts} selected={selectedContacts} onChange={setSelectedContacts} />
         </div>
 
-        <div className="flex items-center justify-end gap-3 p-5" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+        <div className="flex flex-wrap items-center justify-end gap-3 p-5" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
           <button onClick={onClose} className="px-4 py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors">Annuleren</button>
           <button onClick={handleSave} disabled={!name.trim() || saving}
             className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white rounded-xl disabled:opacity-50 transition-colors"

@@ -193,7 +193,7 @@ export default async function DashboardPage() {
   const totalDocs = all.reduce((sum, c) => sum + (c.files?.[0]?.count || 0), 0)
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-7xl mx-auto">
       <div className="mb-10">
         <h1
           className="text-3xl font-bold tracking-tight mb-1"

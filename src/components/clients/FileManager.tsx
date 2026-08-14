@@ -1051,7 +1051,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
     <div className="max-w-5xl mx-auto">
 
       {/* Breadcrumbs — also act as drop targets when inside a subfolder */}

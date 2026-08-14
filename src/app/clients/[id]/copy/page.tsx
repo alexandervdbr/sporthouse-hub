@@ -24,7 +24,7 @@ export default async function CopyPage({ params }: Props) {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="p-8 max-w-4xl mx-auto">
+      <div className="p-4 sm:p-8 max-w-4xl mx-auto">
         <div className="mb-8">
           <h2 className="text-base font-semibold text-sh-grey mb-1">Copy Generator</h2>
           <p className="text-sm text-zinc-500">

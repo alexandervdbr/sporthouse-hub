@@ -471,7 +471,7 @@ export default function ExpertChat({ clientId, clientName }: Props) {
               </div>
             </div>
           ) : (
-            <div className="max-w-3xl mx-auto px-6 py-8 space-y-8">
+            <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-8">
               {messages.map((msg, i) => (
                 <div key={msg.id ?? i}>
                   {msg.role === 'user' ? (
@@ -540,7 +540,7 @@ export default function ExpertChat({ clientId, clientName }: Props) {
         </div>
 
         {/* Input area */}
-        <div className="flex-shrink-0 px-6 pb-6 pt-3">
+        <div className="flex-shrink-0 px-4 sm:px-6 pb-4 sm:pb-6 pt-3">
           <div className="max-w-3xl mx-auto">
             <div
               className="flex items-end gap-3 px-4 py-3 rounded-2xl transition-colors"
