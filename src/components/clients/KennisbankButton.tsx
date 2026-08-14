@@ -14,6 +14,8 @@ export default function KennisbankButton({ clientId, clientName }: { clientId: s
   useEffect(() => {
     fetch(`/api/kennisbank?clientId=${clientId}`)
       .then(r => r.json())
+      // Alleen de vaste vragen tellen mee; eigen secties zijn onbeperkt en
+      // zouden de teller boven het maximum duwen.
       .then(d => setAnswered(Object.values(d.answers ?? {}).filter(a => String(a).trim()).length))
       .catch(() => setAnswered(null))
   }, [clientId])

@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Loader2, Check, ChevronLeft, ChevronRight, BookOpen } from 'lucide-react'
-import { KENNISBANK_BLOCKS, QUESTION_COUNT } from '@/lib/kennisbank-questions'
+import { X, Loader2, Check, ChevronLeft, ChevronRight, BookOpen, Plus, Trash2 } from 'lucide-react'
+import { KENNISBANK_BLOCKS, QUESTION_COUNT, newCustomKey, type KennisbankSection } from '@/lib/kennisbank-questions'
 
 interface Props {
   clientId: string
@@ -14,6 +14,7 @@ interface Props {
 
 export default function KennisbankWizard({ clientId, clientName, onClose, onSaved }: Props) {
   const [answers, setAnswers] = useState<Record<string, string>>({})
+  const [sections, setSections] = useState<KennisbankSection[]>([])
   const [loading, setLoading] = useState(true)
   const [canEdit, setCanEdit] = useState(false)
   const [step, setStep] = useState(0)
@@ -27,12 +28,15 @@ export default function KennisbankWizard({ clientId, clientName, onClose, onSave
   // de laatste stand meeneemt zonder telkens opnieuw gezet te worden.
   const pending = useRef<Record<string, string>>({})
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const sectionsRef = useRef<KennisbankSection[]>([])
+  useEffect(() => { sectionsRef.current = sections }, [sections])
 
   useEffect(() => {
     fetch(`/api/kennisbank?clientId=${clientId}`)
       .then(r => r.json())
       .then(data => {
         setAnswers(data.answers ?? {})
+        setSections(data.sections ?? [])
         setCanEdit(!!data.canEdit)
       })
       .catch(() => setError('Kon de kennisbank niet laden.'))
@@ -48,7 +52,7 @@ export default function KennisbankWizard({ clientId, clientName, onClose, onSave
       const res = await fetch('/api/kennisbank', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, answers: batch }),
+        body: JSON.stringify({ clientId, answers: batch, sections: sectionsRef.current }),
       })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Opslaan mislukt')
       setSavedAt(new Date())
@@ -67,6 +71,31 @@ export default function KennisbankWizard({ clientId, clientName, onClose, onSave
     pending.current[key] = value
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(flush, 900)
+  }
+
+  function updateSection(key: string, patch: Partial<KennisbankSection>) {
+    setSections(prev => prev.map(s => s.key === key ? { ...s, ...patch } : s))
+    // Een sectie heeft geen eigen sleutel in de wachtrij; markeer dat er iets
+    // te bewaren is zodat de timer afgaat.
+    pending.current.__sections = '1'
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = setTimeout(flush, 900)
+  }
+
+  function addSection() {
+    setSections(prev => [...prev, {
+      key: newCustomKey(),
+      title: '',
+      answer: '',
+      sort_order: prev.length,
+    }])
+  }
+
+  async function removeSection(key: string) {
+    const s = sections.find(x => x.key === key)
+    if (s && (s.title.trim() || s.answer.trim()) && !confirm('Deze sectie verwijderen?')) return
+    setSections(prev => prev.filter(x => x.key !== key))
+    await fetch(`/api/kennisbank?clientId=${clientId}&key=${encodeURIComponent(key)}`, { method: 'DELETE' })
   }
 
   // Niets verliezen bij sluiten of wisselen van blok.
@@ -156,6 +185,12 @@ export default function KennisbankWizard({ clientId, clientName, onClose, onSave
               </div>
 
               <div className="space-y-4">
+                {block.key === 'aanvullend' && (
+                  <p className="text-xs text-zinc-500 -mt-1">
+                    Voor afspraken met een eigen naam — embargo&rsquo;s, een workflow, merkregels —
+                    maak je hieronder een aparte sectie aan.
+                  </p>
+                )}
                 {block.questions.map(q => (
                   <div key={q.key}>
                     <label className="block text-sm text-zinc-300 mb-1.5">
@@ -173,6 +208,53 @@ export default function KennisbankWizard({ clientId, clientName, onClose, onSave
                     />
                   </div>
                 ))}
+
+                {block.key === 'aanvullend' && (
+                  <div className="pt-2 space-y-3">
+                    {sections.map(sec => (
+                      <div key={sec.key} className="rounded-xl border border-zinc-800 bg-zinc-950/50 p-3 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <input
+                            value={sec.title}
+                            onChange={e => updateSection(sec.key, { title: e.target.value })}
+                            disabled={!canEdit}
+                            placeholder="Titel, bv. Embargo's"
+                            className="flex-1 min-w-0 px-2.5 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-sm font-medium text-zinc-100 placeholder:text-zinc-700 focus:outline-none focus:border-zinc-600 disabled:opacity-60"
+                          />
+                          {canEdit && (
+                            <button
+                              onClick={() => removeSection(sec.key)}
+                              aria-label="Sectie verwijderen"
+                              className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg text-zinc-600 hover:text-red-400"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          )}
+                        </div>
+                        <textarea
+                          value={sec.answer}
+                          onChange={e => updateSection(sec.key, { answer: e.target.value })}
+                          disabled={!canEdit}
+                          rows={5}
+                          placeholder="Wat moet iedereen hierover weten?"
+                          className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-zinc-600 resize-y disabled:opacity-60"
+                        />
+                        {!sec.title.trim() && sec.answer.trim() && (
+                          <p className="text-[11px] text-amber-400">Geef deze sectie een titel, anders wordt ze niet bewaard.</p>
+                        )}
+                      </div>
+                    ))}
+
+                    {canEdit && (
+                      <button
+                        onClick={addSection}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-dashed border-zinc-700 text-sm text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 w-full justify-center"
+                      >
+                        <Plus size={14} /> Eigen sectie toevoegen
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </>
           ) : null}

@@ -100,14 +100,43 @@ export const ALL_QUESTIONS: KennisbankQuestion[] = KENNISBANK_BLOCKS.flatMap(b =
 
 export const QUESTION_COUNT = ALL_QUESTIONS.length
 
+/** Eigen sectie: iets wat geen antwoord op een vaste vraag is. */
+export interface KennisbankSection {
+  key: string          // 'custom:<id>'
+  title: string
+  answer: string
+  sort_order: number
+}
+
+export const CUSTOM_PREFIX = 'custom:'
+
+export function isCustomKey(key: string) {
+  return key.startsWith(CUSTOM_PREFIX)
+}
+
+export function newCustomKey() {
+  return `${CUSTOM_PREFIX}${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`
+}
+
 /** Antwoorden als platte tekst, voor in een AI-prompt. */
-export function formatKennisbank(answers: Record<string, string>): string {
+export function formatKennisbank(
+  answers: Record<string, string>,
+  sections: KennisbankSection[] = [],
+): string {
   const blocks = KENNISBANK_BLOCKS.map(block => {
     const filled = block.questions.filter(q => answers[q.key]?.trim())
     if (filled.length === 0) return null
     const lines = filled.map(q => `${q.question}\n${answers[q.key].trim()}`)
     return `## ${block.title}\n${lines.join('\n\n')}`
-  }).filter(Boolean)
+  }).filter(Boolean) as string[]
 
-  return blocks.length ? blocks.join('\n\n') : ''
+  // Eigen secties achteraan, elk onder zijn eigen titel — vaak juist de
+  // concrete afspraken (embargo's, workflows) waar een model op moet sturen.
+  const custom = sections
+    .filter(s => s.answer?.trim() && s.title?.trim())
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map(s => `## ${s.title.trim()}\n${s.answer.trim()}`)
+
+  const all = [...blocks, ...custom]
+  return all.length ? all.join('\n\n') : ''
 }

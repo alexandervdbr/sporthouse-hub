@@ -185,12 +185,24 @@ export async function POST(request: NextRequest) {
   try {
     const { data: knowledge } = await supabase
       .from('client_knowledge')
-      .select('question_key, answer')
+      .select('question_key, answer, title, sort_order')
       .eq('client_id', clientId)
     if (knowledge?.length) {
       const answers: Record<string, string> = {}
-      for (const row of knowledge) answers[row.question_key] = row.answer
-      kennisbankBlock = formatKennisbank(answers) || kennisbankBlock
+      const sections: { key: string; title: string; answer: string; sort_order: number }[] = []
+      for (const row of knowledge) {
+        if (row.question_key.startsWith('custom:')) {
+          sections.push({
+            key: row.question_key,
+            title: row.title ?? '',
+            answer: row.answer,
+            sort_order: row.sort_order ?? 0,
+          })
+        } else {
+          answers[row.question_key] = row.answer
+        }
+      }
+      kennisbankBlock = formatKennisbank(answers, sections) || kennisbankBlock
     }
   } catch { /* tabel bestaat nog niet */ }
 
