@@ -725,9 +725,9 @@ function FreelancerDetail({ freelancer, onClose, onDeleted, onUpdated, onProject
                 )}
                 {freelancer.email && (
                   <a href={`mailto:${freelancer.email}`}
-                    className="flex items-center gap-2.5 text-sm text-zinc-400 hover:text-zinc-200 transition-colors group">
-                    <Mail size={13} className="text-zinc-600 group-hover:text-zinc-400 transition-colors" />
-                    {freelancer.email}
+                    className="flex items-center gap-2.5 text-sm text-zinc-400 hover:text-zinc-200 transition-colors group min-w-0">
+                    <Mail size={13} className="flex-shrink-0 text-zinc-600 group-hover:text-zinc-400 transition-colors" />
+                    <span className="truncate">{freelancer.email}</span>
                   </a>
                 )}
                 {freelancer.price_info && (

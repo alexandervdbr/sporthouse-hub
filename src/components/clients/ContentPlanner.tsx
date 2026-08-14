@@ -899,17 +899,20 @@ export default function ContentPlanner({
                 ) : (
                   <div className="divide-y divide-zinc-800">
                     {members.map(m => (
-                      <div key={m.id} className="flex items-center justify-between px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-7 h-7 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xs font-semibold text-zinc-300">
+                      <div key={m.id} className="flex items-center justify-between gap-2 px-3 sm:px-4 py-3">
+                        {/* min-w-0 + truncate: without it the full address
+                            ("naam@sporthousegroup.com") sets the row's width and
+                            drags the whole page sideways on a phone. */}
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <div className="w-7 h-7 flex-shrink-0 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xs font-semibold text-zinc-300">
                             {m.contact_name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)}
                           </div>
-                          <div>
-                            <p className="text-sm text-zinc-200">{m.contact_name}</p>
-                            <p className="text-xs text-zinc-500">{m.contact_email}</p>
+                          <div className="min-w-0">
+                            <p className="text-sm text-zinc-200 truncate">{m.contact_name}</p>
+                            <p className="text-xs text-zinc-500 truncate">{m.contact_email}</p>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-shrink-0">
                           {m.role === 'pm' && (
                             config?.active_pm_email === m.contact_email ? (
                               <button
@@ -1050,15 +1053,16 @@ export default function ContentPlanner({
                 <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden mb-3">
                   <div className="divide-y divide-zinc-800">
                     {extraProjects.map((p, i) => (
-                      <div key={i} className="flex items-center justify-between px-4 py-3">
-                        <div>
-                          {p.label && <p className="text-sm text-zinc-200">{p.label}</p>}
-                          <p className={`font-mono text-xs ${p.label ? 'text-zinc-500' : 'text-zinc-300'}`}>{p.gid}</p>
+                      <div key={i} className="flex items-center justify-between gap-2 px-3 sm:px-4 py-3">
+                        <div className="min-w-0 flex-1">
+                          {p.label && <p className="text-sm text-zinc-200 truncate">{p.label}</p>}
+                          <p className={`font-mono text-xs truncate ${p.label ? 'text-zinc-500' : 'text-zinc-300'}`}>{p.gid}</p>
                         </div>
                         <button
                           onClick={() => handleRemoveExtraProject(i)}
                           disabled={removingExtraIndex === i}
-                          className="text-zinc-600 hover:text-red-400 transition-colors"
+                          aria-label="Project verwijderen"
+                          className="w-8 h-8 flex-shrink-0 flex items-center justify-center text-zinc-600 hover:text-red-400 transition-colors"
                         >
                           {removingExtraIndex === i ? (
                             <Loader2 size={13} className="animate-spin" />
