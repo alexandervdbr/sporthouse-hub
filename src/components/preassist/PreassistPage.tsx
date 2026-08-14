@@ -713,13 +713,13 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
       ) : (
         <>
           {/* Tabs */}
-          <div className="flex gap-1 mb-7 p-1 rounded-xl w-fit"
+          <div className="flex gap-1 mb-7 p-1 rounded-xl w-full sm:w-fit overflow-x-auto"
             style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
             {(['content', 'inspiratie'] as Section[]).map(s => {
               const count = submissions.filter(sub => sub.section === s).length
               return (
                 <button key={s} onClick={() => setSection(s)}
-                  className="px-5 py-1.5 rounded-lg text-sm font-medium transition-all flex items-center gap-2"
+                  className="px-5 py-1.5 rounded-lg text-sm font-medium transition-all flex items-center gap-2 flex-shrink-0 whitespace-nowrap"
                   style={section === s ? { background: 'rgba(255,255,255,0.1)', color: '#fff' } : { color: '#71717a' }}>
                   {s === 'content' ? 'Content' : 'Inspiratie'}
                   {count > 0 && (

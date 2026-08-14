@@ -97,7 +97,7 @@ export default async function WelcomePage() {
   const podcasts = all.filter(c => c.category === 'podcast')
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-4xl mx-auto">
 
       {/* Hero */}
       <div className="mb-12">

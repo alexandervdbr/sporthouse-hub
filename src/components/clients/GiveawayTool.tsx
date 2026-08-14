@@ -230,7 +230,7 @@ export default function GiveawayTool({ clientId }: { clientId: string }) {
           })}
         </div>
 
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
 
           {/* STEP 1: SETUP */}
           {step === 'setup' && (

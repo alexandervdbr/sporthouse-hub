@@ -424,14 +424,14 @@ export default function ClubLookup({
     <div className="h-full flex flex-col overflow-hidden">
 
       {/* ── Header ── */}
-      <div className="flex-shrink-0 px-8 pt-6 pb-4 border-b border-zinc-900">
+      <div className="flex-shrink-0 px-4 sm:px-8 pt-4 sm:pt-6 pb-4 border-b border-zinc-900">
         <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-fit">
+          <div className="flex gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-full sm:w-fit overflow-x-auto">
             {tabs.map(tab => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
-                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all flex-shrink-0 whitespace-nowrap ${
                   activeTab === tab.key ? 'bg-white text-zinc-900' : 'text-zinc-400 hover:text-zinc-200'
                 }`}
               >
@@ -504,7 +504,7 @@ export default function ClubLookup({
         {/* ── Clubs tab ── */}
         {activeTab === 'clubs' && (
           <>
-            <div className="flex-1 overflow-y-auto p-6">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6">
               {filteredClubs.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-20 text-center">
                   <p className="text-zinc-500 text-sm">
@@ -684,7 +684,7 @@ export default function ClubLookup({
 
         {/* ── Beheer tab ── */}
         {activeTab === 'beheer' && isAdmin && (
-          <div className="flex-1 overflow-y-auto p-8">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-8">
             <div className="max-w-2xl mx-auto space-y-10">
 
               {/* Add club panel (inside beheer for mobile fallback too) */}
@@ -814,7 +814,7 @@ export default function ClubLookup({
 
             {updateResult ? (
               /* ── Resultaat scherm ── */
-              <div className="p-8 flex flex-col items-center text-center gap-4">
+              <div className="p-4 sm:p-8 flex flex-col items-center text-center gap-4">
                 <div className="w-12 h-12 rounded-full bg-green-500/15 border border-green-500/30 flex items-center justify-center">
                   <Check size={20} className="text-green-400" />
                 </div>

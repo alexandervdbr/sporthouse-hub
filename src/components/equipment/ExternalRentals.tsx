@@ -176,7 +176,7 @@ function AddRentalModal({
           )}
         </div>
 
-        <div className="px-5 py-3 border-t border-zinc-800 flex items-center gap-2">
+        <div className="px-5 py-3 border-t border-zinc-800 flex flex-wrap items-center gap-2">
           <button onClick={onClose} className="px-4 py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors">
             Annuleren
           </button>
