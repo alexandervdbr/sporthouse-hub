@@ -126,6 +126,23 @@
     max-width: 100%;
   }
 
+  /* Date and time inputs carry an intrinsic width from the native control that
+     w-full does not override, so on iOS they push out of their container and
+     drag the page sideways. Stripping the native appearance lets them size to
+     their box like any other field. Applied globally because the app has
+     fifteen of them and any new one would have the same problem. */
+  input[type='date'],
+  input[type='time'],
+  input[type='datetime-local'],
+  input[type='month'],
+  input[type='week'] {
+    -webkit-appearance: none;
+    appearance: none;
+    min-width: 0;
+    max-width: 100%;
+    text-align: left;
+  }
+
   /* iOS zooms the page in when a focused input has a font-size below 16px,
      and never zooms back out. Only applies to real text entry. */
   @media (max-width: 767px) {
