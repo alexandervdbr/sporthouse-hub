@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ChevronLeft, ChevronRight, Loader2, Settings, Search, User, X, CalendarPlus, Check } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Loader2, Settings, Search, User, X, CalendarPlus, Check, Undo2, Redo2 } from 'lucide-react'
 import { DEPARTMENTS, DUTCH_MONTHS, DUTCH_DAYS, getDaysInMonth, cellKey, Department } from '@/lib/planning-config'
 import PlanningConfigModal from '@/components/planning/PlanningConfigModal'
 import { ADMIN_EMAILS } from '@/lib/auth-permissions'
@@ -243,7 +243,7 @@ function MultiDayApplyModal({
 // ─── Toolbar ──────────────────────────────────────────────────────────────────
 
 function FormattingToolbar({
-  cell, hasActive, selCount, onFormat, presets, onApplyPreset,
+  cell, hasActive, selCount, onFormat, presets, onApplyPreset, canUndo, canRedo, onUndo, onRedo,
 }: {
   cell: CellData | null
   hasActive: boolean
@@ -251,9 +251,34 @@ function FormattingToolbar({
   onFormat: (key: keyof CellData, value: unknown) => void
   presets: PlanningPreset[]
   onApplyPreset: (preset: PlanningPreset) => void
+  canUndo: boolean
+  canRedo: boolean
+  onUndo: () => void
+  onRedo: () => void
 }) {
   return (
     <div className="flex items-center gap-3 px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-xl flex-shrink-0 flex-wrap">
+      <div className="flex items-center gap-1">
+        <button
+          onMouseDown={e => { e.preventDefault(); onUndo() }}
+          disabled={!canUndo}
+          title="Ongedaan maken (Ctrl+Z)"
+          className="w-7 h-7 rounded-lg flex items-center justify-center text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 disabled:opacity-30 transition-colors"
+        >
+          <Undo2 size={14} />
+        </button>
+        <button
+          onMouseDown={e => { e.preventDefault(); onRedo() }}
+          disabled={!canRedo}
+          title="Opnieuw doen (Ctrl+Shift+Z)"
+          className="w-7 h-7 rounded-lg flex items-center justify-center text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 disabled:opacity-30 transition-colors"
+        >
+          <Redo2 size={14} />
+        </button>
+      </div>
+
+      <div className="w-px h-4 bg-zinc-800 flex-shrink-0" />
+
       <button
         onMouseDown={e => { e.preventDefault(); onFormat('bold', !cell?.bold) }}
         disabled={!hasActive}
@@ -390,11 +415,26 @@ export default function PlanningGrid() {
   // Rijke kopie naast de OS-klembordtekst: de tekst alleen laat kruis-app
   // plakken (bv. naar Excel) werken, maar draagt geen kleur/vet mee. Deze ref
   // bewaart de volledige cellen zodat plakken bínnen het rooster ook de status
-  // (tekst + kleur) meeneemt, niet enkel de tekst. `text` dient om te
-  // detecteren of het OS-klembord nog exact overeenkomt met wat wij er zelf in
-  // zetten — is dat niet zo, dan is er intussen iets anders gekopieerd en
-  // vallen we terug op platte tekst.
-  const internalClipboard = useRef<{ text: string; cells: CellData[][] } | null>(null)
+  // (tekst + kleur) meeneemt. Eerder werd dit gevalideerd door het OS-klembord
+  // meteen weer uit te lezen en te vergelijken — maar die lezing kon de
+  // schrijfactie inhalen bij snel kopiëren-en-plakken, waardoor het bijna
+  // altijd terugviel op platte tekst. Nu vertrouwen we deze ref gewoon zolang
+  // er geen concreet signaal is dat er iets anders gekopieerd werd (zie de
+  // invalidatie hieronder).
+  const internalClipboard = useRef<CellData[][] | null>(null)
+
+  // Iets anders kopiëren — elders op de pagina, of in een andere app terwijl
+  // dit tabblad even niet actief was — betekent dat onze eigen rijke kopie
+  // niet meer klopt.
+  useEffect(() => {
+    function invalidate() { internalClipboard.current = null }
+    document.addEventListener('copy', invalidate)
+    window.addEventListener('blur', invalidate)
+    return () => {
+      document.removeEventListener('copy', invalidate)
+      window.removeEventListener('blur', invalidate)
+    }
+  }, [])
   const containerRef = useRef<HTMLDivElement>(null)
   const dragMovedRef = useRef(false)
   const supabase = createClient()
@@ -559,9 +599,40 @@ export default function PlanningGrid() {
     }, 600)
   }, [year, month])
 
+  // ── Ongedaan maken ───────────────────────────────────────────────────────────
+  // Elke wijziging loopt door applyUpdates, dus dat is de ene plek waar undo
+  // moet aanknopen — geen aparte boekhouding nodig per actie (typen, plakken,
+  // preset, opmaak, …). Opeenvolgende wijzigingen aan exact dezelfde cellen
+  // binnen een korte tijd (bv. doorlopend typen in één cel) tellen als één
+  // stap, anders zou Ctrl+Z bij elke druk op de toets maar één letter
+  // terugdraaien in plaats van de hele invoer.
+  const undoStack = useRef<Record<string, CellData>[]>([])
+  const redoStack = useRef<Record<string, CellData>[]>([])
+  const undoCoalesce = useRef<{ keys: string; timer: ReturnType<typeof setTimeout> | null }>({ keys: '', timer: null })
+  const MAX_UNDO = 50
+  // Enkel voor de aan/uit-status van de undo/redo-knoppen — de stacks zelf
+  // zijn refs (geen re-render nodig bij elke push/pop), maar een knop moet wel
+  // weten of er iets op staat.
+  const [canUndo, setCanUndo] = useState(false)
+  const [canRedo, setCanRedo] = useState(false)
+
   // ── Apply data updates ──────────────────────────────────────────────────────
   const applyUpdates = useCallback((updates: Record<string, CellData>) => {
     setData(prev => {
+      const keysSignature = Object.keys(updates).sort().join(',')
+      if (undoCoalesce.current.keys !== keysSignature) {
+        const before: Record<string, CellData> = {}
+        for (const key of Object.keys(updates)) before[key] = prev[key] ?? emptyCell()
+        undoStack.current.push(before)
+        if (undoStack.current.length > MAX_UNDO) undoStack.current.shift()
+        redoStack.current = [] // een nieuwe wijziging maakt de redo-geschiedenis ongeldig
+        setCanUndo(true)
+        setCanRedo(false)
+      }
+      if (undoCoalesce.current.timer) clearTimeout(undoCoalesce.current.timer)
+      undoCoalesce.current.keys = keysSignature
+      undoCoalesce.current.timer = setTimeout(() => { undoCoalesce.current.keys = '' }, 1200)
+
       const next = { ...prev, ...updates }
       for (const [key, cell] of Object.entries(updates)) {
         const [dayStr, dept, emp] = key.split('|')
@@ -644,6 +715,46 @@ export default function PlanningGrid() {
   }, [selectedKeys, activeKey, applyUpdates, canEditCol])
 
   // ── Copy ────────────────────────────────────────────────────────────────────
+  const handleUndo = useCallback(() => {
+    const before = undoStack.current.pop()
+    if (!before) return
+    undoCoalesce.current.keys = '' // een volgende toets mag hier niet meer mee samengevoegd worden
+    setData(prev => {
+      const after: Record<string, CellData> = {}
+      for (const key of Object.keys(before)) after[key] = prev[key] ?? emptyCell()
+      redoStack.current.push(after)
+      setCanUndo(undoStack.current.length > 0)
+      setCanRedo(true)
+
+      const next = { ...prev, ...before }
+      for (const [key, cell] of Object.entries(before)) {
+        const [dayStr, dept, emp] = key.split('|')
+        scheduleSave(key, Number(dayStr), dept, emp, cell)
+      }
+      return next
+    })
+  }, [scheduleSave])
+
+  const handleRedo = useCallback(() => {
+    const after = redoStack.current.pop()
+    if (!after) return
+    undoCoalesce.current.keys = ''
+    setData(prev => {
+      const before: Record<string, CellData> = {}
+      for (const key of Object.keys(after)) before[key] = prev[key] ?? emptyCell()
+      undoStack.current.push(before)
+      setCanRedo(redoStack.current.length > 0)
+      setCanUndo(true)
+
+      const next = { ...prev, ...after }
+      for (const [key, cell] of Object.entries(after)) {
+        const [dayStr, dept, emp] = key.split('|')
+        scheduleSave(key, Number(dayStr), dept, emp, cell)
+      }
+      return next
+    })
+  }, [scheduleSave])
+
   const handleCopy = useCallback(() => {
     if (!sel) return
     const minDay = Math.min(sel.startDay, sel.endDay)
@@ -670,7 +781,7 @@ export default function PlanningGrid() {
     navigator.clipboard.writeText(text)
     // En de volledige cellen intern, zodat plakken bínnen dit rooster ook de
     // kleur en opmaak meeneemt, niet enkel de tekst.
-    internalClipboard.current = { text, cells: cellRows }
+    internalClipboard.current = cellRows
   }, [sel, data, allColumns])
 
   // ── Paste ───────────────────────────────────────────────────────────────────
@@ -689,16 +800,21 @@ export default function PlanningGrid() {
 
     if (startDay === null || startCol === null || startCol < 0) return
 
-    let osText = ''
-    try { osText = await navigator.clipboard.readText() } catch { return }
-
-    // Rijk plakken (met kleur/opmaak) enkel als het OS-klembord nog exact is
-    // wat wijzelf er laatst in zetten — anders is er intussen iets anders
-    // gekopieerd (uit een andere app, of gewoon tekst) en plakken we platte
-    // tekst, met behoud van de opmaak die op de doelcel al stond.
-    const rich = internalClipboard.current?.text === osText ? internalClipboard.current.cells : null
-    const sourceCells: CellData[][] = rich
-      ?? osText.split('\n').map(r => r.split('\t').map(val => ({ value: val, bold: true, textColor: null, bgColor: null })))
+    // Onze eigen kopie (mét kleur/opmaak) heeft voorrang zolang er niets op
+    // wijst dat er intussen iets anders gekopieerd is (zie de invalidatie
+    // hierboven bij een echte 'copy' elders op de pagina, of bij het verlaten
+    // van dit venster). Enkel wanneer we niets hebben, lezen we het
+    // OS-klembord — voor tekst die van buiten deze app gekopieerd is, bv. uit
+    // Excel.
+    const rich = internalClipboard.current
+    let sourceCells: CellData[][]
+    if (rich) {
+      sourceCells = rich
+    } else {
+      let osText = ''
+      try { osText = await navigator.clipboard.readText() } catch { return }
+      sourceCells = osText.split('\n').map(r => r.split('\t').map(val => ({ value: val, bold: true, textColor: null, bgColor: null })))
+    }
     const sourceRows = sourceCells.length
     const sourceCols = Math.max(1, ...sourceCells.map(r => r.length))
     if (sourceRows === 0 || sourceCols === 0) return
@@ -759,6 +875,21 @@ export default function PlanningGrid() {
           const first = activeKey ?? (sel ? cellKey(sel.startDay, allColumns[Math.min(sel.startCol, sel.endCol)].dept, allColumns[Math.min(sel.startCol, sel.endCol)].emp) : null)
           handleFormat('bold', !(data[first ?? '']?.bold))
         }
+      }
+      // Ctrl/Cmd+Z ongedaan maken, Shift erbij (of Ctrl/Cmd+Y) opnieuw doen —
+      // altijd preventDefault, ook zonder iets op de stack, anders vecht dit
+      // met de eigen undo van een net-actief tekstveld.
+      if (ctrl && e.key.toLowerCase() === 'z') {
+        e.preventDefault()
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+        setEditingKey(null)
+        if (e.shiftKey) handleRedo(); else handleUndo()
+      }
+      if (ctrl && e.key.toLowerCase() === 'y') {
+        e.preventDefault()
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+        setEditingKey(null)
+        handleRedo()
       }
       if (e.key === 'Escape') {
         setEditingKey(null)
@@ -824,7 +955,7 @@ export default function PlanningGrid() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [sel, activeKey, editingKey, handleCopy, handlePaste, handleFormat, handleClear, data, allColumns, days])
+  }, [sel, activeKey, editingKey, handleCopy, handlePaste, handleFormat, handleClear, handleUndo, handleRedo, data, allColumns, days])
 
   // ── Mouse up (stop drag) ────────────────────────────────────────────────────
   useEffect(() => {
@@ -1001,6 +1132,10 @@ export default function PlanningGrid() {
           onFormat={handleFormat}
           presets={presets}
           onApplyPreset={applyPresetToSelection}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
         />
       </div>
 
