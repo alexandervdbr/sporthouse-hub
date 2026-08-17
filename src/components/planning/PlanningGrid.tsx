@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ChevronLeft, ChevronRight, Loader2, Settings, Search, User, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Loader2, Settings, Search, User, X, CalendarPlus, Check } from 'lucide-react'
 import { DEPARTMENTS, DUTCH_MONTHS, getDaysInMonth, cellKey, Department } from '@/lib/planning-config'
 import PlanningConfigModal from '@/components/planning/PlanningConfigModal'
 import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import type { PlanningPreset } from '@/lib/planning-presets'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -130,15 +131,107 @@ function NamePicker({
   )
 }
 
+// ─── Meerdere dagen tegelijk zetten (mobiel) ───────────────────────────────────
+// Kopieert wat er nu in één cel staat (tekst, kleur, vet) naar zoveel andere
+// dagen als je aanvinkt — de "typ het niet vijf keer opnieuw"-knop. Blijft
+// binnen de huidige maand: een tweede maand laden voor een zeldzaam geval
+// weegt niet op tegen de complexiteit.
+function MultiDayApplyModal({
+  days, sourceDay, personLabel, preview, onConfirm, onCancel,
+}: {
+  days: { day: number; dayName: string; isWeekend: boolean; isToday: boolean }[]
+  sourceDay: number
+  personLabel: string
+  preview: CellData
+  onConfirm: (targetDays: number[]) => void
+  onCancel: () => void
+}) {
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+
+  function toggle(day: number) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(day)) next.delete(day); else next.add(day)
+      return next
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onCancel}>
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+      <div onClick={e => e.stopPropagation()}
+        className="relative w-full max-w-sm max-h-[85dvh] flex flex-col rounded-2xl bg-zinc-900 border border-zinc-800 shadow-2xl">
+        <div className="px-5 py-4 border-b border-zinc-800 flex-shrink-0">
+          <h2 className="text-sm font-semibold text-zinc-100">Zet op meerdere dagen</h2>
+          <p className="text-xs text-zinc-500 mt-1">{personLabel}</p>
+          <div className="mt-2.5 inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold"
+            style={{
+              backgroundColor: preview.bgColor ?? 'rgba(255,255,255,0.06)',
+              color: preview.bgColor ? '#ffffff' : (preview.textColor ?? '#e4e4e7'),
+            }}>
+            {preview.value.trim() || '(leeg)'}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 py-3">
+          <div className="grid grid-cols-7 gap-1.5">
+            {days.map(d => {
+              const isSource = d.day === sourceDay
+              const isSel = selected.has(d.day)
+              return (
+                <button
+                  key={d.day}
+                  disabled={isSource}
+                  onClick={() => toggle(d.day)}
+                  className={`relative py-2 rounded-lg border text-center transition-colors ${
+                    isSource
+                      ? 'bg-zinc-900/40 border-zinc-800 text-zinc-700 cursor-default'
+                      : isSel
+                        ? 'bg-[#3A913F]/20 border-[#3A913F]/60 text-white'
+                        : d.isWeekend
+                          ? 'bg-zinc-900/60 border-zinc-800 text-zinc-500'
+                          : 'bg-zinc-900 border-zinc-800 text-zinc-400'
+                  }`}
+                  title={isSource ? 'Huidige dag' : undefined}
+                >
+                  <span className="block text-[9px] uppercase tracking-wide opacity-70">{d.dayName.slice(0, 2)}</span>
+                  <span className="block text-sm font-semibold leading-tight">{d.day}</span>
+                  {isSel && <Check size={10} className="absolute top-1 right-1" />}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="px-5 py-4 border-t border-zinc-800 flex items-center justify-between gap-2 flex-shrink-0">
+          <button onClick={onCancel} className="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors">
+            Annuleren
+          </button>
+          <button
+            onClick={() => onConfirm([...selected])}
+            disabled={selected.size === 0}
+            className="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-40 transition-colors"
+            style={{ backgroundColor: '#3A913F' }}
+          >
+            Toepassen op {selected.size || ''} {selected.size === 1 ? 'dag' : 'dagen'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Toolbar ──────────────────────────────────────────────────────────────────
 
 function FormattingToolbar({
-  cell, hasActive, selCount, onFormat,
+  cell, hasActive, selCount, onFormat, presets, onApplyPreset,
 }: {
   cell: CellData | null
   hasActive: boolean
   selCount: number
   onFormat: (key: keyof CellData, value: unknown) => void
+  presets: PlanningPreset[]
+  onApplyPreset: (preset: PlanningPreset) => void
 }) {
   return (
     <div className="flex items-center gap-3 px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-xl flex-shrink-0 flex-wrap">
@@ -150,6 +243,30 @@ function FormattingToolbar({
           cell?.bold ? 'bg-zinc-600 text-white' : 'text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 disabled:opacity-30'
         }`}
       >B</button>
+
+      {presets.length > 0 && (
+        <>
+          <div className="w-px h-4 bg-zinc-800 flex-shrink-0" />
+          <div className="flex items-center gap-1.5">
+            {presets.map(p => {
+              const active = cell?.value.trim().toUpperCase() === p.name.toUpperCase() && cell?.bgColor === p.color
+              return (
+                <button
+                  key={p.id}
+                  onMouseDown={e => { e.preventDefault(); onApplyPreset(p) }}
+                  disabled={!hasActive}
+                  className="px-2.5 py-1 rounded-full text-xs font-medium transition-colors disabled:opacity-30"
+                  style={active
+                    ? { backgroundColor: `${p.color}30`, border: `1px solid ${p.color}`, color: '#fff' }
+                    : { backgroundColor: `${p.color}15`, border: `1px solid ${p.color}55`, color: p.color }}
+                >
+                  {p.name}
+                </button>
+              )
+            })}
+          </div>
+        </>
+      )}
 
       <div className="w-px h-4 bg-zinc-800 flex-shrink-0" />
 
@@ -203,6 +320,18 @@ export default function PlanningGrid() {
   const [canEditAll, setCanEditAll] = useState(true)
   const [myColumn,   setMyColumn]   = useState<string | null>(null)
   const [myName,     setMyName]     = useState('')
+  // Los van canEditAll: presets zijn specifiek beheer-only, niet "volledig mag
+  // bewerken" — die twee rechten overlappen niet altijd.
+  const [isBeheer,   setIsBeheer]   = useState(false)
+
+  // Kleur-presets (SHG, FOS, …) — iedereen leest ze, enkel beheerders beheren ze.
+  const [presets, setPresets] = useState<PlanningPreset[]>([])
+  useEffect(() => {
+    fetch('/api/planning/presets').then(r => r.json()).then(setPresets).catch(() => {})
+  }, [])
+
+  // "Zet op meerdere dagen" (mobiel) — welke cel is de bron.
+  const [multiDayTarget, setMultiDayTarget] = useState<{ dept: string; emp: string } | null>(null)
 
   // Search & "alleen ik" ────────────────────────────────────────────────────
   const [search, setSearch] = useState('')
@@ -295,6 +424,9 @@ export default function PlanningGrid() {
       const permsObj = user.app_metadata?.permissions ?? null
       const sections: string[] = permsObj?.sections ?? []
       const isAdmin = ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer')
+      // Presets zijn expliciet beheer-only — niet iedereen die volledig mag
+      // bewerken (planning_volledig), enkel wie ook de beheer-sectie heeft.
+      setIsBeheer(isAdmin)
       if (isAdmin || permsObj === null || sections.includes('planning_volledig')) {
         setCanEditAll(true)
       } else {
@@ -418,6 +550,29 @@ export default function PlanningGrid() {
     applyUpdates({ [key]: { ...(data[key] ?? emptyCell()), value: value.toUpperCase(), bold: true, textColor: '#ffffff' } })
   }, [data, applyUpdates])
 
+  // ── Preset toepassen (stempelt tekst + kleur in één tik; nogmaals tikken op
+  // een al-actieve preset wist de cel weer) ───────────────────────────────────
+  const applyPreset = useCallback((day: number, dept: string, emp: string, preset: PlanningPreset) => {
+    const key = cellKey(day, dept, emp)
+    const current = data[key] ?? emptyCell()
+    const isActive = current.value.trim().toUpperCase() === preset.name.toUpperCase() && current.bgColor === preset.color
+    applyUpdates({
+      [key]: isActive
+        ? emptyCell()
+        : { value: preset.name.toUpperCase(), bold: true, textColor: '#ffffff', bgColor: preset.color },
+    })
+  }, [data, applyUpdates])
+
+  // ── "Zet op meerdere dagen" bevestigen: kopieert de brondag naar elke
+  // aangevinkte dag voor diezelfde persoon, in één keer weggeschreven. ────────
+  const applyToMultipleDays = useCallback((sourceDay: number, dept: string, emp: string, targetDays: number[]) => {
+    const sourceKey = cellKey(sourceDay, dept, emp)
+    const source = data[sourceKey] ?? emptyCell()
+    const updates: Record<string, CellData> = {}
+    for (const d of targetDays) updates[cellKey(d, dept, emp)] = { ...source }
+    applyUpdates(updates)
+  }, [data, applyUpdates])
+
   // ── Format (applies to all selected cells) ──────────────────────────────────
   const handleFormat = useCallback((fmtKey: keyof CellData, value: unknown) => {
     const keys = (selectedKeys.size > 0 ? Array.from(selectedKeys) : activeKey ? [activeKey] : [])
@@ -426,6 +581,25 @@ export default function PlanningGrid() {
     const updates: Record<string, CellData> = {}
     for (const k of keys) {
       updates[k] = { ...(data[k] ?? emptyCell()), [fmtKey]: value }
+    }
+    applyUpdates(updates)
+  }, [selectedKeys, activeKey, data, applyUpdates, canEditCol])
+
+  // Preset op de huidige selectie (desktop toolbar). Zet tekst én kleur in één
+  // applyUpdates-call — twee losse handleFormat-aanroepen zouden elkaars
+  // wijziging kunnen overschrijven, omdat elke aanroep een volledig nieuw
+  // cel-object bouwt vanuit dezelfde (dan nog niet bijgewerkte) `data`.
+  const applyPresetToSelection = useCallback((preset: PlanningPreset) => {
+    const keys = (selectedKeys.size > 0 ? Array.from(selectedKeys) : activeKey ? [activeKey] : [])
+      .filter(k => canEditCol(k.split('|')[2]))
+    if (keys.length === 0) return
+    const updates: Record<string, CellData> = {}
+    for (const k of keys) {
+      const current = data[k] ?? emptyCell()
+      const isActive = current.value.trim().toUpperCase() === preset.name.toUpperCase() && current.bgColor === preset.color
+      updates[k] = isActive
+        ? emptyCell()
+        : { value: preset.name.toUpperCase(), bold: true, textColor: '#ffffff', bgColor: preset.color }
     }
     applyUpdates(updates)
   }, [selectedKeys, activeKey, data, applyUpdates, canEditCol])
@@ -738,6 +912,20 @@ export default function PlanningGrid() {
         />
       )}
 
+      {multiDayTarget && (
+        <MultiDayApplyModal
+          days={days}
+          sourceDay={mobileDay}
+          personLabel={`${multiDayTarget.emp} — ${multiDayTarget.dept}`}
+          preview={data[cellKey(mobileDay, multiDayTarget.dept, multiDayTarget.emp)] ?? emptyCell()}
+          onConfirm={targetDays => {
+            applyToMultipleDays(mobileDay, multiDayTarget.dept, multiDayTarget.emp, targetDays)
+            setMultiDayTarget(null)
+          }}
+          onCancel={() => setMultiDayTarget(null)}
+        />
+      )}
+
       {/* Formatting toolbar — multi-select, copy/paste and bulk colouring are
           desktop interactions, so it's hidden on the mobile day view. */}
       <div className="hidden lg:block">
@@ -746,6 +934,8 @@ export default function PlanningGrid() {
           hasActive={!!activeKey || selCount > 0}
           selCount={selCount}
           onFormat={handleFormat}
+          presets={presets}
+          onApplyPreset={applyPresetToSelection}
         />
       </div>
 
@@ -840,24 +1030,57 @@ export default function PlanningGrid() {
                             {!cell.bgColor && <span className="w-3 h-3 rounded-full border border-zinc-600" />}
                           </button>
                         )}
+                        {!locked && (
+                          <button
+                            onClick={() => setMultiDayTarget({ dept: dept.name, emp })}
+                            aria-label="Zet op meerdere dagen"
+                            title="Zet op meerdere dagen"
+                            className="w-8 h-8 flex-shrink-0 rounded-lg border border-zinc-700 text-zinc-400 flex items-center justify-center"
+                          >
+                            <CalendarPlus size={14} />
+                          </button>
+                        )}
                       </div>
                       {openPaletteKey === key && !locked && (
-                        <div className="flex flex-wrap gap-2 px-2 pb-2 pt-1 border-t border-zinc-800">
-                          {BG_COLORS.map(c => (
-                            <button
-                              key={c.label}
-                              onClick={() => {
-                                applyUpdates({ [key]: { ...cell, bgColor: c.value } })
-                                setOpenPaletteKey(null)
-                              }}
-                              title={c.label}
-                              className="w-7 h-7 rounded-full"
-                              style={{
-                                backgroundColor: c.display,
-                                border: cell.bgColor === c.value ? '2px solid #fff' : c.value === null ? '2px dashed #52525b' : '2px solid transparent',
-                              }}
-                            />
-                          ))}
+                        <div className="px-2 pb-2 pt-1 border-t border-zinc-800 space-y-2">
+                          {/* Presets — één tik zet tekst én kleur; nog eens tikken
+                              op de al-actieve preset wist de cel weer. */}
+                          {presets.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {presets.map(p => {
+                                const active = cell.value.trim().toUpperCase() === p.name.toUpperCase() && cell.bgColor === p.color
+                                return (
+                                  <button
+                                    key={p.id}
+                                    onClick={() => { applyPreset(mobileDay, dept.name, emp, p); setOpenPaletteKey(null) }}
+                                    className="px-2.5 py-1 rounded-full text-xs font-medium transition-colors"
+                                    style={active
+                                      ? { backgroundColor: `${p.color}30`, border: `1px solid ${p.color}`, color: '#fff' }
+                                      : { backgroundColor: `${p.color}15`, border: `1px solid ${p.color}55`, color: p.color }}
+                                  >
+                                    {p.name}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          )}
+                          <div className="flex flex-wrap gap-2">
+                            {BG_COLORS.map(c => (
+                              <button
+                                key={c.label}
+                                onClick={() => {
+                                  applyUpdates({ [key]: { ...cell, bgColor: c.value } })
+                                  setOpenPaletteKey(null)
+                                }}
+                                title={c.label}
+                                className="w-7 h-7 rounded-full"
+                                style={{
+                                  backgroundColor: c.display,
+                                  border: cell.bgColor === c.value ? '2px solid #fff' : c.value === null ? '2px dashed #52525b' : '2px solid transparent',
+                                }}
+                              />
+                            ))}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1085,6 +1308,7 @@ export default function PlanningGrid() {
           departments={activeDepts}
           onSave={handleSaveConfig}
           onClose={() => setShowConfig(false)}
+          isBeheer={isBeheer}
         />
       )}
     </div>
