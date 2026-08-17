@@ -34,9 +34,12 @@ export async function updateSession(request: NextRequest) {
   const isPortalApiPage = pathname.startsWith('/api/portal')
   const isAuthApiPage   = pathname.startsWith('/api/auth')
   const isCallbackPage = pathname.startsWith('/auth')
+  // Called by the iOS shortcut with its own per-user bearer token instead of
+  // a session cookie — see /api/save-reel's own auth check.
+  const isSaveReelApiPage = pathname.startsWith('/api/save-reel')
 
   // Unauthenticated → login (API routes get a 401 instead of a redirect)
-  if (!user && !isLoginPage && !isCallbackPage) {
+  if (!user && !isLoginPage && !isCallbackPage && !isSaveReelApiPage) {
     if (isApiPage) {
       return new NextResponse(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
