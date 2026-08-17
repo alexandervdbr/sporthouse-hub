@@ -645,7 +645,16 @@ export default function PlanningGrid() {
   // ── Text change ─────────────────────────────────────────────────────────────
   const handleTextChange = useCallback((day: number, dept: string, emp: string, value: string) => {
     const key = cellKey(day, dept, emp)
-    applyUpdates({ [key]: { ...(data[key] ?? emptyCell()), value: value.toUpperCase(), bold: true, textColor: '#ffffff' } })
+    // Leeg getypt of teruggebackspaced tot niets: volledig terug naar de
+    // standaardstaat, kleur incluis — anders blijft een cel zonder tekst er
+    // nog "bezet" uitzien met een kleur die niets meer betekent. Bewust enkel
+    // hier (getypte tekst), niet overal: iemand die via het kleurenpalet
+    // bewust een lege cel markeert met enkel een kleur, blijft mogelijk.
+    applyUpdates({
+      [key]: value.trim()
+        ? { ...(data[key] ?? emptyCell()), value: value.toUpperCase(), bold: true, textColor: '#ffffff' }
+        : emptyCell(),
+    })
   }, [data, applyUpdates])
 
   // ── Preset toepassen (stempelt tekst + kleur in één tik; nogmaals tikken op
@@ -842,8 +851,10 @@ export default function PlanningGrid() {
         const source = sourceCells[ri % sourceRows]?.[ci % sourceCols]
         if (!source) continue
         updates[key] = rich
-          ? { ...source }
-          : { ...(data[key] ?? emptyCell()), value: source.value }
+          ? { ...source } // volledige status meegekopieerd, inclusief een eventueel lege bron
+          : source.value.trim()
+            ? { ...(data[key] ?? emptyCell()), value: source.value }
+            : emptyCell() // lege tekst geplakt: laat geen kleur van de doelcel achterblijven
       }
     }
     applyUpdates(updates)
@@ -897,8 +908,19 @@ export default function PlanningGrid() {
         return
       }
 
-      // Delete/Backspace when not editing → clear selected cells
-      if (!editingKey && (e.key === 'Delete' || e.key === 'Backspace') && (activeKey || sel)) {
+      // Delete/Backspace: wist tekst + kleur van de geselecteerde cel(len).
+      // Een klik zet meteen editingKey en selecteert de hele tekst in het
+      // veld (focusCell doet .focus() + .select()) — dat OOGT als "gewoon de
+      // cel is geselecteerd", maar zonder deze uitzondering viel dat geval
+      // buiten de `!editingKey`-voorwaarde en deed Backspace niets, of liet de
+      // browser enkel de gemarkeerde tekst verwijderen zonder de kleur aan te
+      // raken. Is er al iets getypt (selectie niet langer "alles"), dan
+      // gedraagt Backspace zich gewoon als in elk tekstveld.
+      const fullTextSelected = () => {
+        const el = document.activeElement
+        return el instanceof HTMLInputElement && el.selectionStart === 0 && el.selectionEnd === el.value.length
+      }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && (activeKey || sel) && (!editingKey || fullTextSelected())) {
         e.preventDefault()
         handleClear()
         return
