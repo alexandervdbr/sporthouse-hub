@@ -756,11 +756,21 @@ export default function PlanningGrid() {
   }, [scheduleSave])
 
   const handleCopy = useCallback(() => {
-    if (!sel) return
-    const minDay = Math.min(sel.startDay, sel.endDay)
-    const maxDay = Math.max(sel.startDay, sel.endDay)
-    const minCol = Math.min(sel.startCol, sel.endCol)
-    const maxCol = Math.max(sel.startCol, sel.endCol)
+    // Zonder sleep-selectie is er enkel activeKey (een klik op één cel) — dat
+    // is nog steeds een geldige, kopieerbare selectie van precies één cel,
+    // dus die valt hier terug op zijn eigen 1×1 bereik.
+    const region = sel ?? (activeKey
+      ? (() => {
+          const day = Number(activeKey.split('|')[0])
+          const col = allColumns.findIndex(c => activeKey === cellKey(day, c.dept, c.emp))
+          return col >= 0 ? { startDay: day, endDay: day, startCol: col, endCol: col } : null
+        })()
+      : null)
+    if (!region) return
+    const minDay = Math.min(region.startDay, region.endDay)
+    const maxDay = Math.max(region.startDay, region.endDay)
+    const minCol = Math.min(region.startCol, region.endCol)
+    const maxCol = Math.max(region.startCol, region.endCol)
 
     const textRows: string[] = []
     const cellRows: CellData[][] = []
@@ -782,7 +792,7 @@ export default function PlanningGrid() {
     // En de volledige cellen intern, zodat plakken bínnen dit rooster ook de
     // kleur en opmaak meeneemt, niet enkel de tekst.
     internalClipboard.current = cellRows
-  }, [sel, data, allColumns])
+  }, [sel, activeKey, data, allColumns])
 
   // ── Paste ───────────────────────────────────────────────────────────────────
   // Werkt als een spreadsheet: is het plakdoel groter dan wat er gekopieerd
@@ -862,9 +872,10 @@ export default function PlanningGrid() {
       const ctrl = isMac ? e.metaKey : e.ctrlKey
 
       if (ctrl && e.key === 'c') {
-        if (sel && (sel.startDay !== sel.endDay || sel.startCol !== sel.endCol)) {
-          e.preventDefault(); handleCopy()
-        }
+        // Ook één aangeklikte cel (enkel activeKey, geen sleep-selectie) is
+        // geldig om te kopiëren — voorheen moest het per se een echt bereik
+        // zijn, waardoor Ctrl+C op één cel domweg niets deed.
+        if (sel || activeKey) { e.preventDefault(); handleCopy() }
       }
       if (ctrl && e.key === 'v') {
         if (sel || activeKey) { e.preventDefault(); handlePaste() }
