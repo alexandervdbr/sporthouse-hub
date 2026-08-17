@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ChevronLeft, ChevronRight, Loader2, Settings, Search, User, X, CalendarPlus, Check } from 'lucide-react'
-import { DEPARTMENTS, DUTCH_MONTHS, getDaysInMonth, cellKey, Department } from '@/lib/planning-config'
+import { DEPARTMENTS, DUTCH_MONTHS, DUTCH_DAYS, getDaysInMonth, cellKey, Department } from '@/lib/planning-config'
 import PlanningConfigModal from '@/components/planning/PlanningConfigModal'
 import { ADMIN_EMAILS } from '@/lib/auth-permissions'
 import type { PlanningPreset } from '@/lib/planning-presets'
@@ -156,6 +156,17 @@ function MultiDayApplyModal({
     })
   }
 
+  // Maandag altijd in de eerste kolom, zodat elke rij echt één week is — een
+  // los blokje her en der zoals voorheen (kolommen die van datum tot datum
+  // van weekdag wisselden) was verwarrend. DUTCH_DAYS is zondag-eerst (zoals
+  // Date.getDay()); +6 %7 zet dat om naar maandag-eerst.
+  const mondayFirst = (dayName: string) => (DUTCH_DAYS.indexOf(dayName) + 6) % 7
+  const leadingBlanks = days.length > 0 ? mondayFirst(days[0].dayName) : 0
+  const paddedDays: (typeof days[number] | null)[] = [
+    ...Array(leadingBlanks).fill(null),
+    ...days,
+  ]
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onCancel}>
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
@@ -174,8 +185,17 @@ function MultiDayApplyModal({
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-3">
+          {/* Vaste maandag-eerst kopregel boven de dagen, zodat de kolommen
+              zelf geen labels meer nodig hebben en meteen duidelijk is welke
+              kolom welke weekdag is. */}
+          <div className="grid grid-cols-7 gap-1.5 mb-1.5">
+            {['MA', 'DI', 'WO', 'DO', 'VR', 'ZA', 'ZO'].map(label => (
+              <span key={label} className="text-[9px] uppercase tracking-wide text-zinc-600 text-center">{label}</span>
+            ))}
+          </div>
           <div className="grid grid-cols-7 gap-1.5">
-            {days.map(d => {
+            {paddedDays.map((d, i) => {
+              if (!d) return <span key={`blank-${i}`} aria-hidden />
               const isSource = d.day === sourceDay
               const isSel = selected.has(d.day)
               return (
@@ -194,7 +214,6 @@ function MultiDayApplyModal({
                   }`}
                   title={isSource ? 'Huidige dag' : undefined}
                 >
-                  <span className="block text-[9px] uppercase tracking-wide opacity-70">{d.dayName.slice(0, 2)}</span>
                   <span className="block text-sm font-semibold leading-tight">{d.day}</span>
                   {isSel && <Check size={10} className="absolute top-1 right-1" />}
                 </button>
@@ -368,6 +387,14 @@ export default function PlanningGrid() {
   }
 
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+  // Rijke kopie naast de OS-klembordtekst: de tekst alleen laat kruis-app
+  // plakken (bv. naar Excel) werken, maar draagt geen kleur/vet mee. Deze ref
+  // bewaart de volledige cellen zodat plakken bínnen het rooster ook de status
+  // (tekst + kleur) meeneemt, niet enkel de tekst. `text` dient om te
+  // detecteren of het OS-klembord nog exact overeenkomt met wat wij er zelf in
+  // zetten — is dat niet zo, dan is er intussen iets anders gekopieerd en
+  // vallen we terug op platte tekst.
+  const internalClipboard = useRef<{ text: string; cells: CellData[][] } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const dragMovedRef = useRef(false)
   const supabase = createClient()
@@ -624,18 +651,32 @@ export default function PlanningGrid() {
     const minCol = Math.min(sel.startCol, sel.endCol)
     const maxCol = Math.max(sel.startCol, sel.endCol)
 
-    const rows: string[] = []
+    const textRows: string[] = []
+    const cellRows: CellData[][] = []
     for (let d = minDay; d <= maxDay; d++) {
-      const row: string[] = []
+      const textRow: string[] = []
+      const cellRow: CellData[] = []
       for (let c = minCol; c <= maxCol; c++) {
-        row.push(data[cellKey(d, allColumns[c].dept, allColumns[c].emp)]?.value ?? '')
+        const cell = data[cellKey(d, allColumns[c].dept, allColumns[c].emp)] ?? emptyCell()
+        textRow.push(cell.value)
+        cellRow.push(cell)
       }
-      rows.push(row.join('\t'))
+      textRows.push(textRow.join('\t'))
+      cellRows.push(cellRow)
     }
-    navigator.clipboard.writeText(rows.join('\n'))
+    const text = textRows.join('\n')
+    // Naar het OS-klembord voor kruis-app plakken (bv. naar Excel) — enkel
+    // tekst, want dat is alles wat zo'n doel kan begrijpen.
+    navigator.clipboard.writeText(text)
+    // En de volledige cellen intern, zodat plakken bínnen dit rooster ook de
+    // kleur en opmaak meeneemt, niet enkel de tekst.
+    internalClipboard.current = { text, cells: cellRows }
   }, [sel, data, allColumns])
 
   // ── Paste ───────────────────────────────────────────────────────────────────
+  // Werkt als een spreadsheet: is het plakdoel groter dan wat er gekopieerd
+  // is, dan wordt het gekopieerde herhaald tot het hele doel gevuld is, in
+  // plaats van enkel de cellen linksboven te vullen.
   const handlePaste = useCallback(async () => {
     const startDay = sel
       ? Math.min(sel.startDay, sel.endDay)
@@ -648,23 +689,47 @@ export default function PlanningGrid() {
 
     if (startDay === null || startCol === null || startCol < 0) return
 
-    let text = ''
-    try { text = await navigator.clipboard.readText() } catch { return }
-    const rows = text.split('\n').map(r => r.split('\t'))
+    let osText = ''
+    try { osText = await navigator.clipboard.readText() } catch { return }
 
+    // Rijk plakken (met kleur/opmaak) enkel als het OS-klembord nog exact is
+    // wat wijzelf er laatst in zetten — anders is er intussen iets anders
+    // gekopieerd (uit een andere app, of gewoon tekst) en plakken we platte
+    // tekst, met behoud van de opmaak die op de doelcel al stond.
+    const rich = internalClipboard.current?.text === osText ? internalClipboard.current.cells : null
+    const sourceCells: CellData[][] = rich
+      ?? osText.split('\n').map(r => r.split('\t').map(val => ({ value: val, bold: true, textColor: null, bgColor: null })))
+    const sourceRows = sourceCells.length
+    const sourceCols = Math.max(1, ...sourceCells.map(r => r.length))
+    if (sourceRows === 0 || sourceCols === 0) return
+
+    // Zonder actieve selectie (enkel een actieve cel) plakken we op natuurlijke
+    // grootte, net als vroeger. Mét selectie vullen we minstens die selectie,
+    // ook als het gekopieerde kleiner is — en nooit kleiner dan het gekopieerde
+    // zelf, want een groter blok in een kleinere selectie plakken plakt het
+    // hele blok, net als in Excel/Sheets.
+    const selDayCount = sel ? Math.abs(sel.endDay - sel.startDay) + 1 : 1
+    const selColCount = sel ? Math.abs(sel.endCol - sel.startCol) + 1 : 1
+    const targetRows = sel ? Math.max(sourceRows, selDayCount) : sourceRows
+    const targetCols = sel ? Math.max(sourceCols, selColCount) : sourceCols
+
+    const dayIndex = days.findIndex(d => d.day === startDay)
     const updates: Record<string, CellData> = {}
-    rows.forEach((row, ri) => {
-      const dayIndex = days.findIndex(d => d.day === startDay)
+    for (let ri = 0; ri < targetRows; ri++) {
       const targetDay = days[dayIndex + ri]?.day
-      if (!targetDay) return
-      row.forEach((val, ci) => {
+      if (!targetDay) break
+      for (let ci = 0; ci < targetCols; ci++) {
         const targetColIdx = startCol + ci
-        if (targetColIdx >= allColumns.length) return
+        if (targetColIdx >= allColumns.length) break
         const { dept, emp } = allColumns[targetColIdx]
         const key = cellKey(targetDay, dept, emp)
-        updates[key] = { ...(data[key] ?? emptyCell()), value: val }
-      })
-    })
+        const source = sourceCells[ri % sourceRows]?.[ci % sourceCols]
+        if (!source) continue
+        updates[key] = rich
+          ? { ...source }
+          : { ...(data[key] ?? emptyCell()), value: source.value }
+      }
+    }
     applyUpdates(updates)
   }, [sel, activeKey, data, days, allColumns, applyUpdates])
 
