@@ -67,3 +67,19 @@ export interface Message {
   role: 'user' | 'assistant'
   content: string
 }
+
+export interface ReelInspiration {
+  id: string
+  user_id: string
+  url: string
+  thumbnail_url: string | null
+  caption: string | null
+  author: string | null
+  embed_html: string | null
+  category: string | null
+  tags: string[]
+  confidence: 'high' | 'medium' | 'low' | null
+  status: 'pending' | 'done' | 'error'
+  error_message: string | null
+  saved_at: string
+}
