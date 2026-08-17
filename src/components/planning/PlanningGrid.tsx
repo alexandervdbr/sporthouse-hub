@@ -989,7 +989,16 @@ export default function PlanningGrid() {
 
   function onCellMouseEnter(day: number, colIdx: number) {
     if (!isDragging) return
-    dragMovedRef.current = true
+    if (!dragMovedRef.current) {
+      // Eerste beweging van deze sleep: dit is een echte drag-selectie, geen
+      // klik. De startcel kan net (via zijn eigen focus bij mousedown) in
+      // bewerkmodus zijn beland — dat hoort hier niet meer te gelden, anders
+      // blijft Backspace/Delete straks denken dat er maar één cel bewerkt
+      // wordt in plaats van de hele sleep-selectie.
+      dragMovedRef.current = true
+      setEditingKey(null)
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+    }
     setSel(prev => prev ? { ...prev, endDay: day, endCol: colIdx } : null)
   }
 
@@ -1452,8 +1461,19 @@ export default function PlanningGrid() {
                           type="text"
                           value={cell.value}
                           onChange={e => !locked && handleTextChange(day, dept, emp, e.target.value)}
-                          onFocus={() => {
+                          onFocus={e => {
                             if (locked) return
+                            // Aan het einde van een sleep-selectie landt de
+                            // muisknop-loslating op de cel onder de cursor, en
+                            // browsers focussen een tekstveld standaard zodra
+                            // de klik daar terechtkomt — los van wat onCellClick
+                            // beslist (die herkent een sleep prima via
+                            // dragMovedRef, maar dat voorkomt niet dat de
+                            // browser het veld zelf al focust). Zonder deze
+                            // check ging zo'n sleep-selectie altijd eindigen met
+                            // die ene cel in bewerkmodus, wat Backspace liet
+                            // denken dat er maar één cel geselecteerd was.
+                            if (dragMovedRef.current) { e.target.blur(); return }
                             setActiveKey(key)
                             setEditingKey(key)
                             if (!sel || !selectedKeys.has(key)) {
