@@ -494,7 +494,7 @@ export default function ReelGallery({ reels: initialReels }: { reels: ReelInspir
               <Folder size={13} /> Mapjes
             </button>
             <button
-              onClick={() => setViewMode('all')}
+              onClick={() => { setViewMode('all'); setActiveCategory(null) }}
               className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors"
               style={{
                 background: viewMode === 'all' ? 'rgba(255,255,255,0.14)' : 'transparent',
@@ -524,7 +524,9 @@ export default function ReelGallery({ reels: initialReels }: { reels: ReelInspir
             </button>
           )}
 
-          <PillRow label="Categorie" options={REEL_CATEGORIES} counts={categoryCounts} active={activeCategory} onChange={setActiveCategory} />
+          {(isSearching || openFolder) && (
+            <PillRow label="Categorie" options={REEL_CATEGORIES} counts={categoryCounts} active={activeCategory} onChange={setActiveCategory} />
+          )}
 
           {filtered.length === 0 ? (
             <p className="text-sm text-zinc-500">Niets gevonden.</p>
