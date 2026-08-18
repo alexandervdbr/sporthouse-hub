@@ -67,6 +67,7 @@ export async function POST(request: NextRequest) {
 
   after(async () => {
     const classification = await classifyReel({
+      url,
       caption: oembed.title,
       authorName: oembed.authorName,
       thumbnailUrl: oembed.thumbnailUrl,
@@ -76,6 +77,7 @@ export async function POST(request: NextRequest) {
       .from('reel_inspiration')
       .update({
         category: classification.category,
+        media_type: classification.mediaType,
         tags: classification.tags,
         confidence: classification.confidence,
         status: 'done',
