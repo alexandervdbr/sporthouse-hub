@@ -2,11 +2,13 @@ import { createClient } from '@/lib/supabase/server'
 import { ReelInspiration } from '@/types/database'
 import ReelGallery from '@/components/reel-inspiration/ReelGallery'
 import ReelInspirationSetup from '@/components/reel-inspiration/ReelInspirationSetup'
+import { isAdminUser } from '@/lib/auth-permissions'
 
 export const metadata = { title: 'Reel inspiratie — Sporthouse' }
 
 export default async function ReelInspirationPage() {
   const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
 
   const { data: reels } = await supabase
     .from('reel_inspiration')
@@ -25,14 +27,16 @@ export default async function ReelInspirationPage() {
 
         <ReelGallery reels={(reels ?? []) as ReelInspiration[]} />
 
-        <details className="mt-10 group">
-          <summary className="text-sm font-medium text-zinc-400 hover:text-zinc-200 cursor-pointer select-none">
-            Snelkoppeling instellen
-          </summary>
-          <div className="mt-4 max-w-2xl">
-            <ReelInspirationSetup />
-          </div>
-        </details>
+        {isAdminUser(user) && (
+          <details className="mt-10 group">
+            <summary className="text-sm font-medium text-zinc-400 hover:text-zinc-200 cursor-pointer select-none">
+              Snelkoppeling instellen (beheer)
+            </summary>
+            <div className="mt-4 max-w-2xl">
+              <ReelInspirationSetup />
+            </div>
+          </details>
+        )}
       </div>
     </div>
   )
