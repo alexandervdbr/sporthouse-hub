@@ -54,23 +54,31 @@ export async function classifyReel(input: {
 }): Promise<ReelClassification> {
   if (!process.env.ANTHROPIC_API_KEY) return fallback(input.url)
 
-  const prompt = `Je krijgt de caption en thumbnail van een Instagram Reel/Post die iemand bewaarde als contentinspiratie voor SporthouseGroup, een sportmediabedrijf.
+  const prompt = `Je krijgt de caption en thumbnail van een Instagram Reel/Post die iemand bewaarde als contentinspiratie voor SporthouseGroup, een sportmediabedrijf. Iemand gaat dit later terugvinden tijdens een brainstorm — dus kijk echt grondig naar het beeld voor je iets invult, niet oppervlakkig.
 
 Wijs twee vaste classificaties toe, plus vrije tags.
 
 1) CATEGORIE (onderwerp/doel — exact één uit de lijst):
 ${REEL_CATEGORIES.map(c => `- ${c}`).join('\n')}
 
-2) TYPE (het fundamentele format — exact één uit de lijst, kijk vooral naar de thumbnail):
+2) TYPE (het fundamentele format — exact één uit de lijst). Dit is waar het vaakst misgaat, dus let goed op:
 - Foto: een echte foto — actie-, portret- of sfeerfoto, geen ontworpen grafisch element dat overheerst
-- Grafisch: een ontworpen statische visual — quote card, stat-graphic, poster, template met tekst/logo's, geen beweging
-- Video: live-action videobeelden — gefilmd, wedstrijdbeelden, interview, backstage
-- Motion: geanimeerde/motion-design content — bewegende graphics, kinetic typography, animaties (ook al is het technisch een videobestand, het draait om het ontwerp/de animatie, niet om gefilmde beelden)
+- Grafisch: een ontworpen STATISCHE visual — quote card, stat-graphic, poster, template met tekst/logo's, geen beweging in het spel
+- Video: gefilmde, live-action beelden — wedstrijdbeelden, interview, backstage, iemand die praat of beweegt voor de camera. Een score-overlay, logo of lower-third bovenop gefilmde beelden verandert dit NIET naar Motion — de onderliggende beelden zijn nog steeds gefilmd, dus dit blijft Video.
+- Motion: het ontwerp/de animatie IS de content — kinetic typography, een volledig geanimeerde infographic, motion-graphic templates, abstracte animaties. Geen gefilmde mensen of actie te zien, enkel bewegend grafisch ontwerp.
+Vuistregel bij twijfel: kies Video, niet Motion. Motion is de uitzondering voor puur grafisch/geanimeerd werk, niet de standaardkeuze voor elke Reel.
 
 Caption: "${input.caption ?? '(geen caption)'}"
 Account: ${input.authorName ?? '(onbekend)'}
 
-3) TAGS: geef zoveel tags als relevant zijn (kan gerust 8-15 zijn) die de inhoud doorzoekbaar maken voor iemand die later aan het brainstormen is — onderwerp, stijl, sfeer/mood, kleuren, setting, compositie, specifieke elementen die opvallen. Niet de categorie of het type zelf herhalen. Liever te veel dan te weinig, zolang elke tag iets specifieks toevoegt.
+3) TAGS: analyseer het beeld grondig en geef een uitgebreide, specifieke tagset (gerust 12-25) zodat iemand later exact kan terugvinden waar dit over ging. Denk na over:
+- Wat is er letterlijk te zien: wie/wat, welke actie, welke setting/locatie
+- Stijl: bv. cinematic, ruw/UGC, studio-opname, close-up, wide shot, hoge/lage hoek
+- Sfeer/mood: bv. energiek, rustig, emotioneel, speels, serieus
+- Kleuren en licht: bv. donker/moody, felle kleuren, natuurlijk licht, clubkleuren
+- Tekst/typografie op beeld, merk- of logo-elementen
+- Type content: bv. resultaat-post, hype/promo, interview-snippet, statistiek, wedstrijdmoment, community-moment
+Niet de categorie of het type zelf herhalen als tag. Liever te veel dan te weinig, zolang elke tag iets specifieks toevoegt — geen vage vulwoorden.
 
 Ben je niet zeker welke categorie of welk type het beste past? Kies toch de dichtstbijzijnde en zet confidence op "low".
 
@@ -89,8 +97,8 @@ Antwoord ALLEEN in geldig JSON (geen uitleg erbuiten):
   try {
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
     const message = await anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1024,
+      model: 'claude-sonnet-5',
+      max_tokens: 1536,
       messages: [{ role: 'user', content }],
     })
 
@@ -102,7 +110,7 @@ Antwoord ALLEEN in geldig JSON (geen uitleg erbuiten):
     }
 
     const parsed = JSON.parse(jsonMatch[0])
-    const tags = Array.isArray(parsed.tags) ? parsed.tags.slice(0, 20).map(String) : []
+    const tags = Array.isArray(parsed.tags) ? parsed.tags.slice(0, 30).map(String) : []
     const mediaType = isReelMediaType(parsed.mediaType) ? parsed.mediaType : deterministicMediaType(input.url)
 
     if (!isReelCategory(parsed.category)) return { ...fallback(input.url), mediaType, tags }

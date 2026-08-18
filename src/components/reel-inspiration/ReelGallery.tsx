@@ -1,10 +1,12 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { ExternalLink, Clock, AlertCircle, Trash2, X, Search, Plus } from 'lucide-react'
+import { ExternalLink, Clock, AlertCircle, Trash2, X, Search, Plus, ChevronLeft, Folder, LayoutGrid } from 'lucide-react'
 import { ReelInspiration } from '@/types/database'
 import { REEL_CATEGORIES } from '@/lib/reel-categories'
 import { REEL_MEDIA_TYPES } from '@/lib/reel-media-types'
+
+const UNSORTED = 'Ongesorteerd'
 
 type ReelUpdate = { category?: string | null; media_type?: string | null; tags?: string[] }
 
@@ -347,12 +349,49 @@ function PillRow({ label, options, counts, active, onChange }: {
   )
 }
 
+// ─── Folder tile ────────────────────────────────────────────────────────────
+
+function FolderTile({ label, reels, onOpen }: { label: string; reels: ReelInspiration[]; onOpen: () => void }) {
+  const preview = reels.slice(0, 4)
+  return (
+    <button
+      onClick={onOpen}
+      className="group flex flex-col rounded-xl overflow-hidden transition-colors text-left"
+      style={{ background: 'rgba(24,24,24,0.97)', border: '1px solid rgba(255,255,255,0.09)' }}
+    >
+      <div className="grid grid-cols-2 grid-rows-2 gap-0.5 aspect-[3/4] bg-zinc-900">
+        {preview.length === 0 && (
+          <div className="col-span-2 row-span-2 flex items-center justify-center text-zinc-700 text-xs">Leeg</div>
+        )}
+        {preview.map(r => (
+          <div key={r.id} className="bg-zinc-800 overflow-hidden">
+            {r.thumbnail_url && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={r.thumbnail_url} alt="" className="w-full h-full object-cover object-center" />
+            )}
+          </div>
+        ))}
+        {preview.length > 0 && preview.length < 4 &&
+          Array.from({ length: 4 - preview.length }).map((_, i) => <div key={i} className="bg-zinc-900" />)}
+      </div>
+      <div className="p-3 flex items-center gap-2">
+        <Folder size={14} className="text-zinc-500 flex-shrink-0" />
+        <div>
+          <p className="text-sm font-medium text-zinc-200 group-hover:text-white transition-colors">{label}</p>
+          <p className="text-xs text-zinc-500">{reels.length} item{reels.length !== 1 ? 's' : ''}</p>
+        </div>
+      </div>
+    </button>
+  )
+}
+
 // ─── Gallery ────────────────────────────────────────────────────────────────
 
 export default function ReelGallery({ reels: initialReels }: { reels: ReelInspiration[] }) {
   const [reels, setReels] = useState(initialReels)
   const [query, setQuery] = useState('')
-  const [activeMediaType, setActiveMediaType] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<'folders' | 'all'>('folders')
+  const [openFolder, setOpenFolder] = useState<string | null>(null)
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
   const [previewId, setPreviewId] = useState<string | null>(null)
 
@@ -372,23 +411,34 @@ export default function ReelGallery({ reels: initialReels }: { reels: ReelInspir
     })
   }
 
-  const mediaTypeCounts = useMemo(() => {
-    const counts: Record<string, number> = {}
-    for (const type of REEL_MEDIA_TYPES) counts[type] = reels.filter(r => r.media_type === type).length
-    return counts
+  const isSearching = query.trim().length > 0
+  const showFolders = viewMode === 'folders' && !isSearching && openFolder === null
+
+  const folderReels = useMemo(() => {
+    const groups: Record<string, ReelInspiration[]> = {}
+    for (const type of REEL_MEDIA_TYPES) groups[type] = reels.filter(r => r.media_type === type)
+    groups[UNSORTED] = reels.filter(r => !r.media_type)
+    return groups
   }, [reels])
+
+  // Base set for the current view: everything (View all / search) or just
+  // the open folder's items (Folders mode, drilled in).
+  const scoped = useMemo(() => {
+    if (isSearching || viewMode === 'all') return reels
+    if (openFolder) return folderReels[openFolder] ?? []
+    return []
+  }, [reels, isSearching, viewMode, openFolder, folderReels])
 
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = {}
-    for (const cat of REEL_CATEGORIES) counts[cat] = reels.filter(r => r.category === cat).length
+    for (const cat of REEL_CATEGORIES) counts[cat] = scoped.filter(r => r.category === cat).length
     return counts
-  }, [reels])
+  }, [scoped])
 
   const filtered = useMemo(() => {
     const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean)
 
-    return reels.filter(r => {
-      if (activeMediaType && r.media_type !== activeMediaType) return false
+    return scoped.filter(r => {
       if (activeCategory && r.category !== activeCategory) return false
       if (words.length === 0) return true
 
@@ -398,7 +448,7 @@ export default function ReelGallery({ reels: initialReels }: { reels: ReelInspir
         .toLowerCase()
       return words.every(w => searchable.includes(w))
     })
-  }, [reels, query, activeMediaType, activeCategory])
+  }, [scoped, query, activeCategory])
 
   const previewReel = reels.find(r => r.id === previewId) ?? null
 
@@ -412,35 +462,80 @@ export default function ReelGallery({ reels: initialReels }: { reels: ReelInspir
 
   return (
     <div className="space-y-4">
-      <div
-        className="flex items-center gap-2 px-3 py-2 rounded-lg"
-        style={{ background: 'rgba(24,24,24,0.97)', border: '1px solid rgba(255,255,255,0.10)' }}
-      >
-        <Search size={14} className="text-zinc-500 flex-shrink-0" />
-        <input
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          placeholder="Zoek op stijl, sfeer, onderwerp, account…"
-          className="flex-1 bg-transparent text-sm text-zinc-200 placeholder:text-zinc-600 outline-none"
-        />
-        {query && (
-          <button onClick={() => setQuery('')} className="text-zinc-500 hover:text-zinc-300 transition-colors">
-            <X size={14} />
-          </button>
+      <div className="flex items-center gap-2 flex-wrap">
+        <div
+          className="flex-1 min-w-[200px] flex items-center gap-2 px-3 py-2 rounded-lg"
+          style={{ background: 'rgba(24,24,24,0.97)', border: '1px solid rgba(255,255,255,0.10)' }}
+        >
+          <Search size={14} className="text-zinc-500 flex-shrink-0" />
+          <input
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Zoek op stijl, sfeer, onderwerp, account…"
+            className="flex-1 bg-transparent text-sm text-zinc-200 placeholder:text-zinc-600 outline-none"
+          />
+          {query && (
+            <button onClick={() => setQuery('')} className="text-zinc-500 hover:text-zinc-300 transition-colors">
+              <X size={14} />
+            </button>
+          )}
+        </div>
+
+        {!isSearching && (
+          <div className="flex rounded-lg overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.10)' }}>
+            <button
+              onClick={() => { setViewMode('folders'); setOpenFolder(null) }}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors"
+              style={{
+                background: viewMode === 'folders' ? 'rgba(255,255,255,0.14)' : 'transparent',
+                color: viewMode === 'folders' ? '#fff' : '#a1a1aa',
+              }}
+            >
+              <Folder size={13} /> Mapjes
+            </button>
+            <button
+              onClick={() => setViewMode('all')}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors"
+              style={{
+                background: viewMode === 'all' ? 'rgba(255,255,255,0.14)' : 'transparent',
+                color: viewMode === 'all' ? '#fff' : '#a1a1aa',
+              }}
+            >
+              <LayoutGrid size={13} /> Alles bekijken
+            </button>
+          </div>
         )}
       </div>
 
-      <PillRow label="Type" options={REEL_MEDIA_TYPES} counts={mediaTypeCounts} active={activeMediaType} onChange={setActiveMediaType} />
-      <PillRow label="Categorie" options={REEL_CATEGORIES} counts={categoryCounts} active={activeCategory} onChange={setActiveCategory} />
-
-      {filtered.length === 0 ? (
-        <p className="text-sm text-zinc-500">Niets gevonden.</p>
-      ) : (
+      {showFolders ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-          {filtered.map(reel => (
-            <ReelCard key={reel.id} reel={reel} onOpen={() => setPreviewId(reel.id)} onDelete={handleDelete} />
+          {[...REEL_MEDIA_TYPES, UNSORTED].filter(type => folderReels[type].length > 0).map(type => (
+            <FolderTile key={type} label={type} reels={folderReels[type]} onOpen={() => setOpenFolder(type)} />
           ))}
         </div>
+      ) : (
+        <>
+          {!isSearching && viewMode === 'folders' && openFolder && (
+            <button
+              onClick={() => setOpenFolder(null)}
+              className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+            >
+              <ChevronLeft size={13} /> Terug naar mapjes — <span className="font-medium text-zinc-300">{openFolder}</span>
+            </button>
+          )}
+
+          <PillRow label="Categorie" options={REEL_CATEGORIES} counts={categoryCounts} active={activeCategory} onChange={setActiveCategory} />
+
+          {filtered.length === 0 ? (
+            <p className="text-sm text-zinc-500">Niets gevonden.</p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              {filtered.map(reel => (
+                <ReelCard key={reel.id} reel={reel} onOpen={() => setPreviewId(reel.id)} onDelete={handleDelete} />
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {previewReel && (
