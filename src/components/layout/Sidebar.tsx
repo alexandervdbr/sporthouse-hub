@@ -277,7 +277,7 @@ export default function Sidebar({ clients }: SidebarProps) {
             { href: '/chat',        icon: MessageSquare,   label: 'Chat',           section: 'chat',           external: false },
             { href: '/passwords',   icon: Lock,            label: 'Wachtwoorden',    section: 'wachtwoorden_bekijken', external: false },
             { href: '/preassist',   icon: Layers,          label: 'Pré-assist',      section: 'preassist',             external: false },
-            { href: '/reel-inspiration', icon: Bookmark,   label: 'Reel inspiratie', section: 'reel-inspiratie',       external: false },
+            { href: '/moodboard',   icon: Bookmark,        label: 'Moodboard',       section: 'moodboard',             external: false },
             { href: 'https://kinopio.club/start-to-kinopio--EeWqKmLYUOfwLTNfwQyS', icon: Sparkles, label: 'Inspiratiebord', section: 'inspiratiebord', external: true },
             { href: 'https://photos.google.com', icon: Camera, label: "Google Photos", section: 'googlephotos', external: true },
             ...(isAdmin ? [{ href: '/admin', icon: ShieldCheck, label: 'Beheer', section: 'admin', external: false }] : []),
