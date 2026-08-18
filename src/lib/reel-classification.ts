@@ -51,7 +51,10 @@ Antwoord ALLEEN in geldig JSON (geen uitleg erbuiten):
 
     const text = message.content[0]?.type === 'text' ? message.content[0].text : ''
     const jsonMatch = text.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) return FALLBACK
+    if (!jsonMatch) {
+      console.error('Reel classificatie: geen JSON in antwoord:', text)
+      return FALLBACK
+    }
 
     const parsed = JSON.parse(jsonMatch[0])
     const tags = Array.isArray(parsed.tags) ? parsed.tags.slice(0, 5).map(String) : []
@@ -63,7 +66,8 @@ Antwoord ALLEEN in geldig JSON (geen uitleg erbuiten):
       confidence: ['high', 'medium', 'low'].includes(parsed.confidence) ? parsed.confidence : 'low',
       tags,
     }
-  } catch {
+  } catch (err) {
+    console.error('Reel classificatie mislukt:', err instanceof Error ? err.message : err)
     return FALLBACK
   }
 }
