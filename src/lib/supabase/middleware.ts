@@ -37,9 +37,11 @@ export async function updateSession(request: NextRequest) {
   // Called by the iOS shortcut with its own per-user bearer token instead of
   // a session cookie — see /api/save-reel's own auth check.
   const isSaveReelApiPage = pathname.startsWith('/api/save-reel')
+  // Must be publicly reachable — this is the URL submitted to Meta App Review.
+  const isPrivacyPage = pathname.startsWith('/privacy')
 
   // Unauthenticated → login (API routes get a 401 instead of a redirect)
-  if (!user && !isLoginPage && !isCallbackPage && !isSaveReelApiPage) {
+  if (!user && !isLoginPage && !isCallbackPage && !isSaveReelApiPage && !isPrivacyPage) {
     if (isApiPage) {
       return new NextResponse(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
