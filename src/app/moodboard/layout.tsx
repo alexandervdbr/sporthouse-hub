@@ -4,7 +4,7 @@ import AppShell from '@/components/layout/AppShell'
 import { Client } from '@/types/database'
 import { filterClientsForUser } from '@/lib/filter-clients'
 
-export default async function ReelInspirationLayout({ children }: { children: React.ReactNode }) {
+export default async function MoodboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
 
   const { data: { user } } = await supabase.auth.getUser()

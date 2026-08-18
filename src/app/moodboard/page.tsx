@@ -4,9 +4,9 @@ import ReelGallery from '@/components/reel-inspiration/ReelGallery'
 import ReelInspirationSetup from '@/components/reel-inspiration/ReelInspirationSetup'
 import { isAdminUser } from '@/lib/auth-permissions'
 
-export const metadata = { title: 'Reel inspiratie — Sporthouse' }
+export const metadata = { title: 'Moodboard — Sporthouse' }
 
-export default async function ReelInspirationPage() {
+export default async function MoodboardPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
@@ -19,9 +19,9 @@ export default async function ReelInspirationPage() {
     <div className="h-full overflow-y-auto">
       <div className="p-4 sm:p-8 max-w-6xl mx-auto">
         <div className="mb-8">
-          <h2 className="text-base font-semibold text-sh-grey mb-1">Reel inspiratie</h2>
+          <h2 className="text-base font-semibold text-sh-grey mb-1">Moodboard</h2>
           <p className="text-sm text-zinc-500">
-            Bewaard vanaf de telefoon via de Instagram Share Sheet snelkoppeling.
+            Bewaard vanaf de telefoon via de Instagram Share Sheet snelkoppeling — beeld, video en motion op één plek voor als je inspiratie zoekt.
           </p>
         </div>
 
