@@ -1,15 +1,17 @@
 import crypto from 'crypto'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { isAdminUser } from '@/lib/auth-permissions'
 
 // Personal bearer token for the reel-inspiration shortcut, shown once on the
 // settings page so the user can paste it into the Shortcut's Authorization
-// header. Session-authenticated like every other route — only the shortcut
-// itself calls /api/save-reel without a session.
+// header. Restricted to admins, same as the settings page itself — only the
+// shortcut's own request to /api/save-reel uses this token afterwards.
 
 export async function GET() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return new Response('Unauthorized', { status: 401 })
+  if (!isAdminUser(user)) return new Response('Forbidden', { status: 403 })
 
   const admin = createAdminClient()
 
@@ -37,6 +39,7 @@ export async function POST() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return new Response('Unauthorized', { status: 401 })
+  if (!isAdminUser(user)) return new Response('Forbidden', { status: 403 })
 
   const admin = createAdminClient()
   const token = crypto.randomBytes(32).toString('hex')

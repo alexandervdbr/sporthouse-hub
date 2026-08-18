@@ -1,17 +1,139 @@
 'use client'
 
-import { useState } from 'react'
-import { ExternalLink, Clock, AlertCircle } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ExternalLink, Clock, AlertCircle, Trash2, X } from 'lucide-react'
 import { ReelInspiration } from '@/types/database'
 import { REEL_CATEGORIES } from '@/lib/reel-categories'
 
-function ReelCard({ reel }: { reel: ReelInspiration }) {
+// ─── Instagram embed script ────────────────────────────────────────────────
+// embed_html is Instagram's own oEmbed markup (a <blockquote> placeholder) —
+// it only renders as the actual playable post once instagram.com/embed.js
+// has run and processed the page. Loaded lazily, once, on first preview.
+
+declare global {
+  interface Window {
+    instgrm?: { Embeds: { process: () => void } }
+  }
+}
+
+let embedScriptPromise: Promise<void> | null = null
+
+function loadInstagramEmbedScript(): Promise<void> {
+  if (window.instgrm) return Promise.resolve()
+  if (embedScriptPromise) return embedScriptPromise
+
+  embedScriptPromise = new Promise((resolve) => {
+    const script = document.createElement('script')
+    script.src = 'https://www.instagram.com/embed.js'
+    script.async = true
+    script.onload = () => resolve()
+    document.body.appendChild(script)
+  })
+  return embedScriptPromise
+}
+
+// ─── Preview modal ──────────────────────────────────────────────────────────
+
+function ReelModal({ reel, onClose, onDelete }: { reel: ReelInspiration; onClose: () => void; onDelete: (id: string) => void }) {
+  const [deleting, setDeleting] = useState(false)
+
+  useEffect(() => {
+    loadInstagramEmbedScript().then(() => window.instgrm?.Embeds.process())
+  }, [reel.id])
+
+  async function handleDelete() {
+    if (!confirm('Deze reel definitief verwijderen?')) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/reels/${reel.id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error()
+      onDelete(reel.id)
+    } catch {
+      setDeleting(false)
+      alert('Verwijderen mislukt. Probeer opnieuw.')
+    }
+  }
+
   return (
-    <a
-      href={reel.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="group flex flex-col rounded-xl overflow-hidden transition-colors"
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80"
+      onClick={onClose}
+    >
+      <div
+        className="relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-xl"
+        style={{ background: '#000' }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-3 py-2 sticky top-0 z-10 bg-black/90">
+          <a
+            href={reel.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+          >
+            <ExternalLink size={12} /> Open in Instagram
+          </a>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="p-1.5 rounded-lg text-zinc-400 hover:text-red-400 transition-colors disabled:opacity-50"
+              title="Verwijderen"
+            >
+              <Trash2 size={15} />
+            </button>
+            <button onClick={onClose} className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 transition-colors" title="Sluiten">
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+
+        {reel.embed_html ? (
+          <div dangerouslySetInnerHTML={{ __html: reel.embed_html }} />
+        ) : (
+          <p className="p-6 text-sm text-zinc-500">Geen embed beschikbaar voor deze post.</p>
+        )}
+
+        {(reel.category || reel.tags.length > 0) && (
+          <div className="flex flex-wrap gap-1.5 px-4 py-3">
+            {reel.category && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-white/10 text-zinc-300">{reel.category}</span>
+            )}
+            {reel.tags.map(tag => (
+              <span key={tag} className="px-2 py-0.5 rounded-full text-[10px] text-zinc-500" style={{ border: '1px solid rgba(255,255,255,0.10)' }}>
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Card ───────────────────────────────────────────────────────────────────
+
+function ReelCard({ reel, onOpen, onDelete }: { reel: ReelInspiration; onOpen: () => void; onDelete: (id: string) => void }) {
+  const [deleting, setDeleting] = useState(false)
+
+  async function handleDelete(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (!confirm('Deze reel definitief verwijderen?')) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/reels/${reel.id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error()
+      onDelete(reel.id)
+    } catch {
+      setDeleting(false)
+      alert('Verwijderen mislukt. Probeer opnieuw.')
+    }
+  }
+
+  return (
+    <button
+      onClick={onOpen}
+      className="group flex flex-col rounded-xl overflow-hidden transition-colors text-left"
       style={{ background: 'rgba(24,24,24,0.97)', border: '1px solid rgba(255,255,255,0.09)' }}
     >
       <div className="relative aspect-square bg-zinc-900">
@@ -28,9 +150,19 @@ function ReelCard({ reel }: { reel: ReelInspiration }) {
             Geen thumbnail
           </div>
         )}
+
+        <button
+          onClick={handleDelete}
+          disabled={deleting}
+          className="absolute top-2 left-2 p-1.5 rounded-lg bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity text-white hover:text-red-400 disabled:opacity-50"
+          title="Verwijderen"
+        >
+          <Trash2 size={13} />
+        </button>
         <div className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity">
           <ExternalLink size={13} className="text-white" />
         </div>
+
         {reel.status === 'pending' && (
           <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-1 rounded-md bg-black/70 text-[11px] text-zinc-300">
             <Clock size={11} className="animate-pulse" /> Classificeren…
@@ -68,15 +200,25 @@ function ReelCard({ reel }: { reel: ReelInspiration }) {
           </div>
         )}
       </div>
-    </a>
+    </button>
   )
 }
 
-export default function ReelGallery({ reels }: { reels: ReelInspiration[] }) {
+// ─── Gallery ────────────────────────────────────────────────────────────────
+
+export default function ReelGallery({ reels: initialReels }: { reels: ReelInspiration[] }) {
+  const [reels, setReels] = useState(initialReels)
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
+  const [previewId, setPreviewId] = useState<string | null>(null)
+
+  function handleDelete(id: string) {
+    setReels(prev => prev.filter(r => r.id !== id))
+    setPreviewId(prev => (prev === id ? null : prev))
+  }
 
   const categoriesInUse = REEL_CATEGORIES.filter(c => reels.some(r => r.category === c))
   const filtered = activeCategory ? reels.filter(r => r.category === activeCategory) : reels
+  const previewReel = reels.find(r => r.id === previewId) ?? null
 
   if (reels.length === 0) {
     return (
@@ -123,9 +265,13 @@ export default function ReelGallery({ reels }: { reels: ReelInspiration[] }) {
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
         {filtered.map(reel => (
-          <ReelCard key={reel.id} reel={reel} />
+          <ReelCard key={reel.id} reel={reel} onOpen={() => setPreviewId(reel.id)} onDelete={handleDelete} />
         ))}
       </div>
+
+      {previewReel && (
+        <ReelModal reel={previewReel} onClose={() => setPreviewId(null)} onDelete={handleDelete} />
+      )}
     </div>
   )
 }
