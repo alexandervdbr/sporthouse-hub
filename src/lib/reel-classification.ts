@@ -9,6 +9,29 @@ export interface ReelClassification {
 
 const FALLBACK: ReelClassification = { category: null, confidence: 'low', tags: [] }
 
+// Claude's `type: 'url'` image source is fetched by Anthropic's own servers,
+// which honor the target's robots.txt — Instagram's CDN disallows that, so
+// the call gets rejected outright. Fetching the image ourselves and sending
+// it as base64 sidesteps that entirely.
+async function fetchThumbnailAsBase64(
+  url: string
+): Promise<{ mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'; data: string } | null> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(6000) })
+    if (!res.ok) return null
+
+    const contentType = res.headers.get('content-type') ?? ''
+    if (!contentType.startsWith('image/')) return null
+    const mediaType = contentType.split(';')[0] as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+    if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mediaType)) return null
+
+    const buffer = await res.arrayBuffer()
+    return { mediaType, data: Buffer.from(buffer).toString('base64') }
+  } catch {
+    return null
+  }
+}
+
 // Isolated, single-purpose call — deliberately not the Expert AI's system
 // prompt/persona/conversation context. This is a narrow structured-data task
 // (caption + thumbnail in, category + tags out), same shape as
@@ -34,9 +57,11 @@ Ben je niet zeker welke categorie het beste past? Kies toch de dichtstbijzijnde 
 Antwoord ALLEEN in geldig JSON (geen uitleg erbuiten):
 {"category": "<exacte categorie uit de lijst>", "confidence": "high" | "medium" | "low", "tags": ["...", "..."]}`
 
-  const content: Anthropic.MessageParam['content'] = input.thumbnailUrl
+  const thumbnail = input.thumbnailUrl ? await fetchThumbnailAsBase64(input.thumbnailUrl) : null
+
+  const content: Anthropic.MessageParam['content'] = thumbnail
     ? [
-        { type: 'image', source: { type: 'url', url: input.thumbnailUrl } },
+        { type: 'image', source: { type: 'base64', media_type: thumbnail.mediaType, data: thumbnail.data } },
         { type: 'text', text: prompt },
       ]
     : prompt
