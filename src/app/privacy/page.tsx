@@ -43,7 +43,7 @@ export default function PrivacyPolicyPage() {
             this policy — content saved from Instagram for internal inspiration reference.
           </p>
           <p>
-            Specifically, our &quot;Moodboard&quot; feature lets a staff member save the public URL
+            Specifically, our &quot;Mijn gedacht!&quot; feature lets a staff member save the public URL
             of an Instagram post (via Meta&apos;s oEmbed API) they want to keep as a content reference.
             When a post is saved, we store: the Instagram post URL, its publicly available caption/title,
             author (account) name, thumbnail image URL, and the oEmbed HTML embed code — all of which is
