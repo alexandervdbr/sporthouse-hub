@@ -136,14 +136,14 @@ function ReelCard({ reel, onOpen, onDelete }: { reel: ReelInspiration; onOpen: (
       className="group flex flex-col rounded-xl overflow-hidden transition-colors text-left"
       style={{ background: 'rgba(24,24,24,0.97)', border: '1px solid rgba(255,255,255,0.09)' }}
     >
-      <div className="relative aspect-square bg-zinc-900">
+      <div className="relative aspect-[3/4] bg-zinc-900">
         {reel.thumbnail_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={reel.thumbnail_url}
             alt={reel.caption ?? 'Instagram reel'}
             loading="lazy"
-            className="w-full h-full object-cover"
+            className="w-full h-full object-cover object-center"
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-zinc-700 text-xs">
