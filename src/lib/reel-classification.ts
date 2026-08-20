@@ -110,43 +110,51 @@ Antwoord ALLEEN in geldig JSON (geen uitleg erbuiten):
       ]
     : prompt
 
-  try {
-    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-5',
-      // Rich captions (long, bilingual, lots to react to) push the model
-      // toward a longer response — a prior 1536 ceiling was observed
-      // truncating mid-JSON on exactly that kind of post, which silently
-      // discarded the whole classification. Generous headroom is cheap.
-      max_tokens: 3072,
-      messages: [{ role: 'user', content }],
-    })
+  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
-    const text = message.content[0]?.type === 'text' ? message.content[0].text : ''
-    const jsonMatch = text.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) {
-      console.error('Reel classificatie: geen JSON in antwoord (stop_reason:', message.stop_reason, '):', text)
-      return fallback(input.url)
+  // Observed in production: an occasional call comes back with stop_reason
+  // "end_turn" but a genuinely empty content block — no truncation, no
+  // error, just nothing. Rare enough to look like transient API flakiness
+  // rather than a prompt problem, so one retry before giving up on it.
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const message = await anthropic.messages.create({
+        model: 'claude-sonnet-5',
+        // Rich captions (long, bilingual, lots to react to) push the model
+        // toward a longer response — a prior 1536 ceiling was observed
+        // truncating mid-JSON on exactly that kind of post, which silently
+        // discarded the whole classification. Generous headroom is cheap.
+        max_tokens: 3072,
+        messages: [{ role: 'user', content }],
+      })
+
+      const text = message.content[0]?.type === 'text' ? message.content[0].text : ''
+      const jsonMatch = text.match(/\{[\s\S]*\}/)
+      if (!jsonMatch) {
+        console.error(`Reel classificatie: geen JSON in antwoord (poging ${attempt}, stop_reason:`, message.stop_reason, '):', text)
+        continue
+      }
+
+      const parsed = JSON.parse(jsonMatch[0])
+      const tags = Array.isArray(parsed.tags) ? parsed.tags.slice(0, 30).map(String) : []
+      const mediaType = normalizeMediaType(parsed.mediaType) ?? deterministicMediaType(input.url)
+      const category = normalizeCategory(parsed.category)
+
+      if (!category) {
+        console.error(`Reel classificatie: onbekende categorie (poging ${attempt}):`, parsed.category, '(stop_reason:', message.stop_reason, ')')
+        continue
+      }
+
+      return {
+        category,
+        mediaType,
+        confidence: ['high', 'medium', 'low'].includes(parsed.confidence) ? parsed.confidence : 'low',
+        tags,
+      }
+    } catch (err) {
+      console.error(`Reel classificatie mislukt (poging ${attempt}):`, err instanceof Error ? err.message : err)
     }
-
-    const parsed = JSON.parse(jsonMatch[0])
-    const tags = Array.isArray(parsed.tags) ? parsed.tags.slice(0, 30).map(String) : []
-    const mediaType = normalizeMediaType(parsed.mediaType) ?? deterministicMediaType(input.url)
-    const category = normalizeCategory(parsed.category)
-
-    if (!category) {
-      console.error('Reel classificatie: onbekende categorie:', parsed.category, '(stop_reason:', message.stop_reason, ')')
-      return { ...fallback(input.url), mediaType, tags }
-    }
-
-    return {
-      category,
-      mediaType,
-      confidence: ['high', 'medium', 'low'].includes(parsed.confidence) ? parsed.confidence : 'low',
-      tags,
-    }
-  } catch (err) {
-    console.error('Reel classificatie mislukt:', err instanceof Error ? err.message : err)
-    return fallback(input.url)
   }
+
+  return fallback(input.url)
 }
