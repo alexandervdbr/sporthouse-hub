@@ -451,7 +451,7 @@ function FolderTile({ label, reels, onOpen }: { label: string; reels: ReelInspir
           <div key={r.id} className="bg-zinc-800 overflow-hidden">
             {r.thumbnail_url && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={r.thumbnail_url} alt="" className="w-full h-full object-cover object-center" />
+              <img src={r.thumbnail_url} alt="" className="w-full h-full object-contain object-center" />
             )}
           </div>
         ))}
