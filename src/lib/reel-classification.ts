@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { REEL_CATEGORIES, isReelCategory } from './reel-categories'
-import { REEL_MEDIA_TYPES, isReelMediaType, type ReelMediaType } from './reel-media-types'
+import { REEL_CATEGORIES } from './reel-categories'
+import { REEL_MEDIA_TYPES, type ReelMediaType } from './reel-media-types'
 
 export interface ReelClassification {
   category: string | null
@@ -17,6 +17,22 @@ function deterministicMediaType(url: string): ReelMediaType | null {
 
 function fallback(url: string): ReelClassification {
   return { category: null, mediaType: deterministicMediaType(url), confidence: 'low', tags: [] }
+}
+
+// Trimmed + case-insensitive match against the fixed lists, mapped back to
+// the canonical casing — the model occasionally drifts on exact casing
+// ("behind the scenes" vs "Behind the scenes"), which an exact-match guard
+// would silently discard the whole classification over.
+function normalizeCategory(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim().toLowerCase()
+  return REEL_CATEGORIES.find(c => c.toLowerCase() === trimmed) ?? null
+}
+
+function normalizeMediaType(value: unknown): ReelMediaType | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim().toLowerCase()
+  return REEL_MEDIA_TYPES.find(t => t.toLowerCase() === trimmed) ?? null
 }
 
 // Claude's `type: 'url'` image source is fetched by Anthropic's own servers,
@@ -98,25 +114,33 @@ Antwoord ALLEEN in geldig JSON (geen uitleg erbuiten):
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-5',
-      max_tokens: 1536,
+      // Rich captions (long, bilingual, lots to react to) push the model
+      // toward a longer response — a prior 1536 ceiling was observed
+      // truncating mid-JSON on exactly that kind of post, which silently
+      // discarded the whole classification. Generous headroom is cheap.
+      max_tokens: 3072,
       messages: [{ role: 'user', content }],
     })
 
     const text = message.content[0]?.type === 'text' ? message.content[0].text : ''
     const jsonMatch = text.match(/\{[\s\S]*\}/)
     if (!jsonMatch) {
-      console.error('Reel classificatie: geen JSON in antwoord:', text)
+      console.error('Reel classificatie: geen JSON in antwoord (stop_reason:', message.stop_reason, '):', text)
       return fallback(input.url)
     }
 
     const parsed = JSON.parse(jsonMatch[0])
     const tags = Array.isArray(parsed.tags) ? parsed.tags.slice(0, 30).map(String) : []
-    const mediaType = isReelMediaType(parsed.mediaType) ? parsed.mediaType : deterministicMediaType(input.url)
+    const mediaType = normalizeMediaType(parsed.mediaType) ?? deterministicMediaType(input.url)
+    const category = normalizeCategory(parsed.category)
 
-    if (!isReelCategory(parsed.category)) return { ...fallback(input.url), mediaType, tags }
+    if (!category) {
+      console.error('Reel classificatie: onbekende categorie:', parsed.category, '(stop_reason:', message.stop_reason, ')')
+      return { ...fallback(input.url), mediaType, tags }
+    }
 
     return {
-      category: parsed.category,
+      category,
       mediaType,
       confidence: ['high', 'medium', 'low'].includes(parsed.confidence) ? parsed.confidence : 'low',
       tags,
