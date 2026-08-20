@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { ExternalLink, Clock, AlertCircle, Trash2, X, Search, Plus, ChevronLeft, Folder, LayoutGrid } from 'lucide-react'
+import { ExternalLink, Clock, AlertCircle, Trash2, X, Search, Plus, ChevronLeft, ChevronRight, Folder, LayoutGrid, Shuffle } from 'lucide-react'
 import { ReelInspiration } from '@/types/database'
 import { REEL_CATEGORIES } from '@/lib/reel-categories'
 import { REEL_MEDIA_TYPES } from '@/lib/reel-media-types'
@@ -60,14 +60,29 @@ function ChipSelect({ options, value, onChange }: { options: readonly string[]; 
   )
 }
 
-function TagsEditor({ tags, onAdd, onRemove }: { tags: string[]; onAdd: (tag: string) => void; onRemove: (tag: string) => void }) {
+function TagsEditor({
+  tags, existingTags, onAdd, onRemove,
+}: {
+  tags: string[]
+  existingTags: string[]
+  onAdd: (tag: string) => void
+  onRemove: (tag: string) => void
+}) {
   const [input, setInput] = useState('')
+  const [showSuggestions, setShowSuggestions] = useState(false)
 
-  function submit() {
-    const value = input.trim()
-    if (value && !tags.includes(value)) onAdd(value)
+  function submit(value: string) {
+    const trimmed = value.trim()
+    if (trimmed && !tags.includes(trimmed)) onAdd(trimmed)
     setInput('')
+    setShowSuggestions(false)
   }
+
+  const suggestions = input.trim().length > 0
+    ? existingTags
+        .filter(t => !tags.includes(t) && t.toLowerCase().includes(input.trim().toLowerCase()))
+        .slice(0, 6)
+    : []
 
   return (
     <div>
@@ -85,22 +100,42 @@ function TagsEditor({ tags, onAdd, onRemove }: { tags: string[]; onAdd: (tag: st
           </span>
         ))}
       </div>
-      <div className="flex gap-1.5" onClick={e => e.stopPropagation()}>
-        <input
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit() } }}
-          placeholder="Nieuwe tag…"
-          className="flex-1 text-xs px-2.5 py-1.5 rounded-lg bg-transparent outline-none text-zinc-300 placeholder:text-zinc-600"
-          style={{ border: '1px solid rgba(255,255,255,0.10)' }}
-        />
-        <button
-          onClick={submit}
-          className="px-2 py-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 transition-colors"
-          style={{ border: '1px solid rgba(255,255,255,0.10)' }}
-        >
-          <Plus size={13} />
-        </button>
+      <div className="relative" onClick={e => e.stopPropagation()}>
+        <div className="flex gap-1.5">
+          <input
+            value={input}
+            onChange={e => { setInput(e.target.value); setShowSuggestions(true) }}
+            onFocus={() => setShowSuggestions(true)}
+            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit(input) } }}
+            placeholder="Nieuwe tag… (bestaande worden gesuggereerd)"
+            className="flex-1 text-xs px-2.5 py-1.5 rounded-lg bg-transparent outline-none text-zinc-300 placeholder:text-zinc-600"
+            style={{ border: '1px solid rgba(255,255,255,0.10)' }}
+          />
+          <button
+            onClick={() => submit(input)}
+            className="px-2 py-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 transition-colors"
+            style={{ border: '1px solid rgba(255,255,255,0.10)' }}
+          >
+            <Plus size={13} />
+          </button>
+        </div>
+        {showSuggestions && suggestions.length > 0 && (
+          <div
+            className="absolute left-0 right-0 top-full mt-1 rounded-lg overflow-hidden z-10"
+            style={{ background: '#161616', border: '1px solid rgba(255,255,255,0.10)' }}
+          >
+            {suggestions.map(tag => (
+              <button
+                key={tag}
+                onClick={() => submit(tag)}
+                className="block w-full text-left px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-white/10 transition-colors"
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -109,18 +144,45 @@ function TagsEditor({ tags, onAdd, onRemove }: { tags: string[]; onAdd: (tag: st
 // ─── Preview modal ──────────────────────────────────────────────────────────
 
 function ReelModal({
-  reel, onClose, onDelete, onUpdate,
+  reel, existingTags, onClose, onDelete, onUpdate, onNavigate, hasPrev, hasNext,
 }: {
   reel: ReelInspiration
+  existingTags: string[]
   onClose: () => void
   onDelete: (id: string) => void
   onUpdate: (id: string, patch: ReelUpdate) => void
+  onNavigate: (direction: 1 | -1) => void
+  hasPrev: boolean
+  hasNext: boolean
 }) {
   const [deleting, setDeleting] = useState(false)
+  const [embedHtml, setEmbedHtml] = useState<string | null>(null)
+  const [embedLoading, setEmbedLoading] = useState(true)
 
   useEffect(() => {
-    loadInstagramEmbedScript().then(() => window.instgrm?.Embeds.process())
+    setEmbedHtml(null)
+    setEmbedLoading(true)
+    fetch(`/api/reels/${reel.id}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => setEmbedHtml(data?.embed_html ?? null))
+      .catch(() => setEmbedHtml(null))
+      .finally(() => setEmbedLoading(false))
   }, [reel.id])
+
+  useEffect(() => {
+    if (!embedHtml) return
+    loadInstagramEmbedScript().then(() => window.instgrm?.Embeds.process())
+  }, [embedHtml])
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'ArrowLeft' && hasPrev) onNavigate(-1)
+      if (e.key === 'ArrowRight' && hasNext) onNavigate(1)
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [hasPrev, hasNext, onNavigate, onClose])
 
   async function handleDelete() {
     if (!confirm('Deze reel definitief verwijderen?')) return
@@ -140,6 +202,25 @@ function ReelModal({
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80"
       onClick={onClose}
     >
+      {hasPrev && (
+        <button
+          onClick={e => { e.stopPropagation(); onNavigate(-1) }}
+          className="hidden sm:flex absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 text-zinc-300 hover:text-white transition-colors"
+          title="Vorige"
+        >
+          <ChevronLeft size={20} />
+        </button>
+      )}
+      {hasNext && (
+        <button
+          onClick={e => { e.stopPropagation(); onNavigate(1) }}
+          className="hidden sm:flex absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 text-zinc-300 hover:text-white transition-colors"
+          title="Volgende"
+        >
+          <ChevronRight size={20} />
+        </button>
+      )}
+
       <div
         className="relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-xl"
         style={{ background: '#000' }}
@@ -169,8 +250,10 @@ function ReelModal({
           </div>
         </div>
 
-        {reel.embed_html ? (
-          <div dangerouslySetInnerHTML={{ __html: reel.embed_html }} />
+        {embedLoading ? (
+          <p className="p-6 text-sm text-zinc-500">Laden…</p>
+        ) : embedHtml ? (
+          <div dangerouslySetInnerHTML={{ __html: embedHtml }} />
         ) : (
           <p className="p-6 text-sm text-zinc-500">Geen embed beschikbaar voor deze post.</p>
         )}
@@ -196,6 +279,7 @@ function ReelModal({
             <p className="text-[11px] font-medium text-zinc-500 mb-1.5">Tags</p>
             <TagsEditor
               tags={reel.tags}
+              existingTags={existingTags}
               onAdd={tag => onUpdate(reel.id, { tags: [...reel.tags, tag] })}
               onRemove={tag => onUpdate(reel.id, { tags: reel.tags.filter(t => t !== tag) })}
             />
@@ -238,7 +322,7 @@ function ReelCard({ reel, onOpen, onDelete }: { reel: ReelInspiration; onOpen: (
             src={reel.thumbnail_url}
             alt={reel.caption ?? 'Instagram reel'}
             loading="lazy"
-            className="w-full h-full object-cover object-center"
+            className="w-full h-full object-contain object-center"
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-zinc-700 text-xs">
@@ -394,6 +478,8 @@ export default function ReelGallery({ reels: initialReels }: { reels: ReelInspir
   const [openFolder, setOpenFolder] = useState<string | null>(null)
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
   const [previewId, setPreviewId] = useState<string | null>(null)
+  const [sortMode, setSortMode] = useState<'newest' | 'oldest' | 'shuffle'>('newest')
+  const [shuffleTick, setShuffleTick] = useState(0)
 
   function handleDelete(id: string) {
     setReels(prev => prev.filter(r => r.id !== id))
@@ -450,7 +536,44 @@ export default function ReelGallery({ reels: initialReels }: { reels: ReelInspir
     })
   }, [scoped, query, activeCategory])
 
+  // Recomputed only on an explicit shuffle click (or when the item set
+  // changes) — not on every render, so the order stays stable while browsing.
+  const shuffleOrder = useMemo(() => {
+    const ids = reels.map(r => r.id)
+    for (let i = ids.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[ids[i], ids[j]] = [ids[j], ids[i]]
+    }
+    return new Map(ids.map((id, i) => [id, i]))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shuffleTick, reels.length])
+
+  const sorted = useMemo(() => {
+    const list = [...filtered]
+    if (sortMode === 'newest') list.sort((a, b) => b.saved_at.localeCompare(a.saved_at))
+    else if (sortMode === 'oldest') list.sort((a, b) => a.saved_at.localeCompare(b.saved_at))
+    else list.sort((a, b) => (shuffleOrder.get(a.id) ?? 0) - (shuffleOrder.get(b.id) ?? 0))
+    return list
+  }, [filtered, sortMode, shuffleOrder])
+
+  const allTags = useMemo(() => {
+    const set = new Set<string>()
+    for (const r of reels) for (const t of r.tags) set.add(t)
+    return Array.from(set).sort()
+  }, [reels])
+
+  // Looked up from the unfiltered `reels`, not `sorted` — editing a reel's
+  // category/type while that exact filter is active would otherwise drop it
+  // out of `sorted` mid-edit and yank the modal closed. `previewIndex` (used
+  // only for prev/next) is allowed to go to -1 in that case; it just means
+  // arrow-nav is unavailable until the modal's closed and reopened.
   const previewReel = reels.find(r => r.id === previewId) ?? null
+  const previewIndex = sorted.findIndex(r => r.id === previewId)
+
+  function handleNavigate(direction: 1 | -1) {
+    const nextIndex = previewIndex + direction
+    if (nextIndex >= 0 && nextIndex < sorted.length) setPreviewId(sorted[nextIndex].id)
+  }
 
   if (reels.length === 0) {
     return (
@@ -528,11 +651,40 @@ export default function ReelGallery({ reels: initialReels }: { reels: ReelInspir
             <PillRow label="Categorie" options={REEL_CATEGORIES} counts={categoryCounts} active={activeCategory} onChange={setActiveCategory} />
           )}
 
-          {filtered.length === 0 ? (
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-medium text-zinc-600 uppercase tracking-wide">Sorteer</span>
+            {(['newest', 'oldest'] as const).map(mode => (
+              <button
+                key={mode}
+                onClick={() => setSortMode(mode)}
+                className="px-3 py-1.5 rounded-full text-xs font-medium transition-colors"
+                style={{
+                  background: sortMode === mode ? 'rgba(255,255,255,0.14)' : 'rgba(24,24,24,0.97)',
+                  border: '1px solid rgba(255,255,255,0.10)',
+                  color: sortMode === mode ? '#fff' : '#a1a1aa',
+                }}
+              >
+                {mode === 'newest' ? 'Nieuwste' : 'Oudste'}
+              </button>
+            ))}
+            <button
+              onClick={() => { setSortMode('shuffle'); setShuffleTick(t => t + 1) }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors"
+              style={{
+                background: sortMode === 'shuffle' ? 'rgba(255,255,255,0.14)' : 'rgba(24,24,24,0.97)',
+                border: '1px solid rgba(255,255,255,0.10)',
+                color: sortMode === 'shuffle' ? '#fff' : '#a1a1aa',
+              }}
+            >
+              <Shuffle size={12} /> Shuffle
+            </button>
+          </div>
+
+          {sorted.length === 0 ? (
             <p className="text-sm text-zinc-500">Niets gevonden.</p>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-              {filtered.map(reel => (
+              {sorted.map(reel => (
                 <ReelCard key={reel.id} reel={reel} onOpen={() => setPreviewId(reel.id)} onDelete={handleDelete} />
               ))}
             </div>
@@ -541,7 +693,16 @@ export default function ReelGallery({ reels: initialReels }: { reels: ReelInspir
       )}
 
       {previewReel && (
-        <ReelModal reel={previewReel} onClose={() => setPreviewId(null)} onDelete={handleDelete} onUpdate={handleUpdate} />
+        <ReelModal
+          reel={previewReel}
+          existingTags={allTags}
+          onClose={() => setPreviewId(null)}
+          onDelete={handleDelete}
+          onUpdate={handleUpdate}
+          onNavigate={handleNavigate}
+          hasPrev={previewIndex > 0}
+          hasNext={previewIndex >= 0 && previewIndex < sorted.length - 1}
+        />
       )}
     </div>
   )

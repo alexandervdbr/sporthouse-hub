@@ -3,6 +3,7 @@ import { after } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { fetchInstagramOembed, InstagramOembedError } from '@/lib/instagram-oembed'
 import { classifyReel } from '@/lib/reel-classification'
+import { hostThumbnailOnDrive } from '@/lib/reel-thumbnail-storage'
 
 // Called by the iOS Share Sheet shortcut (and later the Android PWA share
 // target) — no Supabase session, just a per-user bearer token. Excluded from
@@ -31,8 +32,25 @@ export async function POST(request: NextRequest) {
     return Response.json({ status: 'error', message: 'Ongeldige aanvraag.' }, { status: 400 })
   }
 
-  const url = body.url?.trim()
+  // The iOS Share Sheet sometimes hands over the whole shared text block
+  // (URL + a trailing description/username line) rather than a bare URL —
+  // pull out just the URL rather than storing the raw blob.
+  const urlMatch = body.url?.match(/https?:\/\/(?:www\.)?instagram\.com\/\S+/i)
+  const url = urlMatch?.[0]
   if (!url) return Response.json({ status: 'error', message: 'url is verplicht.' }, { status: 400 })
+
+  // Re-sharing the same post used to create a second card — bump it to the
+  // top instead, and skip re-running oEmbed/classification for it.
+  const { data: existing } = await admin
+    .from('reel_inspiration')
+    .select('id')
+    .eq('url', url)
+    .maybeSingle()
+
+  if (existing) {
+    await admin.from('reel_inspiration').update({ saved_at: new Date().toISOString() }).eq('id', existing.id)
+    return Response.json({ status: 'ok', id: existing.id })
+  }
 
   // oEmbed runs synchronously — it's what tells us the URL is actually a
   // valid, public Instagram post, and that needs to reach the phone's
@@ -66,23 +84,44 @@ export async function POST(request: NextRequest) {
   }
 
   after(async () => {
-    const classification = await classifyReel({
-      url,
-      caption: oembed.title,
-      authorName: oembed.authorName,
-      thumbnailUrl: oembed.thumbnailUrl,
-    })
-
-    await admin
-      .from('reel_inspiration')
-      .update({
-        category: classification.category,
-        media_type: classification.mediaType,
-        tags: classification.tags,
-        confidence: classification.confidence,
-        status: 'done',
+    try {
+      const classification = await classifyReel({
+        url,
+        caption: oembed.title,
+        authorName: oembed.authorName,
+        thumbnailUrl: oembed.thumbnailUrl,
       })
-      .eq('id', row.id)
+
+      const hosted = oembed.thumbnailUrl ? await hostThumbnailOnDrive(oembed.thumbnailUrl, row.id) : null
+
+      const { error: updateError } = await admin
+        .from('reel_inspiration')
+        .update({
+          category: classification.category,
+          media_type: classification.mediaType,
+          tags: classification.tags,
+          confidence: classification.confidence,
+          ...(hosted ? { thumbnail_url: hosted.thumbnailUrl, thumbnail_drive_id: hosted.driveId } : {}),
+          status: 'done',
+        })
+        .eq('id', row.id)
+
+      if (updateError) throw updateError
+    } catch (err) {
+      console.error('Reel achtergrondverwerking mislukt:', err instanceof Error ? err.message : err)
+      try {
+        await admin
+          .from('reel_inspiration')
+          .update({
+            status: 'error',
+            error_message: err instanceof Error ? err.message.slice(0, 500) : 'Onbekende fout.',
+          })
+          .eq('id', row.id)
+      } catch {
+        // Best-effort — if this also fails the row is stuck at 'pending',
+        // same failure mode as before this change, not a regression.
+      }
+    }
   })
 
   return Response.json({ status: 'ok', id: row.id })
