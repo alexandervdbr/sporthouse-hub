@@ -8,14 +8,14 @@ export default function RetagAllButton() {
   const [result, setResult] = useState<string | null>(null)
 
   async function handleClick() {
-    if (!confirm('Alle bewaarde items opnieuw laten classificeren door de AI? Bestaande categorie, type en tags worden overschreven.')) return
+    if (!confirm('Thumbnails herstellen en ontbrekende classificaties aanvullen? Items die al een categorie en tags hebben, worden niet opnieuw gedaan.')) return
     setLoading(true)
     setResult(null)
     try {
       const res = await fetch('/api/reels/retag', { method: 'POST' })
       if (!res.ok) throw new Error()
       const data = await res.json()
-      setResult(`${data.updated}/${data.total} opnieuw getagd.`)
+      setResult(`${data.reclassified} opnieuw getagd, ${data.repaired} thumbnails hersteld (van ${data.total}).`)
       setTimeout(() => window.location.reload(), 1200)
     } catch {
       setResult('Mislukt. Probeer opnieuw.')
@@ -33,7 +33,7 @@ export default function RetagAllButton() {
         style={{ border: '1px solid rgba(255,255,255,0.10)' }}
       >
         <RefreshCw size={13} className={loading ? 'animate-spin' : undefined} />
-        {loading ? 'Bezig met taggen…' : 'Alles opnieuw taggen'}
+        {loading ? 'Bezig…' : 'Ontbrekende items herstellen'}
       </button>
       {result && <span className="text-xs text-zinc-500">{result}</span>}
     </div>
