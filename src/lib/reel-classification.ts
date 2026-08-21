@@ -102,6 +102,7 @@ Account: ${input.authorName ?? '(onbekend)'}
 - Tekst/typografie op beeld, merk- of logo-elementen
 - Type content: bv. resultaat-post, hype/promo, interview-snippet, statistiek, wedstrijdmoment, community-moment
 Niet de categorie of het type zelf herhalen als tag. Liever te veel dan te weinig, zolang elke tag iets specifieks toevoegt — geen vage vulwoorden.
+Schrijf de tags in het ENGELS, ongeacht de taal van de caption — dat maakt zoeken consistent.
 
 Ben je niet zeker welke categorie of welk type het beste past? Kies toch de dichtstbijzijnde en zet confidence op "low".
 
