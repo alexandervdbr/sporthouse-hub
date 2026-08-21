@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { REEL_CATEGORIES } from './reel-categories'
 import { REEL_MEDIA_TYPES, type ReelMediaType } from './reel-media-types'
+import { fetchDriveThumbnailAsBase64 } from './reel-thumbnail-storage'
 
 export interface ReelClassification {
   category: string | null
@@ -42,6 +43,12 @@ function normalizeMediaType(value: unknown): ReelMediaType | null {
 async function fetchThumbnailAsBase64(
   url: string
 ): Promise<{ mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'; data: string } | null> {
+  // Our own thumbnail proxy (see reel-thumbnail-storage.ts) requires a
+  // browser session cookie a server-to-server call doesn't have — read the
+  // Drive file directly through the service account instead of over HTTP.
+  const driveMatch = url.match(/^\/api\/reels\/thumbnail\/([^/?]+)/)
+  if (driveMatch) return fetchDriveThumbnailAsBase64(driveMatch[1])
+
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(6000) })
     if (!res.ok) return null
