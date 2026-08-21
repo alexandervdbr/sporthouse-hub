@@ -1,7 +1,7 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { isAdminUser } from '@/lib/auth-permissions'
 import { classifyReel } from '@/lib/reel-classification'
-import { hostThumbnailOnDrive } from '@/lib/reel-thumbnail-storage'
+import { hostThumbnailOnDrive, driveThumbnailProxyUrl } from '@/lib/reel-thumbnail-storage'
 
 export const maxDuration = 60
 
@@ -43,16 +43,21 @@ export async function POST() {
   if (error) return new Response(error.message, { status: 500 })
 
   const updated = await mapWithConcurrency(reels ?? [], CONCURRENCY, async (reel) => {
+    // Already hosted on Drive — no re-upload needed, just repoint at our own
+    // proxy (fixes rows still carrying the old, now-403ing thumbnailLink URL
+    // from before that was corrected). Otherwise host it for the first time.
+    const hosted = reel.thumbnail_drive_id
+      ? { thumbnailUrl: driveThumbnailProxyUrl(reel.thumbnail_drive_id), driveId: reel.thumbnail_drive_id }
+      : reel.thumbnail_url
+        ? await hostThumbnailOnDrive(reel.thumbnail_url, reel.id)
+        : null
+
     const classification = await classifyReel({
       url: reel.url,
       caption: reel.caption,
       authorName: reel.author,
-      thumbnailUrl: reel.thumbnail_url,
+      thumbnailUrl: hosted?.thumbnailUrl ?? reel.thumbnail_url,
     })
-
-    const hosted = !reel.thumbnail_drive_id && reel.thumbnail_url
-      ? await hostThumbnailOnDrive(reel.thumbnail_url, reel.id)
-      : null
 
     const { error: updateError } = await admin
       .from('reel_inspiration')
