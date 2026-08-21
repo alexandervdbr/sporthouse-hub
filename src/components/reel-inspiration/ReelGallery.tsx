@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ExternalLink, Clock, AlertCircle, Trash2, X, Search, Plus, ChevronLeft, ChevronRight, Folder, LayoutGrid, Shuffle, RefreshCw } from 'lucide-react'
 import { ReelInspiration } from '@/types/database'
 import { REEL_CATEGORIES } from '@/lib/reel-categories'
@@ -334,32 +334,6 @@ function ReelModal({
 
 function ReelCard({ reel, onOpen, onDelete }: { reel: ReelInspiration; onOpen: () => void; onDelete: (id: string) => void }) {
   const [deleting, setDeleting] = useState(false)
-  // Experiment: render the real Instagram embed instead of our own scraped
-  // (often pre-cropped) thumbnail — same trick the preview modal already
-  // uses. Lazy-loaded on scroll-into-view since an embed is a full iframe +
-  // Instagram's own script, too heavy to fire for the whole grid at once.
-  const [embedHtml, setEmbedHtml] = useState<string | null>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const el = containerRef.current
-    if (!el) return
-    const observer = new IntersectionObserver((entries) => {
-      if (!entries[0].isIntersecting) return
-      observer.disconnect()
-      fetch(`/api/reels/${reel.id}`)
-        .then(res => res.ok ? res.json() : null)
-        .then(data => { if (data?.embed_html) setEmbedHtml(data.embed_html) })
-        .catch(() => {})
-    }, { rootMargin: '300px' })
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [reel.id])
-
-  useEffect(() => {
-    if (!embedHtml) return
-    loadInstagramEmbedScript().then(() => window.instgrm?.Embeds.process())
-  }, [embedHtml])
 
   async function handleDelete(e: React.MouseEvent) {
     e.stopPropagation()
@@ -381,51 +355,47 @@ function ReelCard({ reel, onOpen, onDelete }: { reel: ReelInspiration; onOpen: (
       className="group flex flex-col rounded-xl overflow-hidden transition-colors text-left"
       style={{ background: 'rgba(24,24,24,0.97)', border: '1px solid rgba(255,255,255,0.09)' }}
     >
-      <div ref={containerRef} className="bg-zinc-900">
-        <div className="flex items-center justify-between px-2 py-1.5">
-          {reel.media_type ? (
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-white/10 text-zinc-300">
-              {reel.media_type}
-            </span>
-          ) : <span />}
-          <div className="flex items-center gap-1">
-            {reel.status === 'pending' && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] text-zinc-400">
-                <Clock size={11} className="animate-pulse" /> Classificeren…
-              </span>
-            )}
-            {reel.status === 'error' && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] text-red-400">
-                <AlertCircle size={11} /> Fout
-              </span>
-            )}
-            <button
-              onClick={handleDelete}
-              disabled={deleting}
-              className="p-1.5 rounded-lg text-zinc-500 opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-400 disabled:opacity-50"
-              title="Verwijderen"
-            >
-              <Trash2 size={13} />
-            </button>
-            <ExternalLink size={13} className="text-zinc-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+      <div className="relative aspect-[3/4] bg-zinc-900">
+        {reel.thumbnail_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={reel.thumbnail_url}
+            alt={reel.caption ?? 'Instagram reel'}
+            loading="lazy"
+            className="w-full h-full object-contain object-center"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-zinc-700 text-xs">
+            Geen thumbnail
           </div>
+        )}
+
+        {reel.media_type && (
+          <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[10px] font-medium bg-black/70 text-zinc-200">
+            {reel.media_type}
+          </span>
+        )}
+
+        <button
+          onClick={handleDelete}
+          disabled={deleting}
+          className="absolute bottom-2 left-2 p-1.5 rounded-lg bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity text-white hover:text-red-400 disabled:opacity-50"
+          title="Verwijderen"
+        >
+          <Trash2 size={13} />
+        </button>
+        <div className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity">
+          <ExternalLink size={13} className="text-white" />
         </div>
 
-        {embedHtml ? (
-          <div className="pointer-events-none" dangerouslySetInnerHTML={{ __html: embedHtml }} />
-        ) : reel.thumbnail_url ? (
-          <div className="relative aspect-[3/4]">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={reel.thumbnail_url}
-              alt={reel.caption ?? 'Instagram reel'}
-              loading="lazy"
-              className="w-full h-full object-contain object-center"
-            />
+        {reel.status === 'pending' && (
+          <div className="absolute bottom-2 right-2 flex items-center gap-1 px-2 py-1 rounded-md bg-black/70 text-[11px] text-zinc-300">
+            <Clock size={11} className="animate-pulse" /> Classificeren…
           </div>
-        ) : (
-          <div className="aspect-[3/4] flex items-center justify-center text-zinc-700 text-xs">
-            Geen thumbnail
+        )}
+        {reel.status === 'error' && (
+          <div className="absolute bottom-2 right-2 flex items-center gap-1 px-2 py-1 rounded-md bg-red-950/80 text-[11px] text-red-300">
+            <AlertCircle size={11} /> Fout
           </div>
         )}
       </div>
@@ -753,7 +723,7 @@ export default function ReelGallery({ reels: initialReels, isAdmin }: { reels: R
           {sorted.length === 0 ? (
             <p className="text-sm text-zinc-500">Niets gevonden.</p>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 items-start">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
               {sorted.map(reel => (
                 <ReelCard key={reel.id} reel={reel} onOpen={() => setPreviewId(reel.id)} onDelete={handleDelete} />
               ))}
