@@ -32,7 +32,7 @@ export default async function MijnGedachtPage() {
           {isAdminUser(user) && <RetagAllButton />}
         </div>
 
-        <ReelGallery reels={(reels ?? []) as ReelInspiration[]} />
+        <ReelGallery reels={(reels ?? []) as ReelInspiration[]} isAdmin={isAdminUser(user)} />
 
         {isAdminUser(user) && (
           <details className="mt-10 group">

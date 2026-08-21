@@ -1,14 +1,21 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { ExternalLink, Clock, AlertCircle, Trash2, X, Search, Plus, ChevronLeft, ChevronRight, Folder, LayoutGrid, Shuffle } from 'lucide-react'
+import { ExternalLink, Clock, AlertCircle, Trash2, X, Search, Plus, ChevronLeft, ChevronRight, Folder, LayoutGrid, Shuffle, RefreshCw } from 'lucide-react'
 import { ReelInspiration } from '@/types/database'
 import { REEL_CATEGORIES } from '@/lib/reel-categories'
 import { REEL_MEDIA_TYPES } from '@/lib/reel-media-types'
 
 const UNSORTED = 'Ongesorteerd'
 
-type ReelUpdate = { category?: string | null; media_type?: string | null; tags?: string[] }
+type ReelUpdate = {
+  category?: string | null
+  media_type?: string | null
+  tags?: string[]
+  thumbnail_url?: string | null
+  thumbnail_drive_id?: string | null
+  confidence?: 'high' | 'medium' | 'low' | null
+}
 
 // ─── Instagram embed script ────────────────────────────────────────────────
 // embed_html is Instagram's own oEmbed markup (a <blockquote> placeholder) —
@@ -144,10 +151,11 @@ function TagsEditor({
 // ─── Preview modal ──────────────────────────────────────────────────────────
 
 function ReelModal({
-  reel, existingTags, onClose, onDelete, onUpdate, onNavigate, hasPrev, hasNext,
+  reel, existingTags, isAdmin, onClose, onDelete, onUpdate, onNavigate, hasPrev, hasNext,
 }: {
   reel: ReelInspiration
   existingTags: string[]
+  isAdmin: boolean
   onClose: () => void
   onDelete: (id: string) => void
   onUpdate: (id: string, patch: ReelUpdate) => void
@@ -156,6 +164,7 @@ function ReelModal({
   hasNext: boolean
 }) {
   const [deleting, setDeleting] = useState(false)
+  const [retagging, setRetagging] = useState(false)
   const [embedHtml, setEmbedHtml] = useState<string | null>(null)
   const [embedLoading, setEmbedLoading] = useState(true)
 
@@ -194,6 +203,27 @@ function ReelModal({
     } catch {
       setDeleting(false)
       alert('Verwijderen mislukt. Probeer opnieuw.')
+    }
+  }
+
+  async function handleRetag() {
+    setRetagging(true)
+    try {
+      const res = await fetch(`/api/reels/${reel.id}/retag`, { method: 'POST' })
+      if (!res.ok) throw new Error()
+      const row = await res.json()
+      onUpdate(reel.id, {
+        category: row.category,
+        media_type: row.media_type,
+        tags: row.tags,
+        confidence: row.confidence,
+        thumbnail_url: row.thumbnail_url,
+        thumbnail_drive_id: row.thumbnail_drive_id,
+      })
+    } catch {
+      alert('Herclassificeren mislukt. Probeer opnieuw.')
+    } finally {
+      setRetagging(false)
     }
   }
 
@@ -236,6 +266,16 @@ function ReelModal({
             <ExternalLink size={12} /> Open in Instagram
           </a>
           <div className="flex items-center gap-1">
+            {isAdmin && (
+              <button
+                onClick={handleRetag}
+                disabled={retagging}
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 transition-colors disabled:opacity-50"
+                title="Herclassificeer"
+              >
+                <RefreshCw size={15} className={retagging ? 'animate-spin' : undefined} />
+              </button>
+            )}
             <button
               onClick={handleDelete}
               disabled={deleting}
@@ -471,7 +511,7 @@ function FolderTile({ label, reels, onOpen }: { label: string; reels: ReelInspir
 
 // ─── Gallery ────────────────────────────────────────────────────────────────
 
-export default function ReelGallery({ reels: initialReels }: { reels: ReelInspiration[] }) {
+export default function ReelGallery({ reels: initialReels, isAdmin }: { reels: ReelInspiration[]; isAdmin: boolean }) {
   const [reels, setReels] = useState(initialReels)
   const [query, setQuery] = useState('')
   const [viewMode, setViewMode] = useState<'folders' | 'all'>('folders')
@@ -696,6 +736,7 @@ export default function ReelGallery({ reels: initialReels }: { reels: ReelInspir
         <ReelModal
           reel={previewReel}
           existingTags={allTags}
+          isAdmin={isAdmin}
           onClose={() => setPreviewId(null)}
           onDelete={handleDelete}
           onUpdate={handleUpdate}

@@ -1,7 +1,6 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { isAdminUser } from '@/lib/auth-permissions'
-import { classifyReel } from '@/lib/reel-classification'
-import { hostThumbnailOnDrive, driveThumbnailProxyUrl } from '@/lib/reel-thumbnail-storage'
+import { retagReel } from '@/lib/reel-retag'
 
 export const maxDuration = 60
 
@@ -22,9 +21,9 @@ async function forEachWithConcurrency<T>(items: T[], limit: number, fn: (item: T
 // classifier only for rows that actually still need it. Only reprocessing
 // what's broken, instead of every row on every click, keeps this well
 // inside the 60s function limit even as the board grows — running it over
-// all 13 rows regardless of whether they needed it was almost certainly why
-// a full pass previously got cut off mid-batch by the platform's own
-// timeout, leaving whatever hadn't been reached yet still broken.
+// every row regardless of whether it needed it was almost certainly why a
+// full pass previously got cut off mid-batch by the platform's own timeout,
+// leaving whatever hadn't been reached yet still broken.
 export async function POST() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -42,40 +41,9 @@ export async function POST() {
   let reclassified = 0
 
   await forEachWithConcurrency(reels ?? [], CONCURRENCY, async (reel) => {
-    const update: Record<string, unknown> = {}
-
-    if (reel.thumbnail_drive_id) {
-      const proxied = driveThumbnailProxyUrl(reel.thumbnail_drive_id)
-      if (reel.thumbnail_url !== proxied) update.thumbnail_url = proxied
-    } else if (reel.thumbnail_url) {
-      const hosted = await hostThumbnailOnDrive(reel.thumbnail_url, reel.id)
-      if (hosted) {
-        update.thumbnail_url = hosted.thumbnailUrl
-        update.thumbnail_drive_id = hosted.driveId
-      }
-    }
-
-    const needsClassification = !reel.category || reel.tags.length === 0
-    if (needsClassification) {
-      const classification = await classifyReel({
-        url: reel.url,
-        caption: reel.caption,
-        authorName: reel.author,
-        thumbnailUrl: (update.thumbnail_url as string | undefined) ?? reel.thumbnail_url,
-      })
-      update.category = classification.category
-      update.media_type = classification.mediaType
-      update.tags = classification.tags
-      update.confidence = classification.confidence
-      update.status = 'done'
-    }
-
-    if (Object.keys(update).length === 0) return
-
-    const { error: updateError } = await admin.from('reel_inspiration').update(update).eq('id', reel.id)
-    if (updateError) return
-    if ('thumbnail_url' in update) repaired++
-    if (needsClassification) reclassified++
+    const result = await retagReel(admin, reel)
+    if (result.repaired) repaired++
+    if (result.reclassified) reclassified++
   })
 
   return Response.json({ repaired, reclassified, total: reels?.length ?? 0 })
