@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/server'
 import { fetchInstagramOembed, InstagramOembedError } from '@/lib/instagram-oembed'
 import { classifyReel } from '@/lib/reel-classification'
 import { hostThumbnailOnDrive } from '@/lib/reel-thumbnail-storage'
+import { getReelMediaTypes } from '@/lib/reel-media-types'
 
 // Called by the iOS Share Sheet shortcut (and later the Android PWA share
 // target) — no Supabase session, just a per-user bearer token. Excluded from
@@ -85,11 +86,13 @@ export async function POST(request: NextRequest) {
 
   after(async () => {
     try {
+      const mediaTypes = await getReelMediaTypes(admin)
       const classification = await classifyReel({
         url,
         caption: oembed.title,
         authorName: oembed.authorName,
         thumbnailUrl: oembed.thumbnailUrl,
+        mediaTypes,
       })
 
       const hosted = oembed.thumbnailUrl ? await hostThumbnailOnDrive(oembed.thumbnailUrl, row.id) : null
