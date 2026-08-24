@@ -678,7 +678,7 @@ export default function ReelGallery({ reels: initialReels, isAdmin, mediaTypes: 
 
       {showFolders ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 items-start">
-          {[...mediaTypes, UNSORTED].filter(type => folderReels[type]?.length > 0).map(type => (
+          {[...mediaTypes, UNSORTED].filter(type => type !== UNSORTED || folderReels[type]?.length > 0).map(type => (
             <FolderTile key={type} label={type} reels={folderReels[type]} onOpen={() => setOpenFolder(type)} />
           ))}
           {canCreateTypes && (
