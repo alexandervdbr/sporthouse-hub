@@ -2,7 +2,11 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { isAdminUser } from '@/lib/auth-permissions'
 import { retagReel } from '@/lib/reel-retag'
 
-export const maxDuration = 60
+// Bumped from 60: reels with an extractable video now take meaningfully
+// longer per row (video fetch + several ffmpeg frame extractions) than the
+// old single-thumbnail path, still comfortably inside the platform's 300s
+// ceiling.
+export const maxDuration = 120
 
 // A handful at a time — fast enough to matter once the board is in the
 // dozens of rows, gentle enough not to hammer the Anthropic/Drive APIs.

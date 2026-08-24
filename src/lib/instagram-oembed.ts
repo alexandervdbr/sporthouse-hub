@@ -89,6 +89,56 @@ async function scrapeEmbedImage(url: string): Promise<string | null> {
   }
 }
 
+export interface ScrapedVideo {
+  videoUrl: string
+  durationS: number
+}
+
+// Instagram's static embed page occasionally also carries a direct, signed
+// MP4 URL for the post's own video, buried in an escaped JSON blob deep in
+// the page — confirmed by hand: downloaded a real ~13s clip via this exact
+// path for a reel that plays inline, while a reel that instead redirects to
+// Instagram (see the thumbnail-cropping/inline-play investigation) had zero
+// .mp4 references at all — Instagram is withholding the video source there
+// entirely (most likely a licensed/trending-audio restriction), so no
+// scrape can recover a video for those; callers must fall back to the
+// single embed image for that shortcode. The URL's `efg` query param is
+// base64 JSON carrying `duration_s`, needed to size frame extraction.
+// The URL itself is short-lived (signed `oe=` expiry) — never cache/persist
+// it, always re-scrape fresh at the moment it's used.
+export async function scrapeEmbedVideo(url: string): Promise<ScrapedVideo | null> {
+  try {
+    const embedUrl = `${url.split('?')[0].replace(/\/?$/, '/')}embed/captioned/`
+    const res = await fetch(embedUrl, {
+      headers: { 'User-Agent': BROWSER_USER_AGENT },
+      signal: AbortSignal.timeout(6000),
+    })
+    if (!res.ok) return null
+
+    const html = await res.text()
+    const match = html.match(/"([^"]*\.mp4[^"]*)"/)
+    if (!match) return null
+
+    const videoUrl = decodeHtmlEntities(match[1].replace(/\\+/g, ''))
+    const efg = new URL(videoUrl).searchParams.get('efg')
+    if (!efg) return null
+
+    // The decoded payload has trailing padding-artifact bytes after the
+    // JSON object (see decode test) — extract just the {...} span rather
+    // than parsing the whole decoded string.
+    const decoded = Buffer.from(efg, 'base64').toString('utf8')
+    const jsonMatch = decoded.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) return null
+
+    const durationS = Number(JSON.parse(jsonMatch[0]).duration_s)
+    if (!Number.isFinite(durationS) || durationS <= 0) return null
+
+    return { videoUrl, durationS }
+  } catch {
+    return null
+  }
+}
+
 async function scrapeInstagramMeta(url: string): Promise<ScrapedMeta> {
   const empty: ScrapedMeta = { caption: null, authorName: null, thumbnailUrl: null }
 
