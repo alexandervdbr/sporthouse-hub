@@ -1,6 +1,5 @@
 import { NextRequest } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { isReelCategory } from '@/lib/reel-categories'
 import { isReelMediaType } from '@/lib/reel-media-types'
 import { removeThumbnailFromDrive } from '@/lib/reel-thumbnail-storage'
 
@@ -40,13 +39,6 @@ export async function PATCH(
   if (!body) return new Response('Ongeldige aanvraag.', { status: 400 })
 
   const update: Record<string, unknown> = {}
-
-  if ('category' in body) {
-    if (body.category !== null && !isReelCategory(body.category)) {
-      return new Response('Ongeldige categorie.', { status: 400 })
-    }
-    update.category = body.category
-  }
 
   if ('media_type' in body) {
     if (body.media_type !== null && !isReelMediaType(body.media_type)) {

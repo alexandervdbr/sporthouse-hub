@@ -1,10 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { REEL_CATEGORIES } from './reel-categories'
 import { REEL_MEDIA_TYPES, type ReelMediaType } from './reel-media-types'
 import { fetchDriveThumbnailAsBase64 } from './reel-thumbnail-storage'
 
 export interface ReelClassification {
-  category: string | null
   mediaType: ReelMediaType | null
   confidence: 'high' | 'medium' | 'low'
   tags: string[]
@@ -17,17 +15,7 @@ function deterministicMediaType(url: string): ReelMediaType | null {
 }
 
 function fallback(url: string): ReelClassification {
-  return { category: null, mediaType: deterministicMediaType(url), confidence: 'low', tags: [] }
-}
-
-// Trimmed + case-insensitive match against the fixed lists, mapped back to
-// the canonical casing — the model occasionally drifts on exact casing
-// ("behind the scenes" vs "Behind the scenes"), which an exact-match guard
-// would silently discard the whole classification over.
-function normalizeCategory(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim().toLowerCase()
-  return REEL_CATEGORIES.find(c => c.toLowerCase() === trimmed) ?? null
+  return { mediaType: deterministicMediaType(url), confidence: 'low', tags: [] }
 }
 
 function normalizeMediaType(value: unknown): ReelMediaType | null {
@@ -67,7 +55,7 @@ async function fetchThumbnailAsBase64(
 
 // Isolated, single-purpose call — deliberately not the Expert AI's system
 // prompt/persona/conversation context. This is a narrow structured-data task
-// (caption + thumbnail in, category + media type + tags out), same shape as
+// (caption + thumbnail in, media type + tags out), same shape as
 // freelancers/match/route.ts.
 export async function classifyReel(input: {
   url: string
@@ -79,12 +67,7 @@ export async function classifyReel(input: {
 
   const prompt = `Je krijgt de caption en thumbnail van een Instagram Reel/Post die iemand bewaarde als contentinspiratie voor SporthouseGroup, een sportmediabedrijf. Iemand gaat dit later terugvinden tijdens een brainstorm — dus kijk echt grondig naar het beeld voor je iets invult, niet oppervlakkig.
 
-Wijs twee vaste classificaties toe, plus vrije tags.
-
-1) CATEGORIE (onderwerp/doel — exact één uit de lijst):
-${REEL_CATEGORIES.map(c => `- ${c}`).join('\n')}
-
-2) TYPE (het fundamentele format — exact één uit de lijst). Dit is waar het vaakst misgaat, dus let goed op:
+1) TYPE (het fundamentele format — exact één uit de lijst). Dit is waar het vaakst misgaat, dus let goed op:
 - Foto: een echte foto — actie-, portret- of sfeerfoto, geen ontworpen grafisch element dat overheerst
 - Grafisch: een ontworpen STATISCHE visual — quote card, stat-graphic, poster, template met tekst/logo's, geen beweging in het spel
 - Video: gefilmde, live-action beelden — wedstrijdbeelden, interview, backstage, iemand die praat of beweegt voor de camera. Een score-overlay, logo of lower-third bovenop gefilmde beelden verandert dit NIET naar Motion — de onderliggende beelden zijn nog steeds gefilmd, dus dit blijft Video.
@@ -94,20 +77,20 @@ Vuistregel bij twijfel: kies Video, niet Motion. Motion is de uitzondering voor 
 Caption: "${input.caption ?? '(geen caption)'}"
 Account: ${input.authorName ?? '(onbekend)'}
 
-3) TAGS: analyseer het beeld grondig en geef een uitgebreide, specifieke tagset (gerust 12-25) zodat iemand later exact kan terugvinden waar dit over ging. Denk na over:
+2) TAGS: analyseer het beeld grondig en geef een uitgebreide, specifieke tagset (gerust 12-25) zodat iemand later exact kan terugvinden waar dit over ging. Denk na over:
+- Onderwerp/doel — bv. interview, behind the scenes, match moment, community & fans, atmosphere, graphic design, format idea — voeg dit toe als tag(s) wanneer het van toepassing is, net als elk ander kenmerk
 - Wat is er letterlijk te zien: wie/wat, welke actie, welke setting/locatie
 - Stijl: bv. cinematic, ruw/UGC, studio-opname, close-up, wide shot, hoge/lage hoek
 - Sfeer/mood: bv. energiek, rustig, emotioneel, speels, serieus
 - Kleuren en licht: bv. donker/moody, felle kleuren, natuurlijk licht, clubkleuren
 - Tekst/typografie op beeld, merk- of logo-elementen
-- Type content: bv. resultaat-post, hype/promo, interview-snippet, statistiek, wedstrijdmoment, community-moment
-Niet de categorie of het type zelf herhalen als tag. Liever te veel dan te weinig, zolang elke tag iets specifieks toevoegt — geen vage vulwoorden.
+Niet het type zelf herhalen als tag. Liever te veel dan te weinig, zolang elke tag iets specifieks toevoegt — geen vage vulwoorden.
 Schrijf de tags in het ENGELS, ongeacht de taal van de caption — dat maakt zoeken consistent.
 
-Ben je niet zeker welke categorie of welk type het beste past? Kies toch de dichtstbijzijnde en zet confidence op "low".
+Ben je niet zeker welk type het beste past? Kies toch de dichtstbijzijnde en zet confidence op "low".
 
 Antwoord ALLEEN in geldig JSON (geen uitleg erbuiten):
-{"category": "<exacte categorie>", "mediaType": "<exact type>", "confidence": "high" | "medium" | "low", "tags": ["...", "..."]}`
+{"mediaType": "<exact type>", "confidence": "high" | "medium" | "low", "tags": ["...", "..."]}`
 
   const thumbnail = input.thumbnailUrl ? await fetchThumbnailAsBase64(input.thumbnailUrl) : null
 
@@ -146,15 +129,8 @@ Antwoord ALLEEN in geldig JSON (geen uitleg erbuiten):
       const parsed = JSON.parse(jsonMatch[0])
       const tags = Array.isArray(parsed.tags) ? parsed.tags.slice(0, 30).map(String) : []
       const mediaType = normalizeMediaType(parsed.mediaType) ?? deterministicMediaType(input.url)
-      const category = normalizeCategory(parsed.category)
-
-      if (!category) {
-        console.error(`Reel classificatie: onbekende categorie (poging ${attempt}):`, parsed.category, '(stop_reason:', message.stop_reason, ')')
-        continue
-      }
 
       return {
-        category,
         mediaType,
         confidence: ['high', 'medium', 'low'].includes(parsed.confidence) ? parsed.confidence : 'low',
         tags,
