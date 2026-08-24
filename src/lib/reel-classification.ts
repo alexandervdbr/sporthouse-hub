@@ -28,8 +28,9 @@ function fallback(url: string, mediaTypes: string[]): ReelClassification {
 const KNOWN_TYPE_DESCRIPTIONS: Record<string, string> = {
   foto: 'een echte foto — actie-, portret- of sfeerfoto, geen ontworpen grafisch element dat overheerst',
   grafisch: "een ontworpen STATISCHE visual — quote card, stat-graphic, poster, template met tekst/logo's, geen beweging in het spel",
-  video: 'gefilmde, live-action beelden — wedstrijdbeelden, interview, backstage, iemand die praat of beweegt voor de camera. Een score-overlay, logo of lower-third bovenop gefilmde beelden verandert dit NIET naar Motion — de onderliggende beelden zijn nog steeds gefilmd, dus dit blijft Video.',
-  motion: 'het ontwerp/de animatie IS de content — kinetic typography, een volledig geanimeerde infographic, motion-graphic templates, abstracte animaties. Geen gefilmde mensen of actie te zien, enkel bewegend grafisch ontwerp.',
+  video: 'gefilmde, live-action beelden — wedstrijdbeelden, interview, backstage, iemand die praat of beweegt voor de camera. Een score-overlay, logo, lower-third, of één afwijkend frame (overgang, intro-kaart, grafisch/3D-element) bovenop/tussen verder gefilmde beelden verandert dit NIET naar Motion of 3D — de onderliggende beelden zijn nog steeds gefilmd, dus dit blijft Video.',
+  motion: 'het ontwerp/de animatie IS de content, doorheen de HELE clip — kinetic typography, een volledig geanimeerde infographic, motion-graphic templates, abstracte animaties. Geen gefilmde mensen of actie te zien, enkel bewegend grafisch ontwerp. Één los animatie-frame tussen verder gefilmde beelden is niet genoeg — dat blijft Video.',
+  '3d': 'volledig 3D-gerenderde/CGI-content is de hoofdmoot doorheen de HELE clip — geen gefilmde mensen of actie te zien. Eén los 3D-element, overlay of transitie tussen verder gefilmde beelden verandert dit NIET naar 3D — dat blijft Video, net als bij Motion hierboven.',
 }
 
 // Claude's `type: 'url'` image source is fetched by Anthropic's own servers,
@@ -76,17 +77,49 @@ export async function classifyReel(input: {
 }): Promise<ReelClassification> {
   if (!process.env.ANTHROPIC_API_KEY) return fallback(input.url, input.mediaTypes)
 
+  // Resolved before the prompt is built so the prompt can tell the model
+  // exactly what it's looking at — see imageContext below. That context was
+  // previously missing entirely, which looks like the real cause of two
+  // observed misclassifications: clearly-filmed video getting tagged "Foto"
+  // (the model had no signal that a Reel is inherently video, or that
+  // several images are sequential frames of one clip rather than unrelated
+  // stills), and one single off-frame (an intro card, transition, or a
+  // passing 3D/graphic element) getting to decide the whole clip's type.
+  const video = await scrapeEmbedVideo(input.url)
+  const frames = video ? await extractVideoFrames(video.videoUrl, video.durationS) : null
+
+  type ImageInput = { mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'; data: string }
+  const images: ImageInput[] = frames?.length ? frames : []
+  if (images.length === 0 && input.thumbnailUrl) {
+    const thumbnail = await fetchThumbnailAsBase64(input.thumbnailUrl)
+    if (thumbnail) images.push(thumbnail)
+  }
+
+  const isReelUrl = /\/(reel|tv)\//.test(input.url)
+  const contextLines: string[] = []
+  if (images.length > 1) {
+    contextLines.push(
+      `Je krijgt ${images.length} afbeeldingen: dit zijn frames verspreid over de volledige duur van dezelfde video, van begin tot eind — geen losse foto's. Baseer je oordeel op wat het MERENDEEL van de frames toont. Eén enkel afwijkend frame (bv. een korte overgang, intro-kaart, logo-bumper of eenmalig grafisch/3D-element tussen verder gefilmde beelden) verandert het type NIET.`
+    )
+  }
+  if (isReelUrl) {
+    contextLines.push(
+      `Dit is een Instagram Reel — Reels zijn per definitie gefilmde of geanimeerde videocontent, nooit een losstaande foto. Kies "Foto" enkel als het overduidelijk om een fotoserie/slideshow gaat, niet als twijfelachtige standaardkeuze.`
+    )
+  }
+  const imageContext = contextLines.length ? `\n${contextLines.join('\n')}\n` : ''
+
   const typeLines = input.mediaTypes.map(t => {
     const description = KNOWN_TYPE_DESCRIPTIONS[t.toLowerCase()]
     return description ? `- ${t}: ${description}` : `- ${t}`
   }).join('\n')
 
-  const prompt = `Je krijgt de caption en thumbnail van een Instagram Reel/Post die iemand bewaarde als contentinspiratie voor SporthouseGroup, een sportmediabedrijf. Iemand gaat dit later terugvinden tijdens een brainstorm — dus kijk echt grondig naar het beeld voor je iets invult, niet oppervlakkig.
-
+  const prompt = `Je krijgt de caption en ${images.length > 1 ? 'videoframes' : 'thumbnail'} van een Instagram Reel/Post die iemand bewaarde als contentinspiratie voor SporthouseGroup, een sportmediabedrijf. Iemand gaat dit later terugvinden tijdens een brainstorm — dus kijk echt grondig naar het beeld voor je iets invult, niet oppervlakkig.
+${imageContext}
 1) TYPE (het fundamentele format — exact één uit de lijst). Dit is waar het vaakst misgaat, dus let goed op:
 ${typeLines}
-Vuistregel bij twijfel tussen Video en Motion (als beide in de lijst staan): kies Video, niet Motion. Motion is de uitzondering voor puur grafisch/geanimeerd werk, niet de standaardkeuze voor elke Reel.
-Staat er een type in de lijst zonder beschrijving hierboven (bv. een nieuw toegevoegde categorie zoals "3D")? Gebruik je eigen inschatting op basis van de naam — kies het als het duidelijk beter past dan de andere opties.
+Vuistregel bij twijfel tussen Video en een ander type (Motion, 3D, of gelijkaardig): kies Video, tenzij de volledige clip overheerst wordt door dat andere type. Eén frame met een grafisch/geanimeerd/3D-element temidden van verder gefilmde beelden is niet genoeg om van Video af te wijken.
+Staat er een type in de lijst zonder beschrijving hierboven (bv. een nieuw toegevoegde categorie)? Gebruik je eigen inschatting op basis van de naam — kies het als het duidelijk de HOOFDMOOT van de clip beschrijft, niet één enkel frame.
 
 Caption: "${input.caption ?? '(geen caption)'}"
 Account: ${input.authorName ?? '(onbekend)'}
@@ -105,22 +138,6 @@ Ben je niet zeker welk type het beste past? Kies toch de dichtstbijzijnde en zet
 
 Antwoord ALLEEN in geldig JSON (geen uitleg erbuiten):
 {"mediaType": "<exact type>", "confidence": "high" | "medium" | "low", "tags": ["...", "..."]}`
-
-  // When Instagram's embed page exposes a direct video URL for this post (it
-  // doesn't always — withheld for e.g. licensed/trending-audio-restricted
-  // posts), extract a handful of frames instead of relying on one static
-  // thumbnail. Best-effort: any failure here (no video URL, fetch failure,
-  // ffmpeg failure) falls straight back to the single-thumbnail path below,
-  // exactly as before this was added.
-  const video = await scrapeEmbedVideo(input.url)
-  const frames = video ? await extractVideoFrames(video.videoUrl, video.durationS) : null
-
-  type ImageInput = { mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'; data: string }
-  const images: ImageInput[] = frames?.length ? frames : []
-  if (images.length === 0 && input.thumbnailUrl) {
-    const thumbnail = await fetchThumbnailAsBase64(input.thumbnailUrl)
-    if (thumbnail) images.push(thumbnail)
-  }
 
   const content: Anthropic.MessageParam['content'] = images.length
     ? [
