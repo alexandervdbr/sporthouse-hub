@@ -8,7 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 const UNSORTED = 'Ongesorteerd'
 
 type ReelUpdate = {
-  media_type?: string | null
+  media_types?: string[]
   tags?: string[]
   thumbnail_url?: string | null
   thumbnail_drive_id?: string | null
@@ -44,18 +44,21 @@ function loadInstagramEmbedScript(): Promise<void> {
 
 // ─── Shared editor bits ────────────────────────────────────────────────────
 
-function ChipSelect({ options, value, onChange }: { options: readonly string[]; value: string | null; onChange: (v: string) => void }) {
+// Multi-select — a reel can genuinely be a mix of two types (e.g. a
+// carousel that's half filmed video, half designed graphic slides), and
+// should then show up in both type folders, not just one.
+function ChipSelect({ options, values, onToggle }: { options: readonly string[]; values: string[]; onToggle: (v: string) => void }) {
   return (
     <div className="flex flex-wrap gap-1.5">
       {options.map(opt => (
         <button
           key={opt}
-          onClick={(e) => { e.stopPropagation(); onChange(opt) }}
+          onClick={(e) => { e.stopPropagation(); onToggle(opt) }}
           className="px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors"
           style={{
-            background: value === opt ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.05)',
+            background: values.includes(opt) ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.05)',
             border: '1px solid rgba(255,255,255,0.10)',
-            color: value === opt ? '#fff' : '#a1a1aa',
+            color: values.includes(opt) ? '#fff' : '#a1a1aa',
           }}
         >
           {opt}
@@ -212,7 +215,7 @@ function ReelModal({
       if (!res.ok) throw new Error()
       const row = await res.json()
       onUpdate(reel.id, {
-        media_type: row.media_type,
+        media_types: row.media_types,
         tags: row.tags,
         confidence: row.confidence,
         thumbnail_url: row.thumbnail_url,
@@ -301,8 +304,12 @@ function ReelModal({
             <p className="text-[11px] font-medium text-zinc-500 mb-1.5">Type</p>
             <ChipSelect
               options={mediaTypes}
-              value={reel.media_type}
-              onChange={v => onUpdate(reel.id, { media_type: v })}
+              values={reel.media_types}
+              onToggle={v => onUpdate(reel.id, {
+                media_types: reel.media_types.includes(v)
+                  ? reel.media_types.filter(t => t !== v)
+                  : [...reel.media_types, v],
+              })}
             />
           </div>
           <div>
@@ -360,10 +367,14 @@ function ReelCard({ reel, onOpen, onDelete }: { reel: ReelInspiration; onOpen: (
           </div>
         )}
 
-        {reel.media_type && (
-          <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[10px] font-medium bg-black/70 text-zinc-200">
-            {reel.media_type}
-          </span>
+        {reel.media_types.length > 0 && (
+          <div className="absolute top-2 left-2 flex flex-wrap gap-1 max-w-[calc(100%-1rem)]">
+            {reel.media_types.map(type => (
+              <span key={type} className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-black/70 text-zinc-200">
+                {type}
+              </span>
+            ))}
+          </div>
         )}
 
         <button
@@ -554,10 +565,13 @@ export default function ReelGallery({ reels: initialReels, isAdmin, mediaTypes: 
   const isSearching = query.trim().length > 0
   const showFolders = viewMode === 'folders' && !isSearching && openFolder === null
 
+  // A reel with two types independently passes both filters below, so it
+  // naturally lands in both folders — that's the whole mechanism, nothing
+  // else needed to make a "combo" reel show up in multiple places.
   const folderReels = useMemo(() => {
     const groups: Record<string, ReelInspiration[]> = {}
-    for (const type of mediaTypes) groups[type] = reels.filter(r => r.media_type === type)
-    groups[UNSORTED] = reels.filter(r => !r.media_type)
+    for (const type of mediaTypes) groups[type] = reels.filter(r => r.media_types.includes(type))
+    groups[UNSORTED] = reels.filter(r => r.media_types.length === 0)
     return groups
   }, [reels, mediaTypes])
 
@@ -574,7 +588,7 @@ export default function ReelGallery({ reels: initialReels, isAdmin, mediaTypes: 
     if (words.length === 0) return scoped
 
     return scoped.filter(r => {
-      const searchable = [r.caption, r.author, r.media_type, ...r.tags]
+      const searchable = [r.caption, r.author, ...r.media_types, ...r.tags]
         .filter(Boolean)
         .join(' ')
         .toLowerCase()

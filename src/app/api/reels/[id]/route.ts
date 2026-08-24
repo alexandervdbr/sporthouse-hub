@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { isReelMediaType, getReelMediaTypes } from '@/lib/reel-media-types'
+import { areReelMediaTypes, getReelMediaTypes } from '@/lib/reel-media-types'
 import { removeThumbnailFromDrive } from '@/lib/reel-thumbnail-storage'
 
 // reel_inspiration has no authenticated update/delete RLS policy — it's a
@@ -40,12 +40,12 @@ export async function PATCH(
 
   const update: Record<string, unknown> = {}
 
-  if ('media_type' in body) {
+  if ('media_types' in body) {
     const mediaTypes = await getReelMediaTypes(supabase)
-    if (body.media_type !== null && !isReelMediaType(body.media_type, mediaTypes)) {
+    if (!areReelMediaTypes(body.media_types, mediaTypes)) {
       return new Response('Ongeldig type.', { status: 400 })
     }
-    update.media_type = body.media_type
+    update.media_types = body.media_types
   }
 
   if ('tags' in body) {

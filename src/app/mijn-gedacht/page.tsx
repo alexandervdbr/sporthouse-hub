@@ -17,7 +17,7 @@ export default async function MijnGedachtPage() {
   // GET /api/reels/[id] instead of shipping it for every row on every load.
   const { data: reels } = await supabase
     .from('reel_inspiration')
-    .select('id, user_id, url, thumbnail_url, caption, author, media_type, thumbnail_drive_id, tags, confidence, status, error_message, saved_at')
+    .select('id, user_id, url, thumbnail_url, caption, author, media_types, thumbnail_drive_id, tags, confidence, status, error_message, saved_at')
     .order('saved_at', { ascending: false })
 
   const mediaTypes = await getReelMediaTypes(supabase)
