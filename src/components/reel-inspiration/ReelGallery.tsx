@@ -342,10 +342,10 @@ function ReelCard({ reel, onOpen, onDelete }: { reel: ReelInspiration; onOpen: (
   return (
     <button
       onClick={onOpen}
-      className="group flex flex-col rounded-xl overflow-hidden transition-colors text-left"
+      className="group flex flex-col rounded-xl overflow-hidden transition-colors text-left min-w-0"
       style={{ background: 'rgba(24,24,24,0.97)', border: '1px solid rgba(255,255,255,0.09)' }}
     >
-      <div className="relative aspect-[3/4] bg-zinc-900">
+      <div className="relative aspect-[3/4] bg-zinc-900 overflow-hidden min-h-0">
         {reel.thumbnail_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -423,15 +423,15 @@ function FolderTile({ label, reels, onOpen }: { label: string; reels: ReelInspir
   return (
     <button
       onClick={onOpen}
-      className="group flex flex-col rounded-xl overflow-hidden transition-colors text-left"
+      className="group flex flex-col rounded-xl overflow-hidden transition-colors text-left min-w-0"
       style={{ background: 'rgba(24,24,24,0.97)', border: '1px solid rgba(255,255,255,0.09)' }}
     >
-      <div className="grid grid-cols-2 grid-rows-2 gap-0.5 aspect-[3/4] bg-zinc-900">
+      <div className="grid grid-cols-2 grid-rows-2 gap-0.5 aspect-[3/4] bg-zinc-900 overflow-hidden min-h-0">
         {preview.length === 0 && (
           <div className="col-span-2 row-span-2 flex items-center justify-center text-zinc-700 text-xs">Leeg</div>
         )}
         {preview.map(r => (
-          <div key={r.id} className="bg-zinc-800 overflow-hidden">
+          <div key={r.id} className="bg-zinc-800 overflow-hidden min-w-0 min-h-0">
             {r.thumbnail_url && (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={r.thumbnail_url} alt="" className="w-full h-full object-cover object-center" />
@@ -634,7 +634,7 @@ export default function ReelGallery({ reels: initialReels, isAdmin }: { reels: R
       </div>
 
       {showFolders ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 items-start">
           {[...REEL_MEDIA_TYPES, UNSORTED].filter(type => folderReels[type].length > 0).map(type => (
             <FolderTile key={type} label={type} reels={folderReels[type]} onOpen={() => setOpenFolder(type)} />
           ))}
