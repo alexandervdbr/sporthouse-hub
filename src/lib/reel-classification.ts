@@ -1,27 +1,33 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { REEL_MEDIA_TYPES, type ReelMediaType } from './reel-media-types'
+import { normalizeMediaType } from './reel-media-types'
 import { fetchDriveThumbnailAsBase64 } from './reel-thumbnail-storage'
 
 export interface ReelClassification {
-  mediaType: ReelMediaType | null
+  mediaType: string | null
   confidence: 'high' | 'medium' | 'low'
   tags: string[]
 }
 
 // Last-resort signal when the AI call fails outright and there's nothing
 // else to go on — a /reel/ or /tv/ permalink is, at minimum, a video file.
-function deterministicMediaType(url: string): ReelMediaType | null {
-  return /\/(reel|tv)\//.test(url) ? 'Video' : null
+// Only used if "Video" is still actually one of the current valid types.
+function deterministicMediaType(url: string, mediaTypes: string[]): string | null {
+  if (!/\/(reel|tv)\//.test(url)) return null
+  return mediaTypes.find(t => t.toLowerCase() === 'video') ?? null
 }
 
-function fallback(url: string): ReelClassification {
-  return { mediaType: deterministicMediaType(url), confidence: 'low', tags: [] }
+function fallback(url: string, mediaTypes: string[]): ReelClassification {
+  return { mediaType: deterministicMediaType(url, mediaTypes), confidence: 'low', tags: [] }
 }
 
-function normalizeMediaType(value: unknown): ReelMediaType | null {
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim().toLowerCase()
-  return REEL_MEDIA_TYPES.find(t => t.toLowerCase() === trimmed) ?? null
+// Descriptions for the small set of types we know about up front — anything
+// beyond these (a new type someone added, e.g. "3D") gets no canned
+// description, just its name; the model uses its own judgment for those.
+const KNOWN_TYPE_DESCRIPTIONS: Record<string, string> = {
+  foto: 'een echte foto — actie-, portret- of sfeerfoto, geen ontworpen grafisch element dat overheerst',
+  grafisch: "een ontworpen STATISCHE visual — quote card, stat-graphic, poster, template met tekst/logo's, geen beweging in het spel",
+  video: 'gefilmde, live-action beelden — wedstrijdbeelden, interview, backstage, iemand die praat of beweegt voor de camera. Een score-overlay, logo of lower-third bovenop gefilmde beelden verandert dit NIET naar Motion — de onderliggende beelden zijn nog steeds gefilmd, dus dit blijft Video.',
+  motion: 'het ontwerp/de animatie IS de content — kinetic typography, een volledig geanimeerde infographic, motion-graphic templates, abstracte animaties. Geen gefilmde mensen of actie te zien, enkel bewegend grafisch ontwerp.',
 }
 
 // Claude's `type: 'url'` image source is fetched by Anthropic's own servers,
@@ -56,23 +62,29 @@ async function fetchThumbnailAsBase64(
 // Isolated, single-purpose call — deliberately not the Expert AI's system
 // prompt/persona/conversation context. This is a narrow structured-data task
 // (caption + thumbnail in, media type + tags out), same shape as
-// freelancers/match/route.ts.
+// freelancers/match/route.ts. `mediaTypes` is the current live list from
+// reel_media_types (fetched by the caller) — permitted staff can add new
+// ones (e.g. "3D"), so the valid set is never hardcoded here.
 export async function classifyReel(input: {
   url: string
   caption: string | null
   authorName: string | null
   thumbnailUrl: string | null
+  mediaTypes: string[]
 }): Promise<ReelClassification> {
-  if (!process.env.ANTHROPIC_API_KEY) return fallback(input.url)
+  if (!process.env.ANTHROPIC_API_KEY) return fallback(input.url, input.mediaTypes)
+
+  const typeLines = input.mediaTypes.map(t => {
+    const description = KNOWN_TYPE_DESCRIPTIONS[t.toLowerCase()]
+    return description ? `- ${t}: ${description}` : `- ${t}`
+  }).join('\n')
 
   const prompt = `Je krijgt de caption en thumbnail van een Instagram Reel/Post die iemand bewaarde als contentinspiratie voor SporthouseGroup, een sportmediabedrijf. Iemand gaat dit later terugvinden tijdens een brainstorm — dus kijk echt grondig naar het beeld voor je iets invult, niet oppervlakkig.
 
 1) TYPE (het fundamentele format — exact één uit de lijst). Dit is waar het vaakst misgaat, dus let goed op:
-- Foto: een echte foto — actie-, portret- of sfeerfoto, geen ontworpen grafisch element dat overheerst
-- Grafisch: een ontworpen STATISCHE visual — quote card, stat-graphic, poster, template met tekst/logo's, geen beweging in het spel
-- Video: gefilmde, live-action beelden — wedstrijdbeelden, interview, backstage, iemand die praat of beweegt voor de camera. Een score-overlay, logo of lower-third bovenop gefilmde beelden verandert dit NIET naar Motion — de onderliggende beelden zijn nog steeds gefilmd, dus dit blijft Video.
-- Motion: het ontwerp/de animatie IS de content — kinetic typography, een volledig geanimeerde infographic, motion-graphic templates, abstracte animaties. Geen gefilmde mensen of actie te zien, enkel bewegend grafisch ontwerp.
-Vuistregel bij twijfel: kies Video, niet Motion. Motion is de uitzondering voor puur grafisch/geanimeerd werk, niet de standaardkeuze voor elke Reel.
+${typeLines}
+Vuistregel bij twijfel tussen Video en Motion (als beide in de lijst staan): kies Video, niet Motion. Motion is de uitzondering voor puur grafisch/geanimeerd werk, niet de standaardkeuze voor elke Reel.
+Staat er een type in de lijst zonder beschrijving hierboven (bv. een nieuw toegevoegde categorie zoals "3D")? Gebruik je eigen inschatting op basis van de naam — kies het als het duidelijk beter past dan de andere opties.
 
 Caption: "${input.caption ?? '(geen caption)'}"
 Account: ${input.authorName ?? '(onbekend)'}
@@ -128,7 +140,7 @@ Antwoord ALLEEN in geldig JSON (geen uitleg erbuiten):
 
       const parsed = JSON.parse(jsonMatch[0])
       const tags = Array.isArray(parsed.tags) ? parsed.tags.slice(0, 30).map(String) : []
-      const mediaType = normalizeMediaType(parsed.mediaType) ?? deterministicMediaType(input.url)
+      const mediaType = normalizeMediaType(parsed.mediaType, input.mediaTypes) ?? deterministicMediaType(input.url, input.mediaTypes)
 
       return {
         mediaType,
@@ -140,5 +152,5 @@ Antwoord ALLEEN in geldig JSON (geen uitleg erbuiten):
     }
   }
 
-  return fallback(input.url)
+  return fallback(input.url, input.mediaTypes)
 }

@@ -167,6 +167,12 @@ const SECTION_GROUPS = [
       { key: 'stijlvoorbeelden', label: 'Stijlvoorbeelden toevoegen & verwijderen' },
     ],
   },
+  {
+    title: 'Mijn gedacht!',
+    sections: [
+      { key: 'mijn_gedacht_types_beheren', label: 'Nieuwe types aanmaken (bv. "3D")' },
+    ],
+  },
 ]
 
 const SECTIONS = SECTION_GROUPS.flatMap(g => g.sections)

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { classifyReel } from './reel-classification'
 import { hostThumbnailOnDrive, driveThumbnailProxyUrl } from './reel-thumbnail-storage'
+import { getReelMediaTypes } from './reel-media-types'
 
 interface ReelRow {
   id: string
@@ -37,11 +38,13 @@ export async function retagReel(
 
   const needsClassification = options.forceReclassify || !reel.media_type || reel.tags.length === 0
   if (needsClassification) {
+    const mediaTypes = await getReelMediaTypes(admin)
     const classification = await classifyReel({
       url: reel.url,
       caption: reel.caption,
       authorName: reel.author,
       thumbnailUrl: (update.thumbnail_url as string | undefined) ?? reel.thumbnail_url,
+      mediaTypes,
     })
     update.media_type = classification.mediaType
     update.tags = classification.tags

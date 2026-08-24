@@ -3,7 +3,8 @@ import { ReelInspiration } from '@/types/database'
 import ReelGallery from '@/components/reel-inspiration/ReelGallery'
 import ReelInspirationSetup from '@/components/reel-inspiration/ReelInspirationSetup'
 import RetagAllButton from '@/components/reel-inspiration/RetagAllButton'
-import { isAdminUser } from '@/lib/auth-permissions'
+import { isAdminUser, hasSection } from '@/lib/auth-permissions'
+import { getReelMediaTypes } from '@/lib/reel-media-types'
 
 export const metadata = { title: 'Mijn gedacht! — Sporthouse' }
 
@@ -19,6 +20,8 @@ export default async function MijnGedachtPage() {
     .select('id, user_id, url, thumbnail_url, caption, author, media_type, thumbnail_drive_id, tags, confidence, status, error_message, saved_at')
     .order('saved_at', { ascending: false })
 
+  const mediaTypes = await getReelMediaTypes(supabase)
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="p-4 sm:p-8 max-w-6xl mx-auto">
@@ -32,7 +35,12 @@ export default async function MijnGedachtPage() {
           {isAdminUser(user) && <RetagAllButton />}
         </div>
 
-        <ReelGallery reels={(reels ?? []) as ReelInspiration[]} isAdmin={isAdminUser(user)} />
+        <ReelGallery
+          reels={(reels ?? []) as ReelInspiration[]}
+          isAdmin={isAdminUser(user)}
+          mediaTypes={mediaTypes}
+          canCreateTypes={hasSection(user, 'mijn_gedacht_types_beheren')}
+        />
 
         {isAdminUser(user) && (
           <details className="mt-10 group">

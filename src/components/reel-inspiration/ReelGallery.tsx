@@ -1,9 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { ExternalLink, Clock, AlertCircle, Trash2, X, Search, Plus, ChevronLeft, ChevronRight, Folder, LayoutGrid, Shuffle, RefreshCw } from 'lucide-react'
+import { ExternalLink, Clock, AlertCircle, Trash2, X, Search, Plus, ChevronLeft, ChevronRight, Folder, FolderPlus, LayoutGrid, Shuffle, RefreshCw } from 'lucide-react'
 import { ReelInspiration } from '@/types/database'
-import { REEL_MEDIA_TYPES } from '@/lib/reel-media-types'
 import { createClient } from '@/lib/supabase/client'
 
 const UNSORTED = 'Ongesorteerd'
@@ -150,10 +149,11 @@ function TagsEditor({
 // ─── Preview modal ──────────────────────────────────────────────────────────
 
 function ReelModal({
-  reel, existingTags, isAdmin, onClose, onDelete, onUpdate, onNavigate, hasPrev, hasNext,
+  reel, existingTags, mediaTypes, isAdmin, onClose, onDelete, onUpdate, onNavigate, hasPrev, hasNext,
 }: {
   reel: ReelInspiration
   existingTags: string[]
+  mediaTypes: string[]
   isAdmin: boolean
   onClose: () => void
   onDelete: (id: string) => void
@@ -300,7 +300,7 @@ function ReelModal({
           <div>
             <p className="text-[11px] font-medium text-zinc-500 mb-1.5">Type</p>
             <ChipSelect
-              options={REEL_MEDIA_TYPES}
+              options={mediaTypes}
               value={reel.media_type}
               onChange={v => onUpdate(reel.id, { media_type: v })}
             />
@@ -454,8 +454,15 @@ function FolderTile({ label, reels, onOpen }: { label: string; reels: ReelInspir
 
 // ─── Gallery ────────────────────────────────────────────────────────────────
 
-export default function ReelGallery({ reels: initialReels, isAdmin }: { reels: ReelInspiration[]; isAdmin: boolean }) {
+export default function ReelGallery({ reels: initialReels, isAdmin, mediaTypes: initialMediaTypes, canCreateTypes }: {
+  reels: ReelInspiration[]
+  isAdmin: boolean
+  mediaTypes: string[]
+  canCreateTypes: boolean
+}) {
   const [reels, setReels] = useState(initialReels)
+  const [mediaTypes, setMediaTypes] = useState(initialMediaTypes)
+  const [creatingType, setCreatingType] = useState(false)
   const [query, setQuery] = useState('')
   const [viewMode, setViewMode] = useState<'folders' | 'all'>('folders')
   const [openFolder, setOpenFolder] = useState<string | null>(null)
@@ -492,6 +499,42 @@ export default function ReelGallery({ reels: initialReels, isAdmin }: { reels: R
     return () => { supabase.removeChannel(channel) }
   }, [])
 
+  // New types (e.g. someone with the permission adding "3D") show up live
+  // for everyone too, same mechanism as the reels themselves.
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel('reel-media-types-live')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reel_media_types' },
+        (payload) => {
+          const row = payload.new as { name: string }
+          setMediaTypes(prev => (prev.includes(row.name) ? prev : [...prev, row.name]))
+        })
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [])
+
+  async function handleCreateType() {
+    const name = prompt('Naam voor het nieuwe type (bv. "3D"):')?.trim()
+    if (!name) return
+    setCreatingType(true)
+    try {
+      const res = await fetch('/api/reel-media-types', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      if (!res.ok) throw new Error()
+      const created = await res.json()
+      setMediaTypes(prev => (prev.includes(created.name) ? prev : [...prev, created.name]))
+    } catch {
+      alert('Aanmaken mislukt. Probeer opnieuw.')
+    } finally {
+      setCreatingType(false)
+    }
+  }
+
   function handleDelete(id: string) {
     setReels(prev => prev.filter(r => r.id !== id))
     setPreviewId(prev => (prev === id ? null : prev))
@@ -513,10 +556,10 @@ export default function ReelGallery({ reels: initialReels, isAdmin }: { reels: R
 
   const folderReels = useMemo(() => {
     const groups: Record<string, ReelInspiration[]> = {}
-    for (const type of REEL_MEDIA_TYPES) groups[type] = reels.filter(r => r.media_type === type)
+    for (const type of mediaTypes) groups[type] = reels.filter(r => r.media_type === type)
     groups[UNSORTED] = reels.filter(r => !r.media_type)
     return groups
-  }, [reels])
+  }, [reels, mediaTypes])
 
   // Base set for the current view: everything (View all / search) or just
   // the open folder's items (Folders mode, drilled in).
@@ -635,9 +678,20 @@ export default function ReelGallery({ reels: initialReels, isAdmin }: { reels: R
 
       {showFolders ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 items-start">
-          {[...REEL_MEDIA_TYPES, UNSORTED].filter(type => folderReels[type].length > 0).map(type => (
+          {[...mediaTypes, UNSORTED].filter(type => folderReels[type]?.length > 0).map(type => (
             <FolderTile key={type} label={type} reels={folderReels[type]} onOpen={() => setOpenFolder(type)} />
           ))}
+          {canCreateTypes && (
+            <button
+              onClick={handleCreateType}
+              disabled={creatingType}
+              className="flex flex-col items-center justify-center gap-2 rounded-xl aspect-[3/4] text-zinc-500 hover:text-zinc-300 transition-colors disabled:opacity-50"
+              style={{ border: '1px dashed rgba(255,255,255,0.15)' }}
+            >
+              <FolderPlus size={20} className={creatingType ? 'animate-pulse' : undefined} />
+              <span className="text-xs font-medium">Nieuw type</span>
+            </button>
+          )}
         </div>
       ) : (
         <>
@@ -695,6 +749,7 @@ export default function ReelGallery({ reels: initialReels, isAdmin }: { reels: R
         <ReelModal
           reel={previewReel}
           existingTags={allTags}
+          mediaTypes={mediaTypes}
           isAdmin={isAdmin}
           onClose={() => setPreviewId(null)}
           onDelete={handleDelete}
