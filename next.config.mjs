@@ -2,7 +2,7 @@
 const nextConfig = {
   eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: true },
-  serverExternalPackages: ['pdf-parse', '@anthropic-ai/sdk'],
+  serverExternalPackages: ['pdf-parse', '@anthropic-ai/sdk', 'ffmpeg-static'],
   experimental: {
     // Global middleware (src/middleware.ts) buffers the request body for
     // every route it runs on, including upload API routes — Next.js caps

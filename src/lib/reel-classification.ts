@@ -1,6 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { normalizeMediaType } from './reel-media-types'
 import { fetchDriveThumbnailAsBase64 } from './reel-thumbnail-storage'
+import { scrapeEmbedVideo } from './instagram-oembed'
+import { extractVideoFrames } from './reel-video-frames'
 
 export interface ReelClassification {
   mediaType: string | null
@@ -104,11 +106,28 @@ Ben je niet zeker welk type het beste past? Kies toch de dichtstbijzijnde en zet
 Antwoord ALLEEN in geldig JSON (geen uitleg erbuiten):
 {"mediaType": "<exact type>", "confidence": "high" | "medium" | "low", "tags": ["...", "..."]}`
 
-  const thumbnail = input.thumbnailUrl ? await fetchThumbnailAsBase64(input.thumbnailUrl) : null
+  // When Instagram's embed page exposes a direct video URL for this post (it
+  // doesn't always — withheld for e.g. licensed/trending-audio-restricted
+  // posts), extract a handful of frames instead of relying on one static
+  // thumbnail. Best-effort: any failure here (no video URL, fetch failure,
+  // ffmpeg failure) falls straight back to the single-thumbnail path below,
+  // exactly as before this was added.
+  const video = await scrapeEmbedVideo(input.url)
+  const frames = video ? await extractVideoFrames(video.videoUrl, video.durationS) : null
 
-  const content: Anthropic.MessageParam['content'] = thumbnail
+  type ImageInput = { mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'; data: string }
+  const images: ImageInput[] = frames?.length ? frames : []
+  if (images.length === 0 && input.thumbnailUrl) {
+    const thumbnail = await fetchThumbnailAsBase64(input.thumbnailUrl)
+    if (thumbnail) images.push(thumbnail)
+  }
+
+  const content: Anthropic.MessageParam['content'] = images.length
     ? [
-        { type: 'image', source: { type: 'base64', media_type: thumbnail.mediaType, data: thumbnail.data } },
+        ...images.map(img => ({
+          type: 'image' as const,
+          source: { type: 'base64' as const, media_type: img.mediaType, data: img.data },
+        })),
         { type: 'text', text: prompt },
       ]
     : prompt
