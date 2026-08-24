@@ -43,7 +43,16 @@ export async function POST(request: NextRequest) {
     .select('id, name')
     .single()
 
-  if (error) return new Response(error.message, { status: 500 })
+  if (error) {
+    // Unique-violation on the case-insensitive index — someone else created
+    // the same name (any casing) in the narrow window since the check
+    // above. Not a real error: return the row that won the race instead.
+    if (error.code === '23505') {
+      const { data: winner } = await admin.from('reel_media_types').select('id, name').ilike('name', name).maybeSingle()
+      if (winner) return Response.json(winner)
+    }
+    return new Response(error.message, { status: 500 })
+  }
 
   return Response.json(data, { status: 201 })
 }
