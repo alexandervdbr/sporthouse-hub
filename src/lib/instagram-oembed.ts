@@ -62,15 +62,42 @@ function extractMeta(html: string, property: string): string | null {
   return match ? decodeHtmlEntities(match[1]) : null
 }
 
+// og:image is Instagram's own square feed-thumbnail crop — for taller or
+// multi-slide posts it chops off real content (confirmed by inspecting the
+// actual bytes: a portrait poster came back as a hard 640x640 square,
+// missing everything below the fold). Instagram's *static* embed page
+// (no JS needed) carries an untransformed image at `class="EmbeddedMediaImage"`
+// — verified at full native resolution (portrait posters at ~1080x1425,
+// reels at their real 1080x1920) rather than cropped to a square. Same
+// fragility profile as the og:image scrape above (undocumented markup,
+// could change), just a better source when it's there — falls back to
+// og:image if the pattern isn't found.
+async function scrapeEmbedImage(url: string): Promise<string | null> {
+  try {
+    const embedUrl = `${url.split('?')[0].replace(/\/?$/, '/')}embed/captioned/`
+    const res = await fetch(embedUrl, {
+      headers: { 'User-Agent': BROWSER_USER_AGENT },
+      signal: AbortSignal.timeout(6000),
+    })
+    if (!res.ok) return null
+
+    const html = await res.text()
+    const match = html.match(/<img class="EmbeddedMediaImage"[^>]*\bsrc="([^"]*)"/)
+    return match ? decodeHtmlEntities(match[1]) : null
+  } catch {
+    return null
+  }
+}
+
 async function scrapeInstagramMeta(url: string): Promise<ScrapedMeta> {
   const empty: ScrapedMeta = { caption: null, authorName: null, thumbnailUrl: null }
 
   try {
-    const res = await fetch(url, {
-      headers: { 'User-Agent': BROWSER_USER_AGENT },
-      signal: AbortSignal.timeout(6000),
-    })
-    if (!res.ok) return empty
+    const [res, embedImage] = await Promise.all([
+      fetch(url, { headers: { 'User-Agent': BROWSER_USER_AGENT }, signal: AbortSignal.timeout(6000) }),
+      scrapeEmbedImage(url),
+    ])
+    if (!res.ok) return { ...empty, thumbnailUrl: embedImage }
 
     const html = await res.text()
     const ogTitle = extractMeta(html, 'og:title')
@@ -82,7 +109,7 @@ async function scrapeInstagramMeta(url: string): Promise<ScrapedMeta> {
     return {
       caption: quoteMatch?.[1] ?? null,
       authorName: usernameMatch?.[1] ?? ogTitle?.split(' on Instagram')[0] ?? null,
-      thumbnailUrl: extractMeta(html, 'og:image'),
+      thumbnailUrl: embedImage ?? extractMeta(html, 'og:image'),
     }
   } catch {
     return empty
