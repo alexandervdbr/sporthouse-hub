@@ -40,7 +40,11 @@ export interface VideoFrame {
 // `finally` block below (including on any failure), since Vercel's Fluid
 // Compute can reuse the same container — and therefore /tmp — across
 // concurrent invocations.
-export async function extractVideoFrames(videoUrl: string, durationS: number): Promise<VideoFrame[] | null> {
+export async function extractVideoFrames(
+  videoUrl: string,
+  durationS: number,
+  options?: { maxFrames?: number }
+): Promise<VideoFrame[] | null> {
   if (!ffmpegPath) return null
 
   let dir: string | null = null
@@ -58,7 +62,13 @@ export async function extractVideoFrames(videoUrl: string, durationS: number): P
     const sourcePath = join(dir, 'source.mp4')
     await writeFile(sourcePath, buffer)
 
-    const count = computeFrameCount(durationS)
+    // A carousel slide's own video is one part of a larger post — callers
+    // there pass a small fixed maxFrames instead of letting the clip's own
+    // length drive the count, so one long video slide can't blow the
+    // per-classification image budget on its own.
+    const count = options?.maxFrames
+      ? Math.min(options.maxFrames, computeFrameCount(durationS))
+      : computeFrameCount(durationS)
     const timestamps = frameTimestamps(durationS, count)
 
     const frames: VideoFrame[] = []

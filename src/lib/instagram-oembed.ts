@@ -62,6 +62,25 @@ function extractMeta(html: string, property: string): string | null {
   return match ? decodeHtmlEntities(match[1]) : null
 }
 
+function embedUrlFor(url: string): string {
+  return `${url.split('?')[0].replace(/\/?$/, '/')}embed/captioned/`
+}
+
+// Shared by scrapeEmbedImage/parseEmbedVideo/parseEmbedCarousel so a single
+// classification only ever fetches the embed page once (see classifyReel),
+// instead of each concern re-fetching the same URL independently.
+export async function fetchEmbedHtml(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(embedUrlFor(url), {
+      headers: { 'User-Agent': BROWSER_USER_AGENT },
+      signal: AbortSignal.timeout(6000),
+    })
+    return res.ok ? await res.text() : null
+  } catch {
+    return null
+  }
+}
+
 // og:image is Instagram's own square feed-thumbnail crop — for taller or
 // multi-slide posts it chops off real content (confirmed by inspecting the
 // actual bytes: a portrait poster came back as a hard 640x640 square,
@@ -73,17 +92,31 @@ function extractMeta(html: string, property: string): string | null {
 // could change), just a better source when it's there — falls back to
 // og:image if the pattern isn't found.
 async function scrapeEmbedImage(url: string): Promise<string | null> {
-  try {
-    const embedUrl = `${url.split('?')[0].replace(/\/?$/, '/')}embed/captioned/`
-    const res = await fetch(embedUrl, {
-      headers: { 'User-Agent': BROWSER_USER_AGENT },
-      signal: AbortSignal.timeout(6000),
-    })
-    if (!res.ok) return null
+  const html = await fetchEmbedHtml(url)
+  if (!html) return null
 
-    const html = await res.text()
-    const match = html.match(/<img class="EmbeddedMediaImage"[^>]*\bsrc="([^"]*)"/)
-    return match ? decodeHtmlEntities(match[1]) : null
+  const match = html.match(/<img class="EmbeddedMediaImage"[^>]*\bsrc="([^"]*)"/)
+  return match ? decodeHtmlEntities(match[1]) : null
+}
+
+// The `efg` query param on Instagram's signed video URLs is base64 JSON
+// carrying `duration_s` (among other encoding metadata), needed to size
+// frame extraction — shared by the single-video and per-carousel-slide
+// paths below.
+function durationFromVideoUrl(videoUrl: string): number | null {
+  try {
+    const efg = new URL(videoUrl).searchParams.get('efg')
+    if (!efg) return null
+
+    // The decoded payload has trailing padding-artifact bytes after the
+    // JSON object (confirmed by hand) — extract just the {...} span rather
+    // than parsing the whole decoded string.
+    const decoded = Buffer.from(efg, 'base64').toString('utf8')
+    const jsonMatch = decoded.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) return null
+
+    const durationS = Number(JSON.parse(jsonMatch[0]).duration_s)
+    return Number.isFinite(durationS) && durationS > 0 ? durationS : null
   } catch {
     return null
   }
@@ -102,41 +135,66 @@ export interface ScrapedVideo {
 // .mp4 references at all — Instagram is withholding the video source there
 // entirely (most likely a licensed/trending-audio restriction), so no
 // scrape can recover a video for those; callers must fall back to the
-// single embed image for that shortcode. The URL's `efg` query param is
-// base64 JSON carrying `duration_s`, needed to size frame extraction.
-// The URL itself is short-lived (signed `oe=` expiry) — never cache/persist
-// it, always re-scrape fresh at the moment it's used.
+// single embed image for that shortcode. The URL itself is short-lived
+// (signed `oe=` expiry) — never cache/persist it, always re-scrape fresh at
+// the moment it's used.
+export function parseEmbedVideo(html: string): ScrapedVideo | null {
+  const match = html.match(/"([^"]*\.mp4[^"]*)"/)
+  if (!match) return null
+
+  const videoUrl = decodeHtmlEntities(match[1].replace(/\\+/g, ''))
+  const durationS = durationFromVideoUrl(videoUrl)
+  return durationS ? { videoUrl, durationS } : null
+}
+
 export async function scrapeEmbedVideo(url: string): Promise<ScrapedVideo | null> {
-  try {
-    const embedUrl = `${url.split('?')[0].replace(/\/?$/, '/')}embed/captioned/`
-    const res = await fetch(embedUrl, {
-      headers: { 'User-Agent': BROWSER_USER_AGENT },
-      signal: AbortSignal.timeout(6000),
-    })
-    if (!res.ok) return null
+  const html = await fetchEmbedHtml(url)
+  return html ? parseEmbedVideo(html) : null
+}
 
-    const html = await res.text()
-    const match = html.match(/"([^"]*\.mp4[^"]*)"/)
-    if (!match) return null
+export interface CarouselSlide {
+  isVideo: boolean
+  imageUrl: string
+  videoUrl?: string
+  durationS?: number
+}
 
-    const videoUrl = decodeHtmlEntities(match[1].replace(/\\+/g, ''))
-    const efg = new URL(videoUrl).searchParams.get('efg')
-    if (!efg) return null
+// Carousel ("slider") posts embed their entire GraphQL sidecar payload in
+// the same static embed page, as edge_sidecar_to_children.edges[] — each
+// node carrying is_video/display_url/(video_url if a video slide).
+// Confirmed by hand against several real saved carousel posts. That data
+// lives inside a JSON-encoded-as-a-string field (`contextJSON`), so its own
+// quotes/slashes come out backslash-escaped in the raw page text — stripped
+// here the same blunt way the single-video URL above is cleaned, just
+// applied to the whole span up front so the quote-delimited regexes below
+// can match at all. Only present for GraphSidecar posts — never a Reel or a
+// single-image/video post — so this is a safe, cheap first check before
+// falling back to the single-item path.
+export function parseEmbedCarousel(html: string): CarouselSlide[] | null {
+  const marker = html.indexOf('edge_sidecar_to_children')
+  if (marker === -1) return null
 
-    // The decoded payload has trailing padding-artifact bytes after the
-    // JSON object (see decode test) — extract just the {...} span rather
-    // than parsing the whole decoded string.
-    const decoded = Buffer.from(efg, 'base64').toString('utf8')
-    const jsonMatch = decoded.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) return null
+  const normalized = html.slice(marker).replace(/\\+/g, '')
+  const chunks = normalized.split('"node":{').slice(1, 21)
 
-    const durationS = Number(JSON.parse(jsonMatch[0]).duration_s)
-    if (!Number.isFinite(durationS) || durationS <= 0) return null
+  const slides: CarouselSlide[] = []
+  for (const chunk of chunks) {
+    const displayMatch = chunk.match(/"display_url":"([^"]*)"/)
+    if (!displayMatch) break // ran past the sidecar array into unrelated page JSON
 
-    return { videoUrl, durationS }
-  } catch {
-    return null
+    const imageUrl = decodeHtmlEntities(displayMatch[1])
+    if (!/"is_video":true/.test(chunk)) {
+      slides.push({ isVideo: false, imageUrl })
+      continue
+    }
+
+    const videoMatch = chunk.match(/"video_url":"([^"]*)"/)
+    const videoUrl = videoMatch ? decodeHtmlEntities(videoMatch[1]) : undefined
+    const durationS = videoUrl ? durationFromVideoUrl(videoUrl) ?? undefined : undefined
+    slides.push({ isVideo: true, imageUrl, videoUrl, durationS })
   }
+
+  return slides.length ? slides : null
 }
 
 async function scrapeInstagramMeta(url: string): Promise<ScrapedMeta> {

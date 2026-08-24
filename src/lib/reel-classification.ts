@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { normalizeMediaType } from './reel-media-types'
 import { fetchDriveThumbnailAsBase64 } from './reel-thumbnail-storage'
-import { scrapeEmbedVideo } from './instagram-oembed'
+import { fetchEmbedHtml, parseEmbedCarousel, parseEmbedVideo, type CarouselSlide } from './instagram-oembed'
 import { extractVideoFrames } from './reel-video-frames'
 
 export interface ReelClassification {
@@ -20,6 +20,23 @@ function deterministicMediaType(url: string, mediaTypes: string[]): string | nul
 
 function fallback(url: string, mediaTypes: string[]): ReelClassification {
   return { mediaType: deterministicMediaType(url, mediaTypes), confidence: 'low', tags: [] }
+}
+
+// Evenly samples `items` down to `count`, always keeping `priority` (if it's
+// actually in the array) rather than letting even-spacing potentially skip
+// it — used to make sure the carousel slide the user was actually looking
+// at when they saved the post always makes it into the visual sample.
+function sampleEvenly<T>(items: T[], count: number, priority?: T): T[] {
+  if (count <= 0) return []
+  if (items.length <= count) return items
+
+  const hasPriority = priority !== undefined && items.includes(priority)
+  const others = hasPriority ? items.filter(i => i !== priority) : items
+  const sampleCount = Math.min(hasPriority ? count - 1 : count, others.length)
+  const sampled = Array.from({ length: Math.max(0, sampleCount) }, (_, i) =>
+    others[sampleCount === 1 ? 0 : Math.round((i * (others.length - 1)) / (sampleCount - 1))]
+  )
+  return hasPriority ? [priority as T, ...sampled] : sampled
 }
 
 // Descriptions for the small set of types we know about up front — anything
@@ -85,11 +102,74 @@ export async function classifyReel(input: {
   // several images are sequential frames of one clip rather than unrelated
   // stills), and one single off-frame (an intro card, transition, or a
   // passing 3D/graphic element) getting to decide the whole clip's type.
-  const video = await scrapeEmbedVideo(input.url)
-  const frames = video ? await extractVideoFrames(video.videoUrl, video.durationS) : null
+  //
+  // One embed-page fetch, then dispatch: a carousel ("slider") post embeds
+  // every slide's data in the same page (see parseEmbedCarousel) — checked
+  // first since that same page can otherwise look like it has one video
+  // (parseEmbedVideo's regex can incidentally match a carousel video
+  // slide's URL too, ignoring the rest of the post).
+  const html = await fetchEmbedHtml(input.url)
+  const carousel = html ? parseEmbedCarousel(html) : null
 
   type ImageInput = { mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'; data: string }
-  const images: ImageInput[] = frames?.length ? frames : []
+  const images: ImageInput[] = []
+  let carouselComposition: { total: number; photoCount: number; videoCount: number } | null = null
+
+  if (carousel) {
+    carouselComposition = {
+      total: carousel.length,
+      photoCount: carousel.filter(s => !s.isVideo).length,
+      videoCount: carousel.filter(s => s.isVideo).length,
+    }
+
+    // Same overall image budget as the single-video path — spread across
+    // slides instead of one video. Each video slide gets a couple of
+    // frames (enough to see there's real motion, not full coverage, since
+    // it's one slide among several), photo slides fill the rest. A small
+    // photo minimum is reserved up front so a mostly-photo carousel with a
+    // handful of video slides doesn't have its whole budget consumed by
+    // video frames alone — the model still needs to actually see what the
+    // photos look like, not just be told a count.
+    const FRAMES_PER_VIDEO_SLIDE = 2
+    const MAX_TOTAL_IMAGES = 8
+    const videoSlides = carousel.filter((s): s is CarouselSlide & { videoUrl: string; durationS: number } =>
+      s.isVideo && !!s.videoUrl && !!s.durationS
+    )
+    const photoSlides = carousel.filter(s => !s.isVideo)
+
+    const photoMinimum = photoSlides.length > 0 ? Math.min(photoSlides.length, 2) : 0
+    const videoBudget = Math.min(videoSlides.length * FRAMES_PER_VIDEO_SLIDE, MAX_TOTAL_IMAGES - photoMinimum)
+    const photoBudget = MAX_TOTAL_IMAGES - videoBudget
+    const videoSlideCap = Math.floor(videoBudget / FRAMES_PER_VIDEO_SLIDE)
+
+    // Instagram appends img_index to the URL for the specific slide the
+    // user was looking at when they saved the post — force that slide into
+    // the sample even if even-spacing wouldn't otherwise land on it.
+    const imgIndexMatch = input.url.match(/[?&]img_index=(\d+)/)
+    const priorityIndex = imgIndexMatch ? Number(imgIndexMatch[1]) - 1 : -1
+    const prioritySlide = priorityIndex >= 0 ? carousel[priorityIndex] : undefined
+
+    const selectedPhotoSlides = sampleEvenly(
+      photoSlides, photoBudget, prioritySlide && !prioritySlide.isVideo ? prioritySlide : undefined
+    )
+    const selectedVideoSlides = sampleEvenly(
+      videoSlides, videoSlideCap, videoSlides.find(v => v === prioritySlide)
+    )
+
+    for (const slide of selectedPhotoSlides) {
+      const image = await fetchThumbnailAsBase64(slide.imageUrl)
+      if (image) images.push(image)
+    }
+    for (const slide of selectedVideoSlides) {
+      const frames = await extractVideoFrames(slide.videoUrl, slide.durationS, { maxFrames: FRAMES_PER_VIDEO_SLIDE })
+      if (frames?.length) images.push(...frames)
+    }
+  } else {
+    const video = html ? parseEmbedVideo(html) : null
+    const frames = video ? await extractVideoFrames(video.videoUrl, video.durationS) : null
+    if (frames?.length) images.push(...frames)
+  }
+
   if (images.length === 0 && input.thumbnailUrl) {
     const thumbnail = await fetchThumbnailAsBase64(input.thumbnailUrl)
     if (thumbnail) images.push(thumbnail)
@@ -97,7 +177,11 @@ export async function classifyReel(input: {
 
   const isReelUrl = /\/(reel|tv)\//.test(input.url)
   const contextLines: string[] = []
-  if (images.length > 1) {
+  if (carouselComposition) {
+    contextLines.push(
+      `Dit is een carrousel/slider-post met ${carouselComposition.total} slides: ${carouselComposition.photoCount} foto/grafisch, ${carouselComposition.videoCount} video. Je ziet een steekproef van ${images.length} afbeeldingen uit deze slider (inclusief frames uit elke video-slide). Baseer het TYPE op wat het MERENDEEL van de slides toont — als de meeste slides foto's/grafisch zijn en slechts een enkele slide een korte video-clip bevat, blijft dit Foto/Grafisch, niet Video, tenzij de video-slide(s) duidelijk de kern van de post vormen.`
+    )
+  } else if (images.length > 1) {
     contextLines.push(
       `Je krijgt ${images.length} afbeeldingen: dit zijn frames verspreid over de volledige duur van dezelfde video, van begin tot eind — geen losse foto's. Baseer je oordeel op wat het MERENDEEL van de frames toont. Eén enkel afwijkend frame (bv. een korte overgang, intro-kaart, logo-bumper of eenmalig grafisch/3D-element tussen verder gefilmde beelden) verandert het type NIET.`
     )
@@ -114,7 +198,8 @@ export async function classifyReel(input: {
     return description ? `- ${t}: ${description}` : `- ${t}`
   }).join('\n')
 
-  const prompt = `Je krijgt de caption en ${images.length > 1 ? 'videoframes' : 'thumbnail'} van een Instagram Reel/Post die iemand bewaarde als contentinspiratie voor SporthouseGroup, een sportmediabedrijf. Iemand gaat dit later terugvinden tijdens een brainstorm — dus kijk echt grondig naar het beeld voor je iets invult, niet oppervlakkig.
+  const mediaWord = carouselComposition ? 'afbeeldingen uit de slider' : images.length > 1 ? 'videoframes' : 'thumbnail'
+  const prompt = `Je krijgt de caption en ${mediaWord} van een Instagram Reel/Post die iemand bewaarde als contentinspiratie voor SporthouseGroup, een sportmediabedrijf. Iemand gaat dit later terugvinden tijdens een brainstorm — dus kijk echt grondig naar het beeld voor je iets invult, niet oppervlakkig.
 ${imageContext}
 1) TYPE (het fundamentele format — exact één uit de lijst). Dit is waar het vaakst misgaat, dus let goed op:
 ${typeLines}
