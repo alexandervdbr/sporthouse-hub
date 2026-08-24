@@ -5,6 +5,7 @@ import { ExternalLink, Clock, AlertCircle, Trash2, X, Search, Plus, ChevronLeft,
 import { ReelInspiration } from '@/types/database'
 import { REEL_CATEGORIES } from '@/lib/reel-categories'
 import { REEL_MEDIA_TYPES } from '@/lib/reel-media-types'
+import { createClient } from '@/lib/supabase/client'
 
 const UNSORTED = 'Ongesorteerd'
 
@@ -520,6 +521,35 @@ export default function ReelGallery({ reels: initialReels, isAdmin }: { reels: R
   const [previewId, setPreviewId] = useState<string | null>(null)
   const [sortMode, setSortMode] = useState<'newest' | 'oldest' | 'shuffle'>('newest')
   const [shuffleTick, setShuffleTick] = useState(0)
+
+  // Live updates across everyone viewing the board — a save, a finished
+  // classification, an edit, or a delete from anyone shows up immediately
+  // without a manual refresh. Same Realtime mechanism already used for chat
+  // unread counts (see Sidebar.tsx); requires reel_inspiration to be added
+  // to the supabase_realtime publication (migration 0017).
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel('reel-inspiration-live')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reel_inspiration' },
+        (payload) => {
+          const row = payload.new as ReelInspiration
+          setReels(prev => (prev.some(r => r.id === row.id) ? prev : [row, ...prev]))
+        })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'reel_inspiration' },
+        (payload) => {
+          const row = payload.new as ReelInspiration
+          setReels(prev => prev.map(r => (r.id === row.id ? { ...r, ...row } : r)))
+        })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'reel_inspiration' },
+        (payload) => {
+          const oldRow = payload.old as { id: string }
+          setReels(prev => prev.filter(r => r.id !== oldRow.id))
+        })
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [])
 
   function handleDelete(id: string) {
     setReels(prev => prev.filter(r => r.id !== id))
