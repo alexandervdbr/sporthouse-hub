@@ -7,7 +7,7 @@ export const maxDuration = 60
 
 // Manual "reclassify this one" — admin-only (see the settings-panel gate on
 // the page itself). Unlike the bulk retag route, this always forces a fresh
-// classification even if the item already has a category/tags, since the
+// classification even if the item already has tags, since the
 // whole point is to redo it (after a prompt tweak, or because the AI got it
 // wrong the first time) rather than skip it as "already done".
 export async function POST(
@@ -24,7 +24,7 @@ export async function POST(
 
   const { data: reel, error } = await admin
     .from('reel_inspiration')
-    .select('id, url, caption, author, category, tags, thumbnail_url, thumbnail_drive_id')
+    .select('id, url, caption, author, media_type, tags, thumbnail_url, thumbnail_drive_id')
     .eq('id', id)
     .single()
 

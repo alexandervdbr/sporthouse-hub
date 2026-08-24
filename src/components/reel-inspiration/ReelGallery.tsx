@@ -3,14 +3,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ExternalLink, Clock, AlertCircle, Trash2, X, Search, Plus, ChevronLeft, ChevronRight, Folder, LayoutGrid, Shuffle, RefreshCw } from 'lucide-react'
 import { ReelInspiration } from '@/types/database'
-import { REEL_CATEGORIES } from '@/lib/reel-categories'
 import { REEL_MEDIA_TYPES } from '@/lib/reel-media-types'
 import { createClient } from '@/lib/supabase/client'
 
 const UNSORTED = 'Ongesorteerd'
 
 type ReelUpdate = {
-  category?: string | null
   media_type?: string | null
   tags?: string[]
   thumbnail_url?: string | null
@@ -214,7 +212,6 @@ function ReelModal({
       if (!res.ok) throw new Error()
       const row = await res.json()
       onUpdate(reel.id, {
-        category: row.category,
         media_type: row.media_type,
         tags: row.tags,
         confidence: row.confidence,
@@ -309,14 +306,6 @@ function ReelModal({
             />
           </div>
           <div>
-            <p className="text-[11px] font-medium text-zinc-500 mb-1.5">Categorie</p>
-            <ChipSelect
-              options={REEL_CATEGORIES}
-              value={reel.category}
-              onChange={v => onUpdate(reel.id, { category: v })}
-            />
-          </div>
-          <div>
             <p className="text-[11px] font-medium text-zinc-500 mb-1.5">Tags</p>
             <TagsEditor
               tags={reel.tags}
@@ -363,7 +352,7 @@ function ReelCard({ reel, onOpen, onDelete }: { reel: ReelInspiration; onOpen: (
             src={reel.thumbnail_url}
             alt={reel.caption ?? 'Instagram reel'}
             loading="lazy"
-            className="w-full h-full object-contain object-center"
+            className="w-full h-full object-cover object-center"
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-zinc-700 text-xs">
@@ -413,13 +402,8 @@ function ReelCard({ reel, onOpen, onDelete }: { reel: ReelInspiration; onOpen: (
             {new Date(reel.saved_at).toLocaleDateString('nl-BE', { day: 'numeric', month: 'short' })}
           </span>
         </div>
-        {(reel.category || reel.tags.length > 0) && (
+        {reel.tags.length > 0 && (
           <div className="flex flex-wrap gap-1 pt-1">
-            {reel.category && (
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-white/10 text-zinc-300">
-                {reel.category}
-              </span>
-            )}
             {reel.tags.slice(0, 4).map(tag => (
               <span key={tag} className="px-2 py-0.5 rounded-full text-[10px] text-zinc-500" style={{ border: '1px solid rgba(255,255,255,0.10)' }}>
                 {tag}
@@ -429,48 +413,6 @@ function ReelCard({ reel, onOpen, onDelete }: { reel: ReelInspiration; onOpen: (
         )}
       </div>
     </button>
-  )
-}
-
-// ─── Filter pill row ────────────────────────────────────────────────────────
-
-function PillRow({ label, options, counts, active, onChange }: {
-  label: string
-  options: readonly string[]
-  counts: Record<string, number>
-  active: string | null
-  onChange: (v: string | null) => void
-}) {
-  const total = Object.values(counts).reduce((a, b) => a + b, 0)
-  return (
-    <div className="flex items-center gap-2 flex-wrap">
-      <span className="text-[11px] font-medium text-zinc-600 uppercase tracking-wide">{label}</span>
-      <button
-        onClick={() => onChange(null)}
-        className="px-3 py-1.5 rounded-full text-xs font-medium transition-colors"
-        style={{
-          background: active === null ? 'rgba(255,255,255,0.14)' : 'rgba(24,24,24,0.97)',
-          border: '1px solid rgba(255,255,255,0.10)',
-          color: active === null ? '#fff' : '#a1a1aa',
-        }}
-      >
-        Alles ({total})
-      </button>
-      {options.filter(o => counts[o] > 0).map(opt => (
-        <button
-          key={opt}
-          onClick={() => onChange(opt)}
-          className="px-3 py-1.5 rounded-full text-xs font-medium transition-colors"
-          style={{
-            background: active === opt ? 'rgba(255,255,255,0.14)' : 'rgba(24,24,24,0.97)',
-            border: '1px solid rgba(255,255,255,0.10)',
-            color: active === opt ? '#fff' : '#a1a1aa',
-          }}
-        >
-          {opt} ({counts[opt]})
-        </button>
-      ))}
-    </div>
   )
 }
 
@@ -492,7 +434,7 @@ function FolderTile({ label, reels, onOpen }: { label: string; reels: ReelInspir
           <div key={r.id} className="bg-zinc-800 overflow-hidden">
             {r.thumbnail_url && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={r.thumbnail_url} alt="" className="w-full h-full object-contain object-center" />
+              <img src={r.thumbnail_url} alt="" className="w-full h-full object-cover object-center" />
             )}
           </div>
         ))}
@@ -517,7 +459,6 @@ export default function ReelGallery({ reels: initialReels, isAdmin }: { reels: R
   const [query, setQuery] = useState('')
   const [viewMode, setViewMode] = useState<'folders' | 'all'>('folders')
   const [openFolder, setOpenFolder] = useState<string | null>(null)
-  const [activeCategory, setActiveCategory] = useState<string | null>(null)
   const [previewId, setPreviewId] = useState<string | null>(null)
   const [sortMode, setSortMode] = useState<'newest' | 'oldest' | 'shuffle'>('newest')
   const [shuffleTick, setShuffleTick] = useState(0)
@@ -585,26 +526,18 @@ export default function ReelGallery({ reels: initialReels, isAdmin }: { reels: R
     return []
   }, [reels, isSearching, viewMode, openFolder, folderReels])
 
-  const categoryCounts = useMemo(() => {
-    const counts: Record<string, number> = {}
-    for (const cat of REEL_CATEGORIES) counts[cat] = scoped.filter(r => r.category === cat).length
-    return counts
-  }, [scoped])
-
   const filtered = useMemo(() => {
     const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean)
+    if (words.length === 0) return scoped
 
     return scoped.filter(r => {
-      if (activeCategory && r.category !== activeCategory) return false
-      if (words.length === 0) return true
-
-      const searchable = [r.caption, r.author, r.category, r.media_type, ...r.tags]
+      const searchable = [r.caption, r.author, r.media_type, ...r.tags]
         .filter(Boolean)
         .join(' ')
         .toLowerCase()
       return words.every(w => searchable.includes(w))
     })
-  }, [scoped, query, activeCategory])
+  }, [scoped, query])
 
   // Recomputed only on an explicit shuffle click (or when the item set
   // changes) — not on every render, so the order stays stable while browsing.
@@ -633,8 +566,8 @@ export default function ReelGallery({ reels: initialReels, isAdmin }: { reels: R
   }, [reels])
 
   // Looked up from the unfiltered `reels`, not `sorted` — editing a reel's
-  // category/type while that exact filter is active would otherwise drop it
-  // out of `sorted` mid-edit and yank the modal closed. `previewIndex` (used
+  // type while that exact folder is open would otherwise drop it out of
+  // `sorted` mid-edit and yank the modal closed. `previewIndex` (used
   // only for prev/next) is allowed to go to -1 in that case; it just means
   // arrow-nav is unavailable until the modal's closed and reopened.
   const previewReel = reels.find(r => r.id === previewId) ?? null
@@ -687,7 +620,7 @@ export default function ReelGallery({ reels: initialReels, isAdmin }: { reels: R
               <Folder size={13} /> Mapjes
             </button>
             <button
-              onClick={() => { setViewMode('all'); setActiveCategory(null) }}
+              onClick={() => setViewMode('all')}
               className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors"
               style={{
                 background: viewMode === 'all' ? 'rgba(255,255,255,0.14)' : 'transparent',
@@ -703,7 +636,7 @@ export default function ReelGallery({ reels: initialReels, isAdmin }: { reels: R
       {showFolders ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {[...REEL_MEDIA_TYPES, UNSORTED].filter(type => folderReels[type].length > 0).map(type => (
-            <FolderTile key={type} label={type} reels={folderReels[type]} onOpen={() => { setOpenFolder(type); setActiveCategory(null) }} />
+            <FolderTile key={type} label={type} reels={folderReels[type]} onOpen={() => setOpenFolder(type)} />
           ))}
         </div>
       ) : (
@@ -715,10 +648,6 @@ export default function ReelGallery({ reels: initialReels, isAdmin }: { reels: R
             >
               <ChevronLeft size={13} /> Terug naar mapjes — <span className="font-medium text-zinc-300">{openFolder}</span>
             </button>
-          )}
-
-          {isSearching && (
-            <PillRow label="Categorie" options={REEL_CATEGORIES} counts={categoryCounts} active={activeCategory} onChange={setActiveCategory} />
           )}
 
           <div className="flex items-center gap-1.5">

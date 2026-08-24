@@ -97,7 +97,6 @@ export async function POST(request: NextRequest) {
       const { error: updateError } = await admin
         .from('reel_inspiration')
         .update({
-          category: classification.category,
           media_type: classification.mediaType,
           tags: classification.tags,
           confidence: classification.confidence,

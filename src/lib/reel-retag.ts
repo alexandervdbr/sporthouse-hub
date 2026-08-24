@@ -7,8 +7,8 @@ interface ReelRow {
   url: string
   caption: string | null
   author: string | null
-  category: string | null
   tags: string[]
+  media_type: string | null
   thumbnail_url: string | null
   thumbnail_drive_id: string | null
 }
@@ -35,7 +35,7 @@ export async function retagReel(
     }
   }
 
-  const needsClassification = options.forceReclassify || !reel.category || reel.tags.length === 0
+  const needsClassification = options.forceReclassify || !reel.media_type || reel.tags.length === 0
   if (needsClassification) {
     const classification = await classifyReel({
       url: reel.url,
@@ -43,7 +43,6 @@ export async function retagReel(
       authorName: reel.author,
       thumbnailUrl: (update.thumbnail_url as string | undefined) ?? reel.thumbnail_url,
     })
-    update.category = classification.category
     update.media_type = classification.mediaType
     update.tags = classification.tags
     update.confidence = classification.confidence

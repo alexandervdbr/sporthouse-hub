@@ -33,7 +33,7 @@ export async function POST() {
   const admin = createAdminClient()
   const { data: reels, error } = await admin
     .from('reel_inspiration')
-    .select('id, url, caption, author, category, tags, thumbnail_url, thumbnail_drive_id')
+    .select('id, url, caption, author, media_type, tags, thumbnail_url, thumbnail_drive_id')
 
   if (error) return new Response(error.message, { status: 500 })
 

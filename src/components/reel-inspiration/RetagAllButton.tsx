@@ -8,7 +8,7 @@ export default function RetagAllButton() {
   const [result, setResult] = useState<string | null>(null)
 
   async function handleClick() {
-    if (!confirm('Thumbnails herstellen en ontbrekende classificaties aanvullen? Items die al een categorie en tags hebben, worden niet opnieuw gedaan.')) return
+    if (!confirm('Thumbnails herstellen en ontbrekende classificaties aanvullen? Items die al een type en tags hebben, worden niet opnieuw gedaan.')) return
     setLoading(true)
     setResult(null)
     try {
