@@ -76,7 +76,7 @@ export interface ReelInspiration {
   caption: string | null
   author: string | null
   embed_html: string | null
-  media_type: string | null
+  media_types: string[]
   thumbnail_drive_id: string | null
   tags: string[]
   confidence: 'high' | 'medium' | 'low' | null

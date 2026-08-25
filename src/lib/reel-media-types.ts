@@ -19,3 +19,17 @@ export function normalizeMediaType(value: unknown, validTypes: string[]): string
 export function isReelMediaType(value: unknown, validTypes: string[]): boolean {
   return typeof value === 'string' && validTypes.some(t => t === value)
 }
+
+// A reel is usually exactly one type, occasionally two when it's a genuine
+// mix (see the classification prompt) — never more. Normalizes each entry
+// the same way normalizeMediaType does, drops unmatched/duplicate entries,
+// and caps at 2 regardless of what was passed in.
+export function normalizeMediaTypes(value: unknown, validTypes: string[]): string[] {
+  if (!Array.isArray(value)) return []
+  const normalized = value.map(v => normalizeMediaType(v, validTypes)).filter((t): t is string => t !== null)
+  return Array.from(new Set(normalized)).slice(0, 2)
+}
+
+export function areReelMediaTypes(value: unknown, validTypes: string[]): boolean {
+  return Array.isArray(value) && value.every(v => isReelMediaType(v, validTypes))
+}

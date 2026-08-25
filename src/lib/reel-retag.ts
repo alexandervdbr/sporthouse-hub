@@ -9,7 +9,7 @@ interface ReelRow {
   caption: string | null
   author: string | null
   tags: string[]
-  media_type: string | null
+  media_types: string[]
   thumbnail_url: string | null
   thumbnail_drive_id: string | null
 }
@@ -36,7 +36,7 @@ export async function retagReel(
     }
   }
 
-  const needsClassification = options.forceReclassify || !reel.media_type || reel.tags.length === 0
+  const needsClassification = options.forceReclassify || reel.media_types.length === 0 || reel.tags.length === 0
   if (needsClassification) {
     const mediaTypes = await getReelMediaTypes(admin)
     const classification = await classifyReel({
@@ -46,7 +46,7 @@ export async function retagReel(
       thumbnailUrl: (update.thumbnail_url as string | undefined) ?? reel.thumbnail_url,
       mediaTypes,
     })
-    update.media_type = classification.mediaType
+    update.media_types = classification.mediaTypes
     update.tags = classification.tags
     update.confidence = classification.confidence
     update.status = 'done'

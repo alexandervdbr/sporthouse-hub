@@ -1,11 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { normalizeMediaType } from './reel-media-types'
+import { normalizeMediaTypes } from './reel-media-types'
 import { fetchDriveThumbnailAsBase64 } from './reel-thumbnail-storage'
 import { fetchEmbedHtml, parseEmbedCarousel, parseEmbedVideo, type CarouselSlide } from './instagram-oembed'
 import { extractVideoFrames } from './reel-video-frames'
 
 export interface ReelClassification {
-  mediaType: string | null
+  mediaTypes: string[]
   confidence: 'high' | 'medium' | 'low'
   tags: string[]
 }
@@ -13,13 +13,14 @@ export interface ReelClassification {
 // Last-resort signal when the AI call fails outright and there's nothing
 // else to go on — a /reel/ or /tv/ permalink is, at minimum, a video file.
 // Only used if "Video" is still actually one of the current valid types.
-function deterministicMediaType(url: string, mediaTypes: string[]): string | null {
-  if (!/\/(reel|tv)\//.test(url)) return null
-  return mediaTypes.find(t => t.toLowerCase() === 'video') ?? null
+function deterministicMediaTypes(url: string, mediaTypes: string[]): string[] {
+  if (!/\/(reel|tv)\//.test(url)) return []
+  const video = mediaTypes.find(t => t.toLowerCase() === 'video')
+  return video ? [video] : []
 }
 
 function fallback(url: string, mediaTypes: string[]): ReelClassification {
-  return { mediaType: deterministicMediaType(url, mediaTypes), confidence: 'low', tags: [] }
+  return { mediaTypes: deterministicMediaTypes(url, mediaTypes), confidence: 'low', tags: [] }
 }
 
 // Evenly samples `items` down to `count`, always keeping `priority` (if it's
@@ -179,7 +180,7 @@ export async function classifyReel(input: {
   const contextLines: string[] = []
   if (carouselComposition) {
     contextLines.push(
-      `Dit is een carrousel/slider-post met ${carouselComposition.total} slides: ${carouselComposition.photoCount} foto/grafisch, ${carouselComposition.videoCount} video. Je ziet een steekproef van ${images.length} afbeeldingen uit deze slider (inclusief frames uit elke video-slide). Baseer het TYPE op wat het MERENDEEL van de slides toont — als de meeste slides foto's/grafisch zijn en slechts een enkele slide een korte video-clip bevat, blijft dit Foto/Grafisch, niet Video, tenzij de video-slide(s) duidelijk de kern van de post vormen.`
+      `Dit is een carrousel/slider-post met ${carouselComposition.total} slides: ${carouselComposition.photoCount} foto/grafisch, ${carouselComposition.videoCount} video. Je ziet een steekproef van ${images.length} afbeeldingen uit deze slider (inclusief frames uit elke video-slide). Baseer het TYPE op wat het MERENDEEL van de slides toont — als de meeste slides foto's/grafisch zijn en slechts een enkele slide een korte video-clip bevat, blijft dit Foto/Grafisch, niet Video, tenzij de video-slide(s) duidelijk de kern van de post vormen. Bij een carrousel die echt ongeveer gelijk verdeeld is tussen twee types, mag je 2 types kiezen.`
     )
   } else if (images.length > 1) {
     contextLines.push(
@@ -201,9 +202,9 @@ export async function classifyReel(input: {
   const mediaWord = carouselComposition ? 'afbeeldingen uit de slider' : images.length > 1 ? 'videoframes' : 'thumbnail'
   const prompt = `Je krijgt de caption en ${mediaWord} van een Instagram Reel/Post die iemand bewaarde als contentinspiratie voor SporthouseGroup, een sportmediabedrijf. Iemand gaat dit later terugvinden tijdens een brainstorm — dus kijk echt grondig naar het beeld voor je iets invult, niet oppervlakkig.
 ${imageContext}
-1) TYPE (het fundamentele format — exact één uit de lijst). Dit is waar het vaakst misgaat, dus let goed op:
+1) TYPES (het fundamentele format — meestal exact 1 uit de lijst, MAXIMAAL 2). Dit is waar het vaakst misgaat, dus let goed op:
 ${typeLines}
-Vuistregel bij twijfel tussen Video en een ander type (Motion, 3D, of gelijkaardig): kies Video, tenzij de volledige clip overheerst wordt door dat andere type. Eén frame met een grafisch/geanimeerd/3D-element temidden van verder gefilmde beelden is niet genoeg om van Video af te wijken.
+Kies in de overgrote meerderheid van de gevallen precies 1 type. Voeg een tweede type ENKEL toe als een aanzienlijk deel van de post — meerdere slides/frames, niet één afwijkend moment — duidelijk een apart, even belangrijk type toont (bv. een carrousel die ongeveer half uit gefilmde video en half uit ontworpen grafische slides bestaat). Eén overgang, intro-kaart of afwijkend frame is GEEN reden voor een tweede type — zie de Video-beschrijving hierboven. Nooit meer dan 2 types.
 Staat er een type in de lijst zonder beschrijving hierboven (bv. een nieuw toegevoegde categorie)? Gebruik je eigen inschatting op basis van de naam — kies het als het duidelijk de HOOFDMOOT van de clip beschrijft, niet één enkel frame.
 
 Caption: "${input.caption ?? '(geen caption)'}"
@@ -222,7 +223,7 @@ Schrijf de tags in het ENGELS, ongeacht de taal van de caption — dat maakt zoe
 Ben je niet zeker welk type het beste past? Kies toch de dichtstbijzijnde en zet confidence op "low".
 
 Antwoord ALLEEN in geldig JSON (geen uitleg erbuiten):
-{"mediaType": "<exact type>", "confidence": "high" | "medium" | "low", "tags": ["...", "..."]}`
+{"mediaTypes": ["<exact type>"], "confidence": "high" | "medium" | "low", "tags": ["...", "..."]}`
 
   const content: Anthropic.MessageParam['content'] = images.length
     ? [
@@ -261,10 +262,11 @@ Antwoord ALLEEN in geldig JSON (geen uitleg erbuiten):
 
       const parsed = JSON.parse(jsonMatch[0])
       const tags = Array.isArray(parsed.tags) ? parsed.tags.slice(0, 30).map(String) : []
-      const mediaType = normalizeMediaType(parsed.mediaType, input.mediaTypes) ?? deterministicMediaType(input.url, input.mediaTypes)
+      const normalized = normalizeMediaTypes(parsed.mediaTypes, input.mediaTypes)
+      const mediaTypes = normalized.length ? normalized : deterministicMediaTypes(input.url, input.mediaTypes)
 
       return {
-        mediaType,
+        mediaTypes,
         confidence: ['high', 'medium', 'low'].includes(parsed.confidence) ? parsed.confidence : 'low',
         tags,
       }

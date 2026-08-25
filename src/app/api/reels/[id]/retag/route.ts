@@ -24,7 +24,7 @@ export async function POST(
 
   const { data: reel, error } = await admin
     .from('reel_inspiration')
-    .select('id, url, caption, author, media_type, tags, thumbnail_url, thumbnail_drive_id')
+    .select('id, url, caption, author, media_types, tags, thumbnail_url, thumbnail_drive_id')
     .eq('id', id)
     .single()
 
