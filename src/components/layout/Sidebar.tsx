@@ -6,7 +6,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { Client } from '@/types/database'
-import { LayoutDashboard, KanbanSquare, CalendarDays, CalendarRange, Users, LogOut, Camera, UserCheck, MessageSquare, ShieldCheck, Sparkles, Lock, Layers, X, Star, Bookmark } from 'lucide-react'
+import { LayoutDashboard, KanbanSquare, CalendarDays, CalendarRange, Users, LogOut, Camera, UserCheck, MessageSquare, ShieldCheck, Lock, Layers, X, Star, Bookmark } from 'lucide-react'
 import { useSidebar } from '@/contexts/SidebarContext'
 import { useFavorites } from '@/contexts/FavoritesContext'
 import { cn } from '@/lib/utils'
@@ -278,7 +278,6 @@ export default function Sidebar({ clients }: SidebarProps) {
             { href: '/passwords',   icon: Lock,            label: 'Wachtwoorden',    section: 'wachtwoorden_bekijken', external: false },
             { href: '/preassist',   icon: Layers,          label: 'Pré-assist',      section: 'preassist',             external: false },
             { href: '/mijn-gedacht', icon: Bookmark,       label: 'Mijn gedacht!',   section: 'mijn-gedacht',          external: false },
-            { href: 'https://kinopio.club/start-to-kinopio--EeWqKmLYUOfwLTNfwQyS', icon: Sparkles, label: 'Inspiratiebord', section: 'inspiratiebord', external: true },
             { href: 'https://photos.google.com', icon: Camera, label: "Google Photos", section: 'googlephotos', external: true },
             ...(isAdmin ? [{ href: '/admin', icon: ShieldCheck, label: 'Beheer', section: 'admin', external: false }] : []),
           ] as { href: string; icon: React.ElementType; label: string; section: string; external: boolean }[])
