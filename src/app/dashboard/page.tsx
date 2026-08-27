@@ -1,78 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
-import Link from 'next/link'
-import Image from 'next/image'
-import { Client } from '@/types/database'
-import { ArrowRight, Users, Mic2, Building2, FileText } from 'lucide-react'
-import { getLogo } from '@/lib/logos'
+import { Users, Mic2, Building2, FileText } from 'lucide-react'
 import { filterClientsForUser } from '@/lib/filter-clients'
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-type ClientWithDocs = Client & { files: [{ count: number }] }
-
-// ─── Client card ─────────────────────────────────────────────────────────────
-
-function ClientCard({ client }: { client: ClientWithDocs }) {
-  const logo  = getLogo(client.name, client.logo_url)
-  const color = client.color || '#52525b'
-
-  return (
-    <Link
-      href={`/clients/${client.id}`}
-      data-tour="client-card"
-      className="group relative flex items-center gap-3 p-3.5 rounded-xl transition-all duration-200 overflow-hidden"
-      style={{
-        background: 'rgba(24,24,24,0.97)',
-        border: '1px solid rgba(255,255,255,0.10)',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.5)',
-      }}
-    >
-      {/* Top shine */}
-      <div
-        className="absolute top-0 left-[15%] right-[15%] h-px pointer-events-none"
-        style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.07), transparent)' }}
-      />
-
-      {/* Hover color glow */}
-      <div
-        className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"
-        style={{ background: `radial-gradient(ellipse 80% 60% at 50% 0%, ${color}14 0%, transparent 70%)` }}
-      />
-
-      {/* Left color accent bar */}
-      <div
-        className="absolute left-0 top-[20%] bottom-[20%] w-[2px] rounded-full opacity-70 group-hover:opacity-100 transition-opacity"
-        style={{ backgroundColor: color }}
-      />
-
-      {/* Logo or fallback */}
-      {logo ? (
-        <Image
-          src={logo}
-          alt={client.name}
-          width={28}
-          height={28}
-          className="rounded-lg object-cover flex-shrink-0 relative"
-          style={{ width: 28, height: 28 }}
-        />
-      ) : (
-        <div
-          className="w-7 h-7 rounded-lg flex-shrink-0 relative"
-          style={{ backgroundColor: `${color}20`, border: `1px solid ${color}30` }}
-        />
-      )}
-
-      <span className="relative text-sm font-medium text-zinc-200 group-hover:text-white transition-colors truncate flex-1 leading-tight">
-        {client.name}
-      </span>
-
-      <ArrowRight
-        size={12}
-        className="text-zinc-700 group-hover:text-zinc-400 group-hover:translate-x-0.5 transition-all flex-shrink-0 relative"
-      />
-    </Link>
-  )
-}
+import { isAdminUser, hasSection } from '@/lib/auth-permissions'
+import DashboardFavorites from '@/components/dashboard/DashboardFavorites'
+import { ClientCard, type ClientWithDocs } from '@/components/dashboard/ClientCard'
 
 // ─── Stat card ────────────────────────────────────────────────────────────────
 
@@ -176,6 +107,16 @@ export default async function DashboardPage() {
   const allRaw = (clients as ClientWithDocs[]) || []
   const all = filterClientsForUser(allRaw, user) as ClientWithDocs[]
 
+  // Same tool-availability inputs as the client's own Tools grid
+  // (src/app/clients/[id]/page.tsx) — needed here too so a favorited tool
+  // can be re-validated (still available for this client/user) via the
+  // shared getAvailableTools().
+  const isAdmin = isAdminUser(user)
+  const permsObj = user?.app_metadata?.permissions ?? null
+  const canSeeWelkom = permsObj === null || hasSection(user, 'welkom_stagiair')
+  const canSeeFinancien = hasSection(user, 'financien_bekijken') || hasSection(user, 'financien_beheren')
+  const canSeeAdministratie = hasSection(user, 'administratie_bekijken') || hasSection(user, 'administratie_beheren')
+
   const INTERN_ORDER = ['Sporthouse', 'Friends of Sports']
   const intern   = all
     .filter(c => c.category === 'intern')
@@ -209,6 +150,14 @@ export default async function DashboardPage() {
         </h1>
         <p className="text-sm text-zinc-400">Overzicht van alle klanten, atleten en podcasts</p>
       </div>
+
+      <DashboardFavorites
+        clients={all}
+        isAdmin={isAdmin}
+        canSeeWelkom={canSeeWelkom}
+        canSeeFinancien={canSeeFinancien}
+        canSeeAdministratie={canSeeAdministratie}
+      />
 
       <div data-tour="stat-cards" className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-12">
         <StatCard label="Klanten"    value={klanten.length}  icon={Building2} color="#3A913F" />
