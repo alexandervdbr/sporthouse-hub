@@ -82,7 +82,7 @@ export default function DashboardFavorites({
         <Star size={12} className="text-amber-400/70" fill="currentColor" />
         <h2 className="text-sm font-semibold text-zinc-200 tracking-wide">Favorieten</h2>
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
         {favoriteClients.map(client => <ClientCard key={client.id} client={client} />)}
         {favoriteTools.map(({ client, toolId }) => (
           <FavoriteToolCard key={`${client.id}:${toolId}`} client={client} toolId={toolId} {...perms} />
