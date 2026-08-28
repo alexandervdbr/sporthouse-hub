@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { hasClientAccess } from '@/lib/auth-permissions'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface FolderNode {
@@ -40,8 +41,9 @@ export async function GET(
   const { id } = await params
   const admin = createAdminClient()
 
-  const { data: root } = await admin.from('file_folders').select('id, name').eq('id', id).single()
+  const { data: root } = await admin.from('file_folders').select('id, name, client_id').eq('id', id).single()
   if (!root) return NextResponse.json({ error: 'Map niet gevonden.' }, { status: 404 })
+  if (!hasClientAccess(user, root.client_id)) return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
 
   const nodes = await collectFolderTree(admin, root.id)
   const pathById = new Map(nodes.map(n => [n.id, n.path]))

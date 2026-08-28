@@ -4,6 +4,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { DEPARTMENTS, DUTCH_DAYS, DUTCH_MONTHS } from '@/lib/planning-config'
 import { downloadFile } from '@/lib/drive-storage'
 import { formatKennisbank } from '@/lib/kennisbank-questions'
+import { hasClientAccess } from '@/lib/auth-permissions'
 
 async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
   const chunks: Buffer[] = []
@@ -149,6 +150,7 @@ export async function POST(request: NextRequest) {
   if (!clientId || !messages?.length) {
     return new Response('Ongeldige aanvraag.', { status: 400 })
   }
+  if (!hasClientAccess(user, clientId)) return new Response('Geen toegang tot deze klant.', { status: 403 })
 
   const now   = new Date()
   const curY  = now.getFullYear()

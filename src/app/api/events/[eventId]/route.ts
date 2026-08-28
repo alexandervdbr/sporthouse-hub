@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { hasSection, hasClientAccess } from '@/lib/auth-permissions'
 
 export async function PATCH(
   req: Request,
@@ -8,10 +8,11 @@ export async function PATCH(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return new Response('Unauthorized', { status: 401 })
-  if (!allowed(user, 'projectkalender_toevoegen')) return new Response('Forbidden', { status: 403 })
+  if (!hasSection(user, 'projectkalender_toevoegen')) return new Response('Forbidden', { status: 403 })
 
   const { eventId } = await params
   const { title, date, end_date, time, client_id, description, type } = await req.json()
+  if (client_id && !hasClientAccess(user, client_id)) return new Response('Forbidden', { status: 403 })
 
   const { data, error } = await supabase
     .from('project_events')
@@ -32,12 +33,6 @@ export async function PATCH(
   return Response.json(data)
 }
 
-function allowed(user: { email?: string | null; app_metadata?: Record<string, unknown> }, section: string) {
-  if (ADMIN_EMAILS.includes(user.email ?? '')) return true
-  const sections = (user.app_metadata?.permissions as { sections?: string[] } | null)?.sections ?? null
-  return sections === null || sections.includes(section)
-}
-
 export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ eventId: string }> }
@@ -45,7 +40,7 @@ export async function DELETE(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return new Response('Unauthorized', { status: 401 })
-  if (!allowed(user, 'projectkalender_verwijderen')) return new Response('Forbidden', { status: 403 })
+  if (!hasSection(user, 'projectkalender_verwijderen')) return new Response('Forbidden', { status: 403 })
 
   const { eventId } = await params
   const { error } = await supabase.from('project_events').delete().eq('id', eventId)

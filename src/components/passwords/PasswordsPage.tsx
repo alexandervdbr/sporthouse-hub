@@ -274,7 +274,7 @@ function Modal({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function PasswordsPage({ canAdd, canDelete, allowedIds }: { canAdd: boolean; canDelete: boolean; allowedIds: string[] | null }) {
+export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; canDelete: boolean }) {
   const router = useRouter()
   const supabase = createClient()
   const [credentials, setCredentials] = useState<Credential[]>([])
@@ -288,16 +288,14 @@ export default function PasswordsPage({ canAdd, canDelete, allowedIds }: { canAd
 
   useEffect(() => { load() }, [])
 
+  // get_credentials() (see migration 0025) already returns only what this
+  // user is allowed to see — decrypted server-side via pgcrypto, filtered
+  // server-side via user_has_credential_access() — nothing to filter here.
   async function load() {
     setLoading(true)
-    let query = supabase.from('credentials').select('*').order('platform')
-    if (allowedIds !== null) {
-      query = allowedIds.length > 0
-        ? query.in('id', allowedIds)
-        : query.in('id', ['00000000-0000-0000-0000-000000000000']) // geen toegang
-    }
-    const { data } = await query
-    setCredentials(data ?? [])
+    const { data, error } = await supabase.rpc('get_credentials')
+    if (error) console.error('Kon wachtwoorden niet laden:', error)
+    setCredentials((data ?? []).sort((a: Credential, b: Credential) => a.platform.localeCompare(b.platform)))
     setLoading(false)
   }
 
@@ -315,17 +313,17 @@ export default function PasswordsPage({ canAdd, canDelete, allowedIds }: { canAd
 
   async function handleSave() {
     setSaving(true)
-    const payload = {
-      platform: form.platform.trim(),
-      url: form.url.trim() || null,
-      username: form.username.trim(),
-      password: form.password,
-      notes: form.notes.trim() || null,
-    }
-    if (editing) {
-      await supabase.from('credentials').update(payload).eq('id', editing.id)
-    } else {
-      await supabase.from('credentials').insert(payload)
+    const { error } = await supabase.rpc('upsert_credential', {
+      p_id: editing?.id ?? null,
+      p_platform: form.platform.trim(),
+      p_url: form.url.trim() || null,
+      p_username: form.username.trim(),
+      p_password: form.password,
+      p_notes: form.notes.trim() || null,
+    })
+    if (error) {
+      console.error('Kon wachtwoord niet opslaan:', error)
+      alert('Opslaan mislukt. Probeer opnieuw.')
     }
     setSaving(false)
     setModalOpen(false)
@@ -333,7 +331,11 @@ export default function PasswordsPage({ canAdd, canDelete, allowedIds }: { canAd
   }
 
   async function handleDelete(id: string) {
-    await supabase.from('credentials').delete().eq('id', id)
+    const { error } = await supabase.rpc('delete_credential', { p_id: id })
+    if (error) {
+      console.error('Kon wachtwoord niet verwijderen:', error)
+      alert('Verwijderen mislukt. Probeer opnieuw.')
+    }
     setDeleteId(null)
     load()
   }

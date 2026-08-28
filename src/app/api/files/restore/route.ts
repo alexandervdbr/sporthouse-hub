@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { restoreFile } from '@/lib/drive-storage'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { ADMIN_EMAILS, hasClientAccess } from '@/lib/auth-permissions'
 
 function adminClient() {
   return createAdminClient(
@@ -35,12 +35,15 @@ export async function POST(request: NextRequest) {
 
   const { data: file } = await admin
     .from('files')
-    .select('storage_provider, drive_file_id, uploaded_by')
+    .select('storage_provider, drive_file_id, uploaded_by, client_id')
     .eq('id', id)
     .not('deleted_at', 'is', null)
     .single()
 
   if (!file) return NextResponse.json({ error: 'Bestand niet gevonden in de prullenbak.' }, { status: 404 })
+  if (!hasClientAccess(user, file.client_id)) {
+    return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
+  }
 
   if (!canManageFile(user, file.uploaded_by)) {
     return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 })

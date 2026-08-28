@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { hasClientAccess } from '@/lib/auth-permissions'
 import Anthropic from '@anthropic-ai/sdk'
 
 export async function POST(request: NextRequest) {
@@ -12,6 +13,9 @@ export async function POST(request: NextRequest) {
   }
 
   const { clientId } = await request.json()
+  if (!clientId || !hasClientAccess(user, clientId)) {
+    return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
+  }
 
   const { data: docs } = await supabase
     .from('liveshift_embargo_docs')

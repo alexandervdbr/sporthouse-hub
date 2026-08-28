@@ -1,4 +1,5 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { hasClientAccess } from '@/lib/auth-permissions'
 
 const ASANA_API = 'https://app.asana.com/api/1.0'
 
@@ -68,6 +69,7 @@ export async function POST(req: Request) {
   if (!clientId || !Array.isArray(rows) || rows.length === 0) {
     return new Response('Bad request', { status: 400 })
   }
+  if (!hasClientAccess(user, clientId)) return new Response('Forbidden', { status: 403 })
 
   const admin = createAdminClient()
 

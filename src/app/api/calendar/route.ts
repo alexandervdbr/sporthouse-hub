@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { hasSection, hasClientAccess } from '@/lib/auth-permissions'
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
@@ -14,6 +14,7 @@ export async function GET(request: NextRequest) {
   const eventId   = searchParams.get('eventId')
 
   if (!clientId) return new Response('Missing clientId', { status: 400 })
+  if (!hasClientAccess(user, clientId)) return new Response('Forbidden', { status: 403 })
 
   let query = supabase
     .from('content_posts')
@@ -29,20 +30,15 @@ export async function GET(request: NextRequest) {
   return Response.json(data ?? [])
 }
 
-function allowed(user: { email?: string | null; app_metadata?: Record<string, unknown> }, section: string) {
-  if (ADMIN_EMAILS.includes(user.email ?? '')) return true
-  const sections = (user.app_metadata?.permissions as { sections?: string[] } | null)?.sections ?? null
-  return sections === null || sections.includes(section)
-}
-
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return new Response('Unauthorized', { status: 401 })
-  if (!allowed(user, 'contentkalender_toevoegen')) return new Response('Forbidden', { status: 403 })
+  if (!hasSection(user, 'contentkalender_toevoegen')) return new Response('Forbidden', { status: 403 })
 
   const { clientId, title, copy, platform, status, scheduled_date, scheduled_time, format, creator, collab, link, event_id } = await request.json()
   if (!clientId || !title || !scheduled_date) return new Response('Missing required fields', { status: 400 })
+  if (!hasClientAccess(user, clientId)) return new Response('Forbidden', { status: 403 })
 
   const { data, error } = await supabase
     .from('content_posts')

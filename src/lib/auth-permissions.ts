@@ -7,7 +7,7 @@ export const ADMIN_EMAILS = ['arne.smets@sporthousegroup.com', 'deryan.spiessens
 
 type PermissionUser = {
   email?: string | null
-  app_metadata?: { permissions?: { sections?: string[] } } & Record<string, unknown>
+  app_metadata?: { permissions?: { sections?: string[]; clients?: string[] } } & Record<string, unknown>
 } | null | undefined
 
 export function getSections(user: PermissionUser): string[] {
@@ -20,4 +20,20 @@ export function isAdminUser(user: PermissionUser): boolean {
 
 export function hasSection(user: PermissionUser, section: string): boolean {
   return isAdminUser(user) || getSections(user).includes(section)
+}
+
+// Single source of truth for "can this user touch this specific client's
+// data" — same semantics as the DB-level user_has_client_access() (see
+// supabase/migrations/0023_client_access_rls_foundation.sql), for the many
+// routes that use the admin/service-role client and so aren't covered by
+// RLS at all. Admin -> full access; no permissions object configured ->
+// full access; permissions.clients empty/missing -> full access (no
+// restriction set); otherwise -> allow-list membership.
+export function hasClientAccess(user: PermissionUser, clientId: string): boolean {
+  if (isAdminUser(user)) return true
+  const perms = user?.app_metadata?.permissions
+  if (!perms) return true
+  const allowedIds = perms.clients ?? []
+  if (allowedIds.length === 0) return true
+  return allowedIds.includes(clientId)
 }
