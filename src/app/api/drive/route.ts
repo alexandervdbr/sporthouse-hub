@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { createDriveFile, deleteDriveFile, renameDriveFile, isDriveConfigured, type DriveDocType } from '@/lib/google-drive'
+import { hasClientAccess } from '@/lib/auth-permissions'
 
 export async function GET(req: Request) {
   const supabase = await createClient()
@@ -10,6 +11,7 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
   const clientId = searchParams.get('clientId')
   if (!clientId) return new Response('clientId required', { status: 400 })
+  if (!hasClientAccess(user, clientId)) return new Response('Forbidden', { status: 403 })
 
   const admin = createAdminClient()
   const { data, error } = await admin
@@ -33,6 +35,7 @@ export async function POST(req: Request) {
   if (!clientId || !clientName || !type || !name?.trim()) {
     return new Response('clientId, clientName, type en name zijn verplicht', { status: 400 })
   }
+  if (!hasClientAccess(user, clientId)) return new Response('Forbidden', { status: 403 })
 
   const admin = createAdminClient()
 
@@ -63,8 +66,9 @@ export async function PATCH(req: Request) {
   if (!id || !name?.trim()) return new Response('id en name zijn verplicht', { status: 400 })
 
   const admin = createAdminClient()
-  const { data: record } = await admin.from('drive_files').select('drive_file_id').eq('id', id).single()
+  const { data: record } = await admin.from('drive_files').select('drive_file_id, client_id').eq('id', id).single()
   if (!record) return new Response('Niet gevonden', { status: 404 })
+  if (!hasClientAccess(user, record.client_id)) return new Response('Forbidden', { status: 403 })
 
   await renameDriveFile(record.drive_file_id, name.trim())
   const { data, error } = await admin.from('drive_files').update({ name: name.trim() }).eq('id', id).select().single()
@@ -82,8 +86,9 @@ export async function DELETE(req: Request) {
   if (!id) return new Response('id required', { status: 400 })
 
   const admin = createAdminClient()
-  const { data: record } = await admin.from('drive_files').select('drive_file_id').eq('id', id).single()
+  const { data: record } = await admin.from('drive_files').select('drive_file_id, client_id').eq('id', id).single()
   if (!record) return new Response('Niet gevonden', { status: 404 })
+  if (!hasClientAccess(user, record.client_id)) return new Response('Forbidden', { status: 403 })
 
   try { await deleteDriveFile(record.drive_file_id) } catch { /* file may already be deleted in Drive */ }
 

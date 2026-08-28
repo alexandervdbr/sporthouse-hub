@@ -1,12 +1,10 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser, hasClientAccess } from '@/lib/auth-permissions'
 
 async function requireAdmin() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-  const sections: string[] = user.app_metadata?.permissions?.sections ?? []
-  return ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer') ? user : null
+  return user && isAdminUser(user) ? user : null
 }
 
 export async function GET(req: Request) {
@@ -17,6 +15,7 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
   const clientId = searchParams.get('clientId')
   if (!clientId) return new Response('clientId required', { status: 400 })
+  if (!hasClientAccess(user, clientId)) return new Response('Forbidden', { status: 403 })
 
   const admin = createAdminClient()
   const { data, error } = await admin

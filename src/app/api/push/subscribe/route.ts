@@ -25,7 +25,7 @@ export async function DELETE(req: Request) {
 
   const { endpoint } = await req.json()
   const admin = createAdminClient()
-  await admin.from('push_subscriptions').delete().eq('endpoint', endpoint)
+  await admin.from('push_subscriptions').delete().eq('endpoint', endpoint).eq('user_id', user.id)
 
   return new Response('OK')
 }

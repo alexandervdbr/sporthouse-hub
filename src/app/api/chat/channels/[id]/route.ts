@@ -1,5 +1,5 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser } from '@/lib/auth-permissions'
 
 export async function PATCH(
   req: Request,
@@ -8,7 +8,7 @@ export async function PATCH(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return new Response('Unauthorized', { status: 401 })
-  if (!ADMIN_EMAILS.includes(user.email ?? '')) return new Response('Forbidden', { status: 403 })
+  if (!isAdminUser(user)) return new Response('Forbidden', { status: 403 })
 
   const { id } = await params
   const { name, description, category, color } = await req.json()
@@ -38,7 +38,7 @@ export async function DELETE(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return new Response('Unauthorized', { status: 401 })
-  if (!ADMIN_EMAILS.includes(user.email ?? '')) return new Response('Forbidden', { status: 403 })
+  if (!isAdminUser(user)) return new Response('Forbidden', { status: 403 })
 
   const { id } = await params
   const admin = createAdminClient()

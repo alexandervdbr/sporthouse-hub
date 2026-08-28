@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { OAuth2Client } from 'google-auth-library'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser } from '@/lib/auth-permissions'
 
 const PROPERTY_ID = process.env.GA4_PROPERTY_ID
 
@@ -41,7 +41,7 @@ function pct(current: number, previous: number): number | null {
 export async function GET(req: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user || !ADMIN_EMAILS.includes(user.email ?? '')) {
+  if (!user || !isAdminUser(user)) {
     return new Response('Forbidden', { status: 403 })
   }
 

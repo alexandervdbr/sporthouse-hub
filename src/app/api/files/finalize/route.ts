@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { getFileMetadata } from '@/lib/drive-storage'
+import { hasClientAccess } from '@/lib/auth-permissions'
 
 function adminClient() {
   return createAdminClient(
@@ -27,6 +28,9 @@ export async function POST(request: NextRequest) {
 
   if (!clientId || !driveFileId) {
     return NextResponse.json({ error: 'Ongeldig verzoek.' }, { status: 400 })
+  }
+  if (!hasClientAccess(user, clientId)) {
+    return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
   }
 
   const admin = adminClient()
