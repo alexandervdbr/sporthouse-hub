@@ -1,7 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import FileManager from '@/components/clients/FileManager'
-import DriveManager from '@/components/clients/DriveManager'
 import { ADMIN_EMAILS } from '@/lib/auth-permissions'
 
 interface Props {
@@ -14,7 +13,7 @@ export default async function ClientFilesPage({ params }: Props) {
 
   const { data: client } = await supabase
     .from('clients')
-    .select('id, name')
+    .select('id')
     .eq('id', id)
     .single()
 
@@ -29,7 +28,6 @@ export default async function ClientFilesPage({ params }: Props) {
 
   return (
     <div className="h-full overflow-y-auto">
-      <DriveManager clientId={id} clientName={client.name} />
       <FileManager
         backend={{
           filesApi: '/api/files',
