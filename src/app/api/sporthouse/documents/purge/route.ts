@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { deleteFile } from '@/lib/drive-storage'
+import { trashFile } from '@/lib/drive-storage'
 import { canManageSection, type SporthouseSection } from '@/lib/sporthouse-docs'
 
 // Permanently removes a document from the Prullenbak, ahead of the 30-day cron.
@@ -29,7 +29,7 @@ export async function DELETE(request: NextRequest) {
   // when this hard delete is refused (the service account is Content manager,
   // not Manager) Google still clears it at the 30-day mark.
   if (doc.storage_provider === 'drive' && doc.drive_file_id) {
-    try { await deleteFile(doc.drive_file_id) } catch (err) { console.error('Drive purge error:', err) }
+    try { await trashFile(doc.drive_file_id) } catch (err) { console.error('Drive purge error:', err) }
   } else if (doc.storage_path) {
     await admin.storage.from('sporthouse-internal').remove([doc.storage_path])
   }

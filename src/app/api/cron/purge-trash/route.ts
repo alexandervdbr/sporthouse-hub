@@ -1,6 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/server'
 import { headers } from 'next/headers'
-import { deleteFile } from '@/lib/drive-storage'
+import { trashFile } from '@/lib/drive-storage'
 
 // Mirrors Google Drive's own trash retention: anything soft-deleted in the
 // app for 30+ days gets permanently purged (Drive file + DB row), whether or
@@ -27,7 +27,7 @@ export async function GET() {
   const results = await Promise.allSettled(
     (expired ?? []).map(async (file) => {
       if (file.storage_provider === 'drive' && file.drive_file_id) {
-        try { await deleteFile(file.drive_file_id) } catch { /* may already be gone */ }
+        try { await trashFile(file.drive_file_id) } catch { /* may already be gone */ }
       } else if (file.storage_path) {
         await admin.storage.from('files').remove([file.storage_path])
       }
@@ -52,7 +52,7 @@ export async function GET() {
   const docResults = await Promise.allSettled(
     (expiredDocs ?? []).map(async (doc) => {
       if (doc.storage_provider === 'drive' && doc.drive_file_id) {
-        try { await deleteFile(doc.drive_file_id) } catch { /* may already be gone */ }
+        try { await trashFile(doc.drive_file_id) } catch { /* may already be gone */ }
       } else if (doc.storage_path) {
         await admin.storage.from('sporthouse-internal').remove([doc.storage_path])
       }

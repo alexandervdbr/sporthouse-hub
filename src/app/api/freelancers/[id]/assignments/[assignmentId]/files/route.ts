@@ -1,6 +1,6 @@
 import { Readable } from 'stream'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { isDriveStorageConfigured, uploadFile, deleteFile, downloadFile, getOrCreateFolderPath, driveRootFolderId } from '@/lib/drive-storage'
+import { isDriveStorageConfigured, uploadFile, trashFile, downloadFile, getOrCreateFolderPath, driveRootFolderId } from '@/lib/drive-storage'
 import { ADMIN_EMAILS } from '@/lib/auth-permissions'
 
 export const maxDuration = 60
@@ -111,7 +111,7 @@ export async function POST(
 
   if (error) {
     console.error('DB insert error:', error)
-    try { await deleteFile(driveFile.id) } catch { /* best effort cleanup */ }
+    try { await trashFile(driveFile.id) } catch { /* best effort cleanup */ }
     return new Response(error.message, { status: 500 })
   }
   return Response.json(data, { status: 201 })
@@ -134,7 +134,7 @@ export async function DELETE(
 
   if (file) {
     if (file.storage_provider === 'drive' && file.drive_file_id) {
-      try { await deleteFile(file.drive_file_id) } catch (err) { console.error('Drive delete error:', err) }
+      try { await trashFile(file.drive_file_id) } catch (err) { console.error('Drive delete error:', err) }
     } else if (file.file_url) {
       await admin.storage.from('freelancer-assignments').remove([file.file_url])
     }

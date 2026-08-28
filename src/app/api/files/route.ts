@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { ADMIN_EMAILS } from '@/lib/auth-permissions'
 import {
-  isDriveStorageConfigured, uploadFile, deleteFile, downloadFile, updateFileContent, moveFile, trashFile,
+  isDriveStorageConfigured, uploadFile, downloadFile, updateFileContent, moveFile, trashFile,
 } from '@/lib/drive-storage'
 import { resolveDriveFolderId } from '@/lib/client-files-drive'
 
@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
 
   if (dbError) {
     console.error('DB insert error:', dbError)
-    try { await deleteFile(driveFile.id) } catch { /* best effort cleanup */ }
+    try { await trashFile(driveFile.id) } catch { /* best effort cleanup */ }
     return NextResponse.json(
       { error: `Fout bij opslaan: ${dbError.message}` },
       { status: 500 }
