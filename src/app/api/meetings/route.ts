@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
+import { hasClientAccess } from '@/lib/auth-permissions'
 
 function admin() {
   return createAdminClient(
@@ -17,6 +18,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const clientId = searchParams.get('clientId')
   if (!clientId) return NextResponse.json({ error: 'Client ID ontbreekt.' }, { status: 400 })
+  if (!hasClientAccess(user, clientId)) return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
 
   const { data, error } = await supabase
     .from('meetings')
@@ -39,6 +41,7 @@ export async function POST(request: NextRequest) {
   if (!clientId || !title || !transcription) {
     return NextResponse.json({ error: 'Verplichte velden ontbreken.' }, { status: 400 })
   }
+  if (!hasClientAccess(user, clientId)) return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
 
   const { data, error } = await admin()
     .from('meetings')

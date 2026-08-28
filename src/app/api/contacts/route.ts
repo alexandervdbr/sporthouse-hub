@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { hasClientAccess } from '@/lib/auth-permissions'
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
@@ -30,6 +31,7 @@ export async function POST(request: NextRequest) {
   if (!clientId || !name?.trim()) {
     return NextResponse.json({ error: 'clientId en naam zijn vereist' }, { status: 400 })
   }
+  if (!hasClientAccess(user, clientId)) return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
 
   const { data, error } = await supabase
     .from('contacts')

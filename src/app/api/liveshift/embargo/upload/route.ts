@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { hasClientAccess } from '@/lib/auth-permissions'
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
@@ -12,6 +13,9 @@ export async function POST(request: NextRequest) {
 
   if (!file || !clientId) {
     return NextResponse.json({ error: 'Bestand en clientId zijn vereist.' }, { status: 400 })
+  }
+  if (!hasClientAccess(user, clientId)) {
+    return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
   }
 
   if (file.type !== 'application/pdf') {

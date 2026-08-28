@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { hasClientAccess } from '@/lib/auth-permissions'
 import Anthropic from '@anthropic-ai/sdk'
 
 export async function POST(request: NextRequest) {
@@ -12,6 +13,9 @@ export async function POST(request: NextRequest) {
   }
 
   const { clientId, clientName, messages, brief, platform, copyTypeName } = await request.json()
+  if (!clientId || !hasClientAccess(user, clientId)) {
+    return new Response('Geen toegang tot deze klant.', { status: 403 })
+  }
 
   // Fetch copy examples — scoped to the selected type (or general if no type selected)
   let examplesQuery = supabase

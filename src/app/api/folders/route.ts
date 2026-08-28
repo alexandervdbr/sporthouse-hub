@@ -1,4 +1,5 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { hasClientAccess } from '@/lib/auth-permissions'
 import { NextRequest } from 'next/server'
 
 export async function GET(req: NextRequest) {
@@ -11,6 +12,7 @@ export async function GET(req: NextRequest) {
   const parentId = searchParams.get('parentId') // 'null' string = root
 
   if (!clientId) return new Response('clientId required', { status: 400 })
+  if (!hasClientAccess(user, clientId)) return new Response('Forbidden', { status: 403 })
 
   const admin = createAdminClient()
   let query = admin
@@ -45,6 +47,7 @@ export async function POST(req: Request) {
 
   const { clientId, name, parentId } = await req.json()
   if (!clientId || !name?.trim()) return new Response('clientId and name required', { status: 400 })
+  if (!hasClientAccess(user, clientId)) return new Response('Forbidden', { status: 403 })
 
   const admin = createAdminClient()
   const { data, error } = await admin

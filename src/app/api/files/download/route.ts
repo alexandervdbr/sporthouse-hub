@@ -3,6 +3,7 @@ import { Readable } from 'stream'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { downloadFile } from '@/lib/drive-storage'
+import { hasClientAccess } from '@/lib/auth-permissions'
 
 export const maxDuration = 60
 
@@ -28,12 +29,15 @@ export async function GET(request: NextRequest) {
   const admin = adminClient()
   const { data: file } = await admin
     .from('files')
-    .select('drive_file_id, filename, file_type')
+    .select('drive_file_id, filename, file_type, client_id')
     .eq('id', id)
     .single()
 
   if (!file?.drive_file_id) {
     return NextResponse.json({ error: 'Bestand niet gevonden.' }, { status: 404 })
+  }
+  if (!hasClientAccess(user, file.client_id)) {
+    return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
   }
 
   try {

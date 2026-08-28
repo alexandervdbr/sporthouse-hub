@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
+import { hasClientAccess } from '@/lib/auth-permissions'
 
 async function extractText(file: File): Promise<string> {
   const text = await file.text()
@@ -24,6 +25,10 @@ export async function POST(request: NextRequest) {
 
   if (!file || !clientId) {
     return NextResponse.json({ error: 'Bestand of client ID ontbreekt.' }, { status: 400 })
+  }
+
+  if (!hasClientAccess(user, clientId)) {
+    return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
   }
 
   // Verify client exists
@@ -109,12 +114,19 @@ export async function DELETE(request: NextRequest) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
-  // Get document to find file_url
+  // Get document to find file_url (and confirm which client it belongs to)
   const { data: doc } = await adminClient
     .from('documents')
-    .select('file_url')
+    .select('file_url, client_id')
     .eq('id', id)
     .single()
+
+  if (!doc) {
+    return NextResponse.json({ error: 'Document niet gevonden.' }, { status: 404 })
+  }
+  if (!hasClientAccess(user, doc.client_id)) {
+    return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
+  }
 
   // Delete from storage if exists
   if (doc?.file_url) {

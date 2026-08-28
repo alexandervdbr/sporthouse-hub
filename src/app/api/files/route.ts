@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { ADMIN_EMAILS, hasClientAccess } from '@/lib/auth-permissions'
 import {
   isDriveStorageConfigured, uploadFile, deleteFile, downloadFile, updateFileContent, moveFile, trashFile,
 } from '@/lib/drive-storage'
@@ -63,6 +63,9 @@ export async function POST(request: NextRequest) {
   }
   if (!clientId) {
     return NextResponse.json({ error: 'Client ID ontbreekt.' }, { status: 400 })
+  }
+  if (!hasClientAccess(user, clientId)) {
+    return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
   }
   if (file.size > MAX_SIZE) {
     return NextResponse.json({ error: `Bestand mag niet groter zijn dan ${MAX_SIZE / 1024 / 1024} MB.` }, { status: 400 })
@@ -145,6 +148,10 @@ export async function GET(request: NextRequest) {
 
   const admin = adminClient()
 
+  if (clientId && !hasClientAccess(user, clientId)) {
+    return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
+  }
+
   // Trash mode: list this client's soft-deleted files. With bestanden_verwijderen
   // (or admin), see everything; otherwise only your own uploads.
   if (!id && clientId && searchParams.get('trashed') === 'true') {
@@ -211,12 +218,15 @@ export async function GET(request: NextRequest) {
 
   const { data: file, error: fileError } = await admin
     .from('files')
-    .select('storage_path, filename, file_type, storage_provider, drive_file_id')
+    .select('storage_path, filename, file_type, storage_provider, drive_file_id, client_id')
     .eq('id', id)
     .single()
 
   if (fileError || !file) {
     return NextResponse.json({ error: 'Bestand niet gevonden.' }, { status: 404 })
+  }
+  if (!hasClientAccess(user, file.client_id)) {
+    return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
   }
 
   // 'content' mode: download file server-side and return as plain text
@@ -298,13 +308,13 @@ export async function PATCH(request: NextRequest) {
   if ('content' in body) {
     const { data: file } = await admin
       .from('files')
-      .select('storage_path, uploaded_by, storage_provider, drive_file_id')
+      .select('storage_path, uploaded_by, storage_provider, drive_file_id, client_id')
       .eq('id', id)
       .single()
 
     if (!file) return NextResponse.json({ error: 'Bestand niet gevonden.' }, { status: 404 })
+    if (!hasClientAccess(user, file.client_id)) return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 })
 
-    const ADMIN_EMAILS = ['arne.smets@sporthousegroup.com', 'deryan.spiessens@sporthousegroup.com']
     const canEdit = ADMIN_EMAILS.includes(user.email ?? '') || file.uploaded_by === user.email
     if (!canEdit) return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 })
 
@@ -334,12 +344,11 @@ export async function PATCH(request: NextRequest) {
 
   // Folder move — the read (for Drive bookkeeping below) and the write don't
   // depend on each other, so run them concurrently instead of back-to-back.
-  const [{ data: file }, { error }] = await Promise.all([
-    admin.from('files').select('client_id, storage_provider, drive_file_id').eq('id', id).single(),
-    admin.from('files').update({ folder_id: body.folderId ?? null }).eq('id', id),
-  ])
-
+  const { data: file } = await admin.from('files').select('client_id, storage_provider, drive_file_id').eq('id', id).single()
   if (!file) return NextResponse.json({ error: 'Bestand niet gevonden.' }, { status: 404 })
+  if (!hasClientAccess(user, file.client_id)) return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 })
+
+  const { error } = await admin.from('files').update({ folder_id: body.folderId ?? null }).eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   // Best-effort: mirror the move in Drive too. The DB update above already
@@ -377,13 +386,16 @@ export async function DELETE(request: NextRequest) {
 
   const { data: file } = await admin
     .from('files')
-    .select('storage_provider, drive_file_id, uploaded_by')
+    .select('storage_provider, drive_file_id, uploaded_by, client_id')
     .eq('id', id)
     .is('deleted_at', null)
     .single()
 
   if (!file) {
     return NextResponse.json({ error: 'Bestand niet gevonden.' }, { status: 404 })
+  }
+  if (!hasClientAccess(user, file.client_id)) {
+    return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
   }
 
   if (!canManageFile(user, file.uploaded_by)) {

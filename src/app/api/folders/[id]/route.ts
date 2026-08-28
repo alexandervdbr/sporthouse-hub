@@ -1,6 +1,7 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { renameDriveFolder, deleteDriveFolder, moveFile, trashAndMoveFile } from '@/lib/drive-storage'
 import { resolveDriveFolderId } from '@/lib/client-files-drive'
+import { hasClientAccess } from '@/lib/auth-permissions'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 // Collects a folder's id plus every descendant subfolder id (breadth-first),
@@ -31,7 +32,9 @@ export async function PATCH(
   if (!name?.trim()) return new Response('name required', { status: 400 })
 
   const admin = createAdminClient()
-  const { data: existing } = await admin.from('file_folders').select('drive_folder_id').eq('id', id).single()
+  const { data: existing } = await admin.from('file_folders').select('drive_folder_id, client_id').eq('id', id).single()
+  if (!existing) return new Response('Not found', { status: 404 })
+  if (!hasClientAccess(user, existing.client_id)) return new Response('Forbidden', { status: 403 })
 
   const { data, error } = await admin
     .from('file_folders')
@@ -74,6 +77,7 @@ export async function DELETE(
     .single()
 
   if (!target) return new Response('Not found', { status: 404 })
+  if (!hasClientAccess(user, target.client_id)) return new Response('Forbidden', { status: 403 })
 
   // Relocate every file in this folder (and any nested subfolders about to be
   // cascade-deleted) up to the parent — including the actual Drive files,
