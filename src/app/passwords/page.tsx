@@ -1,28 +1,24 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import PasswordsPage from '@/components/passwords/PasswordsPage'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { hasSection } from '@/lib/auth-permissions'
 
 export const metadata = { title: 'Wachtwoorden — Sporthouse' }
 
+// Real enforcement now lives server-side in the get_credentials()/
+// upsert_credential()/delete_credential() RPC functions (see migration
+// 0025) — canAdd/canDelete here are just UI affordances (which buttons to
+// show), not the actual access boundary, so it's fine that they're
+// computed the same permissive-looking way as before.
 export default async function Page() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const permsObj = user.app_metadata?.permissions ?? null
-  const sections: string[] = permsObj?.sections ?? []
-  const isAdmin = ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer')
-  const unrestricted = isAdmin || permsObj === null
+  if (!hasSection(user, 'wachtwoorden_bekijken')) redirect('/dashboard')
 
-  const hasAccess = unrestricted || sections.includes('wachtwoorden_bekijken')
-  if (!hasAccess) redirect('/dashboard')
+  const canAdd    = hasSection(user, 'wachtwoorden_toevoegen')
+  const canDelete = hasSection(user, 'wachtwoorden_verwijderen')
 
-  const canAdd    = unrestricted || sections.includes('wachtwoorden_toevoegen')
-  const canDelete = unrestricted || sections.includes('wachtwoorden_verwijderen')
-
-  // null = all credentials visible, string[] = only specific ones
-  const allowedIds: string[] | null = unrestricted ? null : (permsObj?.credentials ?? null)
-
-  return <PasswordsPage canAdd={canAdd} canDelete={canDelete} allowedIds={allowedIds} />
+  return <PasswordsPage canAdd={canAdd} canDelete={canDelete} />
 }
