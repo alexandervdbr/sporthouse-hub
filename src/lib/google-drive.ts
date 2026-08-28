@@ -82,7 +82,15 @@ export async function renameDriveFile(driveFileId: string, newName: string) {
   await drive.files.update({ fileId: driveFileId, requestBody: { name: newName } })
 }
 
+// Kept in case this service account's Drive role ever allows true permanent
+// deletion — today it doesn't (same Content-Manager limitation documented
+// in drive-storage.ts), so every real call site uses trashDriveFile below.
 export async function deleteDriveFile(driveFileId: string) {
   const drive = getClient()
   await drive.files.delete({ fileId: driveFileId })
+}
+
+export async function trashDriveFile(driveFileId: string) {
+  const drive = getClient()
+  await drive.files.update({ fileId: driveFileId, requestBody: { trashed: true } })
 }

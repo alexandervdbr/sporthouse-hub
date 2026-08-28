@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { isDriveStorageConfigured, uploadFile, deleteFile, getOrCreateFolderPath, driveRootFolderId } from '@/lib/drive-storage'
+import { isDriveStorageConfigured, uploadFile, trashFile, getOrCreateFolderPath, driveRootFolderId } from '@/lib/drive-storage'
 import { ADMIN_EMAILS } from '@/lib/auth-permissions'
 
 export const maxDuration = 60
@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
 
   if (dbError) {
     console.error('Pré-assist DB insert error:', dbError)
-    try { await deleteFile(driveFile.id) } catch { /* best effort cleanup */ }
+    try { await trashFile(driveFile.id) } catch { /* best effort cleanup */ }
     return NextResponse.json({ error: `Fout bij opslaan: ${dbError.message}` }, { status: 500 })
   }
 
@@ -142,7 +142,7 @@ export async function DELETE(request: NextRequest) {
   }
 
   if (submission.drive_file_id) {
-    try { await deleteFile(submission.drive_file_id) } catch { /* may already be gone */ }
+    try { await trashFile(submission.drive_file_id) } catch { /* may already be gone */ }
   }
 
   const { error } = await admin.from('preassist_submissions').delete().eq('id', id)

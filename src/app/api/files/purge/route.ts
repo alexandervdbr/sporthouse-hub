@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
-import { deleteFile } from '@/lib/drive-storage'
+import { trashFile } from '@/lib/drive-storage'
 import { ADMIN_EMAILS } from '@/lib/auth-permissions'
 
 function adminClient() {
@@ -44,7 +44,7 @@ export async function DELETE(request: NextRequest) {
   if (!file) return NextResponse.json({ error: 'Bestand niet gevonden in de prullenbak.' }, { status: 404 })
 
   if (file.storage_provider === 'drive' && file.drive_file_id) {
-    try { await deleteFile(file.drive_file_id) } catch (err) { console.error('Drive purge error:', err) }
+    try { await trashFile(file.drive_file_id) } catch (err) { console.error('Drive purge error:', err) }
   } else if (file.storage_path) {
     const { error: storageError } = await admin.storage.from('files').remove([file.storage_path])
     if (storageError) console.error('Storage purge error:', storageError)

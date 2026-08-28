@@ -1,5 +1,5 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { renameDriveFolder, deleteDriveFolder, moveFile, trashAndMoveFile } from '@/lib/drive-storage'
+import { renameDriveFolder, trashDriveFolder, moveFile, trashAndMoveFile } from '@/lib/drive-storage'
 import { resolveSporthouseDriveFolderId } from '@/lib/sporthouse-docs-drive'
 import { canManageSection, type SporthouseSection } from '@/lib/sporthouse-docs'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -119,7 +119,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   if (error) return new Response(error.message, { status: 500 })
 
   if (target.drive_folder_id) {
-    try { await deleteDriveFolder(target.drive_folder_id) }
+    try { await trashDriveFolder(target.drive_folder_id) }
     catch (err) { console.error('Drive folder delete error:', err) }
   }
 

@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/server'
-import { createDriveFile, deleteDriveFile, renameDriveFile, isDriveConfigured, type DriveDocType } from '@/lib/google-drive'
+import { createDriveFile, trashDriveFile, renameDriveFile, isDriveConfigured, type DriveDocType } from '@/lib/google-drive'
 import { hasClientAccess } from '@/lib/auth-permissions'
 
 export async function GET(req: Request) {
@@ -90,7 +90,7 @@ export async function DELETE(req: Request) {
   if (!record) return new Response('Niet gevonden', { status: 404 })
   if (!hasClientAccess(user, record.client_id)) return new Response('Forbidden', { status: 403 })
 
-  try { await deleteDriveFile(record.drive_file_id) } catch { /* file may already be deleted in Drive */ }
+  try { await trashDriveFile(record.drive_file_id) } catch { /* file may already be deleted in Drive */ }
 
   const { error } = await admin.from('drive_files').delete().eq('id', id)
   if (error) return new Response(error.message, { status: 500 })

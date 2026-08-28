@@ -196,6 +196,12 @@ export async function updateFileContent(driveFileId: string, buffer: Buffer, mim
   })
 }
 
+// The Drive service account is a Content Manager on this Shared Drive, not
+// a Manager — files.delete() (true, permanent removal) always fails as a
+// 404 for that role, silently, no matter the caller. Kept only in case the
+// account's role is ever elevated; every real call site in this codebase
+// uses trashFile/trashDriveFolder below instead, which a Content Manager
+// genuinely can do.
 export async function deleteFile(driveFileId: string) {
   const drive = getClient()
   await drive.files.delete({ fileId: driveFileId, supportsAllDrives: true })
@@ -365,7 +371,17 @@ export async function renameDriveFolder(driveFolderId: string, newName: string) 
   await drive.files.update({ fileId: driveFolderId, requestBody: { name: newName }, supportsAllDrives: true })
 }
 
+// Same Content-Manager-can't-hard-delete limitation as deleteFile above —
+// kept for the same reason, use trashDriveFolder for real.
 export async function deleteDriveFolder(driveFolderId: string) {
   const drive = getClient()
   await drive.files.delete({ fileId: driveFolderId, supportsAllDrives: true })
+}
+
+// Folders trash the same way files do in Drive's model (a folder is just a
+// file with a folder mimeType) — this is what every real "delete folder"
+// call site uses.
+export async function trashDriveFolder(driveFolderId: string) {
+  const drive = getClient()
+  await drive.files.update({ fileId: driveFolderId, requestBody: { trashed: true }, supportsAllDrives: true })
 }

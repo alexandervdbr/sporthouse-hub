@@ -1,5 +1,5 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { deleteFile } from '@/lib/drive-storage'
+import { trashFile } from '@/lib/drive-storage'
 import { ADMIN_EMAILS } from '@/lib/auth-permissions'
 
 async function assertAdmin() {
@@ -66,7 +66,7 @@ export async function DELETE(
       await admin.storage.from('freelancer-assignments').remove(supabasePaths)
     }
     const driveIds = files.filter(f => f.storage_provider === 'drive' && f.drive_file_id).map(f => f.drive_file_id!)
-    await Promise.allSettled(driveIds.map(id => deleteFile(id)))
+    await Promise.allSettled(driveIds.map(id => trashFile(id)))
   }
 
   await admin.from('freelancer_assignments').delete().eq('id', assignmentId)
