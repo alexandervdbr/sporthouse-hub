@@ -38,6 +38,7 @@ next-env.d.ts
 # data files
 *.csv
 .env*
+!.env.example
 
 # Bronbestanden van de kennisbank-import: klantinfo, hoort niet in git
 kennisbanken/
