@@ -89,10 +89,6 @@ function projectAccentColor(project: Project) {
   return project.color ?? project.client?.color ?? '#52525b'
 }
 
-function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString('nl-BE', { day: 'numeric', month: 'short', year: 'numeric' })
-}
-
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 
 function Avatar({ name, photoUrl, size = 26 }: { name: string; photoUrl: string | null; size?: number }) {

@@ -1,4 +1,4 @@
-import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/supabase/server'
 import { ADMIN_EMAILS } from '@/lib/auth-permissions'
 
 // Called after a Google login for a user who is not allowed.

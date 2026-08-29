@@ -41,18 +41,6 @@ const SEL_BDR  = 'rgba(59,130,246,0.5)'
 
 // ─── Palettes ─────────────────────────────────────────────────────────────────
 
-const TEXT_COLORS = [
-  { label: 'Standaard', value: null,      display: '#a1a1aa' },
-  { label: 'Wit',       value: '#ffffff',  display: '#ffffff' },
-  { label: 'Rood',      value: '#ef4444',  display: '#ef4444' },
-  { label: 'Oranje',    value: '#f97316',  display: '#f97316' },
-  { label: 'Geel',      value: '#eab308',  display: '#eab308' },
-  { label: 'Groen',     value: '#22c55e',  display: '#22c55e' },
-  { label: 'Blauw',     value: '#3b82f6',  display: '#3b82f6' },
-  { label: 'Paars',     value: '#a855f7',  display: '#a855f7' },
-  { label: 'Roze',      value: '#ec4899',  display: '#ec4899' },
-]
-
 const BG_COLORS = [
   { label: 'Geen',      value: null,       display: 'transparent' },
   { label: 'Rood',      value: '#dc2626',  display: '#dc2626' },

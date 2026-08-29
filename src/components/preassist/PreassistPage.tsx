@@ -287,7 +287,7 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
             style={{ border: '2px dashed rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.02)' }}>
             <Upload size={18} className="text-zinc-500" />
             <p className="text-sm text-zinc-400">Klik of sleep bestanden hier</p>
-            <p className="text-xs text-zinc-600">Afbeeldingen & video's — meerdere tegelijk mogelijk</p>
+            <p className="text-xs text-zinc-600">Afbeeldingen &amp; video&apos;s — meerdere tegelijk mogelijk</p>
             <input ref={inputRef} type="file" multiple accept="image/*,video/*" className="hidden"
               onChange={e => { addFiles(e.target.files); e.target.value = '' }} />
           </div>

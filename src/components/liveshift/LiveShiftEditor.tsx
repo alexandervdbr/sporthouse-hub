@@ -267,7 +267,7 @@ function PhotoInput({ label, value, onChange }: {
 
 // ─── Main editor ──────────────────────────────────────────────────────────────
 
-export default function LiveShiftEditor({ clientId, initialPosts, currentUserEmail: _currentUserEmail }: Props) {
+export default function LiveShiftEditor({ clientId, initialPosts }: Props) {
   const [selected, setSelected] = useState<TemplateConfig | null>(null)
   const [formData, setFormData] = useState<FormData>({})
   const [isExporting, setIsExporting] = useState(false)
