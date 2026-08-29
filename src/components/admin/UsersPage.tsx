@@ -354,6 +354,12 @@ function InviteModal({ clients, onClose, onInvited }: { clients: ClientOption[];
     setTimeout(onClose, 1500)
   }
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
@@ -839,6 +845,12 @@ function FreelancerInviteModal({ onClose, onInvited }: { onClose: () => void; on
     setSuccess(true); setSaving(false); onInvited()
     setTimeout(onClose, 1800)
   }
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

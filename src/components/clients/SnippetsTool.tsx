@@ -130,7 +130,7 @@ export default function SnippetsTool({ podcastName }: { clientId: string; podcas
             className="w-full px-3 py-3 bg-zinc-900 border border-zinc-800 rounded-xl text-sm text-sh-grey placeholder:text-zinc-600 focus:outline-none focus:border-zinc-700 transition-colors resize-none leading-relaxed"
           />
           <p className="text-xs text-zinc-700 mt-1.5">
-            {transcript.length > 0 ? `${transcript.split(/\s+/).filter(Boolean).length} woorden` : 'Tip: hoe meer tekst, hoe beter de snippits'}
+            {transcript.length > 0 ? `${transcript.split(/\s+/).filter(Boolean).length} woorden` : 'Tip: hoe meer tekst, hoe beter de snippets'}
           </p>
         </div>
 
@@ -145,7 +145,7 @@ export default function SnippetsTool({ podcastName }: { clientId: string; podcas
               ? <Loader2 size={14} className="animate-spin" />
               : <Scissors size={14} />
             }
-            {loading ? 'Snippits zoeken…' : 'Genereer snippits'}
+            {loading ? 'Snippets zoeken…' : 'Genereer snippets'}
           </button>
 
           {snippets.length > 0 && (
@@ -177,7 +177,7 @@ export default function SnippetsTool({ podcastName }: { clientId: string; podcas
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
-              {snippets.length} mogelijke snippits
+              {snippets.length} mogelijke snippets
             </p>
           </div>
           {snippets.map((s, i) => (

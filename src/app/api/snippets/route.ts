@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
           role: 'user',
           content: `Je bent een social media expert gespecialiseerd in podcast content voor ${podcastName || 'een sportpodcast'}.
 
-Analyseer onderstaand transcript en selecteer de 6 beste snippits die geschikt zijn als social media clip of audiogram.
+Analyseer onderstaand transcript en selecteer de 6 beste snippets die geschikt zijn als social media clip of audiogram.
 
 Kies fragmenten die:
 - Een sterke mening, verrassende uitspraak of emotioneel moment bevatten
@@ -39,7 +39,7 @@ Geef je antwoord als een JSON array met exact dit formaat (geen markdown, enkel 
 [
   {
     "quote": "De exacte tekst uit het transcript",
-    "reden": "Waarom dit een sterke snippit is",
+    "reden": "Waarom dit een sterke snippet is",
     "platform": ["Instagram Reels", "TikTok"],
     "toon": "confronterend"
   }
@@ -60,6 +60,6 @@ ${transcript}`,
     return NextResponse.json({ snippets })
   } catch (err) {
     console.error('Snippets Claude error:', err)
-    return NextResponse.json({ error: 'Kon snippits niet verwerken. Probeer opnieuw.' }, { status: 500 })
+    return NextResponse.json({ error: 'Kon snippets niet verwerken. Probeer opnieuw.' }, { status: 500 })
   }
 }

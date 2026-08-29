@@ -363,6 +363,18 @@ export default function ChatPage() {
   const [editDesc, setEditDesc] = useState('')
   const [editCategory, setEditCategory] = useState('')
   const [editColor, setEditColor] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!showNewChannel && !showNewCategory && !editingChannel) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      setShowNewChannel(false)
+      setShowNewCategory(false)
+      setEditingChannel(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showNewChannel, showNewCategory, editingChannel])
   const [savingEdit, setSavingEdit] = useState(false)
 
   // UI state
