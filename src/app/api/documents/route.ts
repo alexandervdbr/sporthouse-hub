@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { hasClientAccess } from '@/lib/auth-permissions'
+import { isAllowedTextDocExt, ALLOWED_TEXT_DOC_HINT } from '@/lib/upload-policy'
 
 async function extractText(file: File): Promise<string> {
   const text = await file.text()
@@ -25,6 +26,9 @@ export async function POST(request: NextRequest) {
 
   if (!file || !clientId) {
     return NextResponse.json({ error: 'Bestand of client ID ontbreekt.' }, { status: 400 })
+  }
+  if (!isAllowedTextDocExt(file.name)) {
+    return NextResponse.json({ error: `Dit bestandstype wordt niet ondersteund. Toegestaan: ${ALLOWED_TEXT_DOC_HINT}.` }, { status: 400 })
   }
 
   if (!hasClientAccess(user, clientId)) {

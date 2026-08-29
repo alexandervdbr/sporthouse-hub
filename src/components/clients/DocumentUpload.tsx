@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react'
 import { Upload, Loader2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { isAllowedTextDocExt, ALLOWED_TEXT_DOC_HINT } from '@/lib/upload-policy'
 
 interface Props {
   clientId: string
@@ -19,12 +20,8 @@ export default function DocumentUpload({ clientId }: Props) {
   async function handleFile(file: File) {
     if (!file) return
 
-    const allowedTypes = ['application/pdf', 'text/plain', 'text/markdown']
-    const allowedExts = ['.pdf', '.txt', '.md']
-    const ext = file.name.substring(file.name.lastIndexOf('.'))
-
-    if (!allowedTypes.includes(file.type) && !allowedExts.includes(ext)) {
-      setError('Alleen PDF, TXT en MD bestanden zijn toegestaan.')
+    if (!isAllowedTextDocExt(file.name)) {
+      setError(`Dit bestandstype wordt niet ondersteund. Toegestaan: ${ALLOWED_TEXT_DOC_HINT}.`)
       return
     }
 
@@ -89,7 +86,7 @@ export default function DocumentUpload({ clientId }: Props) {
         <input
           ref={fileRef}
           type="file"
-          accept=".pdf,.txt,.md"
+          accept=".txt,.md,.csv,.rtf"
           onChange={handleChange}
           className="hidden"
         />
@@ -106,7 +103,7 @@ export default function DocumentUpload({ clientId }: Props) {
             </div>
             <div>
               <p className="text-sm font-medium text-white">Sleep een bestand of klik om te uploaden</p>
-              <p className="text-xs text-zinc-500 mt-1">PDF, TXT of MD — max 10 MB</p>
+              <p className="text-xs text-zinc-500 mt-1">{ALLOWED_TEXT_DOC_HINT} — max 10 MB</p>
             </div>
           </div>
         )}

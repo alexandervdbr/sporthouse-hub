@@ -2,6 +2,7 @@ import { Readable } from 'stream'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { isDriveStorageConfigured, uploadFile, trashFile, downloadFile, getOrCreateFolderPath, driveRootFolderId } from '@/lib/drive-storage'
 import { isAdminUser } from '@/lib/auth-permissions'
+import { isAllowedUploadExt, ALLOWED_UPLOAD_HINT } from '@/lib/upload-policy'
 
 export const maxDuration = 60
 
@@ -69,6 +70,9 @@ export async function POST(
   const formData = await req.formData()
   const file = formData.get('file') as File | null
   if (!file) return new Response('file required', { status: 400 })
+  if (!isAllowedUploadExt(file.name)) {
+    return new Response(`Dit bestandstype wordt niet ondersteund. Toegestaan: ${ALLOWED_UPLOAD_HINT}.`, { status: 400 })
+  }
 
   const admin = createAdminClient()
 

@@ -8,6 +8,7 @@ import {
   Users, Layers, Wand2, PenTool, MonitorPlay, Zap, Mic, Pencil, ImagePlus,
 } from 'lucide-react'
 import { DriveThumbnail } from '@/components/shared/DrivePreview'
+import { ALLOWED_UPLOAD_HINT } from '@/lib/upload-policy'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -1049,6 +1050,7 @@ function AddAssignmentModal({ freelancerId, freelancerName, onClose, onAdded }: 
               <input ref={fileRef} type="file" multiple className="hidden"
                 onChange={e => { if (e.target.files) setFiles(prev => [...prev, ...Array.from(e.target.files!)]) }} />
             </div>
+            <p className="text-[10px] text-zinc-700 mt-1">{ALLOWED_UPLOAD_HINT}</p>
             {files.length > 0 && (
               <div className="mt-2 space-y-1">
                 {files.map((f, i) => (
@@ -1244,6 +1246,7 @@ function EditAssignmentModal({ freelancerId, assignment, onClose, onSaved }: {
               <input ref={fileRef} type="file" multiple className="hidden"
                 onChange={e => { if (e.target.files) setNewFiles(prev => [...prev, ...Array.from(e.target.files!)]) }} />
             </div>
+            <p className="text-[10px] text-zinc-700 mt-1">{ALLOWED_UPLOAD_HINT}</p>
             {newFiles.length > 0 && (
               <div className="mt-2 space-y-1">
                 {newFiles.map((f, i) => (
