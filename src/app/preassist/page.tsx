@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import PreassistPage from '@/components/preassist/PreassistPage'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser } from '@/lib/auth-permissions'
 
 export const metadata = { title: 'Pré-assist — Sporthouse' }
 
@@ -12,7 +12,7 @@ export default async function Page() {
 
   const permsObj = user.app_metadata?.permissions ?? null
   const sections: string[] = permsObj?.sections ?? []
-  const isAdmin = ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer')
+  const isAdmin = isAdminUser(user)
   const canManageEditions = isAdmin || permsObj === null || sections.includes('preassist_beheer')
   const canAdd            = isAdmin || permsObj === null || sections.includes('preassist_toevoegen')
   const canDeleteAll      = isAdmin || permsObj === null || sections.includes('preassist_verwijderen')

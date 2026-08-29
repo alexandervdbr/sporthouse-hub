@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
-import { ADMIN_EMAILS, hasClientAccess } from '@/lib/auth-permissions'
+import { hasClientAccess, isAdminUser } from '@/lib/auth-permissions'
 import {
   isDriveStorageConfigured, uploadFile, downloadFile, updateFileContent, moveFile, trashFile,
 } from '@/lib/drive-storage'
@@ -23,7 +23,7 @@ function adminClient() {
 function canDeleteFiles(user: { email?: string | null; app_metadata?: Record<string, unknown> }) {
   const permsObj = (user.app_metadata?.permissions as { sections?: string[] } | null) ?? null
   const sections = permsObj?.sections ?? []
-  const isAdmin = ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer')
+  const isAdmin = isAdminUser(user)
   return isAdmin || permsObj === null || sections.includes('bestanden_verwijderen')
 }
 
@@ -315,7 +315,7 @@ export async function PATCH(request: NextRequest) {
     if (!file) return NextResponse.json({ error: 'Bestand niet gevonden.' }, { status: 404 })
     if (!hasClientAccess(user, file.client_id)) return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 })
 
-    const canEdit = ADMIN_EMAILS.includes(user.email ?? '') || file.uploaded_by === user.email
+    const canEdit = isAdminUser(user) || file.uploaded_by === user.email
     if (!canEdit) return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 })
 
     if (typeof body.content !== 'string') return NextResponse.json({ error: 'Ongeldige inhoud.' }, { status: 400 })

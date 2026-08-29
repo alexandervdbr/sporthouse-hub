@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import ClubLookup from '@/components/clients/ClubLookup'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser } from '@/lib/auth-permissions'
 
 interface Props {
   params: Promise<{ id: string }>
@@ -18,8 +18,7 @@ export default async function ClubLookupPage({ params }: Props) {
 
   if (!client) notFound()
 
-  const sections: string[] = user?.app_metadata?.permissions?.sections ?? []
-  const isAdmin = ADMIN_EMAILS.includes(user?.email ?? '') || sections.includes('beheer')
+  const isAdmin = isAdminUser(user)
 
   return (
     <div className="h-full flex flex-col overflow-hidden relative">

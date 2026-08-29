@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import FileManager from '@/components/clients/FileManager'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser } from '@/lib/auth-permissions'
 
 interface Props {
   params: Promise<{ id: string }>
@@ -23,7 +23,7 @@ export default async function ClientFilesPage({ params }: Props) {
 
   const permsObj = user?.app_metadata?.permissions ?? null
   const sections: string[] = permsObj?.sections ?? []
-  const isAdmin = ADMIN_EMAILS.includes(user?.email ?? '') || sections.includes('beheer')
+  const isAdmin = isAdminUser(user)
   const canDeleteFiles = isAdmin || permsObj === null || sections.includes('bestanden_verwijderen')
 
   return (

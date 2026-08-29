@@ -4,7 +4,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { CalendarDays, ArrowRight } from 'lucide-react'
 import { getLogo } from '@/lib/logos'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser } from '@/lib/auth-permissions'
 
 const PLATFORMS: Record<string, { label: string; color: string }> = {
   facebook:  { label: 'FB', color: '#1877F2' },
@@ -40,8 +40,7 @@ export default async function CalendarOverviewPage() {
   if (!user) redirect('/login')
 
   const permsObj = user.app_metadata?.permissions ?? null
-  const sections: string[] = permsObj?.sections ?? []
-  const isAdmin = ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer')
+  const isAdmin = isAdminUser(user)
   const allowedClientIds: string[] | null = (!isAdmin && permsObj?.clients?.length > 0) ? permsObj.clients : null
 
   // Fetch all relevant clients

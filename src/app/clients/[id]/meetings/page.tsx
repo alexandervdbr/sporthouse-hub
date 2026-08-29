@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { Meeting } from '@/types/database'
 import MeetingList from '@/components/clients/MeetingList'
 import { Plus } from 'lucide-react'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser } from '@/lib/auth-permissions'
 
 interface Props {
   params: Promise<{ id: string }>
@@ -21,7 +21,7 @@ export default async function ClientMeetingsPage({ params }: Props) {
 
   if (!client) notFound()
 
-  const isAdmin  = ADMIN_EMAILS.includes(user?.email ?? '')
+  const isAdmin  = isAdminUser(user)
   const permsObj = user?.app_metadata?.permissions ?? null
   const sections: string[] = permsObj?.sections ?? []
   const canAccess = isAdmin || permsObj === null || sections.includes('vergaderingen')

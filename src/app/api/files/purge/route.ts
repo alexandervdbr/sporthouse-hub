@@ -2,19 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { trashFile } from '@/lib/drive-storage'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser } from '@/lib/auth-permissions'
 
 function adminClient() {
   return createAdminClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
-}
-
-function isAdminUser(user: { email?: string | null; app_metadata?: Record<string, unknown> }) {
-  const permsObj = (user.app_metadata?.permissions as { sections?: string[] } | null) ?? null
-  const sections = permsObj?.sections ?? []
-  return ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer')
 }
 
 // Permanent, irreversible delete — only reachable from the Prullenbak view,

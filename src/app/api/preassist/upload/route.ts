@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { isDriveStorageConfigured, uploadFile, trashFile, getOrCreateFolderPath, driveRootFolderId } from '@/lib/drive-storage'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser } from '@/lib/auth-permissions'
 
 export const maxDuration = 60
 
@@ -11,7 +11,7 @@ const MAX_SIZE = 500 * 1024 * 1024 // 500 MB — Drive can hold far more; the pr
 function permissions(user: { email?: string | null; app_metadata?: Record<string, unknown> }) {
   const permsObj = (user.app_metadata?.permissions as { sections?: string[] } | null) ?? null
   const sections = permsObj?.sections ?? []
-  const isAdmin = ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer')
+  const isAdmin = isAdminUser(user)
   const canDeleteAll = isAdmin || permsObj === null || sections.includes('preassist_verwijderen')
   return { isAdmin, canDeleteAll }
 }

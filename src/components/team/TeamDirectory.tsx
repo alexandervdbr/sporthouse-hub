@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Plus, Pencil, Trash2, Loader2, Mail, Phone, X, Check, Users, Camera } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import Image from 'next/image'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser } from '@/lib/auth-permissions'
 
 interface Contact {
   id: string
@@ -226,7 +226,7 @@ export default function TeamDirectory({ internClients }: { internClients: Client
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) return
       const sections: string[] = user.app_metadata?.permissions?.sections ?? []
-      const isAdmin = ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer')
+      const isAdmin = isAdminUser(user)
       const noRestriction = isAdmin || !user.app_metadata?.permissions
       setCanToevoegen(noRestriction || sections.includes('team_toevoegen'))
       setCanVerwijderen(noRestriction || sections.includes('team_verwijderen'))

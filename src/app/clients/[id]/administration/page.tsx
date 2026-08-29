@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound, redirect } from 'next/navigation'
 import FileManager from '@/components/clients/FileManager'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser } from '@/lib/auth-permissions'
 
 interface Props {
   params: Promise<{ id: string }>
@@ -20,7 +20,7 @@ export default async function AdministrationPage({ params }: Props) {
   if (client.name !== 'Sporthouse') redirect(`/clients/${id}`)
 
   const sections: string[] = user?.app_metadata?.permissions?.sections ?? []
-  const isAdmin = ADMIN_EMAILS.includes(user?.email ?? '') || sections.includes('beheer')
+  const isAdmin = isAdminUser(user)
   const canSee = isAdmin || sections.includes('administratie_bekijken') || sections.includes('administratie_beheren')
   const canManage = isAdmin || sections.includes('administratie_beheren')
 
