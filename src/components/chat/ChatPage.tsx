@@ -1121,6 +1121,7 @@ export default function ChatPage() {
                       if (pendingAttachment.previewUrl) URL.revokeObjectURL(pendingAttachment.previewUrl)
                       setPendingAttachment(null)
                     }}
+                    aria-label="Bijlage verwijderen"
                     className="flex-shrink-0 p-1 rounded text-zinc-600 hover:text-zinc-300 transition-colors"
                   >
                     <X size={13} />
@@ -1197,7 +1198,7 @@ export default function ChatPage() {
             <div className="relative rounded-2xl w-full max-w-sm glass animate-scale-in" style={{ boxShadow: '0 25px 60px rgba(0,0,0,0.6)' }}>
               <div className="flex items-center justify-between p-5" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
                 <p className="text-sm font-semibold text-zinc-200">Nieuw kanaal</p>
-                <button onClick={() => setShowNewChannel(false)} className="text-zinc-600 hover:text-zinc-400 transition-colors">
+                <button onClick={() => setShowNewChannel(false)} aria-label="Sluiten" className="text-zinc-600 hover:text-zinc-400 transition-colors">
                   <X size={15} />
                 </button>
               </div>
@@ -1287,7 +1288,7 @@ export default function ChatPage() {
           <div className="relative rounded-2xl w-full max-w-sm glass animate-scale-in" style={{ boxShadow: '0 25px 60px rgba(0,0,0,0.6)' }}>
             <div className="flex items-center justify-between p-5" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
               <p className="text-sm font-semibold text-zinc-200">Nieuwe categorie</p>
-              <button onClick={() => setShowNewCategory(false)} className="text-zinc-600 hover:text-zinc-400 transition-colors">
+              <button onClick={() => setShowNewCategory(false)} aria-label="Sluiten" className="text-zinc-600 hover:text-zinc-400 transition-colors">
                 <X size={15} />
               </button>
             </div>
@@ -1343,7 +1344,7 @@ export default function ChatPage() {
           <div className="relative rounded-2xl w-full max-w-sm glass animate-scale-in" style={{ boxShadow: '0 25px 60px rgba(0,0,0,0.6)' }}>
             <div className="flex items-center justify-between p-5" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
               <p className="text-sm font-semibold text-zinc-200">Kanaal bewerken</p>
-              <button onClick={() => setEditingChannel(null)} className="text-zinc-600 hover:text-zinc-400 transition-colors">
+              <button onClick={() => setEditingChannel(null)} aria-label="Sluiten" className="text-zinc-600 hover:text-zinc-400 transition-colors">
                 <X size={15} />
               </button>
             </div>

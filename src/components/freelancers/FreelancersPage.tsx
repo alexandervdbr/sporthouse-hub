@@ -169,6 +169,7 @@ function RatingStars({ value, onChange, size = 18 }: { value: number | null; onC
           onClick={() => onChange?.(value === n ? 0 : n)}
           onMouseEnter={() => onChange && setHover(n)}
           onMouseLeave={() => onChange && setHover(null)}
+          aria-label={`${n} ster${n !== 1 ? 'ren' : ''}`}
           className={onChange ? 'cursor-pointer' : 'cursor-default'}
           disabled={!onChange}
         >
@@ -274,7 +275,7 @@ function AddFreelancerModal({ onClose, onAdded }: {
         {/* Header */}
         <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between flex-shrink-0">
           <h2 className="text-sm font-semibold text-zinc-100">Freelancer toevoegen</h2>
-          <button onClick={onClose} className="text-zinc-600 hover:text-zinc-300 transition-colors"><X size={15} /></button>
+          <button onClick={onClose} aria-label="Sluiten" className="text-zinc-600 hover:text-zinc-300 transition-colors"><X size={15} /></button>
         </div>
 
         {/* Form */}
@@ -594,7 +595,7 @@ function FreelancerDetail({ freelancer, onClose, onDeleted, onUpdated, onProject
                   <Pencil size={11} /> Bewerken
                 </button>
               )}
-              <button onClick={onClose} className="text-zinc-600 hover:text-zinc-300 transition-colors"><X size={16} /></button>
+              <button onClick={onClose} aria-label="Sluiten" className="text-zinc-600 hover:text-zinc-300 transition-colors"><X size={16} /></button>
             </div>
           </div>
 
@@ -926,7 +927,7 @@ function AssignmentAdminRow({ assignment: a, onClick, onDelete }: {
             <button onClick={() => setConfirmDel(false)} className="text-[10px] text-zinc-600 hover:text-zinc-400 ml-1">Nee</button>
           </div>
         ) : (
-          <button onClick={e => { e.stopPropagation(); setConfirmDel(true) }} className="text-zinc-700 hover:text-red-400 transition-colors flex-shrink-0">
+          <button onClick={e => { e.stopPropagation(); setConfirmDel(true) }} aria-label="Verwijderen" className="text-zinc-700 hover:text-red-400 transition-colors flex-shrink-0">
             <Trash2 size={12} />
           </button>
         )}
@@ -1010,7 +1011,7 @@ function AddAssignmentModal({ freelancerId, freelancerName, onClose, onAdded }: 
         style={{ background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.12)' }}>
         <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
           <h2 className="text-sm font-semibold text-white">Opdracht voor {freelancerName}</h2>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200 transition-colors"><X size={16} /></button>
+          <button onClick={onClose} aria-label="Sluiten" className="text-zinc-500 hover:text-zinc-200 transition-colors"><X size={16} /></button>
         </div>
         <div className="p-5 space-y-3">
           <div>
@@ -1055,6 +1056,7 @@ function AddAssignmentModal({ freelancerId, freelancerName, onClose, onAdded }: 
                     style={{ background: 'rgba(255,255,255,0.04)' }}>
                     <span className="truncate">{f.name}</span>
                     <button onClick={() => setFiles(prev => prev.filter((_, j) => j !== i))}
+                      aria-label="Verwijder uit lijst"
                       className="text-zinc-600 hover:text-red-400 flex-shrink-0"><X size={10} /></button>
                   </div>
                 ))}
@@ -1160,7 +1162,7 @@ function EditAssignmentModal({ freelancerId, assignment, onClose, onSaved }: {
         style={{ background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.12)', maxHeight: '85vh' }}>
         <div className="flex items-center justify-between px-5 py-4 flex-shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
           <h2 className="text-sm font-semibold text-white">Opdracht bewerken</h2>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200 transition-colors"><X size={16} /></button>
+          <button onClick={onClose} aria-label="Sluiten" className="text-zinc-500 hover:text-zinc-200 transition-colors"><X size={16} /></button>
         </div>
         <div className="p-5 space-y-3 overflow-y-auto">
           <div>
@@ -1225,6 +1227,7 @@ function EditAssignmentModal({ freelancerId, assignment, onClose, onSaved }: {
                       <span className="truncate">{f.file_name}</span>
                     </a>
                     <button onClick={() => handleDeleteFile(f.id)} disabled={deletingFileId === f.id}
+                      aria-label="Verwijder bestand"
                       className="text-zinc-600 hover:text-red-400 flex-shrink-0 disabled:opacity-40">
                       {deletingFileId === f.id ? <Loader2 size={11} className="animate-spin" /> : <X size={11} />}
                     </button>
@@ -1248,6 +1251,7 @@ function EditAssignmentModal({ freelancerId, assignment, onClose, onSaved }: {
                     style={{ background: 'rgba(255,255,255,0.04)' }}>
                     <span className="truncate">{f.name}</span>
                     <button onClick={() => setNewFiles(prev => prev.filter((_, j) => j !== i))}
+                      aria-label="Verwijder uit lijst"
                       className="text-zinc-600 hover:text-red-400 flex-shrink-0"><X size={10} /></button>
                   </div>
                 ))}
@@ -1323,7 +1327,7 @@ function AddProjectModal({ freelancerId, freelancerName, onClose, onAdded }: {
             <h2 className="text-sm font-semibold text-zinc-100">Project toevoegen</h2>
             <p className="text-xs text-zinc-500 mt-0.5">{freelancerName}</p>
           </div>
-          <button onClick={onClose} className="text-zinc-600 hover:text-zinc-300 transition-colors"><X size={15} /></button>
+          <button onClick={onClose} aria-label="Sluiten" className="text-zinc-600 hover:text-zinc-300 transition-colors"><X size={15} /></button>
         </div>
 
         <div className="px-5 py-4 space-y-3">
@@ -1403,11 +1407,11 @@ function ProjectRow({ project: p, onDelete }: { project: FreelancerProject; onDe
       <div className="flex-shrink-0">
         {confirming ? (
           <div className="flex items-center gap-1">
-            <button onClick={onDelete} className="p-1 text-red-400 hover:text-red-300 transition-colors"><Check size={12} /></button>
-            <button onClick={() => setConfirming(false)} className="p-1 text-zinc-600 hover:text-zinc-400 transition-colors"><X size={12} /></button>
+            <button onClick={onDelete} aria-label="Bevestig verwijderen" className="p-1 text-red-400 hover:text-red-300 transition-colors"><Check size={12} /></button>
+            <button onClick={() => setConfirming(false)} aria-label="Annuleren" className="p-1 text-zinc-600 hover:text-zinc-400 transition-colors"><X size={12} /></button>
           </div>
         ) : (
-          <button onClick={() => setConfirming(true)}
+          <button onClick={() => setConfirming(true)} aria-label="Verwijderen"
             className="opacity-0 group-hover:opacity-100 p-1 text-zinc-600 hover:text-red-400 transition-all">
             <Trash2 size={12} />
           </button>

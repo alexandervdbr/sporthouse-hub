@@ -102,7 +102,7 @@ function AddRentalModal({
       <div className="relative bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl w-full max-w-md">
         <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-zinc-100">Externe huur toevoegen</h2>
-          <button onClick={onClose} className="text-zinc-600 hover:text-zinc-300 transition-colors"><X size={15} /></button>
+          <button onClick={onClose} aria-label="Sluiten" className="text-zinc-600 hover:text-zinc-300 transition-colors"><X size={15} /></button>
         </div>
 
         <div className="px-5 py-4 space-y-3 max-h-[70vh] overflow-y-auto">
@@ -250,11 +250,11 @@ export default function ExternalRentals() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => setYear(y => y - 1)}
+          <button onClick={() => setYear(y => y - 1)} aria-label="Vorig jaar"
             className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 border border-zinc-800 transition-colors">
             <ChevronLeft size={15} />
           </button>
-          <button onClick={() => setYear(y => y + 1)}
+          <button onClick={() => setYear(y => y + 1)} aria-label="Volgend jaar"
             className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 border border-zinc-800 transition-colors">
             <ChevronRight size={15} />
           </button>
@@ -424,7 +424,7 @@ function RentalRow({ rental: r, onDelete }: { rental: Rental; onDelete: () => vo
             </button>
           </div>
         ) : (
-          <button onClick={() => setConfirming(true)}
+          <button onClick={() => setConfirming(true)} aria-label="Verwijder"
             className="opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center rounded-lg text-zinc-600 hover:text-red-400 hover:bg-red-950/30 transition-all">
             <Trash2 size={13} />
           </button>

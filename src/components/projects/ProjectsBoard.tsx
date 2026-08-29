@@ -135,7 +135,7 @@ function ContactPicker({ contacts, selected, onChange }: {
             <div key={c.id} className="flex items-center gap-1.5 pl-1 pr-2 py-1 bg-zinc-800 border border-zinc-700 rounded-full">
               <Avatar name={c.name} photoUrl={c.photo_url} size={18} />
               <span className="text-xs text-zinc-300">{c.name.split(' ')[0]}</span>
-              <button type="button" onClick={() => onChange(selected.filter(s => s.id !== c.id))} className="text-zinc-600 hover:text-zinc-300">
+              <button type="button" onClick={() => onChange(selected.filter(s => s.id !== c.id))} aria-label="Verwijderen" className="text-zinc-600 hover:text-zinc-300">
                 <X size={10} />
               </button>
             </div>
@@ -322,7 +322,7 @@ function ProjectDetailModal({ project, contacts, onClose, onUpdate, onDelete }: 
               <Pencil size={11} />
               Bewerken
             </button>
-            <button onClick={onClose} className="text-zinc-600 hover:text-zinc-400 transition-colors">
+            <button onClick={onClose} aria-label="Sluiten" className="text-zinc-600 hover:text-zinc-400 transition-colors">
               <X size={15} />
             </button>
           </div>
@@ -501,6 +501,7 @@ function ProjectCard({ project, onClick, onStatusChange }: {
           <div className="relative" onClick={e => e.stopPropagation()}>
             <button
               onClick={() => setShowMenu(m => !m)}
+              aria-label="Meer opties"
               className="p-1 rounded-lg text-zinc-700 hover:text-zinc-400 hover:bg-zinc-800/60 transition-colors opacity-0 group-hover:opacity-100"
             >
               <ChevronDown size={11} />
@@ -590,7 +591,7 @@ function NewProjectModal({ clients, contacts, defaultStatus, onClose, onSave }: 
       <div className="relative rounded-2xl w-full max-w-md animate-scale-in glass" style={{ boxShadow: '0 25px 60px rgba(0,0,0,0.6)' }}>
         <div className="flex items-center justify-between p-5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <p className="text-sm font-semibold text-sh-grey">Nieuw project</p>
-          <button onClick={onClose} className="text-zinc-600 hover:text-zinc-400 transition-colors"><X size={15} /></button>
+          <button onClick={onClose} aria-label="Sluiten" className="text-zinc-600 hover:text-zinc-400 transition-colors"><X size={15} /></button>
         </div>
 
         <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
@@ -829,7 +830,7 @@ export default function ProjectsBoard({ initialProjects, clients, contacts, curr
               className="pl-8 pr-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-300 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-700 w-44 transition-colors"
             />
             {search && (
-              <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-400">
+              <button onClick={() => setSearch('')} aria-label="Zoekopdracht wissen" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-400">
                 <X size={11} />
               </button>
             )}
