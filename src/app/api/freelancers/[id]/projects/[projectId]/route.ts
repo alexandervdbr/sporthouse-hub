@@ -1,12 +1,12 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser } from '@/lib/auth-permissions'
 
 async function requireFreelancerAdmin() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
   const sections: string[] = user.app_metadata?.permissions?.sections ?? []
-  const ok = ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer') || sections.includes('freelancers')
+  const ok = isAdminUser(user) || sections.includes('freelancers')
   return ok ? user : null
 }
 

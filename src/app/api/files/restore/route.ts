@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { restoreFile } from '@/lib/drive-storage'
-import { ADMIN_EMAILS, hasClientAccess } from '@/lib/auth-permissions'
+import { hasClientAccess, isAdminUser } from '@/lib/auth-permissions'
 
 function adminClient() {
   return createAdminClient(
@@ -14,7 +14,7 @@ function adminClient() {
 function canDeleteFiles(user: { email?: string | null; app_metadata?: Record<string, unknown> }) {
   const permsObj = (user.app_metadata?.permissions as { sections?: string[] } | null) ?? null
   const sections = permsObj?.sections ?? []
-  const isAdmin = ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer')
+  const isAdmin = isAdminUser(user)
   return isAdmin || permsObj === null || sections.includes('bestanden_verwijderen')
 }
 

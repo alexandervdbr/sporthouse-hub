@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser } from '@/lib/auth-permissions'
 import { getAvailableTools } from '@/lib/client-tools'
 import ToolFavoriteToggle from '@/components/clients/ToolFavoriteToggle'
 
@@ -23,7 +23,7 @@ export default async function ClientToolsPage({ params }: Props) {
 
   const permsObj = user?.app_metadata?.permissions ?? null
   const sections: string[] = permsObj?.sections ?? []
-  const isAdmin = ADMIN_EMAILS.includes(user?.email ?? '') || sections.includes('beheer')
+  const isAdmin = isAdminUser(user)
   const canSeeWelkom = isAdmin || permsObj === null || sections.includes('welkom_stagiair')
   const canSeeFinancien = isAdmin || sections.includes('financien_bekijken') || sections.includes('financien_beheren')
   const canSeeAdministratie = isAdmin || sections.includes('administratie_bekijken') || sections.includes('administratie_beheren')

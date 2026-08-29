@@ -1,14 +1,12 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import webpush from 'web-push'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser } from '@/lib/auth-permissions'
 
 export async function POST(req: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return new Response('Unauthorized', { status: 401 })
-  const sections: string[] = user.app_metadata?.permissions?.sections ?? []
-  const isAdmin = ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer')
-  if (!isAdmin) return new Response('Forbidden', { status: 403 })
+  if (!isAdminUser(user)) return new Response('Forbidden', { status: 403 })
 
   if (!process.env.VAPID_EMAIL || !process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
     return new Response('Push-notificaties zijn niet geconfigureerd.', { status: 503 })

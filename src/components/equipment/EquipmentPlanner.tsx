@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import EquipmentAdminPanel from '@/components/equipment/EquipmentAdminPanel'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser } from '@/lib/auth-permissions'
 import {
   ChevronLeft, ChevronRight, ChevronDown, ChevronRight as ChevronRightIcon,
   X, Loader2, AlertCircle, Trash2, BarChart3, Search, Info, Calendar, Plus, Settings
@@ -894,7 +894,7 @@ export default function EquipmentPlanner() {
       setCurrentUser(meta.full_name ?? meta.name ?? meta.email ?? user.email ?? '')
       const permsObj = user.app_metadata?.permissions ?? null
       const sections: string[] = permsObj?.sections ?? []
-      const admin = ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer')
+      const admin = isAdminUser(user)
       setIsAdmin(admin)
       const unrestricted = admin || permsObj === null
       setCanReserveren(unrestricted || sections.includes('materiaal_reserveren'))

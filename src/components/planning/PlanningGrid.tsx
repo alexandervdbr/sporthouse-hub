@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { ChevronLeft, ChevronRight, Loader2, Settings, Search, User, X, CalendarPlus, Check, Undo2, Redo2 } from 'lucide-react'
 import { DEPARTMENTS, DUTCH_MONTHS, DUTCH_DAYS, getDaysInMonth, cellKey, Department } from '@/lib/planning-config'
 import PlanningConfigModal from '@/components/planning/PlanningConfigModal'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser } from '@/lib/auth-permissions'
 import type { PlanningPreset } from '@/lib/planning-presets'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -478,7 +478,7 @@ export default function PlanningGrid() {
       setMyName(user.user_metadata?.full_name ?? user.user_metadata?.name ?? '')
       const permsObj = user.app_metadata?.permissions ?? null
       const sections: string[] = permsObj?.sections ?? []
-      const isAdmin = ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer')
+      const isAdmin = isAdminUser(user)
       // Presets zijn expliciet beheer-only — niet iedereen die volledig mag
       // bewerken (planning_volledig), enkel wie ook de beheer-sectie heeft.
       setIsBeheer(isAdmin)

@@ -1,5 +1,5 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser } from '@/lib/auth-permissions'
 
 export async function GET() {
   const supabase = await createClient()
@@ -21,8 +21,7 @@ export async function POST(req: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return new Response('Unauthorized', { status: 401 })
-  const sections: string[] = user.app_metadata?.permissions?.sections ?? []
-  if (!ADMIN_EMAILS.includes(user.email ?? '') && !sections.includes('beheer')) return new Response('Forbidden', { status: 403 })
+  if (!isAdminUser(user)) return new Response('Forbidden', { status: 403 })
 
   const { name, description, category, color } = await req.json()
   if (!name?.trim()) return new Response('name required', { status: 400 })
