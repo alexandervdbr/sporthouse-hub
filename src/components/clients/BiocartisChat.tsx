@@ -196,7 +196,7 @@ export default function BiocartisChat({ clientId }: { clientId: string }) {
           {chatError && (
             <div className="mx-4 mb-2 flex items-center gap-2 px-3 py-2 bg-red-950/40 border border-red-900/40 rounded-lg">
               <p className="text-xs text-red-400 flex-1">{chatError}</p>
-              <button onClick={() => setChatError(null)}><X size={12} className="text-red-400" /></button>
+              <button onClick={() => setChatError(null)} aria-label="Foutmelding sluiten"><X size={12} className="text-red-400" /></button>
             </div>
           )}
 
@@ -215,6 +215,7 @@ export default function BiocartisChat({ clientId }: { clientId: string }) {
               <button
                 onClick={handleSend}
                 disabled={!input.trim() || streaming}
+                aria-label="Verstuur bericht"
                 className="w-10 h-10 flex items-center justify-center rounded-xl text-white transition-colors disabled:opacity-40 flex-shrink-0"
                 style={{ backgroundColor: '#3A913F' }}
               >
@@ -278,6 +279,7 @@ export default function BiocartisChat({ clientId }: { clientId: string }) {
                   <button
                     onClick={() => handleDelete(doc.id)}
                     disabled={deletingId === doc.id}
+                    aria-label="Verwijder document"
                     className="text-zinc-600 hover:text-red-400 transition-colors flex-shrink-0"
                   >
                     {deletingId === doc.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}

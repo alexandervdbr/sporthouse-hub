@@ -2,7 +2,14 @@
 // permission checks built on top of it. Import from here instead of
 // redeclaring ADMIN_EMAILS locally — this file has no server-only
 // dependencies, so it's safe to import from both server and client code.
-
+//
+// This is deliberately a break-glass fallback, not the primary admin path —
+// both accounts below should also have 'beheer' granted through the admin
+// panel, so day-to-day admin access has a visible, revocable route and this
+// hardcoded list is only what's left if that panel-granted access is ever
+// lost or misconfigured. It only ever gates UI/page routing; the DB-level
+// RLS checks (see supabase/migrations/0023_client_access_rls_foundation.sql)
+// deliberately don't know about it at all.
 export const ADMIN_EMAILS = ['arne.smets@sporthousegroup.com', 'deryan.spiessens@sporthousegroup.com']
 
 type PermissionUser = {

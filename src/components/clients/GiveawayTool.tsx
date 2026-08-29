@@ -433,6 +433,7 @@ export default function GiveawayTool({ clientId }: { clientId: string }) {
                 <button
                   onClick={() => handleDelete(g.id)}
                   disabled={deletingId === g.id}
+                  aria-label="Verwijder uit geschiedenis"
                   className="text-zinc-600 hover:text-red-400 transition-colors flex-shrink-0"
                 >
                   {deletingId === g.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}

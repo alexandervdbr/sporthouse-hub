@@ -321,6 +321,9 @@ OPMAAK:
             controller.enqueue(encoder.encode(chunk.delta.text))
           }
         }
+      } catch (err) {
+        console.error('Expert chat stream error:', err)
+        controller.enqueue(encoder.encode('\n\n⚠️ Er ging iets mis. Probeer opnieuw.'))
       } finally {
         controller.close()
       }

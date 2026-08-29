@@ -360,7 +360,7 @@ function InviteModal({ clients, onClose, onInvited }: { clients: ClientOption[];
       <div className="relative bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]">
         <div className="flex-shrink-0 px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-zinc-100">Toegang verlenen</h2>
-          <button onClick={onClose} className="text-zinc-600 hover:text-zinc-300 transition-colors"><X size={15} /></button>
+          <button onClick={onClose} aria-label="Sluiten" className="text-zinc-600 hover:text-zinc-300 transition-colors"><X size={15} /></button>
         </div>
         {success ? (
           <div className="px-5 py-8 text-center">
@@ -620,7 +620,7 @@ function PermissionsPanel({
             <p className="text-xs text-zinc-500 truncate">{user.email}</p>
           </div>
         </div>
-        <button onClick={onClose} className="flex-shrink-0 text-zinc-600 hover:text-zinc-300 transition-colors mt-0.5">
+        <button onClick={onClose} aria-label="Sluiten" className="flex-shrink-0 text-zinc-600 hover:text-zinc-300 transition-colors mt-0.5">
           <X size={15} />
         </button>
       </div>
@@ -849,7 +849,7 @@ function FreelancerInviteModal({ onClose, onInvited }: { onClose: () => void; on
             <UserCheck size={14} className="text-purple-400" />
             <h2 className="text-sm font-semibold text-zinc-100">Freelancer uitnodigen</h2>
           </div>
-          <button onClick={onClose} className="text-zinc-600 hover:text-zinc-300 transition-colors"><X size={15} /></button>
+          <button onClick={onClose} aria-label="Sluiten" className="text-zinc-600 hover:text-zinc-300 transition-colors"><X size={15} /></button>
         </div>
         {success ? (
           <div className="px-5 py-8 text-center">
@@ -1005,7 +1005,7 @@ export default function UsersPage() {
             <p className="text-sm text-zinc-500">{users.length} {users.length === 1 ? 'gebruiker' : 'gebruikers'}</p>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={loadUsers} disabled={loading}
+            <button onClick={loadUsers} disabled={loading} aria-label="Ververs gebruikerslijst"
               className="w-8 h-8 flex items-center justify-center rounded-lg border border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700 transition-colors disabled:opacity-40">
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
             </button>
@@ -1031,7 +1031,7 @@ export default function UsersPage() {
             placeholder="Zoek op naam of e-mailadres…"
             className="w-full pl-8 pr-8 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-700 transition-colors" />
           {search && (
-            <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"><X size={12} /></button>
+            <button onClick={() => setSearch('')} aria-label="Zoekopdracht wissen" className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"><X size={12} /></button>
           )}
         </div>
 

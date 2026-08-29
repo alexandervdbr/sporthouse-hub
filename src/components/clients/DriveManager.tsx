@@ -166,6 +166,7 @@ export default function DriveManager({ clientId, clientName }: Props) {
             </button>
             <button
               onClick={() => { setShowNew(false); setNewName(''); setCreateError(null) }}
+              aria-label="Annuleren"
               className="p-2 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
             >
               <X size={14} />
@@ -210,8 +211,8 @@ export default function DriveManager({ clientId, clientName }: Props) {
                         onKeyDown={e => { if (e.key === 'Enter') handleRename(file); if (e.key === 'Escape') setRenamingId(null) }}
                         className="flex-1 bg-zinc-800 border border-zinc-600 rounded px-2 py-1 text-sm text-white outline-none"
                       />
-                      <button onClick={() => handleRename(file)} className="text-emerald-400 hover:text-emerald-300 p-1"><Check size={12} /></button>
-                      <button onClick={() => setRenamingId(null)} className="text-zinc-500 hover:text-zinc-300 p-1"><X size={12} /></button>
+                      <button onClick={() => handleRename(file)} aria-label="Bevestigen" className="text-emerald-400 hover:text-emerald-300 p-1"><Check size={12} /></button>
+                      <button onClick={() => setRenamingId(null)} aria-label="Annuleren" className="text-zinc-500 hover:text-zinc-300 p-1"><X size={12} /></button>
                     </div>
                   ) : (
                     <p className="text-sm font-medium text-white truncate">{file.name}</p>
@@ -289,6 +290,7 @@ export default function DriveManager({ clientId, clientName }: Props) {
               </a>
               <button
                 onClick={() => setPreviewFile(null)}
+                aria-label="Sluiten"
                 className="p-1.5 rounded-md text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
               >
                 <X size={14} />

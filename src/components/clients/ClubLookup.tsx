@@ -601,6 +601,7 @@ export default function ClubLookup({
                             <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                               <button
                                 onClick={e => { e.stopPropagation(); startEdit(club) }}
+                                aria-label="Bewerken"
                                 className="w-6 h-6 rounded-md bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-400 hover:text-zinc-200 transition-colors"
                               >
                                 <Pencil size={11} />
@@ -608,6 +609,7 @@ export default function ClubLookup({
                               <button
                                 onClick={e => { e.stopPropagation(); deleteClub(club.id) }}
                                 disabled={deletingId === club.id}
+                                aria-label="Verwijder club"
                                 className="w-6 h-6 rounded-md bg-zinc-800 hover:bg-red-500/20 flex items-center justify-center text-zinc-400 hover:text-red-400 transition-colors"
                               >
                                 {deletingId === club.id ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
@@ -633,7 +635,7 @@ export default function ClubLookup({
                     <p className="text-base font-semibold text-white leading-tight">{selectedClub.full_name}</p>
                     <p className="text-sm text-zinc-400 mt-0.5">{selectedClub.short_name}</p>
                   </div>
-                  <button onClick={() => setSelectedClub(null)} className="text-zinc-600 hover:text-zinc-300 mt-0.5 flex-shrink-0">
+                  <button onClick={() => setSelectedClub(null)} aria-label="Sluiten" className="text-zinc-600 hover:text-zinc-300 mt-0.5 flex-shrink-0">
                     <X size={15} />
                   </button>
                 </div>
@@ -740,7 +742,7 @@ export default function ClubLookup({
                               <span className="text-xs text-zinc-600 font-mono flex-shrink-0">N{comp.level}</span>
                             )}
                           </div>
-                          <button onClick={() => deleteCompetition(comp.id)} disabled={deletingCompId === comp.id} className="text-zinc-600 hover:text-red-400 transition-colors ml-3 flex-shrink-0">
+                          <button onClick={() => deleteCompetition(comp.id)} disabled={deletingCompId === comp.id} aria-label="Verwijder competitie" className="text-zinc-600 hover:text-red-400 transition-colors ml-3 flex-shrink-0">
                             {deletingCompId === comp.id ? <Loader2 size={13} className="animate-spin" /> : <X size={13} />}
                           </button>
                         </div>
@@ -792,7 +794,7 @@ export default function ClubLookup({
           <div className="pointer-events-auto w-80 h-full bg-zinc-900 border-l border-zinc-800 shadow-2xl flex flex-col p-6 gap-4 overflow-y-auto">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-white">Club toevoegen</h3>
-              <button onClick={() => setShowAdd(false)} className="text-zinc-600 hover:text-zinc-300"><X size={15} /></button>
+              <button onClick={() => setShowAdd(false)} aria-label="Sluiten" className="text-zinc-600 hover:text-zinc-300"><X size={15} /></button>
             </div>
             <div className="flex flex-col gap-2">
               <input value={addForm.full_name} onChange={e => setAddForm(f => ({ ...f, full_name: e.target.value }))} placeholder="Volledige naam *" className="w-full bg-zinc-800 border border-zinc-700 text-zinc-200 text-sm px-3 py-2 rounded-lg outline-none focus:border-zinc-500 placeholder:text-zinc-600" />
@@ -857,7 +859,7 @@ export default function ClubLookup({
                         {!step.isHighest && ` · Stijgers → ${step.higherCompetition?.name}`}
                       </p>
                     </div>
-                    <button onClick={() => setShowSeasonModal(false)} className="text-zinc-600 hover:text-zinc-300 mt-0.5">
+                    <button onClick={() => setShowSeasonModal(false)} aria-label="Sluiten" className="text-zinc-600 hover:text-zinc-300 mt-0.5">
                       <X size={15} />
                     </button>
                   </div>

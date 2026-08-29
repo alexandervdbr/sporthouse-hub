@@ -42,7 +42,7 @@ function formatSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export default function FileList({ files, clientId: _clientId, currentUserEmail }: Props) {
+export default function FileList({ files, currentUserEmail }: Props) {
   const [search, setSearch] = useState('')
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)

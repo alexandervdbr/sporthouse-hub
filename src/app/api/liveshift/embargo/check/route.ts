@@ -41,13 +41,14 @@ export async function POST(request: NextRequest) {
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
-  const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 256,
-    messages: [
-      {
-        role: 'user',
-        content: `Je bent een embargo-checker voor Pro League social media.
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 256,
+      messages: [
+        {
+          role: 'user',
+          content: `Je bent een embargo-checker voor Pro League social media.
 
 Huidige datum en tijd (Belgische tijd): ${now}
 
@@ -60,19 +61,18 @@ of
 
 EMBARGO-REGELS (uit document: ${docs.filename}):
 ${docs.content}`,
-      },
-    ],
-  })
+        },
+      ],
+    })
 
-  const raw = response.content.find(b => b.type === 'text')?.text?.trim() ?? ''
-
-  try {
+    const raw = response.content.find(b => b.type === 'text')?.text?.trim() ?? ''
     // Strip possible markdown code fences
     const cleaned = raw.replace(/^```[a-z]*\n?/, '').replace(/\n?```$/, '').trim()
     const parsed = JSON.parse(cleaned) as { allowed: boolean; reason: string }
     return NextResponse.json(parsed)
-  } catch {
-    // If Claude didn't return valid JSON, fall back gracefully
+  } catch (err) {
+    console.error('Embargo check Claude error:', err)
+    // If Claude didn't respond or didn't return valid JSON, fall back gracefully
     return NextResponse.json({
       allowed: false,
       reason: 'Kon embargo-status niet bepalen. Controleer manueel.',

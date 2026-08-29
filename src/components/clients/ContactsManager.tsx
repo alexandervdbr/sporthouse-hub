@@ -74,7 +74,7 @@ function ContactModal({
           <h3 className="text-sm font-semibold text-sh-grey">
             {initial ? 'Contact bewerken' : 'Nieuw contact'}
           </h3>
-          <button type="button" onClick={onClose}>
+          <button type="button" onClick={onClose} aria-label="Sluiten">
             <X size={14} className="text-zinc-600 hover:text-zinc-400" />
           </button>
         </div>
@@ -252,6 +252,7 @@ export default function ContactsManager({ clientId }: { clientId: string }) {
                 <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
                     onClick={() => { setEditing(contact); setShowModal(true) }}
+                    aria-label="Bewerken"
                     className="p-1.5 text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800 rounded-md transition-colors"
                   >
                     <Pencil size={12} />
@@ -259,6 +260,7 @@ export default function ContactsManager({ clientId }: { clientId: string }) {
                   <button
                     onClick={() => handleDelete(contact.id)}
                     disabled={deletingId === contact.id}
+                    aria-label="Verwijder contact"
                     className="p-1.5 text-zinc-600 hover:text-red-400 hover:bg-zinc-800 rounded-md transition-colors"
                   >
                     {deletingId === contact.id

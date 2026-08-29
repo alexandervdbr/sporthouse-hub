@@ -104,6 +104,7 @@ function SubmissionCard({ sub, canDelete, onDelete }: {
         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
           {isDrive && sub.drive_file_id ? (
             <button onClick={() => setPreviewOpen(true)}
+              aria-label="Voorbeeld bekijken"
               className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors">
               {video ? <Film size={15} /> : <ImageIcon size={15} />}
             </button>
@@ -121,6 +122,7 @@ function SubmissionCard({ sub, canDelete, onDelete }: {
           )}
           {canDelete && (
             <button onClick={() => onDelete(sub.id, sub.file_url, sub.storage_provider)}
+              aria-label="Verwijderen"
               className="p-2 rounded-lg bg-red-600/80 hover:bg-red-500 text-white transition-colors">
               <Trash2 size={15} />
             </button>
@@ -276,7 +278,7 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
           <h2 className="text-base font-semibold text-white">
             Toevoegen aan {section === 'content' ? 'Content' : 'Inspiratie'}
           </h2>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200 transition-colors"><X size={18} /></button>
+          <button onClick={onClose} aria-label="Sluiten" className="text-zinc-500 hover:text-zinc-200 transition-colors"><X size={18} /></button>
         </div>
 
         <div className="p-6">
@@ -287,7 +289,7 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
             style={{ border: '2px dashed rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.02)' }}>
             <Upload size={18} className="text-zinc-500" />
             <p className="text-sm text-zinc-400">Klik of sleep bestanden hier</p>
-            <p className="text-xs text-zinc-600">Afbeeldingen & video's — meerdere tegelijk mogelijk</p>
+            <p className="text-xs text-zinc-600">Afbeeldingen &amp; video&apos;s — meerdere tegelijk mogelijk</p>
             <input ref={inputRef} type="file" multiple accept="image/*,video/*" className="hidden"
               onChange={e => { addFiles(e.target.files); e.target.value = '' }} />
           </div>
@@ -348,6 +350,7 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
                       </span>
                     ) : (
                       <button onClick={() => removeEntry(i)}
+                        aria-label="Verwijder uit lijst"
                         className="text-zinc-600 hover:text-red-400 transition-colors flex-shrink-0">
                         <X size={12} />
                       </button>
@@ -443,7 +446,7 @@ function EditionModal({ editions, onClose, onRefresh }: {
         style={{ background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.12)' }}>
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-base font-semibold text-white">Edities beheren</h2>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200 transition-colors"><X size={18} /></button>
+          <button onClick={onClose} aria-label="Sluiten" className="text-zinc-500 hover:text-zinc-200 transition-colors"><X size={18} /></button>
         </div>
         <div className="space-y-2 mb-5 max-h-52 overflow-y-auto">
           {editions.map(e => (
@@ -465,6 +468,7 @@ function EditionModal({ editions, onClose, onRefresh }: {
                 </div>
               ) : (
                 <button onClick={() => setConfirmDel(e.id)}
+                  aria-label="Verwijderen"
                   className="text-zinc-500 hover:text-red-400 transition-colors flex-shrink-0">
                   <Trash2 size={13} />
                 </button>

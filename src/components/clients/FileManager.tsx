@@ -275,6 +275,7 @@ function SelectCheckbox({ checked, onToggle }: { checked: boolean; onToggle: () 
     <button
       type="button"
       onClick={(e) => { e.stopPropagation(); onToggle() }}
+      aria-label={checked ? 'Deselecteren' : 'Selecteren'}
       className={`w-4 h-4 rounded-[4px] flex items-center justify-center flex-shrink-0 border transition-colors ${
         checked ? 'bg-emerald-500 border-emerald-500' : 'bg-zinc-900 border-zinc-600 hover:border-zinc-500'
       }`}
@@ -1184,7 +1185,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
         <div className="flex items-start gap-2 px-3 py-2.5 mb-5 bg-amber-950/50 border border-amber-900/50 rounded-lg">
           <AlertCircle size={14} className="text-amber-400 flex-shrink-0 mt-0.5" />
           <p className="text-xs text-amber-400 flex-1">{deleteWarning}</p>
-          <button onClick={() => setDeleteWarning(null)} className="text-amber-400/70 hover:text-amber-300 flex-shrink-0">
+          <button onClick={() => setDeleteWarning(null)} aria-label="Melding sluiten" className="text-amber-400/70 hover:text-amber-300 flex-shrink-0">
             <X size={13} />
           </button>
         </div>
@@ -1194,7 +1195,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
         <div className="flex items-start gap-2 px-3 py-2.5 mb-5 bg-red-950/50 border border-red-900/50 rounded-lg">
           <AlertCircle size={14} className="text-red-400 flex-shrink-0 mt-0.5" />
           <p className="text-xs text-red-400 flex-1">{zipError}</p>
-          <button onClick={() => setZipError(null)} className="text-red-400/70 hover:text-red-300 flex-shrink-0">
+          <button onClick={() => setZipError(null)} aria-label="Foutmelding sluiten" className="text-red-400/70 hover:text-red-300 flex-shrink-0">
             <X size={13} />
           </button>
         </div>
@@ -1255,12 +1256,14 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
             <button
               onClick={handleCreateFolder}
               disabled={creatingFolder || !newFolderName.trim()}
+              aria-label="Bevestigen"
               className="p-1.5 rounded-md text-emerald-400 hover:bg-zinc-800 disabled:opacity-40 transition-colors"
             >
               {creatingFolder ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
             </button>
             <button
               onClick={() => { setShowNewFolder(false); setNewFolderName(''); setCreateFolderError(null) }}
+              aria-label="Annuleren"
               className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
             >
               <X size={14} />
@@ -1471,10 +1474,10 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                           }}
                           className="flex-1 bg-transparent text-xs text-white outline-none min-w-0"
                         />
-                        <button onClick={() => handleRenameFolder(folder.id)} className="text-emerald-400 hover:text-emerald-300 flex-shrink-0">
+                        <button onClick={() => handleRenameFolder(folder.id)} aria-label="Bevestigen" className="text-emerald-400 hover:text-emerald-300 flex-shrink-0">
                           <Check size={11} />
                         </button>
-                        <button onClick={() => setRenamingId(null)} className="text-zinc-500 hover:text-zinc-300 flex-shrink-0">
+                        <button onClick={() => setRenamingId(null)} aria-label="Annuleren" className="text-zinc-500 hover:text-zinc-300 flex-shrink-0">
                           <X size={11} />
                         </button>
                       </div>
@@ -1516,6 +1519,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                             e.stopPropagation()
                             setMenuOpenId(menuOpenId === folder.id ? null : folder.id)
                           }}
+                          aria-label="Meer opties"
                           className="p-1 rounded-md text-zinc-500 hover:text-white hover:bg-zinc-700 transition-all"
                         >
                           <MoreVertical size={12} />
@@ -1745,7 +1749,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                               : <Loader2 size={12} className="animate-spin inline" />}
                       </span>
                     ) : (
-                      <button onClick={() => removeEntry(i)} className="text-zinc-600 hover:text-red-400 transition-colors flex-shrink-0">
+                      <button onClick={() => removeEntry(i)} aria-label="Verwijder uit lijst" className="text-zinc-600 hover:text-red-400 transition-colors flex-shrink-0">
                         <X size={12} />
                       </button>
                     )}
@@ -1909,6 +1913,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
               </div>
               <button
                 onClick={() => { setEditingFile(null); editor?.commands.clearContent() }}
+                aria-label="Sluiten"
                 className="p-1.5 rounded-md text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors flex-shrink-0"
               >
                 <X size={14} />

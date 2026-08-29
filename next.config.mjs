@@ -1,7 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  eslint: { ignoreDuringBuilds: true },
-  typescript: { ignoreBuildErrors: true },
+  // Next 16 removed the `eslint` build-config key and the `next lint`
+  // command entirely — ESLint no longer runs as part of `next build`
+  // regardless of any flag here, so lint enforcement now lives in the
+  // `prebuild` npm script instead (see package.json).
+  typescript: { ignoreBuildErrors: false },
   serverExternalPackages: ['pdf-parse', '@anthropic-ai/sdk', 'ffmpeg-static'],
   experimental: {
     // Global middleware (src/middleware.ts) buffers the request body for

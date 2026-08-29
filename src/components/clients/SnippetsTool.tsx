@@ -86,7 +86,7 @@ function SnippetCard({ snippet, index }: { snippet: Snippet; index: number }) {
   )
 }
 
-export default function SnippetsTool({ clientId: _clientId, podcastName }: { clientId: string; podcastName: string }) {
+export default function SnippetsTool({ podcastName }: { clientId: string; podcastName: string }) {
   const [transcript, setTranscript] = useState('')
   const [snippets, setSnippets] = useState<Snippet[]>([])
   const [loading, setLoading] = useState(false)
