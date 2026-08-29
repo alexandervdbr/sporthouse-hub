@@ -12,7 +12,7 @@ import { useFavorites } from '@/contexts/FavoritesContext'
 import { cn } from '@/lib/utils'
 import { getLogo } from '@/lib/logos'
 import { usePreview } from '@/lib/preview-context'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser } from '@/lib/auth-permissions'
 
 interface SidebarProps {
   clients: Client[]
@@ -106,6 +106,13 @@ export default function Sidebar({ clients }: SidebarProps) {
   const pathname = usePathname()
   const { collapsed, mobileOpen, closeMobile } = useSidebar()
   const { favorites } = useFavorites()
+
+  useEffect(() => {
+    if (!mobileOpen) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeMobile() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [mobileOpen, closeMobile])
   const supabase = createClient()
   const { preview } = usePreview()
   const [realIsAdmin,     setRealIsAdmin]     = useState(false)
@@ -117,8 +124,7 @@ export default function Sidebar({ clients }: SidebarProps) {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) return
       userEmailRef.current = user.email ?? null
-      const sections: string[] = user.app_metadata?.permissions?.sections ?? []
-      const admin = ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer')
+      const admin = isAdminUser(user)
       setRealIsAdmin(admin)
       if (!admin) setRealPermissions(user.app_metadata?.permissions ?? null)
     })

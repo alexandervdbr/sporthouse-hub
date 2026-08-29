@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound, redirect } from 'next/navigation'
 import AnalyticsDashboard from '@/components/analytics/AnalyticsDashboard'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser } from '@/lib/auth-permissions'
 
 interface Props {
   params: Promise<{ id: string }>
@@ -17,7 +17,7 @@ export default async function ClientAnalyticsPage({ params }: Props) {
   ])
 
   if (!client) notFound()
-  if (client.name !== 'Sporthouse' || !ADMIN_EMAILS.includes(user?.email ?? '')) {
+  if (client.name !== 'Sporthouse' || !isAdminUser(user)) {
     redirect(`/clients/${id}`)
   }
 

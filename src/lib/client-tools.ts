@@ -76,7 +76,7 @@ export function getAvailableTools(client: Client, perms: ToolPermissions): ToolD
     },
     ...(client.category === 'podcast' ? [{
       id: 'snippets',
-      label: 'Mogelijke Snippits',
+      label: 'Mogelijke Snippets',
       description: 'Plak een transcript en AI selecteert de sterkste fragmenten voor Instagram Reels, TikTok en YouTube Shorts.',
       icon: Scissors,
       color: '#a21caf',

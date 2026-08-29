@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Plus, X, ChevronDown, Loader2, Check, Trash2, Clock, Zap, CheckCircle2, CalendarDays, User, Pencil, Search } from 'lucide-react'
 import Image from 'next/image'
@@ -290,6 +290,12 @@ function ProjectDetailModal({ project, contacts, onClose, onUpdate, onDelete }: 
     onDelete(project.id)
     onClose()
   }
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -584,6 +590,12 @@ function NewProjectModal({ clients, contacts, defaultStatus, onClose, onSave }: 
       setSaving(false)
     }
   }
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

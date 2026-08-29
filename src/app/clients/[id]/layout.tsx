@@ -3,7 +3,7 @@ import { notFound, redirect } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
 import { Client } from '@/types/database'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser } from '@/lib/auth-permissions'
 import FavoriteToggle from '@/components/clients/FavoriteToggle'
 import KennisbankButton from '@/components/clients/KennisbankButton'
 
@@ -64,9 +64,8 @@ export default async function ClientLayout({ children, params }: Props) {
 
   // Check client access permissions
   if (user) {
-    const sections: string[] = user.app_metadata?.permissions?.sections ?? []
     const perms: { sections: string[]; clients: string[] } | null = user.app_metadata?.permissions ?? null
-    const isAdmin = ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer')
+    const isAdmin = isAdminUser(user)
     if (!isAdmin && perms !== null) {
       const allowedClients: string[] = perms.clients ?? []
       // If a non-empty clients restriction is configured and this client isn't in it, block

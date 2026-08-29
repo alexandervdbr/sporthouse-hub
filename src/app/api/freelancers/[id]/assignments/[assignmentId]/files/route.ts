@@ -1,7 +1,7 @@
 import { Readable } from 'stream'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { isDriveStorageConfigured, uploadFile, trashFile, downloadFile, getOrCreateFolderPath, driveRootFolderId } from '@/lib/drive-storage'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser } from '@/lib/auth-permissions'
 import { isAllowedUploadExt, ALLOWED_UPLOAD_HINT } from '@/lib/upload-policy'
 
 export const maxDuration = 60
@@ -10,8 +10,7 @@ async function assertAdmin() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
-  const sections: string[] = user.app_metadata?.permissions?.sections ?? []
-  return ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer') ? user : null
+  return isAdminUser(user) ? user : null
 }
 
 // Staff-facing download — there was previously no equivalent to the

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { X, Loader2, Plus, Trash2, Wrench, Check } from 'lucide-react'
 
 export interface AdminEquipmentItem {
@@ -115,6 +115,12 @@ export default function EquipmentAdminPanel({
     onProjectsChange(projects.filter(x => x.id !== p.id))
     setBusyId(null)
   }
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>

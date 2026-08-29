@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Send, Hash, Plus, Loader2, Trash2, X, ChevronDown, ChevronRight, MoreHorizontal, Pencil, FolderPlus, Paperclip, FileText, Download, GripVertical, Smile } from 'lucide-react'
 import Picker from '@emoji-mart/react'
 import data from '@emoji-mart/data'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser } from '@/lib/auth-permissions'
 import {
   DndContext, DragEndEvent,
   PointerSensor, useSensor, useSensors, closestCenter,
@@ -363,6 +363,18 @@ export default function ChatPage() {
   const [editDesc, setEditDesc] = useState('')
   const [editCategory, setEditCategory] = useState('')
   const [editColor, setEditColor] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!showNewChannel && !showNewCategory && !editingChannel) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      setShowNewChannel(false)
+      setShowNewCategory(false)
+      setEditingChannel(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showNewChannel, showNewCategory, editingChannel])
   const [savingEdit, setSavingEdit] = useState(false)
 
   // UI state
@@ -400,7 +412,7 @@ export default function ChatPage() {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user?.email) return
       setCurrentUserEmail(user.email)
-      setIsAdmin(ADMIN_EMAILS.includes(user.email))
+      setIsAdmin(isAdminUser(user))
       const namePart = user.email.split('@')[0]
       const name = namePart.split('.').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
       setCurrentUserName(name)

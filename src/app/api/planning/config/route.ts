@@ -7,14 +7,13 @@
 
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import type { Department } from '@/lib/planning-config'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser } from '@/lib/auth-permissions'
 
 async function requireAdmin() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
-  const sections: string[] = user.app_metadata?.permissions?.sections ?? []
-  const ok = ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer')
+  const ok = isAdminUser(user)
   return ok ? user : null
 }
 
