@@ -1,5 +1,5 @@
-import UsersPage from '@/components/admin/UsersPage'
+import AdminTabs from '@/components/admin/AdminTabs'
 
 export default function AdminPage() {
-  return <UsersPage />
+  return <AdminTabs />
 }
