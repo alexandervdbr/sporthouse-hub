@@ -50,12 +50,18 @@ ${docsContext}`,
   const encoder = new TextEncoder()
   const readable = new ReadableStream({
     async start(controller) {
-      for await (const chunk of stream) {
-        if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
-          controller.enqueue(encoder.encode(chunk.delta.text))
+      try {
+        for await (const chunk of stream) {
+          if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+            controller.enqueue(encoder.encode(chunk.delta.text))
+          }
         }
+      } catch (err) {
+        console.error('Biocartis chat stream error:', err)
+        controller.enqueue(encoder.encode('\n\n⚠️ Er ging iets mis. Probeer opnieuw.'))
+      } finally {
+        controller.close()
       }
-      controller.close()
     },
   })
 

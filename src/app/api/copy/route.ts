@@ -109,6 +109,9 @@ REGELS:
             controller.enqueue(encoder.encode(chunk.delta.text))
           }
         }
+      } catch (err) {
+        console.error('Copy generator stream error:', err)
+        controller.enqueue(encoder.encode('\n\n⚠️ Er ging iets mis. Probeer opnieuw.'))
       } finally {
         controller.close()
       }

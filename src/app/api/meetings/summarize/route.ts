@@ -18,13 +18,14 @@ export async function POST(request: NextRequest) {
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
-  const message = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 2048,
-    messages: [
-      {
-        role: 'user',
-        content: `Je bent een professionele assistent die vergaderingen samenvat voor SporthouseGroup, een Belgisch sport marketing en media bedrijf.
+  try {
+    const message = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 2048,
+      messages: [
+        {
+          role: 'user',
+          content: `Je bent een professionele assistent die vergaderingen samenvat voor SporthouseGroup, een Belgisch sport marketing en media bedrijf.
 
 Analyseer de volgende vergaderingstranscriptie en maak een gestructureerde samenvatting in het Nederlands.
 
@@ -46,10 +47,14 @@ Gebruik EXACT dit formaat met deze secties (ook als een sectie leeg is, schrijf 
 
 Transcriptie:
 ${transcription}`,
-      },
-    ],
-  })
+        },
+      ],
+    })
 
-  const summary = message.content[0].type === 'text' ? message.content[0].text : ''
-  return NextResponse.json({ summary })
+    const summary = message.content[0].type === 'text' ? message.content[0].text : ''
+    return NextResponse.json({ summary })
+  } catch (err) {
+    console.error('Meeting summarize Claude error:', err)
+    return NextResponse.json({ error: 'Kon geen samenvatting genereren. Probeer opnieuw.' }, { status: 500 })
+  }
 }

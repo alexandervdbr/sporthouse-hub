@@ -112,11 +112,17 @@ Antwoord ALLEEN in geldig JSON (geen uitleg erbuiten):
 ]`
 
   // ── Call Claude ─────────────────────────────────────────────────────────────
-  const message = await anthropic.messages.create({
-    model: 'claude-opus-4-8',
-    max_tokens: 1024,
-    messages: [{ role: 'user', content: prompt }],
-  })
+  let message
+  try {
+    message = await anthropic.messages.create({
+      model: 'claude-opus-4-8',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: prompt }],
+    })
+  } catch (err) {
+    console.error('Freelancer match Claude error:', err)
+    return Response.json({ error: 'Kon geen match genereren. Probeer opnieuw.' }, { status: 500 })
+  }
 
   const text = message.content[0].type === 'text' ? message.content[0].text : '[]'
   const jsonMatch = text.match(/\[[\s\S]*\]/)

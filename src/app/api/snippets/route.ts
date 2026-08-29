@@ -18,13 +18,14 @@ export async function POST(request: NextRequest) {
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
-  const message = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 4096,
-    messages: [
-      {
-        role: 'user',
-        content: `Je bent een social media expert gespecialiseerd in podcast content voor ${podcastName || 'een sportpodcast'}.
+  try {
+    const message = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4096,
+      messages: [
+        {
+          role: 'user',
+          content: `Je bent een social media expert gespecialiseerd in podcast content voor ${podcastName || 'een sportpodcast'}.
 
 Analyseer onderstaand transcript en selecteer de 6 beste snippits die geschikt zijn als social media clip of audiogram.
 
@@ -48,18 +49,17 @@ Mogelijke waarden voor toon: grappig, confronterend, emotioneel, verrassend, ins
 
 Transcript:
 ${transcript}`,
-      },
-    ],
-  })
+        },
+      ],
+    })
 
-  const raw = message.content[0].type === 'text' ? message.content[0].text : '[]'
-
-  try {
+    const raw = message.content[0].type === 'text' ? message.content[0].text : '[]'
     // Strip potential markdown code fences
     const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
     const snippets = JSON.parse(cleaned)
     return NextResponse.json({ snippets })
-  } catch {
+  } catch (err) {
+    console.error('Snippets Claude error:', err)
     return NextResponse.json({ error: 'Kon snippits niet verwerken. Probeer opnieuw.' }, { status: 500 })
   }
 }
