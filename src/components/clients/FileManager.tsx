@@ -14,6 +14,7 @@ import StarterKit from '@tiptap/starter-kit'
 import JSZip from 'jszip'
 import { FileRecord } from '@/types/database'
 import { DriveThumbnail, DrivePreviewModal } from '@/components/shared/DrivePreview'
+import { ALLOWED_UPLOAD_HINT } from '@/lib/upload-policy'
 
 function escapeHtml(s: string) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -1781,6 +1782,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                   of upload een map
                 </button>
               </p>
+              <p className="text-[11px] text-zinc-700">{ALLOWED_UPLOAD_HINT}</p>
             </div>
           )}
         </div>

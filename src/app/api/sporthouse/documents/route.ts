@@ -3,6 +3,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { uploadFile, downloadFile, updateFileContent, moveFile, trashFile, isSporthouseDriveConfigured } from '@/lib/drive-storage'
 import { resolveSporthouseDriveFolderId } from '@/lib/sporthouse-docs-drive'
 import { canViewSection, canManageSection, isSporthouseSection, type SporthouseSection } from '@/lib/sporthouse-docs'
+import { isAllowedUploadExt, ALLOWED_UPLOAD_HINT } from '@/lib/upload-policy'
 
 export const maxDuration = 60
 
@@ -128,6 +129,9 @@ export async function POST(request: NextRequest) {
   if (!canManageSection(user, section)) return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 })
   if (!file || !file.name || file.size === 0) {
     return NextResponse.json({ error: 'Geen geldig bestand ontvangen.' }, { status: 400 })
+  }
+  if (!isAllowedUploadExt(file.name)) {
+    return NextResponse.json({ error: `Dit bestandstype wordt niet ondersteund. Toegestaan: ${ALLOWED_UPLOAD_HINT}.` }, { status: 400 })
   }
   if (file.size > MAX_SIZE) {
     return NextResponse.json({ error: `Bestand mag niet groter zijn dan ${MAX_SIZE / 1024 / 1024} MB.` }, { status: 400 })
