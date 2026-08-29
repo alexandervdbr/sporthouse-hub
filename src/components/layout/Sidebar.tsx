@@ -106,6 +106,13 @@ export default function Sidebar({ clients }: SidebarProps) {
   const pathname = usePathname()
   const { collapsed, mobileOpen, closeMobile } = useSidebar()
   const { favorites } = useFavorites()
+
+  useEffect(() => {
+    if (!mobileOpen) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeMobile() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [mobileOpen, closeMobile])
   const supabase = createClient()
   const { preview } = usePreview()
   const [realIsAdmin,     setRealIsAdmin]     = useState(false)

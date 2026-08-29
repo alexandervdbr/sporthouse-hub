@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Download, X, Film, ImageIcon } from 'lucide-react'
 
 // Drive generates thumbnails asynchronously after upload, so the URL can be
@@ -48,6 +48,12 @@ export function DrivePreviewModal({ driveFileId, title, webViewLink, downloadHre
   downloadHref?: string
   onClose: () => void
 }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />

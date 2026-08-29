@@ -121,6 +121,13 @@ export default function KennisbankWizard({ clientId, clientName, onClose, onSave
   // position: fixed is. Zonder portal viel inset-0 dus samen met die balk in
   // plaats van met het scherm — vandaar de half verduisterde achtergrond en
   // het venster dat over de kaarten heen lag.
+  useEffect(() => {
+    if (!mounted) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [mounted, close])
+
   if (!mounted) return null
 
   return createPortal(

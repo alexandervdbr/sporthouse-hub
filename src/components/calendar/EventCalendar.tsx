@@ -172,6 +172,12 @@ function EventModal({ event, defaultDate, defaultClientId, clients, canDelete, o
   }
   const catLabels: Record<string, string> = { intern: 'Intern', klant: 'Klanten', atleet: 'Atleten', podcast: 'Podcasts' }
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
