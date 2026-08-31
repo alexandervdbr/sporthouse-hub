@@ -127,12 +127,21 @@ const UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024
 // file is complete (final chunk), or { done: false } if more are expected.
 // The relay itself is backend-agnostic — it only forwards bytes to whichever
 // Drive session URL it's handed — so both backends share this one route.
-function putChunk(uploadUrl: string, file: File, start: number, end: number): Promise<{ done: boolean; driveFileId?: string }> {
+function putChunk(
+  uploadUrl: string, file: File, start: number, end: number,
+  onChunkProgress?: (loaded: number) => void
+): Promise<{ done: boolean; driveFileId?: string }> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('PUT', '/api/files/upload-relay')
     xhr.setRequestHeader('X-Upload-Url', uploadUrl)
     xhr.setRequestHeader('Content-Range', `bytes ${start}-${end - 1}/${file.size}`)
+    // Without this, progress only ever updates at chunk boundaries (every
+    // UPLOAD_CHUNK_SIZE) — for any file smaller than one chunk, that means
+    // it sits at 0% for the whole upload and jumps straight to 100%.
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onChunkProgress?.(e.loaded)
+    }
     xhr.onload = () => {
       if (xhr.status === 200 || xhr.status === 201) {
         try {
@@ -195,8 +204,11 @@ async function putFileToDrive(file: File, uploadUrl: string, onProgress: (pct: n
 
   while (offset < file.size) {
     const end = Math.min(offset + UPLOAD_CHUNK_SIZE, file.size)
+    const chunkStart = offset
     try {
-      const result = await putChunk(uploadUrl, file, offset, end)
+      const result = await putChunk(uploadUrl, file, offset, end, (loaded) => {
+        onProgress(Math.round(((chunkStart + loaded) / file.size) * 100))
+      })
       if (result.done && result.driveFileId) return result.driveFileId
       offset = end
       consecutiveFailures = 0
@@ -421,6 +433,17 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   const [savingEdit, setSavingEdit] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
   const [wasRtf, setWasRtf] = useState(false)
+
+  useEffect(() => {
+    if (!folderToDelete && !editingFile) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      setFolderToDelete(null)
+      setEditingFile(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [folderToDelete, editingFile])
 
   const editor = useEditor({
     extensions: [StarterKit],

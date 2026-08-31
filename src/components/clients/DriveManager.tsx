@@ -49,6 +49,13 @@ export default function DriveManager({ clientId, clientName }: Props) {
 
   useEffect(() => { loadFiles() }, [clientId])
 
+  useEffect(() => {
+    if (!previewFile) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPreviewFile(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [previewFile])
+
   async function loadFiles() {
     setLoading(true)
     const r = await fetch(`/api/drive?clientId=${clientId}`)

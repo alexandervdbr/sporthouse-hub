@@ -130,6 +130,13 @@ export default function TourOverlay() {
 
   useEffect(() => { setMounted(true) }, [])
 
+  useEffect(() => {
+    if (!isActive) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') stop() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [isActive, stop])
+
   const step = STEPS[stepIndex]
 
   // Measure target element position
