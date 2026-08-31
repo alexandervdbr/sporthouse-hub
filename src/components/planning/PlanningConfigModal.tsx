@@ -193,6 +193,16 @@ export default function PlanningConfigModal({ departments, onSave, onClose, isBe
 
   // Drag state for departments
   const dragDeptRef = useRef<number | null>(null)
+
+  // Skipped while renaming so Escape cancels just the rename, not the whole
+  // modal — the rename inputs' own onKeyDown already handles that case.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && renamingDept === null && renamingEmp === null) onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose, renamingDept, renamingEmp])
   const [dragOverDept, setDragOverDept] = useState<number | null>(null)
 
   // Drag state for employees
