@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
-import { getFileMetadata } from '@/lib/drive-storage'
+import { getFileMetadata, trashFile } from '@/lib/drive-storage'
 import { hasClientAccess } from '@/lib/auth-permissions'
+import { isAllowedUploadExt, ALLOWED_UPLOAD_HINT } from '@/lib/upload-policy'
 
 function adminClient() {
   return createAdminClient(
@@ -43,6 +44,11 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     console.error('Kon geüpload Drive-bestand niet verifiëren:', err)
     return NextResponse.json({ error: 'Kon geüpload bestand niet verifiëren.' }, { status: 500 })
+  }
+
+  if (!isAllowedUploadExt(driveFile.name)) {
+    try { await trashFile(driveFile.id) } catch { /* best effort cleanup */ }
+    return NextResponse.json({ error: `Dit bestandstype wordt niet ondersteund. Toegestaan: ${ALLOWED_UPLOAD_HINT}.` }, { status: 400 })
   }
 
   const ext = driveFile.name.includes('.') ? driveFile.name.split('.').pop()!.toLowerCase() : ''

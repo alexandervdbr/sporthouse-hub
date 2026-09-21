@@ -4,6 +4,7 @@ import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { isDriveStorageConfigured, createResumableUploadSession } from '@/lib/drive-storage'
 import { resolveDriveFolderId } from '@/lib/client-files-drive'
 import { hasClientAccess } from '@/lib/auth-permissions'
+import { isAllowedUploadExt, ALLOWED_UPLOAD_HINT } from '@/lib/upload-policy'
 
 const MAX_SIZE = 500 * 1024 * 1024 // 500 MB, matches proxyClientMaxBodySize in next.config.mjs
 
@@ -36,6 +37,9 @@ export async function POST(request: NextRequest) {
 
   if (!clientId || !filename || typeof fileSize !== 'number' || fileSize <= 0) {
     return NextResponse.json({ error: 'Ongeldig verzoek.' }, { status: 400 })
+  }
+  if (!isAllowedUploadExt(filename)) {
+    return NextResponse.json({ error: `Dit bestandstype wordt niet ondersteund. Toegestaan: ${ALLOWED_UPLOAD_HINT}.` }, { status: 400 })
   }
   if (!hasClientAccess(user, clientId)) {
     return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
