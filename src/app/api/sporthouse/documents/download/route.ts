@@ -4,7 +4,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { downloadFile } from '@/lib/drive-storage'
 import { canViewSection, type SporthouseSection } from '@/lib/sporthouse-docs'
 
-export const maxDuration = 60
+export const maxDuration = 300
 
 // Streams the bytes through our own service account. Unlike client files this
 // isn't just to dodge Google's virus-scan interstitial — these documents are

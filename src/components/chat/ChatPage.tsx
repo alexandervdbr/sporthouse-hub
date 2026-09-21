@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Send, Hash, Plus, Loader2, Trash2, X, ChevronDown, ChevronRight, MoreHorizontal, Pencil, FolderPlus, Paperclip, FileText, Download, GripVertical, Smile } from 'lucide-react'
+import { Send, Hash, Plus, Loader2, Trash2, X, ChevronDown, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, FolderPlus, Paperclip, FileText, Download, GripVertical, Smile } from 'lucide-react'
 import Picker from '@emoji-mart/react'
 import data from '@emoji-mart/data'
 import { isAdminUser } from '@/lib/auth-permissions'
@@ -830,8 +830,11 @@ export default function ChatPage() {
     <div className="flex h-full min-h-0 overflow-hidden">
 
       {/* ── Channel sidebar ────────────────────────────────── */}
+      {/* Full-width and the only thing shown on mobile until a channel is
+          picked — a fixed-width column here would otherwise permanently
+          eat half the screen on a phone. */}
       <div
-        className="flex-shrink-0 w-52 flex flex-col h-full"
+        className={`flex-shrink-0 w-full lg:w-52 flex-col h-full ${activeChannel ? 'hidden lg:flex' : 'flex'}`}
         style={{ borderRight: '1px solid rgba(255,255,255,0.07)', background: '#141414' }}
       >
         <div className="flex-shrink-0 px-4 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
@@ -929,7 +932,9 @@ export default function ChatPage() {
       </div>
 
       {/* ── Messages area ──────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-h-0 min-w-0">
+      {/* Hidden on mobile until a channel is picked — pairs with the
+          sidebar above so the two never fight for the same narrow screen. */}
+      <div className={`flex-1 flex-col min-h-0 min-w-0 ${activeChannel ? 'flex' : 'hidden lg:flex'}`}>
 
         {/* Channel header */}
         {activeChannel && (
@@ -937,6 +942,13 @@ export default function ChatPage() {
             className="flex-shrink-0 flex items-center gap-2 px-6 py-3.5"
             style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}
           >
+            <button
+              onClick={() => setActiveChannel(null)}
+              aria-label="Terug naar kanalen"
+              className="lg:hidden -ml-1 p-1 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-white/5 transition-colors"
+            >
+              <ChevronLeft size={16} />
+            </button>
             <Hash size={15} style={{ color: activeChannel.color ?? '#71717a', flexShrink: 0 }} />
             <span className="text-sm font-semibold text-zinc-200">{activeChannel.name}</span>
             {activeChannel.description && (

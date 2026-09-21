@@ -4,6 +4,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import { DEPARTMENTS, DUTCH_DAYS, DUTCH_MONTHS } from '@/lib/planning-config'
 import { downloadFile } from '@/lib/drive-storage'
 import { formatKennisbank } from '@/lib/kennisbank-questions'
+
+export const maxDuration = 300
 import { hasClientAccess } from '@/lib/auth-permissions'
 
 async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {

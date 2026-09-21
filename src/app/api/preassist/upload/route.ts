@@ -3,7 +3,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { isDriveStorageConfigured, uploadFile, trashFile, getOrCreateFolderPath, driveRootFolderId } from '@/lib/drive-storage'
 import { isAdminUser } from '@/lib/auth-permissions'
 
-export const maxDuration = 60
+export const maxDuration = 300
 
 const MAX_SIZE = 500 * 1024 * 1024 // 500 MB — Drive can hold far more; the practical
 // ceiling is Vercel's serverless request body limit, not this check.

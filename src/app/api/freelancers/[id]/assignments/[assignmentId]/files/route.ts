@@ -4,7 +4,7 @@ import { isDriveStorageConfigured, uploadFile, trashFile, downloadFile, getOrCre
 import { isAdminUser } from '@/lib/auth-permissions'
 import { isAllowedUploadExt, ALLOWED_UPLOAD_HINT } from '@/lib/upload-policy'
 
-export const maxDuration = 60
+export const maxDuration = 300
 
 async function assertAdmin() {
   const supabase = await createClient()

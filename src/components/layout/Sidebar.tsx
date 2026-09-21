@@ -119,6 +119,11 @@ export default function Sidebar({ clients }: SidebarProps) {
   const [realPermissions, setRealPermissions] = useState<Permissions | null>(null)
   const [unreadChat,  setUnreadChat]  = useState(0)
   const userEmailRef = React.useRef<string | null>(null)
+  // Read inside the unread-chat subscription below instead of putting
+  // pathname in its dependency array — otherwise every navigation anywhere
+  // in the app tears down and recreates that realtime channel for no reason.
+  const pathnameRef = React.useRef(pathname)
+  useEffect(() => { pathnameRef.current = pathname }, [pathname])
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -152,7 +157,7 @@ export default function Sidebar({ clients }: SidebarProps) {
           // Don't count own messages
           if (payload.new && (payload.new as { created_by: string }).created_by === userEmailRef.current) return
           // If currently on chat page and that channel is visible, skip (ChatPage marks it read)
-          if (pathname === '/chat') {
+          if (pathnameRef.current === '/chat') {
             fetchUnread()
           } else {
             setUnreadChat(prev => prev + 1)
@@ -162,7 +167,7 @@ export default function Sidebar({ clients }: SidebarProps) {
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [pathname])
+  }, [])
 
   function canSeeSection(key: string) {
     if (isAdmin) return true

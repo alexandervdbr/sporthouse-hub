@@ -353,7 +353,7 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
   )
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-5xl mx-auto">
       {/* Back */}
       <button onClick={() => router.back()}
         className="flex items-center gap-1.5 mb-6 text-sm text-zinc-500 hover:text-zinc-200 transition-colors">

@@ -103,7 +103,7 @@ export default function DriveManager({ clientId, clientName }: Props) {
   if (!configured) return null
 
   return (
-    <div className="px-8 pt-8 pb-2 max-w-5xl mx-auto">
+    <div className="px-4 sm:px-8 pt-4 sm:pt-8 pb-2 max-w-5xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2.5">

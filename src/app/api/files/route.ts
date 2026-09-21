@@ -8,7 +8,7 @@ import {
 } from '@/lib/drive-storage'
 import { resolveDriveFolderId } from '@/lib/client-files-drive'
 
-export const maxDuration = 60 // prevent hanging
+export const maxDuration = 300 // prevent hanging
 
 const MAX_SIZE = 500 * 1024 * 1024 // 500 MB, matches proxyClientMaxBodySize in next.config.mjs
 
