@@ -3,6 +3,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { isSporthouseDriveConfigured, createResumableUploadSession } from '@/lib/drive-storage'
 import { resolveSporthouseDriveFolderId } from '@/lib/sporthouse-docs-drive'
 import { canManageSection, isSporthouseSection } from '@/lib/sporthouse-docs'
+import { isAllowedUploadExt, ALLOWED_UPLOAD_HINT } from '@/lib/upload-policy'
 
 const MAX_SIZE = 500 * 1024 * 1024 // 500 MB, matches proxyClientMaxBodySize in next.config.mjs
 
@@ -32,6 +33,9 @@ export async function POST(request: NextRequest) {
   }
   if (!filename || typeof fileSize !== 'number' || fileSize <= 0) {
     return NextResponse.json({ error: 'Ongeldig verzoek.' }, { status: 400 })
+  }
+  if (!isAllowedUploadExt(filename)) {
+    return NextResponse.json({ error: `Dit bestandstype wordt niet ondersteund. Toegestaan: ${ALLOWED_UPLOAD_HINT}.` }, { status: 400 })
   }
   if (fileSize > MAX_SIZE) {
     return NextResponse.json({ error: `Bestand mag niet groter zijn dan ${MAX_SIZE / 1024 / 1024} MB.` }, { status: 400 })
