@@ -286,6 +286,13 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
   const [saving, setSaving] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
 
+  useEffect(() => {
+    if (!deleteId) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setDeleteId(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [deleteId])
+
   useEffect(() => { load() }, [])
 
   // get_credentials() (see migration 0025) already returns only what this

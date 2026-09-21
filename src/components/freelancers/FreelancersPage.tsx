@@ -968,6 +968,12 @@ function AddAssignmentModal({ freelancerId, freelancerName, onClose, onAdded }: 
   const [files,      setFiles]      = useState<File[]>([])
   const [uploadingFiles, setUploadingFiles] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
   const clientNames = useClientNames()
 
   const inputClass = "w-full px-3 py-2 rounded-lg text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none"
@@ -1105,6 +1111,12 @@ function EditAssignmentModal({ freelancerId, assignment, onClose, onSaved }: {
   const [error,      setError]      = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
   const clientNames = useClientNames()
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
 
   const inputClass = "w-full px-3 py-2 rounded-lg text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none"
   const inputStyle = { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }
