@@ -73,88 +73,93 @@ export async function POST(req: Request) {
   const allProjectGids = [cfg.asana_project_gid, ...extraGids]
   const clientPrefix = (client?.name ?? 'CONTENT').split(' ')[0].toUpperCase()
 
-  // Resolve all emails to Asana GIDs in one call
-  const usersRes = await fetch(
-    `${ASANA_API}/workspaces/${workspaceGid}/users?opt_fields=email,gid`,
-    { headers: asanaHeaders() }
-  )
+  try {
+    // Resolve all emails to Asana GIDs in one call
+    const usersRes = await fetch(
+      `${ASANA_API}/workspaces/${workspaceGid}/users?opt_fields=email,gid`,
+      { headers: asanaHeaders() }
+    )
 
-  if (!usersRes.ok) {
-    return Response.json({ error: 'Kon gebruikers niet ophalen uit Asana.' }, { status: 502 })
-  }
-
-  const usersData = await usersRes.json()
-  const emailToGid: Record<string, string> = {}
-  for (const u of usersData.data ?? []) {
-    if (u.email) emailToGid[u.email.toLowerCase()] = u.gid
-  }
-
-  const results = []
-
-  for (const row of rows) {
-    const designer = members?.find(m => m.role === 'designer' && m.contact_name === row.designer)
-    const pmGid = emailToGid[pm.contact_email.toLowerCase()]
-    const designerGid = designer ? emailToGid[designer.contact_email.toLowerCase()] : undefined
-    const description = buildDescription(row.date, row.notes)
-
-    // POSTEN task — assigned to PM
-    let pmResult: { ok: boolean; error?: string }
-    if (!pmGid) {
-      pmResult = { ok: false, error: `${pm.contact_name} niet gevonden in Asana` }
-    } else {
-      const res = await fetch(`${ASANA_API}/tasks`, {
-        method: 'POST',
-        headers: asanaHeaders(),
-        body: JSON.stringify({
-          data: {
-            name: `POSTEN: ${row.title}`,
-            assignee: pmGid,
-            due_on: row.date,
-            notes: description,
-            projects: [cfg.asana_project_gid],
-          },
-        }),
-      })
-      pmResult = res.ok ? { ok: true } : { ok: false, error: `HTTP ${res.status}` }
+    if (!usersRes.ok) {
+      return Response.json({ error: 'Kon gebruikers niet ophalen uit Asana.' }, { status: 502 })
     }
 
-    // CREATIE task — assigned to designer
-    let designerResult: { ok: boolean; error?: string }
-    if (!designerGid) {
-      designerResult = {
-        ok: false,
-        error: designer ? `${designer.contact_name} niet gevonden in Asana` : 'Geen designer geselecteerd',
+    const usersData = await usersRes.json()
+    const emailToGid: Record<string, string> = {}
+    for (const u of usersData.data ?? []) {
+      if (u.email) emailToGid[u.email.toLowerCase()] = u.gid
+    }
+
+    const results = []
+
+    for (const row of rows) {
+      const designer = members?.find(m => m.role === 'designer' && m.contact_name === row.designer)
+      const pmGid = emailToGid[pm.contact_email.toLowerCase()]
+      const designerGid = designer ? emailToGid[designer.contact_email.toLowerCase()] : undefined
+      const description = buildDescription(row.date, row.notes)
+
+      // POSTEN task — assigned to PM
+      let pmResult: { ok: boolean; error?: string }
+      if (!pmGid) {
+        pmResult = { ok: false, error: `${pm.contact_name} niet gevonden in Asana` }
+      } else {
+        const res = await fetch(`${ASANA_API}/tasks`, {
+          method: 'POST',
+          headers: asanaHeaders(),
+          body: JSON.stringify({
+            data: {
+              name: `POSTEN: ${row.title}`,
+              assignee: pmGid,
+              due_on: row.date,
+              notes: description,
+              projects: [cfg.asana_project_gid],
+            },
+          }),
+        })
+        pmResult = res.ok ? { ok: true } : { ok: false, error: `HTTP ${res.status}` }
       }
-    } else {
-      const res = await fetch(`${ASANA_API}/tasks`, {
-        method: 'POST',
-        headers: asanaHeaders(),
-        body: JSON.stringify({
-          data: {
-            name: `${clientPrefix}: ${row.title}`,
-            assignee: designerGid,
-            due_on: row.date,
-            notes: description,
-            projects: allProjectGids,
-          },
-        }),
-      })
-      designerResult = res.ok ? { ok: true } : { ok: false, error: `HTTP ${res.status}` }
+
+      // CREATIE task — assigned to designer
+      let designerResult: { ok: boolean; error?: string }
+      if (!designerGid) {
+        designerResult = {
+          ok: false,
+          error: designer ? `${designer.contact_name} niet gevonden in Asana` : 'Geen designer geselecteerd',
+        }
+      } else {
+        const res = await fetch(`${ASANA_API}/tasks`, {
+          method: 'POST',
+          headers: asanaHeaders(),
+          body: JSON.stringify({
+            data: {
+              name: `${clientPrefix}: ${row.title}`,
+              assignee: designerGid,
+              due_on: row.date,
+              notes: description,
+              projects: allProjectGids,
+            },
+          }),
+        })
+        designerResult = res.ok ? { ok: true } : { ok: false, error: `HTTP ${res.status}` }
+      }
+
+      results.push({ rowTitle: row.title, pm: pmResult, designer: designerResult })
+
+      // Log succesvolle pushes voor de stats tab
+      if (pmResult.ok && designerResult.ok) {
+        await admin.from('content_planner_push_log').insert({
+          client_id: clientId,
+          post_date: row.date,
+          post_title: row.title,
+          designer: row.designer ?? '',
+          pushed_by: user.email ?? '',
+        })
+      }
     }
 
-    results.push({ rowTitle: row.title, pm: pmResult, designer: designerResult })
-
-    // Log succesvolle pushes voor de stats tab
-    if (pmResult.ok && designerResult.ok) {
-      await admin.from('content_planner_push_log').insert({
-        client_id: clientId,
-        post_date: row.date,
-        post_title: row.title,
-        designer: row.designer ?? '',
-        pushed_by: user.email ?? '',
-      })
-    }
+    return Response.json({ results })
+  } catch (err) {
+    console.error('Asana push mislukt:', err)
+    return Response.json({ error: 'Kon geen verbinding maken met Asana.' }, { status: 502 })
   }
-
-  return Response.json({ results })
 }

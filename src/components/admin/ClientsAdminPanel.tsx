@@ -131,6 +131,7 @@ function ClientFormModal({ initial, onClose, onSaved }: {
                 key={c}
                 type="button"
                 onClick={() => setForm(f => ({ ...f, color: c }))}
+                aria-label={`Kleur ${c}${form.color === c ? ' (geselecteerd)' : ''}`}
                 className="w-7 h-7 rounded-full flex items-center justify-center transition-transform"
                 style={{ backgroundColor: c, transform: form.color === c ? 'scale(1.15)' : 'scale(1)' }}
               >
@@ -277,6 +278,7 @@ function DeleteClientModal({ client, onClose, onDeleted }: {
 export default function ClientsAdminPanel() {
   const [clients, setClients] = useState<AdminClient[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [search, setSearch] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<AdminClient | null>(null)
@@ -284,8 +286,15 @@ export default function ClientsAdminPanel() {
 
   async function load() {
     setLoading(true)
-    const res = await fetch('/api/admin/clients')
-    if (res.ok) setClients(await res.json())
+    setLoadError(false)
+    try {
+      const res = await fetch('/api/admin/clients')
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      setClients(await res.json())
+    } catch (err) {
+      console.error('Klanten laden mislukt:', err)
+      setLoadError(true)
+    }
     setLoading(false)
   }
 
@@ -334,9 +343,16 @@ export default function ClientsAdminPanel() {
             <div className="flex items-center justify-center py-16">
               <Loader2 size={20} className="animate-spin text-zinc-600" />
             </div>
+          ) : loadError ? (
+            <div className="py-16 text-center flex flex-col items-center gap-2">
+              <p className="text-sm text-zinc-500">Klanten laden mislukt.</p>
+              <button onClick={load} className="text-xs font-medium text-blue-400 hover:text-blue-300">Opnieuw proberen</button>
+            </div>
           ) : filtered.length === 0 ? (
             <div className="py-16 text-center">
-              <p className="text-sm text-zinc-500">Geen klanten gevonden.</p>
+              <p className="text-sm text-zinc-500">
+                {search ? `Geen klanten gevonden voor "${search}".` : 'Nog geen klanten toegevoegd.'}
+              </p>
             </div>
           ) : (
             <div className="divide-y divide-zinc-800">

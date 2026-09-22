@@ -65,9 +65,20 @@ export async function DELETE(
       await admin.storage.from('freelancer-assignments').remove(supabasePaths)
     }
     const driveIds = files.filter(f => f.storage_provider === 'drive' && f.drive_file_id).map(f => f.drive_file_id!)
-    await Promise.allSettled(driveIds.map(id => trashFile(id)))
+    const trashed = await Promise.allSettled(driveIds.map(id => trashFile(id)))
+    trashed.forEach((r, i) => {
+      if (r.status === 'rejected') console.error(`Kon Drive-bestand ${driveIds[i]} niet naar prullenbak verplaatsen:`, r.reason)
+    })
   }
 
-  await admin.from('freelancer_assignments').delete().eq('id', assignmentId)
+  // freelancer_assignment_files.assignment_id cascades on delete (see
+  // 0034_client_delete_cascade_and_rls_backstop.sql) — this used to fail
+  // silently whenever the assignment had file rows, since the error here
+  // was never checked.
+  const { error } = await admin.from('freelancer_assignments').delete().eq('id', assignmentId)
+  if (error) {
+    console.error('Freelancer-opdracht verwijderen mislukt:', error)
+    return new Response(error.message, { status: 500 })
+  }
   return new Response(null, { status: 204 })
 }

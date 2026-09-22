@@ -39,11 +39,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   return Response.json(data)
 }
 
-// DELETE — permanently remove a client. This cascades through 15+ tables
-// (documents, files, meetings, chat history, favorites, ...) with no
-// soft-delete or undo — the caller must echo the client's exact current
-// name back as confirmName, enforced here server-side, not just in the UI,
-// so this can't be triggered by a stray click or a scripted request.
+// DELETE — permanently remove a client. This cascades through every
+// client-scoped table (documents, files, meetings, chat history,
+// favorites, ...) with no soft-delete or undo on the DATABASE rows — the
+// caller must echo the client's exact current name back as confirmName,
+// enforced here server-side, not just in the UI, so this can't be
+// triggered by a stray click or a scripted request. The real files in
+// Google Drive are never touched by this (nothing here calls the Drive
+// API); a trigger logs every Drive file/folder ID into
+// drive_id_deletion_log before its row disappears, so they can still be
+// found by hand afterwards — see 0034_client_delete_cascade_and_rls_backstop.sql.
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await requireAdmin()
   if (!user) return new Response('Forbidden', { status: 403 })

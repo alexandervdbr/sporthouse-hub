@@ -1055,13 +1055,13 @@ export default function PlanningGrid() {
 
       {/* Navigation */}
       <div className="flex items-center gap-3 flex-shrink-0">
-        <button onClick={prev} className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-sh-grey hover:border-zinc-700 transition-colors">
+        <button onClick={prev} aria-label="Vorige maand" title="Vorige maand" className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-sh-grey hover:border-zinc-700 transition-colors">
           <ChevronLeft size={15} />
         </button>
         <span className="text-sm font-semibold text-sh-grey min-w-[160px] text-center">
           {DUTCH_MONTHS[month - 1]} {year}
         </span>
-        <button onClick={next} className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-sh-grey hover:border-zinc-700 transition-colors">
+        <button onClick={next} aria-label="Volgende maand" title="Volgende maand" className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-sh-grey hover:border-zinc-700 transition-colors">
           <ChevronRight size={15} />
         </button>
         {loading && <Loader2 size={13} className="animate-spin text-zinc-600 ml-1" />}

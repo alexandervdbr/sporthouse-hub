@@ -189,7 +189,7 @@ function EventModal({ event, defaultDate, defaultClientId, clients, canDelete, o
             <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: COLOR_PREVIEW }} />
             <h3 className="text-sm font-semibold text-white">{isEditing ? 'Event bewerken' : 'Nieuw event'}</h3>
           </div>
-          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors">
+          <button onClick={onClose} aria-label="Sluiten" title="Sluiten" className="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors">
             <X size={14} />
           </button>
         </div>

@@ -94,17 +94,36 @@ export async function DELETE(
   if (affectedFiles?.length) {
     const { data: client } = await admin.from('clients').select('name').eq('id', target.client_id).single()
     if (client) {
+      const withDriveId = affectedFiles.filter(f => f.drive_file_id)
       try {
         const parentDriveFolderId = await resolveDriveFolderId(admin, target.client_id, client.name, target.parent_id)
-        await Promise.allSettled(
-          affectedFiles
-            .filter(f => f.drive_file_id)
-            .map(f => mode === 'delete'
-              ? trashAndMoveFile(f.drive_file_id!, parentDriveFolderId)
-              : moveFile(f.drive_file_id!, parentDriveFolderId))
+        const results = await Promise.allSettled(
+          withDriveId.map(f => mode === 'delete'
+            ? trashAndMoveFile(f.drive_file_id!, parentDriveFolderId)
+            : moveFile(f.drive_file_id!, parentDriveFolderId))
         )
+        // A partial failure here used to go unnoticed — the DB update below
+        // ran unconditionally for every affected file regardless of whether
+        // its own Drive move actually succeeded, so a transient Drive error
+        // on one file meant the database claimed it moved while the real
+        // Drive object never did, right before the source folder got
+        // trashed out from under it. Abort instead: leave the folder (and
+        // every file's real DB state) exactly as it was so this is safe to
+        // retry, rather than silently deleting a folder some files never
+        // actually left.
+        const failed = results
+          .map((r, i) => ({ r, file: withDriveId[i] }))
+          .filter(({ r }) => r.status === 'rejected')
+        if (failed.length) {
+          failed.forEach(({ r, file }) => console.error(`Bestand ${file.id} verplaatsen naar bovenliggende map mislukt:`, (r as PromiseRejectedResult).reason))
+          return new Response(
+            `Map kon niet verwijderd worden: ${failed.length} bestand(en) konden niet naar de bovenliggende map verplaatst worden. Probeer het opnieuw.`,
+            { status: 502 }
+          )
+        }
       } catch (err) {
         console.error('Drive file move-to-parent error:', err)
+        return new Response('Map verwijderen mislukt: kon bestanden niet verplaatsen in Drive.', { status: 502 })
       }
     }
     const updatePayload = mode === 'delete'
@@ -113,7 +132,9 @@ export async function DELETE(
     await admin.from('files').update(updatePayload).in('folder_id', affectedFolderIds)
   }
 
-  // Delete folder — subfolder rows cascade due to ON DELETE CASCADE
+  // Delete folder — subfolder rows cascade due to ON DELETE CASCADE. Only
+  // reached once every file above either had no Drive presence to move, or
+  // was confirmed moved — so trashing this folder next can't lose anything.
   const { error } = await admin.from('file_folders').delete().eq('id', id)
   if (error) return new Response(error.message, { status: 500 })
 

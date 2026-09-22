@@ -400,6 +400,8 @@ export default function PlanningConfigModal({ departments, onSave, onClose, isBe
           <h2 className="text-sm font-semibold text-zinc-200">Planning configuratie</h2>
           <button
             onClick={onClose}
+            aria-label="Sluiten"
+            title="Sluiten"
             className="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
           >
             <X size={15} />
@@ -481,10 +483,10 @@ export default function PlanningConfigModal({ departments, onSave, onClose, isBe
                         }}
                         className="flex-1 min-w-0 bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1 text-xs text-zinc-200 outline-none focus:border-blue-600"
                       />
-                      <button onClick={confirmRenameDept} className="flex-shrink-0 text-green-500 hover:text-green-400 transition-colors">
+                      <button onClick={confirmRenameDept} aria-label="Naam bevestigen" title="Naam bevestigen" className="flex-shrink-0 text-green-500 hover:text-green-400 transition-colors">
                         <Check size={14} />
                       </button>
-                      <button onClick={cancelRenameDept} className="flex-shrink-0 text-zinc-500 hover:text-zinc-300 transition-colors">
+                      <button onClick={cancelRenameDept} aria-label="Annuleren" title="Annuleren" className="flex-shrink-0 text-zinc-500 hover:text-zinc-300 transition-colors">
                         <X size={14} />
                       </button>
                     </div>
@@ -545,10 +547,10 @@ export default function PlanningConfigModal({ departments, onSave, onClose, isBe
                                 }}
                                 className="flex-1 min-w-0 bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-0.5 text-xs text-zinc-200 outline-none focus:border-blue-600"
                               />
-                              <button onClick={confirmRenameEmp} className="flex-shrink-0 text-green-500 hover:text-green-400 transition-colors">
+                              <button onClick={confirmRenameEmp} aria-label="Naam bevestigen" title="Naam bevestigen" className="flex-shrink-0 text-green-500 hover:text-green-400 transition-colors">
                                 <Check size={13} />
                               </button>
-                              <button onClick={cancelRenameEmp} className="flex-shrink-0 text-zinc-500 hover:text-zinc-300 transition-colors">
+                              <button onClick={cancelRenameEmp} aria-label="Annuleren" title="Annuleren" className="flex-shrink-0 text-zinc-500 hover:text-zinc-300 transition-colors">
                                 <X size={13} />
                               </button>
                             </div>

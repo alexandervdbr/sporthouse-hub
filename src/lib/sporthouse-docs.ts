@@ -1,4 +1,4 @@
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser } from '@/lib/auth-permissions'
 
 export type SporthouseSection = 'finance' | 'administration'
 
@@ -17,11 +17,6 @@ function permKey(section: SporthouseSection) {
 function sectionsOf(user: SessionUser): string[] {
   const perms = user.app_metadata?.permissions as { sections?: string[] } | null | undefined
   return perms?.sections ?? []
-}
-
-function isAdminUser(user: SessionUser) {
-  const sections = sectionsOf(user)
-  return ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer')
 }
 
 // Read access: view or manage on the relevant section.
