@@ -53,6 +53,12 @@ export async function PATCH(request: NextRequest) {
 
   if (!id) return NextResponse.json({ error: 'id vereist' }, { status: 400 })
 
+  // Previously missing entirely — any authenticated user could edit any
+  // contact for any client, not just the ones they have access to.
+  const { data: existing } = await supabase.from('contacts').select('client_id').eq('id', id).single()
+  if (!existing) return NextResponse.json({ error: 'Niet gevonden' }, { status: 404 })
+  if (!hasClientAccess(user, existing.client_id)) return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
+
   const { data, error } = await supabase
     .from('contacts')
     .update({ name, role, email, phone, photo_url })
@@ -71,6 +77,11 @@ export async function DELETE(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Niet ingelogd' }, { status: 401 })
+
+  // Same gap as PATCH — no authorization check existed at all.
+  const { data: existing } = await supabase.from('contacts').select('client_id').eq('id', id).single()
+  if (!existing) return NextResponse.json({ error: 'Niet gevonden' }, { status: 404 })
+  if (!hasClientAccess(user, existing.client_id)) return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
 
   const { error } = await supabase.from('contacts').delete().eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
