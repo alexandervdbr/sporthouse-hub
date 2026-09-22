@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/server'
 import { headers } from 'next/headers'
 import { trashFile } from '@/lib/drive-storage'
+import { isValidCronSecret } from '@/lib/cron-auth'
 
 // Mirrors Google Drive's own trash retention: anything soft-deleted in the
 // app for 30+ days gets permanently purged (Drive file + DB row), whether or
@@ -9,7 +10,7 @@ export async function GET() {
   const headersList = await headers()
   const auth = headersList.get('authorization')
 
-  if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!isValidCronSecret(auth)) {
     return new Response('Unauthorized', { status: 401 })
   }
 
@@ -24,8 +25,9 @@ export async function GET() {
 
   if (error) return new Response(error.message, { status: 500 })
 
+  const expiredFiles = expired ?? []
   const results = await Promise.allSettled(
-    (expired ?? []).map(async (file) => {
+    expiredFiles.map(async (file) => {
       if (file.storage_provider === 'drive' && file.drive_file_id) {
         try { await trashFile(file.drive_file_id) } catch { /* may already be gone */ }
       } else if (file.storage_path) {
@@ -36,6 +38,9 @@ export async function GET() {
     })
   )
 
+  results.forEach((r, i) => {
+    if (r.status === 'rejected') console.error(`Prullenbak opruimen mislukt voor bestand ${expiredFiles[i].id}:`, r.reason)
+  })
   const purged = results.filter(r => r.status === 'fulfilled').length
   const failed = results.filter(r => r.status === 'rejected').length
 
@@ -49,8 +54,9 @@ export async function GET() {
 
   if (docsError) return new Response(docsError.message, { status: 500 })
 
+  const expiredDocsList = expiredDocs ?? []
   const docResults = await Promise.allSettled(
-    (expiredDocs ?? []).map(async (doc) => {
+    expiredDocsList.map(async (doc) => {
       if (doc.storage_provider === 'drive' && doc.drive_file_id) {
         try { await trashFile(doc.drive_file_id) } catch { /* may already be gone */ }
       } else if (doc.storage_path) {
@@ -60,6 +66,10 @@ export async function GET() {
       if (delErr) throw delErr
     })
   )
+
+  docResults.forEach((r, i) => {
+    if (r.status === 'rejected') console.error(`Prullenbak opruimen mislukt voor document ${expiredDocsList[i].id}:`, r.reason)
+  })
 
   return Response.json({
     checked: expired?.length ?? 0,

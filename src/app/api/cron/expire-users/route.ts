@@ -1,11 +1,12 @@
 import { createAdminClient } from '@/lib/supabase/server'
 import { headers } from 'next/headers'
+import { isValidCronSecret } from '@/lib/cron-auth'
 
 export async function GET() {
   const headersList = await headers()
   const auth = headersList.get('authorization')
 
-  if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!isValidCronSecret(auth)) {
     return new Response('Unauthorized', { status: 401 })
   }
 
