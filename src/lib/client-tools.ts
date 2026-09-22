@@ -1,5 +1,5 @@
 import type { Client } from '@/types/database'
-import { FolderOpen, Mic, PenLine, BrainCircuit, Gift, Scissors, CalendarDays, CalendarRange, GraduationCap, BarChart2, Landmark, ClipboardList, LayoutList, Search, FileText, Users } from 'lucide-react'
+import { FolderOpen, Mic, PenLine, BrainCircuit, Gift, Scissors, CalendarDays, CalendarRange, GraduationCap, BarChart2, Landmark, ClipboardList, LayoutList, Search, FileText } from 'lucide-react'
 
 export interface ToolDefinition {
   id: string
@@ -73,14 +73,6 @@ export function getAvailableTools(client: Client, perms: ToolPermissions): ToolD
       icon: FolderOpen,
       color: '#3A913F',
       href: (id: string) => `/clients/${id}/files`,
-    },
-    {
-      id: 'contacts',
-      label: 'Contactpersonen',
-      description: 'Beheer de contactpersonen van deze klant — naam, functie, e-mail en telefoon.',
-      icon: Users,
-      color: '#0284c7',
-      href: (id: string) => `/clients/${id}/contacts`,
     },
     ...(client.category === 'podcast' ? [{
       id: 'snippets',
