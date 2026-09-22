@@ -1,15 +1,10 @@
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { isAdminUser } from '@/lib/auth-permissions'
 
 type SessionUser = { email?: string | null; app_metadata?: Record<string, unknown> }
 type Perms = { sections?: string[]; clients?: string[] } | null
 
 function permsOf(user: SessionUser): Perms {
   return (user.app_metadata?.permissions as Perms) ?? null
-}
-
-function isAdminUser(user: SessionUser) {
-  const sections = permsOf(user)?.sections ?? []
-  return ADMIN_EMAILS.includes(user.email ?? '') || sections.includes('beheer')
 }
 
 // Dezelfde regel als elders: een lege clientlijst betekent geen beperking.

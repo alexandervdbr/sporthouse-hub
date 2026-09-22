@@ -206,7 +206,7 @@ function Modal({
       >
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-base font-semibold text-white">{title}</h2>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200 transition-colors">
+          <button onClick={onClose} aria-label="Sluiten" title="Sluiten" className="text-zinc-500 hover:text-zinc-200 transition-colors">
             <X size={18} />
           </button>
         </div>

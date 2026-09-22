@@ -52,7 +52,15 @@ export async function DELETE(req: Request) {
   if (!id) return new Response('ID ontbreekt', { status: 400 })
 
   const { error } = await supabase.from('equipment').delete().eq('id', id)
-  if (error) return new Response(error.message, { status: 500 })
+  if (error) {
+    // 23503 = foreign_key_violation — this item still has reservation
+    // history, which we deliberately don't cascade away (unlike a client
+    // delete, there's no promise anywhere that this wipes history).
+    if (error.code === '23503') {
+      return new Response('Dit materiaal heeft nog reserveringen en kan niet verwijderd worden. Verwijder eerst de bijbehorende reserveringen.', { status: 409 })
+    }
+    return new Response(error.message, { status: 500 })
+  }
   return new Response(null, { status: 204 })
 }
 

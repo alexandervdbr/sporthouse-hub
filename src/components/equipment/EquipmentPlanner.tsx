@@ -201,7 +201,7 @@ function EquipmentInfoModal({ item, onClose }: { item: EquipmentItem; onClose: (
           <p className="text-[10px] uppercase tracking-widest mb-0.5" style={{ color }}>{item.category}</p>
           <h2 className="text-sm font-semibold text-zinc-100">{item.name}</h2>
         </div>
-        <button onClick={onClose} className="text-zinc-600 hover:text-zinc-300 transition-colors mt-0.5 flex-shrink-0">
+        <button onClick={onClose} aria-label="Sluiten" title="Sluiten" className="text-zinc-600 hover:text-zinc-300 transition-colors mt-0.5 flex-shrink-0">
           <X size={15} />
         </button>
       </div>
@@ -266,7 +266,7 @@ function AddEquipmentModal({
     <Modal onClose={onClose} wide>
       <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-zinc-100">Materiaal toevoegen</h2>
-        <button onClick={onClose} className="text-zinc-600 hover:text-zinc-300 transition-colors">
+        <button onClick={onClose} aria-label="Sluiten" title="Sluiten" className="text-zinc-600 hover:text-zinc-300 transition-colors">
           <X size={15} />
         </button>
       </div>
@@ -486,7 +486,7 @@ function ReservationCreateModal({ equipment, resMap, allReservations, projects, 
       {/* Header */}
       <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-zinc-100">Materiaal reserveren</h2>
-        <button onClick={onClose} className="text-zinc-600 hover:text-zinc-300 transition-colors">
+        <button onClick={onClose} aria-label="Sluiten" title="Sluiten" className="text-zinc-600 hover:text-zinc-300 transition-colors">
           <X size={15} />
         </button>
       </div>
@@ -753,7 +753,7 @@ function ReservationViewModal({ equipment, reservation: res, currentUser, isAdmi
           <p className="text-[10px] uppercase tracking-widest mb-0.5" style={{ color }}>{equipment.category}</p>
           <h2 className="text-sm font-semibold text-zinc-100">{equipment.name}</h2>
         </div>
-        <button onClick={onClose} className="text-zinc-600 hover:text-zinc-300 transition-colors mt-0.5 flex-shrink-0">
+        <button onClick={onClose} aria-label="Sluiten" title="Sluiten" className="text-zinc-600 hover:text-zinc-300 transition-colors mt-0.5 flex-shrink-0">
           <X size={15} />
         </button>
       </div>
@@ -1149,10 +1149,10 @@ export default function EquipmentPlanner() {
               Deze maand
             </button>
           )}
-          <button onClick={prevMonth} className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 border border-zinc-800 transition-colors">
+          <button onClick={prevMonth} aria-label="Vorige maand" title="Vorige maand" className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 border border-zinc-800 transition-colors">
             <ChevronLeft size={15} />
           </button>
-          <button onClick={nextMonth} className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 border border-zinc-800 transition-colors">
+          <button onClick={nextMonth} aria-label="Volgende maand" title="Volgende maand" className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 border border-zinc-800 transition-colors">
             <ChevronRight size={15} />
           </button>
           <div className="w-px h-5 bg-zinc-800" />

@@ -401,6 +401,8 @@ export default function CopyGenerator({ clientId, clientName, canManageExamples 
                     <button
                       onClick={handleChat}
                       disabled={!chatInput.trim() || isStreaming}
+                      aria-label="Verzenden"
+                      title="Verzenden"
                       className="px-4 py-2.5 rounded-lg disabled:opacity-40 transition-colors text-white"
                       style={{ backgroundColor: '#3A913F' }}
                     >
