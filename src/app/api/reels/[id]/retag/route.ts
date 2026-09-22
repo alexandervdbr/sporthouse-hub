@@ -3,7 +3,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { isAdminUser } from '@/lib/auth-permissions'
 import { retagReel } from '@/lib/reel-retag'
 
-export const maxDuration = 60
+export const maxDuration = 120
 
 // Manual "reclassify this one" — admin-only (see the settings-panel gate on
 // the page itself). Unlike the bulk retag route, this always forces a fresh

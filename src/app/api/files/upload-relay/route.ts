@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
-export const maxDuration = 60
+export const maxDuration = 300
 
 const GOOGLE_UPLOAD_PREFIX = 'https://www.googleapis.com/upload/drive/v3/files?'
 

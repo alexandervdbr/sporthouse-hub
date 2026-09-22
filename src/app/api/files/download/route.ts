@@ -5,7 +5,7 @@ import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { downloadFile } from '@/lib/drive-storage'
 import { hasClientAccess } from '@/lib/auth-permissions'
 
-export const maxDuration = 60
+export const maxDuration = 300
 
 function adminClient() {
   return createAdminClient(

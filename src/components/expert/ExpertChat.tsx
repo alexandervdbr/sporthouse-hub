@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import ReactMarkdown from 'react-markdown'
 import {
   Send, Loader2, MessageSquare, AlertTriangle, PenSquare,
-  FolderOpen, Trash2, Pencil,
+  FolderOpen, Trash2, Pencil, History, X,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -80,6 +80,17 @@ export default function ExpertChat({ clientId, clientName }: Props) {
   })
 
   const [sessions, setSessions] = useState<Session[]>([])
+  // Mobile-only: the sessions list overlays the chat instead of sitting
+  // permanently in a fixed-width column, which used to eat half the
+  // screen on a phone.
+  const [showSessionsMobile, setShowSessionsMobile] = useState(false)
+
+  useEffect(() => {
+    if (!showSessionsMobile) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowSessionsMobile(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showSessionsMobile])
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
@@ -327,20 +338,42 @@ export default function ExpertChat({ clientId, clientName }: Props) {
       className="flex h-full min-h-0"
       style={{ fontFamily: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" }}
     >
+      {/* Scrim behind the mobile drawer. Desktop never sees it. */}
+      {showSessionsMobile && (
+        <div
+          onClick={() => setShowSessionsMobile(false)}
+          aria-hidden
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
+        />
+      )}
+
       {/* ── Sessions sidebar ──────────────────────────────── */}
+      {/* Below lg this is an overlay drawer (same pattern as the main app
+          Sidebar) instead of a permanent fixed-width column — that used to
+          eat half the screen on a phone. */}
       <div
-        className="flex-shrink-0 flex flex-col w-[200px] h-full min-h-0"
-        style={{ borderRight: '1px solid rgba(255,255,255,0.06)' }}
+        className={`flex-shrink-0 flex flex-col h-full min-h-0 z-50
+          fixed inset-y-0 left-0 w-[240px] transform transition-transform duration-200 ease-out
+          ${showSessionsMobile ? 'translate-x-0' : '-translate-x-full'}
+          lg:static lg:translate-x-0 lg:w-[200px]`}
+        style={{ borderRight: '1px solid rgba(255,255,255,0.06)', background: '#111111' }}
       >
         {/* New chat */}
-        <div className="flex-shrink-0 p-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+        <div className="flex-shrink-0 p-3 flex items-center gap-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <button
-            onClick={handleNewSession}
+            onClick={() => { handleNewSession(); setShowSessionsMobile(false) }}
             disabled={isStreaming}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors disabled:opacity-40"
+            className="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors disabled:opacity-40"
           >
             <PenSquare size={12} />
             Nieuw gesprek
+          </button>
+          <button
+            onClick={() => setShowSessionsMobile(false)}
+            aria-label="Sluiten"
+            className="lg:hidden p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60 transition-colors"
+          >
+            <X size={14} />
           </button>
         </div>
 
@@ -356,7 +389,7 @@ export default function ExpertChat({ clientId, clientName }: Props) {
               return (
                 <button
                   key={s.session_id}
-                  onClick={() => switchSession(s.session_id)}
+                  onClick={() => { switchSession(s.session_id); setShowSessionsMobile(false) }}
                   className="group w-full text-left px-3 py-2.5 relative transition-colors"
                   style={{ backgroundColor: isActive ? 'rgba(255,255,255,0.05)' : 'transparent' }}
                   onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(255,255,255,0.03)' }}
@@ -435,6 +468,18 @@ export default function ExpertChat({ clientId, clientName }: Props) {
 
       {/* ── Main chat area ─────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-h-0 min-w-0">
+
+        {/* Mobile-only: opens the sessions drawer — there's no room for it
+            to sit in-flow on a phone. */}
+        <div className="flex-shrink-0 lg:hidden px-4 pt-3">
+          <button
+            onClick={() => setShowSessionsMobile(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-zinc-500 hover:text-zinc-300 hover:bg-white/5 transition-colors"
+          >
+            <History size={13} />
+            Gesprekken
+          </button>
+        </div>
 
         {/* No API key banner */}
         {noApiKey && (

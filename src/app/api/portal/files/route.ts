@@ -3,7 +3,7 @@ import { Readable } from 'stream'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { downloadFile } from '@/lib/drive-storage'
 
-export const maxDuration = 60
+export const maxDuration = 300
 
 // Streams a freelancer's own assignment file — Drive-stored files go through
 // our own service account (same pattern as /api/files/download); older,
