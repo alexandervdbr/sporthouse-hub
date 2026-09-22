@@ -92,21 +92,40 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     .in('folder_id', affectedFolderIds)
 
   if (affected?.length) {
+    const withDriveId = affected.filter(d => d.drive_file_id)
     try {
       const parentDriveFolderId = await resolveSporthouseDriveFolderId(
         admin,
         target.section as SporthouseSection,
         target.parent_id
       )
-      await Promise.allSettled(
-        affected
-          .filter(d => d.drive_file_id)
-          .map(d => mode === 'delete'
-            ? trashAndMoveFile(d.drive_file_id!, parentDriveFolderId)
-            : moveFile(d.drive_file_id!, parentDriveFolderId))
+      const results = await Promise.allSettled(
+        withDriveId.map(d => mode === 'delete'
+          ? trashAndMoveFile(d.drive_file_id!, parentDriveFolderId)
+          : moveFile(d.drive_file_id!, parentDriveFolderId))
       )
+      // A partial failure here used to go unnoticed — the DB update below
+      // ran unconditionally for every affected document regardless of
+      // whether its own Drive move actually succeeded, so a transient
+      // Drive error on one document meant the database claimed it moved
+      // while the real Drive object never did, right before the source
+      // folder got trashed out from under it. Abort instead: leave the
+      // folder (and every document's real DB state) exactly as it was so
+      // this is safe to retry, rather than silently deleting a folder some
+      // documents never actually left.
+      const failed = results
+        .map((r, i) => ({ r, doc: withDriveId[i] }))
+        .filter(({ r }) => r.status === 'rejected')
+      if (failed.length) {
+        failed.forEach(({ r, doc }) => console.error(`Document ${doc.id} verplaatsen naar bovenliggende map mislukt:`, (r as PromiseRejectedResult).reason))
+        return new Response(
+          `Map kon niet verwijderd worden: ${failed.length} document(en) konden niet naar de bovenliggende map verplaatst worden. Probeer het opnieuw.`,
+          { status: 502 }
+        )
+      }
     } catch (err) {
       console.error('Drive document move-to-parent error:', err)
+      return new Response('Map verwijderen mislukt: kon documenten niet verplaatsen in Drive.', { status: 502 })
     }
 
     const updatePayload = mode === 'delete'
@@ -115,6 +134,9 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     await admin.from('sporthouse_documents').update(updatePayload).in('folder_id', affectedFolderIds)
   }
 
+  // Only reached once every document above either had no Drive presence to
+  // move, or was confirmed moved — so trashing this folder next can't lose
+  // anything.
   const { error } = await admin.from('sporthouse_document_folders').delete().eq('id', id)
   if (error) return new Response(error.message, { status: 500 })
 
