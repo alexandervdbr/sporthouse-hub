@@ -874,6 +874,16 @@ export default function ChatPage() {
                 Opnieuw proberen
               </button>
             </div>
+          ) : channels.length === 0 ? (
+            // On mobile the messages pane is hidden until a channel is
+            // active, so with zero channels a non-admin previously saw a
+            // completely dead screen — no explanation, no path forward.
+            <div className="flex flex-col items-center gap-1 py-8 px-4 text-center">
+              <p className="text-xs text-zinc-500">Nog geen kanalen aangemaakt.</p>
+              {!isAdmin && (
+                <p className="text-xs text-zinc-600">Vraag een beheerder om een kanaal aan te maken.</p>
+              )}
+            </div>
           ) : (() => {
             // Build ordered category list (preserving channel sort_order)
             const categoryMap = new Map<string, Channel[]>()

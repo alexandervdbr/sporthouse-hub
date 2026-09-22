@@ -79,6 +79,7 @@ export default function SearchModal() {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<FlatResult[]>([])
   const [loading, setLoading] = useState(false)
+  const [searchError, setSearchError] = useState(false)
   const [activeIdx, setActiveIdx] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -110,16 +111,20 @@ export default function SearchModal() {
   // Search with debounce
   const search = useCallback((q: string) => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    if (q.length < 2) { setResults([]); setLoading(false); return }
+    if (q.length < 2) { setResults([]); setLoading(false); setSearchError(false); return }
     setLoading(true)
+    setSearchError(false)
     debounceRef.current = setTimeout(async () => {
       try {
         const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`)
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const json = await res.json()
         setResults(flattenResults(json.results))
         setActiveIdx(0)
-      } catch {
+      } catch (err) {
+        console.error('Zoeken mislukt:', err)
         setResults([])
+        setSearchError(true)
       } finally {
         setLoading(false)
       }
@@ -216,7 +221,13 @@ export default function SearchModal() {
           </ul>
         )}
 
-        {query.length >= 2 && !loading && results.length === 0 && (
+        {query.length >= 2 && !loading && searchError && (
+          <p className="px-4 py-6 text-center text-sm text-zinc-600">
+            Zoeken mislukt. Probeer het opnieuw.
+          </p>
+        )}
+
+        {query.length >= 2 && !loading && !searchError && results.length === 0 && (
           <p className="px-4 py-6 text-center text-sm text-zinc-600">
             Geen resultaten voor &ldquo;{query}&rdquo;
           </p>
