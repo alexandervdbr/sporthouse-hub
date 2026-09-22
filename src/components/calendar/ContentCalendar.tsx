@@ -265,7 +265,7 @@ function PostModal({ post, defaultDate, clientId, teamMembers, projectEvents, ca
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-zinc-800 shrink-0">
           <h3 className="text-sm font-semibold text-white">{isEditing ? 'Post bewerken' : 'Nieuwe post'}</h3>
-          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors">
+          <button onClick={onClose} aria-label="Sluiten" title="Sluiten" className="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors">
             <X size={14} />
           </button>
         </div>

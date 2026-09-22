@@ -125,7 +125,7 @@ function ContactModal({
           <h3 className="text-sm font-semibold text-sh-grey">
             {initial ? 'Persoon bewerken' : 'Nieuw teamlid'}
           </h3>
-          <button type="button" onClick={onClose}>
+          <button type="button" onClick={onClose} aria-label="Sluiten" title="Sluiten">
             <X size={14} className="text-zinc-600 hover:text-zinc-400" />
           </button>
         </div>

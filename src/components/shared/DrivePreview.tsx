@@ -65,12 +65,12 @@ export function DrivePreviewModal({ driveFileId, title, webViewLink, downloadHre
           <p className="text-sm font-medium text-zinc-200 truncate pr-4">{title}</p>
           <div className="flex items-center gap-1 flex-shrink-0">
             {downloadHref && (
-              <a href={downloadHref} download
+              <a href={downloadHref} download aria-label="Downloaden" title="Downloaden"
                 className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors">
                 <Download size={16} />
               </a>
             )}
-            <button onClick={onClose} className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors">
+            <button onClick={onClose} aria-label="Sluiten" title="Sluiten" className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors">
               <X size={18} />
             </button>
           </div>

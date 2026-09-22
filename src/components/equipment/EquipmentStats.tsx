@@ -148,18 +148,24 @@ export default function EquipmentStats() {
   const [range,    setRange]    = useState('all')
   const [data,     setData]     = useState<StatsData | null>(null)
   const [loading,  setLoading]  = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [expanded, setExpanded] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
+    setLoadError(false)
     const { start, end } = getDateRange(range)
     const params = new URLSearchParams()
     if (start) params.set('start', start)
     if (end)   params.set('end', end)
     try {
       const r = await fetch(`/api/reservations/stats?${params}`)
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
       setData(await r.json())
-    } catch (e) { console.error(e) }
+    } catch (e) {
+      console.error('Statistieken laden mislukt:', e)
+      setLoadError(true)
+    }
     setLoading(false)
   }, [range])
 
@@ -213,10 +219,15 @@ export default function EquipmentStats() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
         {loading ? (
           <div className="flex items-center justify-center h-40">
             <Loader2 size={22} className="animate-spin text-zinc-600" />
+          </div>
+        ) : loadError ? (
+          <div className="flex flex-col items-center justify-center h-40 gap-2">
+            <p className="text-sm text-zinc-500">Statistieken laden mislukt.</p>
+            <button onClick={load} className="text-xs font-medium text-blue-400 hover:text-blue-300">Opnieuw proberen</button>
           </div>
         ) : !data ? null : (
           <div className="max-w-7xl mx-auto space-y-6">

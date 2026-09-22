@@ -22,7 +22,7 @@ export default async function ClubLookupPage({ params }: Props) {
 
   return (
     <div className="h-full flex flex-col overflow-hidden relative">
-      <div className="flex-shrink-0 px-8 pt-8 pb-4 border-b border-zinc-900">
+      <div className="flex-shrink-0 px-4 sm:px-8 pt-4 sm:pt-8 pb-4 border-b border-zinc-900">
         <h2 className="text-base font-semibold text-sh-grey mb-1">Club Lookup</h2>
         <p className="text-sm text-zinc-500">
           Zoek de juiste interne benaming voor elke club — klik om te kopiëren.
