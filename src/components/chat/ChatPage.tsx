@@ -236,7 +236,7 @@ function SortableChannelItem({
   isActive: boolean
   isAdmin: boolean
   isMenuOpen: boolean
-  menuRef?: React.RefObject<HTMLDivElement>
+  menuRef?: React.RefObject<HTMLDivElement | null>
   deletingChannelId: string | null
   hoveredChannelId: string | null
   onSetHovered: (id: string | null) => void
