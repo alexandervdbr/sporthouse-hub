@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
       title:          title.trim(),
       copy:           copy           || null,
       platform:       platform       || null,
-      status:         status         || 'concept',
+      status:         status         || 'to_shoot',
       scheduled_date,
       scheduled_time: scheduled_time || null,
       format:         format         || null,
