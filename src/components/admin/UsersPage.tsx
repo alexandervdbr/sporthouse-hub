@@ -1005,7 +1005,7 @@ export default function UsersPage() {
     <div className="flex h-full min-h-0">
 
       {/* ── Left: user list ── */}
-      <div className="flex-1 min-w-0 flex flex-col p-6 overflow-hidden">
+      <div className="flex-1 min-w-0 flex flex-col p-4 sm:p-6 overflow-hidden">
 
         {/* Header */}
         <div className="flex items-center justify-between mb-5 flex-shrink-0">

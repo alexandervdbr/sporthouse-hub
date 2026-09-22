@@ -5,7 +5,7 @@ import { resolveSporthouseDriveFolderId } from '@/lib/sporthouse-docs-drive'
 import { canViewSection, canManageSection, isSporthouseSection, type SporthouseSection } from '@/lib/sporthouse-docs'
 import { isAllowedUploadExt, ALLOWED_UPLOAD_HINT } from '@/lib/upload-policy'
 
-export const maxDuration = 60
+export const maxDuration = 300
 
 const MAX_SIZE = 500 * 1024 * 1024 // 500 MB, matches proxyClientMaxBodySize in next.config.mjs
 

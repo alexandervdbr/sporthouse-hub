@@ -9,7 +9,7 @@ import { getReelMediaTypes } from '@/lib/reel-media-types'
 // Called by the iOS Share Sheet shortcut (and later the Android PWA share
 // target) — no Supabase session, just a per-user bearer token. Excluded from
 // the session-auth middleware, see src/lib/supabase/middleware.ts.
-export const maxDuration = 60
+export const maxDuration = 300
 
 export async function POST(request: NextRequest) {
   const authHeader = request.headers.get('authorization')

@@ -4,7 +4,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { downloadFile } from '@/lib/drive-storage'
 import { hasSection } from '@/lib/auth-permissions'
 
-export const maxDuration = 60
+export const maxDuration = 300
 
 // Streams a Drive-stored submission through our own service account instead
 // of relying on Google's public webContentLink — avoids the "can't scan for

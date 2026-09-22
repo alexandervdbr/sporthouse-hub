@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { hasClientAccess } from '@/lib/auth-permissions'
 import Anthropic from '@anthropic-ai/sdk'
 
+export const maxDuration = 300
+
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()

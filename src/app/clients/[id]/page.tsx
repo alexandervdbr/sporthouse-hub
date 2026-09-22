@@ -77,15 +77,6 @@ export default async function ClientToolsPage({ params }: Props) {
               </Link>
             )
           })}
-
-          {/* Coming soon placeholder */}
-          <div className="flex flex-col gap-4 p-5 bg-zinc-900/40 border border-zinc-800/50 rounded-xl opacity-50">
-            <div className="w-10 h-10 rounded-xl bg-zinc-800/50 border border-zinc-700/30" />
-            <div>
-              <p className="text-sm font-semibold text-zinc-500">Binnenkort</p>
-              <p className="text-xs text-zinc-600 mt-1 leading-relaxed">Nieuwe tools worden hier toegevoegd.</p>
-            </div>
-          </div>
         </div>
       </div>
     </div>
