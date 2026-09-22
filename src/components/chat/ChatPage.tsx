@@ -336,6 +336,7 @@ export default function ChatPage() {
   const [memberPhotos, setMemberPhotos] = useState<Record<string, string>>({})
   const [input, setInput] = useState('')
   const [loadingChannels, setLoadingChannels] = useState(true)
+  const [channelsError, setChannelsError] = useState(false)
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [sending, setSending] = useState(false)
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null)
@@ -433,15 +434,32 @@ export default function ChatPage() {
   }, [])
 
   // ── Load channels ──────────────────────────────────────────
-  useEffect(() => {
+  const loadChannels = useCallback(() => {
+    setLoadingChannels(true)
+    setChannelsError(false)
     fetch('/api/chat/channels')
-      .then(r => r.json())
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json()
+      })
       .then((data: Channel[]) => {
         setChannels(data)
         if (data.length > 0) setActiveChannel(data[0])
         setLoadingChannels(false)
       })
+      .catch(err => {
+        // Previously unguarded — a failed/non-JSON response left
+        // loadingChannels stuck at true forever, a permanent spinner with
+        // no indication anything went wrong on the main chat entry point.
+        console.error('Kanalen laden mislukt:', err)
+        setChannelsError(true)
+        setLoadingChannels(false)
+      })
   }, [])
+
+  useEffect(() => {
+    loadChannels()
+  }, [loadChannels])
 
   // ── Load messages ──────────────────────────────────────────
   const loadMessages = useCallback(async (channelId: string) => {
@@ -842,6 +860,16 @@ export default function ChatPage() {
           {loadingChannels ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 size={14} className="animate-spin text-zinc-600" />
+            </div>
+          ) : channelsError ? (
+            <div className="flex flex-col items-center gap-2 py-8 px-4 text-center">
+              <p className="text-xs text-zinc-500">Kanalen laden mislukt.</p>
+              <button
+                onClick={loadChannels}
+                className="text-xs font-medium text-blue-400 hover:text-blue-300"
+              >
+                Opnieuw proberen
+              </button>
             </div>
           ) : (() => {
             // Build ordered category list (preserving channel sort_order)

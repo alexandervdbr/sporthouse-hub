@@ -86,55 +86,60 @@ export async function POST(req: Request) {
   const extraGids: string[] = (cfg.asana_extra_project_gids ?? []).map((p: { gid: string }) => p.gid).filter(Boolean)
   const allProjectGids = [cfg.asana_project_gid, ...extraGids]
 
-  const usersRes = await fetch(
-    `${ASANA_API}/workspaces/${workspaceGid}/users?opt_fields=email,gid`,
-    { headers: asanaHeaders() }
-  )
+  try {
+    const usersRes = await fetch(
+      `${ASANA_API}/workspaces/${workspaceGid}/users?opt_fields=email,gid`,
+      { headers: asanaHeaders() }
+    )
 
-  if (!usersRes.ok) {
-    return Response.json({ error: 'Kon gebruikers niet ophalen uit Asana.' }, { status: 502 })
-  }
-
-  const usersData = await usersRes.json()
-  const emailToGid: Record<string, string> = {}
-  for (const u of usersData.data ?? []) {
-    if (u.email) emailToGid[u.email.toLowerCase()] = u.gid
-  }
-
-  const results = []
-
-  for (const row of rows) {
-    const member = members?.find(m => m.contact_name === row.assignee)
-    const assigneeGid = member ? emailToGid[member.contact_email.toLowerCase()] : undefined
-    const description = buildDescription(row)
-
-    let result: { ok: boolean; error?: string }
-    if (!assigneeGid) {
-      result = {
-        ok: false,
-        error: member
-          ? `${member.contact_name} niet gevonden in Asana`
-          : 'Geen persoon geselecteerd',
-      }
-    } else {
-      const res = await fetch(`${ASANA_API}/tasks`, {
-        method: 'POST',
-        headers: asanaHeaders(),
-        body: JSON.stringify({
-          data: {
-            name: row.title,
-            assignee: assigneeGid,
-            due_on: row.deadline || undefined,
-            notes: description,
-            projects: allProjectGids,
-          },
-        }),
-      })
-      result = res.ok ? { ok: true } : { ok: false, error: `HTTP ${res.status}` }
+    if (!usersRes.ok) {
+      return Response.json({ error: 'Kon gebruikers niet ophalen uit Asana.' }, { status: 502 })
     }
 
-    results.push({ rowTitle: row.title, task: result })
-  }
+    const usersData = await usersRes.json()
+    const emailToGid: Record<string, string> = {}
+    for (const u of usersData.data ?? []) {
+      if (u.email) emailToGid[u.email.toLowerCase()] = u.gid
+    }
 
-  return Response.json({ results })
+    const results = []
+
+    for (const row of rows) {
+      const member = members?.find(m => m.contact_name === row.assignee)
+      const assigneeGid = member ? emailToGid[member.contact_email.toLowerCase()] : undefined
+      const description = buildDescription(row)
+
+      let result: { ok: boolean; error?: string }
+      if (!assigneeGid) {
+        result = {
+          ok: false,
+          error: member
+            ? `${member.contact_name} niet gevonden in Asana`
+            : 'Geen persoon geselecteerd',
+        }
+      } else {
+        const res = await fetch(`${ASANA_API}/tasks`, {
+          method: 'POST',
+          headers: asanaHeaders(),
+          body: JSON.stringify({
+            data: {
+              name: row.title,
+              assignee: assigneeGid,
+              due_on: row.deadline || undefined,
+              notes: description,
+              projects: allProjectGids,
+            },
+          }),
+        })
+        result = res.ok ? { ok: true } : { ok: false, error: `HTTP ${res.status}` }
+      }
+
+      results.push({ rowTitle: row.title, task: result })
+    }
+
+    return Response.json({ results })
+  } catch (err) {
+    console.error('Asana push mislukt:', err)
+    return Response.json({ error: 'Kon geen verbinding maken met Asana.' }, { status: 502 })
+  }
 }
