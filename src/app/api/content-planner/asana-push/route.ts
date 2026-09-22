@@ -52,7 +52,7 @@ export async function POST(req: Request) {
 
   const [{ data: cfg }, { data: members }, { data: client }] = await Promise.all([
     admin.from('content_planner_config').select('asana_project_gid, asana_extra_project_gids, active_pm_email').eq('client_id', clientId).maybeSingle(),
-    admin.from('content_planner_members').select('contact_name, contact_email, role').eq('client_id', clientId),
+    admin.from('content_planner_members').select('contact_name, contact_email, roles').eq('client_id', clientId),
     admin.from('clients').select('name').eq('id', clientId).single(),
   ])
 
@@ -62,8 +62,8 @@ export async function POST(req: Request) {
   // Gebruik actieve PM als die ingesteld is, anders de eerste PM
   const activePmEmail = cfg.active_pm_email
   const pm = activePmEmail
-    ? members?.find(m => m.role === 'pm' && m.contact_email === activePmEmail)
-    : members?.find(m => m.role === 'pm')
+    ? members?.find(m => m.roles.includes('pm') && m.contact_email === activePmEmail)
+    : members?.find(m => m.roles.includes('pm'))
   if (!pm) {
     return Response.json({ error: 'Geen (actieve) PM geconfigureerd.' }, { status: 400 })
   }
@@ -93,7 +93,7 @@ export async function POST(req: Request) {
     const results = []
 
     for (const row of rows) {
-      const designer = members?.find(m => m.role === 'designer' && m.contact_name === row.designer)
+      const designer = members?.find(m => m.roles.includes('designer') && m.contact_name === row.designer)
       const pmGid = emailToGid[pm.contact_email.toLowerCase()]
       const designerGid = designer ? emailToGid[designer.contact_email.toLowerCase()] : undefined
       const description = buildDescription(row.date, row.notes)

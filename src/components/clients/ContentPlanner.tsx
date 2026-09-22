@@ -16,7 +16,7 @@ interface Member {
   id: string
   contact_name: string
   contact_email: string
-  role: 'pm' | 'designer'
+  roles: ('pm' | 'designer')[]
 }
 
 interface TeamContact {
@@ -106,6 +106,7 @@ export default function ContentPlanner({
   const [selectedRole, setSelectedRole] = useState<'pm' | 'designer'>('designer')
   const [addingMember, setAddingMember] = useState(false)
   const [removingId, setRemovingId] = useState<string | null>(null)
+  const [togglingId, setTogglingId] = useState<string | null>(null)
   const [asanaGidInput, setAsanaGidInput] = useState('')
   const [savingGid, setSavingGid] = useState(false)
   const [savedGid, setSavedGid] = useState(false)
@@ -201,7 +202,7 @@ export default function ContentPlanner({
   }, [activeTab, isAdmin, asanaProjects.length])
 
   // Derived
-  const designers = members.filter(m => m.role === 'designer')
+  const designers = members.filter(m => m.roles.includes('designer'))
   const sortedRows = [...rows].sort((a, b) => {
     if (!a.date && !b.date) return 0
     if (!a.date) return 1
@@ -214,7 +215,7 @@ export default function ContentPlanner({
   const availableContacts = teamContacts.filter(c => c.email && !memberEmails.has(c.email))
   const canPush =
     !!config?.asana_project_gid &&
-    members.some(m => m.role === 'pm') &&
+    members.some(m => m.roles.includes('pm')) &&
     pushableRows.length > 0
 
   function defaultDesigner() {
@@ -333,7 +334,7 @@ export default function ContentPlanner({
           clientId,
           contact_name: contact.name,
           contact_email: contact.email,
-          role: selectedRole,
+          roles: [selectedRole],
         }),
       })
       if (res.ok) {
@@ -353,6 +354,31 @@ export default function ContentPlanner({
       setMembers(prev => prev.filter(m => m.id !== id))
     } finally {
       setRemovingId(null)
+    }
+  }
+
+  // Toggle a single role on/off for an existing member — this is what lets
+  // someone be both PM and Designer, instead of only ever one or the other.
+  // Refuses to remove someone's last remaining role rather than leaving
+  // them with none.
+  async function handleToggleRole(member: Member, role: 'pm' | 'designer') {
+    const hasRole = member.roles.includes(role)
+    if (hasRole && member.roles.length === 1) return
+    const newRoles = hasRole ? member.roles.filter(r => r !== role) : [...member.roles, role]
+
+    setTogglingId(member.id)
+    try {
+      const res = await fetch('/api/content-planner/members', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: member.id, roles: newRoles }),
+      })
+      if (res.ok) {
+        const updated = await res.json()
+        setMembers(prev => prev.map(m => m.id === member.id ? updated : m))
+      }
+    } finally {
+      setTogglingId(null)
     }
   }
 
@@ -531,11 +557,11 @@ export default function ContentPlanner({
             ) : (
               <>
                 {/* Config warnings (admin only) */}
-                {isAdmin && (!config?.asana_project_gid || !members.some(m => m.role === 'pm')) && (
+                {isAdmin && (!config?.asana_project_gid || !members.some(m => m.roles.includes('pm'))) && (
                   <div className="flex items-start gap-2 px-4 py-3 mb-4 bg-amber-500/10 border border-amber-500/20 rounded-lg text-sm text-amber-400">
                     <AlertCircle size={15} className="flex-shrink-0 mt-0.5" />
                     <span>
-                      {!config?.asana_project_gid && !members.some(m => m.role === 'pm')
+                      {!config?.asana_project_gid && !members.some(m => m.roles.includes('pm'))
                         ? 'Stel eerst een PM en een Asana Project GID in via het Config-tabblad.'
                         : !config?.asana_project_gid
                         ? 'Stel het Asana Project GID in via het Config-tabblad.'
@@ -913,7 +939,7 @@ export default function ContentPlanner({
                           </div>
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0">
-                          {m.role === 'pm' && (
+                          {m.roles.includes('pm') && (
                             config?.active_pm_email === m.contact_email ? (
                               <button
                                 onClick={() => handleActivePm(m.contact_email)}
@@ -932,15 +958,34 @@ export default function ContentPlanner({
                               </button>
                             )
                           )}
-                          <span
-                            className={`text-xs px-2 py-0.5 rounded-full ${
-                              m.role === 'pm'
-                                ? 'bg-blue-500/15 text-blue-400 border border-blue-500/20'
-                                : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                          {/* Both toggleable independently, so someone can
+                              hold PM and Designer at once. Turning off a
+                              member's last remaining role would leave them
+                              with none, so the handler refuses that. */}
+                          <button
+                            onClick={() => handleToggleRole(m, 'pm')}
+                            disabled={togglingId === m.id}
+                            title={m.roles.includes('pm') ? 'PM-rol verwijderen' : 'PM-rol toevoegen'}
+                            className={`text-xs px-2 py-0.5 rounded-full border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                              m.roles.includes('pm')
+                                ? 'bg-blue-500/15 text-blue-400 border-blue-500/20 hover:bg-blue-500/25'
+                                : 'bg-zinc-900 text-zinc-600 border-zinc-800 hover:text-zinc-400 hover:border-zinc-700'
                             }`}
                           >
-                            {m.role === 'pm' ? 'PM' : 'Designer'}
-                          </span>
+                            PM
+                          </button>
+                          <button
+                            onClick={() => handleToggleRole(m, 'designer')}
+                            disabled={togglingId === m.id}
+                            title={m.roles.includes('designer') ? 'Designer-rol verwijderen' : 'Designer-rol toevoegen'}
+                            className={`text-xs px-2 py-0.5 rounded-full border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                              m.roles.includes('designer')
+                                ? 'bg-zinc-800 text-zinc-300 border-zinc-700 hover:bg-zinc-700'
+                                : 'bg-zinc-900 text-zinc-600 border-zinc-800 hover:text-zinc-400 hover:border-zinc-700'
+                            }`}
+                          >
+                            Designer
+                          </button>
                           <button
                             onClick={() => handleRemoveMember(m.id)}
                             disabled={removingId === m.id}
