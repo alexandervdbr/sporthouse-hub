@@ -55,6 +55,13 @@ export async function PATCH(
     update.tags = body.tags.map((t: string) => t.trim()).filter(Boolean).slice(0, 30)
   }
 
+  if ('note' in body) {
+    if (body.note !== null && typeof body.note !== 'string') {
+      return new Response('Ongeldige notitie.', { status: 400 })
+    }
+    update.note = typeof body.note === 'string' ? (body.note.trim() || null) : null
+  }
+
   if (Object.keys(update).length === 0) return new Response('Niets om op te slaan.', { status: 400 })
 
   const admin = createAdminClient()

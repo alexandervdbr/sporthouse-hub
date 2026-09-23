@@ -83,4 +83,5 @@ export interface ReelInspiration {
   status: 'pending' | 'done' | 'error'
   error_message: string | null
   saved_at: string
+  note: string | null
 }

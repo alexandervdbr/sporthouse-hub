@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { ExternalLink, Clock, AlertCircle, Trash2, X, Search, Plus, ChevronLeft, ChevronRight, Folder, FolderPlus, LayoutGrid, Shuffle, RefreshCw } from 'lucide-react'
+import { ExternalLink, Clock, AlertCircle, Trash2, X, Search, Plus, ChevronLeft, ChevronRight, Folder, FolderPlus, LayoutGrid, Shuffle, RefreshCw, StickyNote } from 'lucide-react'
 import { ReelInspiration } from '@/types/database'
 import { createClient } from '@/lib/supabase/client'
 
@@ -13,6 +13,7 @@ type ReelUpdate = {
   thumbnail_url?: string | null
   thumbnail_drive_id?: string | null
   confidence?: 'high' | 'medium' | 'low' | null
+  note?: string | null
 }
 
 // ─── Instagram embed script ────────────────────────────────────────────────
@@ -404,6 +405,12 @@ function ReelCard({ reel, onOpen, onDelete }: { reel: ReelInspiration; onOpen: (
       <div className="p-3 space-y-2">
         {reel.caption && (
           <p className="text-xs text-zinc-300 line-clamp-2 leading-snug">{reel.caption}</p>
+        )}
+        {reel.note && (
+          <p className="flex items-start gap-1.5 text-xs text-amber-200/90 line-clamp-2 leading-snug">
+            <StickyNote size={12} className="flex-shrink-0 mt-0.5 text-amber-400/70" />
+            {reel.note}
+          </p>
         )}
         <div className="flex items-center justify-between gap-2">
           <span className="text-[11px] text-zinc-500 truncate">
