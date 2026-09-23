@@ -322,9 +322,42 @@ function ReelModal({
               onRemove={tag => onUpdate(reel.id, { tags: reel.tags.filter(t => t !== tag) })}
             />
           </div>
+          <div>
+            <p className="text-[11px] font-medium text-zinc-500 mb-1.5">Notitie</p>
+            <NoteEditor
+              key={reel.id}
+              note={reel.note}
+              onSave={note => onUpdate(reel.id, { note })}
+            />
+          </div>
         </div>
       </div>
     </div>
+  )
+}
+
+// Saves on blur rather than per keystroke, matching this file's existing
+// "fire the PATCH, no loading indicator" convention for tags/media types —
+// a free-text field just isn't something you want firing a request on
+// every character.
+function NoteEditor({ note, onSave }: { note: string | null; onSave: (note: string | null) => void }) {
+  const [value, setValue] = useState(note ?? '')
+
+  function handleBlur() {
+    const trimmed = value.trim()
+    if (trimmed === (note ?? '')) return
+    onSave(trimmed || null)
+  }
+
+  return (
+    <textarea
+      value={value}
+      onChange={e => setValue(e.target.value)}
+      onBlur={handleBlur}
+      placeholder="Voeg een notitie toe…"
+      rows={2}
+      className="w-full px-2.5 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600 resize-none transition-colors"
+    />
   )
 }
 
