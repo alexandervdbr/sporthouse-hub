@@ -92,6 +92,7 @@ export async function classifyReel(input: {
   authorName: string | null
   thumbnailUrl: string | null
   mediaTypes: string[]
+  note?: string | null
 }): Promise<ReelClassification> {
   if (!process.env.ANTHROPIC_API_KEY) return fallback(input.url, input.mediaTypes)
 
@@ -199,24 +200,27 @@ export async function classifyReel(input: {
     return description ? `- ${t}: ${description}` : `- ${t}`
   }).join('\n')
 
+  const note = input.note?.trim() || null
+  const noteLine = note ? `\nNotitie van wie dit bewaarde: "${note}"\n` : ''
+
   const mediaWord = carouselComposition ? 'afbeeldingen uit de slider' : images.length > 1 ? 'videoframes' : 'thumbnail'
   const prompt = `Je krijgt de caption en ${mediaWord} van een Instagram Reel/Post die iemand bewaarde als contentinspiratie voor SporthouseGroup, een sportmediabedrijf. Iemand gaat dit later terugvinden tijdens een brainstorm — dus kijk echt grondig naar het beeld voor je iets invult, niet oppervlakkig.
 ${imageContext}
 1) TYPES (het fundamentele format — meestal exact 1 uit de lijst, MAXIMAAL 2). Dit is waar het vaakst misgaat, dus let goed op:
 ${typeLines}
 Kies in de overgrote meerderheid van de gevallen precies 1 type. Voeg een tweede type ENKEL toe als een aanzienlijk deel van de post — meerdere slides/frames, niet één afwijkend moment — duidelijk een apart, even belangrijk type toont (bv. een carrousel die ongeveer half uit gefilmde video en half uit ontworpen grafische slides bestaat). Eén overgang, intro-kaart of afwijkend frame is GEEN reden voor een tweede type — zie de Video-beschrijving hierboven. Nooit meer dan 2 types.
-Staat er een type in de lijst zonder beschrijving hierboven (bv. een nieuw toegevoegde categorie)? Gebruik je eigen inschatting op basis van de naam — kies het als het duidelijk de HOOFDMOOT van de clip beschrijft, niet één enkel frame.
+Staat er een type in de lijst zonder beschrijving hierboven (bv. een nieuw toegevoegde categorie)? Gebruik je eigen inschatting op basis van de naam — kies het als het duidelijk de HOOFDMOOT van de clip beschrijft, niet één enkel frame.${note ? '\nIs er hieronder een notitie meegegeven? Laat die het TYPE enkel mee bepalen als ze naar jouw eigen inschatting echt het verschil maakt (bv. ze beschrijft duidelijk een format dat niet uit het beeld zelf blijkt) — bij twijfel negeer je ze voor deze stap en komt ze bij de tags aan bod.' : ''}
 
 Caption: "${input.caption ?? '(geen caption)'}"
 Account: ${input.authorName ?? '(onbekend)'}
-
+${noteLine}
 2) TAGS: analyseer het beeld grondig en geef een uitgebreide, specifieke tagset (gerust 12-25) zodat iemand later exact kan terugvinden waar dit over ging. Denk na over:
 - Onderwerp/doel — bv. interview, behind the scenes, match moment, community & fans, atmosphere, graphic design, format idea — voeg dit toe als tag(s) wanneer het van toepassing is, net als elk ander kenmerk
 - Wat is er letterlijk te zien: wie/wat, welke actie, welke setting/locatie
 - Stijl: bv. cinematic, ruw/UGC, studio-opname, close-up, wide shot, hoge/lage hoek
 - Sfeer/mood: bv. energiek, rustig, emotioneel, speels, serieus
 - Kleuren en licht: bv. donker/moody, felle kleuren, natuurlijk licht, clubkleuren
-- Tekst/typografie op beeld, merk- of logo-elementen
+- Tekst/typografie op beeld, merk- of logo-elementen${note ? '\n- De notitie hierboven, als ze het type nog niet bepaald heeft: verwerk ze als extra tag(s) — splits op in meerdere tags als de inhoud dat toelaat, en schrijf duidelijker/opgeschoond als de notitie rommelig of ongestructureerd is' : ''}
 Niet het type zelf herhalen als tag. Liever te veel dan te weinig, zolang elke tag iets specifieks toevoegt — geen vage vulwoorden.
 Schrijf de tags in het ENGELS, ongeacht de taal van de caption — dat maakt zoeken consistent.
 

@@ -12,6 +12,7 @@ interface ReelRow {
   media_types: string[]
   thumbnail_url: string | null
   thumbnail_drive_id: string | null
+  note?: string | null
 }
 
 // Shared by the bulk retag route (only rows missing a classification) and
@@ -45,6 +46,7 @@ export async function retagReel(
       authorName: reel.author,
       thumbnailUrl: (update.thumbnail_url as string | undefined) ?? reel.thumbnail_url,
       mediaTypes,
+      note: reel.note,
     })
     update.media_types = classification.mediaTypes
     update.tags = classification.tags
