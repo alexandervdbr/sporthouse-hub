@@ -105,6 +105,7 @@ export async function POST(request: NextRequest) {
         authorName: oembed.authorName,
         thumbnailUrl: oembed.thumbnailUrl,
         mediaTypes,
+        note,
       })
 
       const hosted = oembed.thumbnailUrl ? await hostThumbnailOnDrive(oembed.thumbnailUrl, row.id) : null
