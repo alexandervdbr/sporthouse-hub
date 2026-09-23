@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
 
   if (!tokenRow) return Response.json({ status: 'error', message: 'Unauthorized' }, { status: 401 })
 
-  let body: { url?: string }
+  let body: { url?: string; note?: string }
   try {
     body = await request.json()
   } catch {
@@ -40,8 +40,16 @@ export async function POST(request: NextRequest) {
   const url = urlMatch?.[0]
   if (!url) return Response.json({ status: 'error', message: 'url is verplicht.' }, { status: 400 })
 
+  // Optional — sent by the "with note" Shortcut variant only; the default,
+  // one-tap Shortcut never includes this key at all. Empty/whitespace-only
+  // is treated as no note, not as an empty string worth storing.
+  const note = body.note?.trim() || null
+
   // Re-sharing the same post used to create a second card — bump it to the
-  // top instead, and skip re-running oEmbed/classification for it.
+  // top instead, and skip re-running oEmbed/classification for it. A note
+  // on the re-share is still worth capturing (e.g. saving it again later
+  // specifically to annotate it) — but never clear an existing note just
+  // because this particular share didn't include one.
   const { data: existing } = await admin
     .from('reel_inspiration')
     .select('id')
@@ -49,7 +57,10 @@ export async function POST(request: NextRequest) {
     .maybeSingle()
 
   if (existing) {
-    await admin.from('reel_inspiration').update({ saved_at: new Date().toISOString() }).eq('id', existing.id)
+    await admin
+      .from('reel_inspiration')
+      .update({ saved_at: new Date().toISOString(), ...(note ? { note } : {}) })
+      .eq('id', existing.id)
     return Response.json({ status: 'ok', id: existing.id })
   }
 
@@ -75,6 +86,7 @@ export async function POST(request: NextRequest) {
       caption: oembed.title,
       author: oembed.authorName,
       embed_html: oembed.html,
+      note,
       status: 'pending',
     })
     .select('id')
