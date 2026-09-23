@@ -550,6 +550,32 @@ export default function ReelGallery({ reels: initialReels, isAdmin, mediaTypes: 
     return () => { supabase.removeChannel(channel) }
   }, [])
 
+  // Realtime only delivers events that happen while the channel is actively
+  // connected — sharing a reel from Instagram while this tab is backgrounded
+  // (the whole point of the phone Share Sheet flow) and then switching back
+  // to check is exactly the case that misses: a WebSocket reconnect alone
+  // wouldn't retroactively deliver what happened while it was disconnected.
+  // A full refetch on return does, regardless of what happened to the
+  // socket in between — simpler and more reliable than trying to detect and
+  // recover a specific dropped-connection state.
+  useEffect(() => {
+    const supabase = createClient()
+
+    async function refetch() {
+      const { data } = await supabase
+        .from('reel_inspiration')
+        .select('id, user_id, url, thumbnail_url, caption, author, media_types, thumbnail_drive_id, tags, confidence, status, error_message, saved_at, note')
+        .order('saved_at', { ascending: false })
+      if (data) setReels(data as ReelInspiration[])
+    }
+
+    function handleVisibility() {
+      if (document.visibilityState === 'visible') refetch()
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [])
+
   // New types (e.g. someone with the permission adding "3D") show up live
   // for everyone too, same mechanism as the reels themselves.
   useEffect(() => {
