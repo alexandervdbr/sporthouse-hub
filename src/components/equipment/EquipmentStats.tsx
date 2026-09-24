@@ -233,7 +233,7 @@ export default function EquipmentStats() {
           <div className="max-w-7xl mx-auto space-y-6">
 
             {/* Summary cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <SummaryCard
                 label="Totaal reserveringen"
                 value={data.totalReservations}
@@ -263,7 +263,7 @@ export default function EquipmentStats() {
             </div>
 
             {/* Main grid: Equipment ranking + User breakdown */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
               {/* Equipment ranking */}
               <div className="rounded-xl overflow-hidden" style={{ background: 'rgba(22,22,22,0.97)', border: '1px solid rgba(255,255,255,0.10)' }}>
@@ -357,7 +357,7 @@ export default function EquipmentStats() {
             </div>
 
             {/* Bottom row: Day of week + Monthly trend */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
               {/* Day of week */}
               <div className="rounded-xl p-5" style={{ background: 'rgba(22,22,22,0.97)', border: '1px solid rgba(255,255,255,0.10)' }}>

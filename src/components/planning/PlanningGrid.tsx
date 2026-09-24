@@ -1245,7 +1245,7 @@ export default function PlanningGrid() {
                           <button
                             onClick={() => setOpenPaletteKey(k => k === key ? null : key)}
                             aria-label="Kleur kiezen"
-                            className="w-8 h-8 flex-shrink-0 rounded-lg border border-zinc-700 flex items-center justify-center"
+                            className="tap-target w-8 h-8 flex-shrink-0 rounded-lg border border-zinc-700 flex items-center justify-center"
                             style={{ backgroundColor: cell.bgColor ?? 'transparent' }}
                           >
                             {!cell.bgColor && <span className="w-3 h-3 rounded-full border border-zinc-600" />}
@@ -1256,7 +1256,7 @@ export default function PlanningGrid() {
                             onClick={() => setMultiDayTarget({ dept: dept.name, emp })}
                             aria-label="Zet op meerdere dagen"
                             title="Zet op meerdere dagen"
-                            className="w-8 h-8 flex-shrink-0 rounded-lg border border-zinc-700 text-zinc-400 flex items-center justify-center"
+                            className="tap-target w-8 h-8 flex-shrink-0 rounded-lg border border-zinc-700 text-zinc-400 flex items-center justify-center"
                           >
                             <CalendarPlus size={14} />
                           </button>
@@ -1294,7 +1294,7 @@ export default function PlanningGrid() {
                                   setOpenPaletteKey(null)
                                 }}
                                 title={c.label}
-                                className="w-7 h-7 rounded-full"
+                                className="tap-target w-7 h-7 rounded-full"
                                 style={{
                                   backgroundColor: c.display,
                                   border: cell.bgColor === c.value ? '2px solid #fff' : c.value === null ? '2px dashed #52525b' : '2px solid transparent',
