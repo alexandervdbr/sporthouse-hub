@@ -1924,7 +1924,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
               background: 'rgba(18,18,18,0.98)',
               border: '1px solid rgba(255,255,255,0.10)',
               boxShadow: '0 25px 60px rgba(0,0,0,0.8)',
-              height: '90vh',
+              height: '90dvh',
             }}
           >
             {/* Header */}

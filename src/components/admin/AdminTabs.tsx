@@ -12,7 +12,7 @@ export default function AdminTabs() {
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <div className="flex items-center gap-1 px-6 pt-4 border-b border-zinc-800 flex-shrink-0">
+      <div className="flex items-center gap-1 px-4 sm:px-6 pt-4 border-b border-zinc-800 flex-shrink-0">
         <button
           onClick={() => setTab('users')}
           className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-t-lg transition-colors ${

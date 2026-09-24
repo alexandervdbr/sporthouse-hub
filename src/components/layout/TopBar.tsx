@@ -32,7 +32,7 @@ function RecordingBar() {
   }
 
   return (
-    <div className="flex items-center gap-3 px-3 py-1.5 rounded-lg"
+    <div className="flex items-center gap-3 px-3 py-1.5 rounded-lg min-w-0"
       style={{
         background: 'rgba(127,29,29,0.25)',
         border: '1px solid rgba(185,28,28,0.3)',
@@ -44,7 +44,7 @@ function RecordingBar() {
         <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
       </span>
 
-      <span className="text-xs text-red-400 font-medium">
+      <span className="text-xs text-red-400 font-medium flex-1 min-w-0 truncate">
         {recording.clientName && <span className="text-red-300">{recording.clientName} · </span>}
         {formatDuration(recording.duration)}
         {isNearLimit && (
@@ -54,7 +54,7 @@ function RecordingBar() {
 
       <button
         onClick={handleStop}
-        className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium text-red-400 hover:text-white transition-colors"
+        className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium text-red-400 hover:text-white transition-colors flex-shrink-0"
         style={{ background: 'rgba(185,28,28,0.3)', border: '1px solid rgba(185,28,28,0.4)' }}
       >
         <Square size={9} fill="currentColor" />

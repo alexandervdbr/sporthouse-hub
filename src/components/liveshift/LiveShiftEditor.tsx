@@ -193,7 +193,7 @@ function ClubSelector({ label, value, onChange }: {
       </button>
 
       {open && (
-        <div className="absolute z-50 top-full mt-1 left-0 right-0 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl p-3 grid grid-cols-4 gap-2">
+        <div className="absolute z-50 top-full mt-1 left-0 right-0 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl p-3 grid grid-cols-3 sm:grid-cols-4 gap-2">
           <button
             onClick={() => { onChange(null); setOpen(false) }}
             className={`flex flex-col items-center gap-1.5 p-2 rounded-lg border transition-colors text-xs ${
