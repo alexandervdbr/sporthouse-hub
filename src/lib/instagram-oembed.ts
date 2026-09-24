@@ -62,8 +62,17 @@ function extractMeta(html: string, property: string): string | null {
   return match ? decodeHtmlEntities(match[1]) : null
 }
 
+// Instagram appends a tracking parameter (?igsh=...) that's different per
+// share action, even for the exact same post — strip it (and normalize the
+// trailing slash) so re-shares of the same link compare equal. Used both to
+// build the embed URL below and, in save-reel, to dedupe re-shares before
+// they reach oEmbed/classification.
+export function normalizeInstagramUrl(url: string): string {
+  return url.split('?')[0].replace(/\/?$/, '/')
+}
+
 function embedUrlFor(url: string): string {
-  return `${url.split('?')[0].replace(/\/?$/, '/')}embed/captioned/`
+  return `${normalizeInstagramUrl(url)}embed/captioned/`
 }
 
 // Shared by scrapeEmbedImage/parseEmbedVideo/parseEmbedCarousel so a single
