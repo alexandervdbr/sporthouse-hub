@@ -807,9 +807,9 @@ export default function ProjectsBoard({ initialProjects, clients, contacts, curr
   return (
     <>
       {/* ── Top bar ── */}
-      <div className="flex items-center justify-between gap-4 mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
         {/* Stats pills */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {COLUMNS.map(col => {
             const count = projects.filter(p => p.status === col.value).length
             const Icon = col.icon

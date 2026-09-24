@@ -36,9 +36,9 @@ export default async function ClientMeetingsPage({ params }: Props) {
   return (
     <div className="h-full overflow-y-auto">
       <div className="p-4 sm:p-8 max-w-3xl mx-auto">
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h2 className="text-base font-semibold text-sh-grey mb-1">Vergaderingen</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-8">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-sh-grey mb-1 truncate">Vergaderingen</h2>
             <p className="text-sm text-zinc-500">
               Opgenomen en samengevatte vergaderingen voor {client.name}.
             </p>

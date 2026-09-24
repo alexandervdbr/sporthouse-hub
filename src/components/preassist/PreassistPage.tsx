@@ -648,15 +648,15 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
       </button>
 
       {/* Header */}
-      <div className="mb-8 flex items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2.5 mb-1">
-            <Layers size={18} className="text-zinc-400" />
+      <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2.5 mb-1 flex-wrap">
+            <Layers size={18} className="text-zinc-400 flex-shrink-0" />
             <h1 className="text-2xl font-bold tracking-tight text-white" style={{ fontFamily: 'var(--font-kurdis)' }}>
               Pré-assist
             </h1>
             {activeEdition && (
-              <span className="text-sm font-medium px-2.5 py-0.5 rounded-full"
+              <span className="text-sm font-medium px-2.5 py-0.5 rounded-full flex-shrink-0"
                 style={{ background: 'rgba(58,145,63,0.15)', color: '#3A913F', border: '1px solid rgba(58,145,63,0.3)' }}>
                 {activeEdition.title}
               </span>
@@ -665,7 +665,7 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
           <p className="text-sm text-zinc-500">Dien content en inspiratie in voor de volgende sessie</p>
         </div>
 
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-wrap flex-shrink-0">
           {canManageEditions && (
             <button onClick={() => setShowEditions(true)}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm text-zinc-400 hover:text-zinc-200 transition-all"

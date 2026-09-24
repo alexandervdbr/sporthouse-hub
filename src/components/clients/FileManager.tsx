@@ -1115,8 +1115,8 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
       </nav>
 
       {/* Toolbar */}
-      <div className="flex items-center gap-3 mb-5">
-        <div className="relative flex-1 max-w-sm">
+      <div className="flex items-center gap-3 mb-5 flex-wrap">
+        <div className="relative flex-1 min-w-[160px] max-w-sm">
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
           <input
             type="text"
@@ -1181,7 +1181,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
             </select>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-nowrap scroll-x pb-1">
             {([
               ['all', 'Alles'],
               ['image', 'Afbeeldingen'],
@@ -1192,7 +1192,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
               <button
                 key={value}
                 onClick={() => setTypeFilter(value)}
-                className={`px-2.5 py-1 rounded-md text-xs transition-colors ${
+                className={`px-2.5 py-1 rounded-md text-xs transition-colors flex-shrink-0 ${
                   typeFilter === value
                     ? 'bg-zinc-700 text-white'
                     : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
@@ -1468,7 +1468,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
           <div className="max-w-5xl mx-auto">
           {/* Folder grid */}
           {filteredFolders.length > 0 && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 mb-5">
+            <div className="flex flex-col gap-2 sm:grid sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 sm:gap-3 mb-5">
               {filteredFolders.map((folder) => {
                 const isOver = dragOverFolderId === folder.id
                 const isFolderSelected = selectedFolderIds.has(folder.id)
@@ -1481,7 +1481,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                     className="relative group"
                   >
                     {renamingId !== folder.id && (
-                      <div className="absolute top-2 left-2 z-10">
+                      <div className="absolute left-2 top-1/2 -translate-y-1/2 sm:top-2 sm:translate-y-0 z-10">
                         <SelectCheckbox checked={isFolderSelected} onToggle={() => toggleSelectFolder(folder.id)} />
                       </div>
                     )}
@@ -1512,9 +1512,9 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                         onDragOver={(e) => onFolderDragOver(e, folder.id)}
                         onDragLeave={onFolderDragLeave}
                         onDrop={(e) => onDropOnFolder(e, folder.id)}
-                        className={`w-full flex flex-col items-center gap-2.5 p-4 rounded-xl transition-all text-center border-2 ${
+                        className={`w-full flex items-center sm:flex-col gap-3 sm:gap-2.5 py-3 pl-9 pr-9 sm:p-4 rounded-xl transition-all text-left sm:text-center border-2 ${
                           isOver
-                            ? 'border-emerald-500 bg-emerald-950/30 scale-105'
+                            ? 'border-emerald-500 bg-emerald-950/30 sm:scale-105'
                             : isFolderSelected
                               ? 'border-emerald-700 bg-emerald-950/20'
                               : isFolderPreviewSelected
@@ -1523,28 +1523,28 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                         }`}
                       >
                         {isOver
-                          ? <FolderOpen size={36} className="text-emerald-400" />
-                          : <Folder size={36} className="text-amber-400" />
+                          ? <FolderOpen className="text-emerald-400 w-6 h-6 sm:w-9 sm:h-9 flex-shrink-0" />
+                          : <Folder className="text-amber-400 w-6 h-6 sm:w-9 sm:h-9 flex-shrink-0" />
                         }
-                        <span className="text-xs text-white font-medium leading-snug line-clamp-2 w-full">
+                        <span className="text-sm sm:text-xs text-white font-medium leading-snug truncate sm:whitespace-normal sm:line-clamp-2 flex-1 min-w-0 sm:w-full">
                           {folder.name}
                         </span>
                         {isOver && (
-                          <span className="text-xs text-emerald-400">Loslaten om te verplaatsen</span>
+                          <span className="text-xs text-emerald-400 flex-shrink-0">Loslaten om te verplaatsen</span>
                         )}
                       </button>
                     )}
 
                     {/* 3-dot menu */}
                     {renamingId !== folder.id && (
-                      <div className={`absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10 ${canManage ? '' : 'hidden'}`}>
+                      <div className={`absolute right-2 top-1/2 -translate-y-1/2 sm:top-2 sm:translate-y-0 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity z-10 ${canManage ? '' : 'hidden'}`}>
                         <button
                           onClick={(e) => {
                             e.stopPropagation()
                             setMenuOpenId(menuOpenId === folder.id ? null : folder.id)
                           }}
                           aria-label="Meer opties"
-                          className="p-1 rounded-md text-zinc-500 hover:text-white hover:bg-zinc-700 transition-all"
+                          className="tap-target p-1 rounded-md text-zinc-500 hover:text-white hover:bg-zinc-700 transition-all"
                         >
                           <MoreVertical size={12} />
                         </button>

@@ -1642,13 +1642,13 @@ export default function FreelancersPage() {
 
         {/* Type filter chips */}
         {usedTypes.length > 0 && !matchResults && (
-          <div className="flex items-center gap-1.5 mt-3 flex-wrap">
+          <div className="flex items-center gap-1.5 mt-3 flex-nowrap scroll-x pb-1">
             {usedTypes.map(t => {
               const active = typeFilters.includes(t)
               const s = TYPE_STYLES[t]
               return (
                 <button key={t} onClick={() => setTypeFilters(prev => active ? prev.filter(x => x !== t) : [...prev, t])}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all flex-shrink-0"
                   style={active
                     ? { backgroundColor: s.bg, color: s.text, border: `1px solid ${s.border}` }
                     : { backgroundColor: 'rgba(255,255,255,0.04)', color: '#71717a', border: '1px solid rgba(255,255,255,0.08)' }
@@ -1660,7 +1660,7 @@ export default function FreelancersPage() {
             })}
             {typeFilters.length > 0 && (
               <button onClick={() => setTypeFilters([])}
-                className="flex items-center gap-1 px-2 py-1 rounded-full text-xs text-zinc-600 hover:text-zinc-400 transition-colors">
+                className="flex items-center gap-1 px-2 py-1 rounded-full text-xs text-zinc-600 hover:text-zinc-400 transition-colors flex-shrink-0">
                 <X size={10} /> Wis filters
               </button>
             )}

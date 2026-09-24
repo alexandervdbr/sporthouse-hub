@@ -238,18 +238,18 @@ export default function ExternalRentals() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-zinc-800">
-        <div className="flex items-center gap-3">
+      <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-zinc-800">
+        <div className="flex items-center gap-3 min-w-0">
           <Link href="/equipment"
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 border border-zinc-800 transition-colors">
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 border border-zinc-800 transition-colors flex-shrink-0">
             <ChevronLeft size={15} />
           </Link>
-          <div>
-            <h1 className="text-lg font-semibold text-zinc-100">Externe huur</h1>
+          <div className="min-w-0">
+            <h1 className="text-lg font-semibold text-zinc-100 truncate">Externe huur</h1>
             <p className="text-sm text-zinc-400 mt-0.5">{year}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
           <button onClick={() => setYear(y => y - 1)} aria-label="Vorig jaar"
             className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 border border-zinc-800 transition-colors">
             <ChevronLeft size={15} />
