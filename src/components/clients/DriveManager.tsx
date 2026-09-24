@@ -230,11 +230,11 @@ export default function DriveManager({ clientId, clientName }: Props) {
                   </p>
                 </div>
 
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                   <button
                     onClick={() => setPreviewFile(file)}
                     title="Voorbeeld"
-                    className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-all"
+                    className="tap-target p-1.5 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-all"
                   >
                     <Eye size={13} />
                   </button>
@@ -243,14 +243,14 @@ export default function DriveManager({ clientId, clientName }: Props) {
                     target="_blank"
                     rel="noopener noreferrer"
                     title="Openen in Google"
-                    className="p-1.5 rounded-md text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-all"
+                    className="tap-target p-1.5 rounded-md text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-all"
                   >
                     <ExternalLink size={13} />
                   </a>
                   <button
                     onClick={() => { setRenamingId(file.id); setRenameVal(file.name) }}
                     title="Hernoemen"
-                    className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-all"
+                    className="tap-target p-1.5 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-all"
                   >
                     <Pencil size={13} />
                   </button>
@@ -258,7 +258,7 @@ export default function DriveManager({ clientId, clientName }: Props) {
                     onClick={() => handleDelete(file)}
                     disabled={deletingId === file.id}
                     title="Verwijderen"
-                    className="p-1.5 rounded-md text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-all"
+                    className="tap-target p-1.5 rounded-md text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-all"
                   >
                     {deletingId === file.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
                   </button>

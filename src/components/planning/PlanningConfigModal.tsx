@@ -386,13 +386,13 @@ export default function PlanningConfigModal({ departments, onSave, onClose, isBe
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
       onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}
     >
       <div
-        className="relative flex flex-col bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl"
-        style={{ width: 540, maxHeight: '85vh' }}
+        className="relative flex flex-col w-full max-w-[540px] bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl"
+        style={{ maxHeight: '85vh' }}
         onMouseDown={e => e.stopPropagation()}
       >
         {/* Header */}

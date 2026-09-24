@@ -76,7 +76,7 @@ export default function TopBar() {
         <button
           onClick={openMobile}
           aria-label="Menu openen"
-          className="flex items-center justify-center w-9 h-9 -ml-1 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/70 transition-colors lg:hidden"
+          className="tap-target flex items-center justify-center w-9 h-9 -ml-1 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/70 transition-colors lg:hidden"
         >
           <Menu size={18} />
         </button>
@@ -98,7 +98,7 @@ export default function TopBar() {
             data-tour="search-button"
             onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }))}
             aria-label="Zoeken"
-            className="flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 hover:border-zinc-600 hover:bg-zinc-800/70 transition-all"
+            className="tap-target flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 hover:border-zinc-600 hover:bg-zinc-800/70 transition-all"
           >
             <Search size={12} />
             {/* The label and shortcut are noise on a phone — the icon is enough. */}

@@ -520,9 +520,8 @@ function InviteModal({ clients, onClose, onInvited }: { clients: ClientOption[];
 
 function Checkbox({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
-    <label className="flex items-center gap-2.5 cursor-pointer group">
+    <label onClick={() => onChange(!checked)} className="tap-target flex items-center gap-2.5 cursor-pointer group">
       <div
-        onClick={() => onChange(!checked)}
         className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0 transition-all"
         style={checked
           ? { backgroundColor: '#3A913F', border: '1px solid #3A913F' }
@@ -623,7 +622,7 @@ function PermissionsPanel({
   }
 
   return (
-    <div className="flex flex-col h-full border-l border-zinc-800" style={{ minWidth: 340, maxWidth: 400 }}>
+    <div className="fixed inset-0 z-40 bg-zinc-950 w-full lg:static lg:z-auto lg:w-auto lg:min-w-[340px] lg:max-w-[400px] flex flex-col h-full lg:border-l border-zinc-800">
       {/* Header */}
       <div className="flex-shrink-0 px-5 py-4 border-b border-zinc-800 flex items-start justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
