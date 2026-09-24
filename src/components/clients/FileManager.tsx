@@ -1404,12 +1404,12 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                           </p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                         {isText && canEdit && (
                           <button
                             onClick={(e) => { e.stopPropagation(); openEdit(file) }}
                             title="Bewerken"
-                            className="p-1.5 rounded-md text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-all"
+                            className="tap-target p-1.5 rounded-md text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-all"
                           >
                             <Pencil size={13} />
                           </button>
@@ -1418,7 +1418,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                           onClick={(e) => { e.stopPropagation(); handleDownload(file) }}
                           disabled={downloadingId === file.id}
                           title="Download"
-                          className="p-1.5 rounded-md text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
+                          className="tap-target p-1.5 rounded-md text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
                         >
                           {downloadingId === file.id
                             ? <Loader2 size={13} className="animate-spin" />
@@ -1429,7 +1429,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                             onClick={(e) => { e.stopPropagation(); handleDeleteFile(file.id) }}
                             disabled={deletingId === file.id}
                             title="Verwijderen"
-                            className="p-1.5 rounded-md text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-all"
+                            className="tap-target p-1.5 rounded-md text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-all"
                           >
                             {deletingId === file.id
                               ? <Loader2 size={13} className="animate-spin" />
@@ -1649,12 +1649,12 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                       {isText && canEdit && (
                         <button
                           onClick={(e) => { e.stopPropagation(); openEdit(file) }}
                           title="Bewerken"
-                          className="p-1.5 rounded-md text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-all"
+                          className="tap-target p-1.5 rounded-md text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-all"
                         >
                           <Pencil size={13} />
                         </button>
@@ -1663,7 +1663,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                         onClick={(e) => { e.stopPropagation(); handleDownload(file) }}
                         disabled={downloadingId === file.id}
                         title="Download"
-                        className="p-1.5 rounded-md text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
+                        className="tap-target p-1.5 rounded-md text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
                       >
                         {downloadingId === file.id
                           ? <Loader2 size={13} className="animate-spin" />
@@ -1674,7 +1674,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                           onClick={(e) => { e.stopPropagation(); handleDeleteFile(file.id) }}
                           disabled={deletingId === file.id}
                           title="Verwijderen"
-                          className="p-1.5 rounded-md text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-all"
+                          className="tap-target p-1.5 rounded-md text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-all"
                         >
                           {deletingId === file.id
                             ? <Loader2 size={13} className="animate-spin" />

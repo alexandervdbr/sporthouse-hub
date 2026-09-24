@@ -256,7 +256,7 @@ export default function Sidebar({ clients }: SidebarProps) {
         <button
           onClick={closeMobile}
           aria-label="Menu sluiten"
-          className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors lg:hidden"
+          className="tap-target absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors lg:hidden"
         >
           <X size={18} />
         </button>
