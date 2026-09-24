@@ -101,29 +101,29 @@ function SubmissionCard({ sub, canDelete, onDelete }: {
             <Film size={10} /> Video
           </div>
         )}
-        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+        <div className="absolute inset-0 bg-black/40 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
           {isDrive && sub.drive_file_id ? (
             <button onClick={() => setPreviewOpen(true)}
               aria-label="Voorbeeld bekijken"
-              className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors">
+              className="tap-target p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors">
               {video ? <Film size={15} /> : <ImageIcon size={15} />}
             </button>
           ) : openLink && (
             <a href={openLink}
-              className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors">
+              className="tap-target p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors">
               {video ? <Film size={15} /> : <ImageIcon size={15} />}
             </a>
           )}
           {downloadHref && (
             <a href={downloadHref} download={sub.file_name}
-              className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors">
+              className="tap-target p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors">
               <Download size={15} />
             </a>
           )}
           {canDelete && (
             <button onClick={() => onDelete(sub.id, sub.file_url, sub.storage_provider)}
               aria-label="Verwijderen"
-              className="p-2 rounded-lg bg-red-600/80 hover:bg-red-500 text-white transition-colors">
+              className="tap-target p-2 rounded-lg bg-red-600/80 hover:bg-red-500 text-white transition-colors">
               <Trash2 size={15} />
             </button>
           )}
@@ -275,11 +275,11 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden"
+      <div className="relative w-full max-w-2xl max-h-[92vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col"
         style={{ background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.12)' }}>
 
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4"
+        <div className="flex items-center justify-between px-6 py-4 flex-shrink-0"
           style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
           <h2 className="text-base font-semibold text-white">
             Toevoegen aan {section === 'content' ? 'Content' : 'Inspiratie'}
@@ -287,7 +287,7 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
           <button onClick={onClose} aria-label="Sluiten" className="text-zinc-500 hover:text-zinc-200 transition-colors"><X size={18} /></button>
         </div>
 
-        <div className="p-6">
+        <div className="p-6 overflow-y-auto flex-1">
           {/* Drop zone */}
           <div onClick={() => inputRef.current?.click()} onDragOver={e => e.preventDefault()}
             onDrop={e => { e.preventDefault(); addFiles(e.dataTransfer.files) }}
@@ -387,27 +387,29 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
             </div>
           )}
 
-          {/* Actions */}
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-zinc-600">
-              {entries.length > 0
-                ? `${entries.length} bestand${entries.length !== 1 ? 'en' : ''} geselecteerd`
-                : 'Nog geen bestanden'}
-            </p>
-            <div className="flex gap-2">
-              <button onClick={onClose}
-                className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors">
-                Annuleren
-              </button>
-              <button onClick={handleUpload} disabled={uploading || !allAssigned}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-40 transition-all"
-                style={{ background: '#3A913F' }}>
-                {uploading ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
-                {uploading
-                  ? `${doneCount}/${entries.length} klaar`
-                  : `${entries.length || 0} bestand${entries.length !== 1 ? 'en' : ''} uploaden`}
-              </button>
-            </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center justify-between px-6 py-4 flex-shrink-0"
+          style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+          <p className="text-xs text-zinc-600">
+            {entries.length > 0
+              ? `${entries.length} bestand${entries.length !== 1 ? 'en' : ''} geselecteerd`
+              : 'Nog geen bestanden'}
+          </p>
+          <div className="flex gap-2">
+            <button onClick={onClose}
+              className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors">
+              Annuleren
+            </button>
+            <button onClick={handleUpload} disabled={uploading || !allAssigned}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-40 transition-all"
+              style={{ background: '#3A913F' }}>
+              {uploading ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+              {uploading
+                ? `${doneCount}/${entries.length} klaar`
+                : `${entries.length || 0} bestand${entries.length !== 1 ? 'en' : ''} uploaden`}
+            </button>
           </div>
         </div>
       </div>
@@ -555,6 +557,7 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
   const [downloading,   setDownloading]   = useState(false)
   const [showEditions,  setShowEditions]  = useState(false)
   const [showUpload,    setShowUpload]    = useState(false)
+  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false)
 
   const submitters = Array.from(
     new Map(submissions.map(s => [s.submitted_by_id, s.submitted_by_name])).entries()
@@ -677,14 +680,18 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
           {activeEdition && submissions.length > 0 && (
             <div className="relative group">
               <button disabled={downloading}
-                className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-zinc-300 hover:text-white transition-all"
+                onClick={() => setDownloadMenuOpen(v => !v)}
+                aria-haspopup="true" aria-expanded={downloadMenuOpen}
+                className="tap-target flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-zinc-300 hover:text-white transition-all"
                 style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)' }}>
                 {downloading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                 Downloaden <ChevronDown size={12} />
               </button>
-              <div className="absolute right-0 top-full mt-1 w-52 rounded-xl overflow-hidden shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-20"
+              <div className={`absolute right-0 top-full mt-1 w-52 rounded-xl overflow-hidden shadow-2xl transition-all z-20 group-hover:opacity-100 group-hover:visible ${
+                downloadMenuOpen ? 'opacity-100 visible' : 'opacity-0 invisible'
+              }`}
                 style={{ background: '#1e1e1e', border: '1px solid rgba(255,255,255,0.12)' }}>
-                <button onClick={() => downloadZip()}
+                <button onClick={() => { downloadZip(); setDownloadMenuOpen(false) }}
                   className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition-colors text-left">
                   <Download size={13} /> Alles downloaden
                 </button>
@@ -693,7 +700,7 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
                     <div className="mx-3 my-1" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }} />
                     <p className="px-4 py-1.5 text-[10px] text-zinc-600 uppercase tracking-widest">Per persoon</p>
                     {submitters.map(s => (
-                      <button key={s.id} onClick={() => downloadZip(s.id)}
+                      <button key={s.id} onClick={() => { downloadZip(s.id); setDownloadMenuOpen(false) }}
                         className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-zinc-400 hover:bg-white/5 hover:text-white transition-colors text-left">
                         <Download size={12} /> {s.name}
                       </button>

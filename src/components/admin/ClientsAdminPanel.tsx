@@ -86,11 +86,11 @@ function ClientFormModal({ initial, onClose, onSaved }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
       <form
-        className="relative w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl p-6 space-y-4"
+        className="relative w-full max-w-md max-h-[92vh] bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl flex flex-col"
         onClick={e => e.stopPropagation()}
         onSubmit={handleSubmit}
       >
-        <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center justify-between px-6 pt-6 pb-1 flex-shrink-0">
           <h3 className="text-sm font-semibold text-zinc-100">
             {initial ? 'Klant bewerken' : 'Nieuwe klant'}
           </h3>
@@ -98,6 +98,8 @@ function ClientFormModal({ initial, onClose, onSaved }: {
             <X size={14} className="text-zinc-600 hover:text-zinc-400" />
           </button>
         </div>
+
+        <div className="overflow-y-auto flex-1 px-6 py-1 space-y-4">
 
         {error && <p className="text-xs text-red-400">{error}</p>}
 
@@ -162,7 +164,9 @@ function ClientFormModal({ initial, onClose, onSaved }: {
           />
         </div>
 
-        <div className="flex gap-2 pt-1">
+        </div>
+
+        <div className="flex gap-2 px-6 pb-6 pt-4 flex-shrink-0">
           <button
             type="submit"
             disabled={saving}
@@ -363,18 +367,18 @@ export default function ClientsAdminPanel() {
                     <p className="text-sm font-medium text-zinc-200 truncate">{client.name}</p>
                     <p className="text-xs text-zinc-600">{CATEGORY_LABEL[client.category] ?? client.category}</p>
                   </div>
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                     <button
                       onClick={() => { setEditing(client); setShowForm(true) }}
                       aria-label="Bewerken"
-                      className="p-1.5 text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800 rounded-md transition-colors"
+                      className="tap-target p-1.5 text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800 rounded-md transition-colors"
                     >
                       <Pencil size={13} />
                     </button>
                     <button
                       onClick={() => setDeleting(client)}
                       aria-label="Verwijderen"
-                      className="p-1.5 text-zinc-600 hover:text-red-400 hover:bg-zinc-800 rounded-md transition-colors"
+                      className="tap-target p-1.5 text-zinc-600 hover:text-red-400 hover:bg-zinc-800 rounded-md transition-colors"
                     >
                       <Trash2 size={13} />
                     </button>

@@ -72,7 +72,7 @@ function CopyBlock({ content }: { content: string }) {
       )}
       <button
         onClick={copy}
-        className="absolute top-3 right-3 p-1.5 rounded-lg bg-zinc-800 opacity-0 group-hover:opacity-100 transition-all hover:bg-zinc-700"
+        className="tap-target absolute top-3 right-3 p-1.5 rounded-lg bg-zinc-800 sm:opacity-0 sm:group-hover:opacity-100 transition-all hover:bg-zinc-700"
       >
         {copied
           ? <Check size={12} style={{ color: '#3A913F' }} />
@@ -476,7 +476,7 @@ export default function CopyGenerator({ clientId, clientName, canManageExamples 
                   {canManageExamples && (
                     <button
                       onClick={() => handleDeleteExample(ex.id)}
-                      className="absolute top-3 right-3 p-1.5 rounded-lg bg-zinc-800 opacity-0 group-hover:opacity-100 transition-all hover:bg-red-900/40 hover:text-red-400 text-zinc-600"
+                      className="tap-target absolute top-3 right-3 p-1.5 rounded-lg bg-zinc-800 sm:opacity-0 sm:group-hover:opacity-100 transition-all hover:bg-red-900/40 hover:text-red-400 text-zinc-600"
                     >
                       <Trash2 size={11} />
                     </button>

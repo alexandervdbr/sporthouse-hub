@@ -1144,7 +1144,7 @@ export default function UsersPage() {
                           <button
                             onClick={e => { e.stopPropagation(); handlePreviewAs(u) }}
                             title="Bekijk platform als deze gebruiker"
-                            className="opacity-0 group-hover:opacity-100 flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all hover:bg-zinc-700"
+                            className="sm:opacity-0 sm:group-hover:opacity-100 flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all hover:bg-zinc-700"
                             style={{ color: '#a1a1aa' }}
                           >
                             <Eye size={11} />
