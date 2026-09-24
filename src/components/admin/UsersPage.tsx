@@ -1015,27 +1015,27 @@ export default function UsersPage() {
       <div className="flex-1 min-w-0 flex flex-col p-4 sm:p-6 overflow-hidden">
 
         {/* Header */}
-        <div className="flex items-center justify-between mb-5 flex-shrink-0">
-          <div>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-5 flex-shrink-0">
+          <div className="min-w-0">
             <div className="flex items-center gap-2 mb-0.5">
-              <Shield size={15} className="text-zinc-500" />
-              <h1 className="text-lg font-semibold text-zinc-100">Gebruikersbeheer</h1>
+              <Shield size={15} className="text-zinc-500 flex-shrink-0" />
+              <h1 className="text-lg font-semibold text-zinc-100 truncate">Gebruikersbeheer</h1>
             </div>
             <p className="text-sm text-zinc-500">{users.length} {users.length === 1 ? 'gebruiker' : 'gebruikers'}</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
             <button onClick={loadUsers} disabled={loading} aria-label="Ververs gebruikerslijst"
-              className="w-8 h-8 flex items-center justify-center rounded-lg border border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700 transition-colors disabled:opacity-40">
+              className="w-8 h-8 flex items-center justify-center rounded-lg border border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700 transition-colors disabled:opacity-40 flex-shrink-0">
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
             </button>
             <button onClick={() => setShowFreelanceInvite(true)}
-              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-purple-300 rounded-lg transition-colors border"
+              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-purple-300 rounded-lg transition-colors border flex-shrink-0"
               style={{ backgroundColor: 'rgba(124,58,237,0.12)', borderColor: 'rgba(124,58,237,0.35)' }}>
               <UserCheck size={14} />
               Freelancer
             </button>
             <button onClick={() => setShowInvite(true)}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors"
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors flex-shrink-0"
               style={{ backgroundColor: '#3A913F' }}>
               <UserPlus size={14} />
               Toegang verlenen

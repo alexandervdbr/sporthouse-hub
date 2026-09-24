@@ -361,11 +361,11 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
       </button>
 
       {/* Header */}
-      <div className="mb-8 flex items-start justify-between gap-4">
-        <div>
+      <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
           <div className="flex items-center gap-2.5 mb-1">
-            <Lock size={18} className="text-zinc-400" />
-            <h1 className="text-2xl font-bold tracking-tight text-white"
+            <Lock size={18} className="text-zinc-400 flex-shrink-0" />
+            <h1 className="text-2xl font-bold tracking-tight text-white truncate"
               style={{ fontFamily: 'var(--font-kurdis)' }}>
               Wachtwoorden
             </h1>

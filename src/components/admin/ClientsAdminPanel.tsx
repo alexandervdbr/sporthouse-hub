@@ -310,16 +310,16 @@ export default function ClientsAdminPanel() {
       <div className="flex-1 min-w-0 flex flex-col p-4 sm:p-6 overflow-hidden">
 
         {/* Header */}
-        <div className="flex items-center justify-between mb-5 flex-shrink-0">
-          <div>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-5 flex-shrink-0">
+          <div className="min-w-0">
             <div className="flex items-center gap-2 mb-0.5">
-              <Building2 size={15} className="text-zinc-500" />
-              <h1 className="text-lg font-semibold text-zinc-100">Klantenbeheer</h1>
+              <Building2 size={15} className="text-zinc-500 flex-shrink-0" />
+              <h1 className="text-lg font-semibold text-zinc-100 truncate">Klantenbeheer</h1>
             </div>
             <p className="text-sm text-zinc-500">{clients.length} {clients.length === 1 ? 'klant' : 'klanten'}</p>
           </div>
           <button onClick={() => { setEditing(null); setShowForm(true) }}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors flex-shrink-0"
             style={{ backgroundColor: '#3A913F' }}>
             <Plus size={14} />
             Nieuwe klant
