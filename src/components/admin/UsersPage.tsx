@@ -169,6 +169,7 @@ const SECTION_GROUPS = [
   {
     title: 'Mijn gedacht!',
     sections: [
+      { key: 'mijn-gedacht', label: 'Toegang tot Mijn gedacht!' },
       { key: 'mijn_gedacht_types_beheren', label: 'Nieuwe types aanmaken (bv. "3D")' },
     ],
   },
