@@ -27,21 +27,21 @@ export default async function PortalLayout({ children }: { children: React.React
     <div className="min-h-screen" style={{ background: '#0d0d0d' }}>
       {/* Header */}
       <header
-        className="sticky top-0 z-10 flex items-center justify-between px-6 py-4"
+        className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 sm:px-6 py-4"
         style={{ background: 'rgba(13,13,13,0.95)', borderBottom: '1px solid rgba(255,255,255,0.07)', backdropFilter: 'blur(12px)' }}
       >
-        <div className="flex items-center gap-3">
-          <Image src="/logo.png" alt="Sporthouse" width={100} height={26} className="object-contain" style={{ filter: 'invert(1)', opacity: 0.85 }} />
-          <span className="text-zinc-700 text-sm">|</span>
-          <span className="text-sm text-zinc-400 font-medium">Freelancer Portaal</span>
+        <div className="flex items-center gap-3 min-w-0">
+          <Image src="/logo.png" alt="Sporthouse" width={100} height={26} className="object-contain flex-shrink-0" style={{ filter: 'invert(1)', opacity: 0.85 }} />
+          <span className="text-zinc-700 text-sm hidden sm:inline">|</span>
+          <span className="text-sm text-zinc-400 font-medium truncate hidden sm:inline">Freelancer Portaal</span>
         </div>
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-zinc-500">{freelancer.name}</span>
+        <div className="flex items-center gap-4 flex-shrink-0">
+          <span className="text-sm text-zinc-500 truncate max-w-[40vw]">{freelancer.name}</span>
           <PortalLogout />
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-6 py-10">
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
         {children}
       </main>
     </div>

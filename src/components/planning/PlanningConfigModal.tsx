@@ -388,12 +388,12 @@ export default function PlanningConfigModal({ departments, onSave, onClose, isBe
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
-      onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
       <div
         className="relative flex flex-col w-full max-w-[540px] bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl"
         style={{ maxHeight: '85vh' }}
-        onMouseDown={e => e.stopPropagation()}
+        onClick={e => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800 flex-shrink-0">

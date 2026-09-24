@@ -184,24 +184,24 @@ export default function EquipmentStats() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-zinc-800">
-        <div className="flex items-center gap-3">
+      <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-zinc-800">
+        <div className="flex items-center gap-3 min-w-0">
           <Link
             href="/equipment"
-            className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors flex-shrink-0"
           >
             <ChevronLeft size={14} />
             Planning
           </Link>
-          <span className="text-zinc-700">/</span>
-          <div>
-            <h1 className="text-lg font-semibold text-zinc-100">Statistieken</h1>
-            <p className="text-sm text-zinc-400 mt-0.5">Materiaalgebruik & reserveringsdata</p>
+          <span className="text-zinc-700 flex-shrink-0">/</span>
+          <div className="min-w-0">
+            <h1 className="text-lg font-semibold text-zinc-100 truncate">Statistieken</h1>
+            <p className="text-sm text-zinc-400 mt-0.5 truncate">Materiaalgebruik & reserveringsdata</p>
           </div>
         </div>
 
         {/* Range tabs */}
-        <div className="flex items-center gap-1 p-1 rounded-lg" style={{ background: 'rgba(255,255,255,0.05)' }}>
+        <div className="flex items-center gap-1 p-1 rounded-lg overflow-x-auto scroll-x flex-shrink-0" style={{ background: 'rgba(255,255,255,0.05)' }}>
           {RANGES.map(r => (
             <button
               key={r.value}
@@ -233,7 +233,7 @@ export default function EquipmentStats() {
           <div className="max-w-7xl mx-auto space-y-6">
 
             {/* Summary cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <SummaryCard
                 label="Totaal reserveringen"
                 value={data.totalReservations}
@@ -263,7 +263,7 @@ export default function EquipmentStats() {
             </div>
 
             {/* Main grid: Equipment ranking + User breakdown */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
               {/* Equipment ranking */}
               <div className="rounded-xl overflow-hidden" style={{ background: 'rgba(22,22,22,0.97)', border: '1px solid rgba(255,255,255,0.10)' }}>
@@ -357,7 +357,7 @@ export default function EquipmentStats() {
             </div>
 
             {/* Bottom row: Day of week + Monthly trend */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
               {/* Day of week */}
               <div className="rounded-xl p-5" style={{ background: 'rgba(22,22,22,0.97)', border: '1px solid rgba(255,255,255,0.10)' }}>

@@ -39,7 +39,7 @@ function CopyButton({ value }: { value: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="p-1 rounded transition-colors text-zinc-500 hover:text-zinc-300"
+      className="tap-target p-1.5 rounded transition-colors text-zinc-500 hover:text-zinc-300"
       title="Kopiëren"
     >
       {copied ? <Check size={13} className="text-green-400" /> : <Copy size={13} />}
@@ -102,11 +102,11 @@ function CredentialCard({
 
         {/* Actions */}
         {(onEdit || onDelete) && (
-          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+          <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0">
             {onEdit && (
               <button
                 onClick={() => onEdit(cred)}
-                className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-all"
+                className="tap-target p-1.5 rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-all"
               >
                 <Pencil size={13} />
               </button>
@@ -114,7 +114,7 @@ function CredentialCard({
             {onDelete && (
               <button
                 onClick={() => onDelete(cred.id)}
-                className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-950/30 transition-all"
+                className="tap-target p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-950/30 transition-all"
               >
                 <Trash2 size={13} />
               </button>
@@ -151,7 +151,7 @@ function CredentialCard({
           <div className="flex items-center gap-0.5">
             <button
               onClick={() => setShowPassword(p => !p)}
-              className="p-1 rounded transition-colors text-zinc-500 hover:text-zinc-300"
+              className="tap-target p-1.5 rounded transition-colors text-zinc-500 hover:text-zinc-300"
             >
               {showPassword ? <EyeOff size={13} /> : <Eye size={13} />}
             </button>
@@ -201,17 +201,17 @@ function Modal({
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div
         ref={ref}
-        className="relative w-full max-w-md rounded-2xl p-6 shadow-2xl"
+        className="relative w-full max-w-md max-h-[92vh] rounded-2xl shadow-2xl flex flex-col"
         style={{ background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.12)' }}
       >
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between px-6 pt-6 pb-2 flex-shrink-0">
           <h2 className="text-base font-semibold text-white">{title}</h2>
           <button onClick={onClose} aria-label="Sluiten" title="Sluiten" className="text-zinc-500 hover:text-zinc-200 transition-colors">
             <X size={18} />
           </button>
         </div>
 
-        <div className="space-y-4">
+        <div className="overflow-y-auto flex-1 px-6 space-y-4">
           <div>
             <label className={labelClass}>Platform *</label>
             <input className={inputClass} placeholder="bv. Instagram, Facebook, Google…"
@@ -253,7 +253,7 @@ function Modal({
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 mt-6">
+        <div className="flex justify-end gap-2 px-6 pt-4 pb-6 flex-shrink-0">
           <button onClick={onClose}
             className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors">
             Annuleren
@@ -361,11 +361,11 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
       </button>
 
       {/* Header */}
-      <div className="mb-8 flex items-start justify-between gap-4">
-        <div>
+      <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
           <div className="flex items-center gap-2.5 mb-1">
-            <Lock size={18} className="text-zinc-400" />
-            <h1 className="text-2xl font-bold tracking-tight text-white"
+            <Lock size={18} className="text-zinc-400 flex-shrink-0" />
+            <h1 className="text-2xl font-bold tracking-tight text-white truncate"
               style={{ fontFamily: 'var(--font-kurdis)' }}>
               Wachtwoorden
             </h1>

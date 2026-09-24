@@ -117,11 +117,11 @@ function ContactModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
       <form
-        className="relative w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl p-6 space-y-4"
+        className="relative w-full max-w-md max-h-[92vh] bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl flex flex-col"
         onClick={e => e.stopPropagation()}
         onSubmit={handleSubmit}
       >
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center justify-between px-6 pt-6 pb-2 flex-shrink-0">
           <h3 className="text-sm font-semibold text-sh-grey">
             {initial ? 'Persoon bewerken' : 'Nieuw teamlid'}
           </h3>
@@ -129,6 +129,8 @@ function ContactModal({
             <X size={14} className="text-zinc-600 hover:text-zinc-400" />
           </button>
         </div>
+
+        <div className="overflow-y-auto flex-1 px-6 space-y-4">
 
         {error && <p className="text-xs text-red-400">{error}</p>}
 
@@ -188,7 +190,9 @@ function ContactModal({
           </div>
         ))}
 
-        <div className="flex gap-2 pt-1">
+        </div>
+
+        <div className="flex gap-2 px-6 pt-4 pb-6 flex-shrink-0">
           <button
             type="submit"
             disabled={saving || uploadingPhoto}
@@ -364,11 +368,11 @@ export default function TeamDirectory({ internClients }: { internClients: Client
 
                       {/* Actions */}
                       {(canToevoegen || canVerwijderen) && (
-                        <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex flex-col gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                           {canToevoegen && (
                             <button
                               onClick={() => { setEditing(contact); setShowModal(true) }}
-                              className="p-1.5 text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800 rounded-md transition-colors"
+                              className="tap-target p-1.5 text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800 rounded-md transition-colors"
                             >
                               <Pencil size={12} />
                             </button>
@@ -377,7 +381,7 @@ export default function TeamDirectory({ internClients }: { internClients: Client
                             <button
                               onClick={() => handleDelete(contact.id)}
                               disabled={deletingId === contact.id}
-                              className="p-1.5 text-zinc-600 hover:text-red-400 hover:bg-zinc-800 rounded-md transition-colors"
+                              className="tap-target p-1.5 text-zinc-600 hover:text-red-400 hover:bg-zinc-800 rounded-md transition-colors"
                             >
                               {deletingId === contact.id
                                 ? <Loader2 size={12} className="animate-spin" />

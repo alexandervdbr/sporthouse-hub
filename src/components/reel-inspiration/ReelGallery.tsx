@@ -414,12 +414,12 @@ function ReelCard({ reel, onOpen, onDelete }: { reel: ReelInspiration; onOpen: (
         <button
           onClick={handleDelete}
           disabled={deleting}
-          className="absolute bottom-2 left-2 p-1.5 rounded-lg bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity text-white hover:text-red-400 disabled:opacity-50"
+          className="tap-target absolute bottom-2 left-2 p-1.5 rounded-lg bg-black/60 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity text-white hover:text-red-400 disabled:opacity-50"
           title="Verwijderen"
         >
           <Trash2 size={13} />
         </button>
-        <div className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
           <ExternalLink size={13} className="text-white" />
         </div>
 
