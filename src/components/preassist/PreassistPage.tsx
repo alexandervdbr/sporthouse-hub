@@ -665,7 +665,7 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
           <p className="text-sm text-zinc-500">Dien content en inspiratie in voor de volgende sessie</p>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap flex-shrink-0">
+        <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
           {canManageEditions && (
             <button onClick={() => setShowEditions(true)}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm text-zinc-400 hover:text-zinc-200 transition-all"

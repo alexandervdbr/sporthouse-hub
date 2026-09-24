@@ -1023,7 +1023,7 @@ export default function UsersPage() {
             </div>
             <p className="text-sm text-zinc-500">{users.length} {users.length === 1 ? 'gebruiker' : 'gebruikers'}</p>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
             <button onClick={loadUsers} disabled={loading} aria-label="Ververs gebruikerslijst"
               className="w-8 h-8 flex items-center justify-center rounded-lg border border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700 transition-colors disabled:opacity-40 flex-shrink-0">
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />

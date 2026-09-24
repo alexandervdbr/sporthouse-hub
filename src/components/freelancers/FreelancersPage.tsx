@@ -1461,7 +1461,7 @@ function FreelancerRow({ freelancer, onClick, matchReason, matchConcern, matchRa
       role="button"
       tabIndex={0}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onClick() }}
-      className="w-full text-left flex items-center gap-4 px-4 py-3.5 rounded-xl transition-all hover:brightness-110 active:scale-[0.99] cursor-pointer"
+      className="w-full text-left flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3.5 rounded-xl transition-all hover:brightness-110 active:scale-[0.99] cursor-pointer"
       style={rankStyle
         ? { background: rankStyle.bg, border: `1.5px solid ${rankStyle.border}` }
         : isTeTesten
@@ -1480,8 +1480,10 @@ function FreelancerRow({ freelancer, onClick, matchReason, matchConcern, matchRa
       {/* Avatar */}
       <Avatar name={freelancer.name} avatarUrl={freelancer.avatar_url} size={40} opacity={isTeTesten ? 0.5 : 1} />
 
-      {/* Main info */}
-      <div className="flex-1 min-w-0">
+      {/* Main info — a guaranteed minimum width, so a long price/rating on
+          the right is forced onto its own full-width line below instead of
+          squeezing the name down to near-nothing. */}
+      <div className="flex-1 min-w-[140px]">
         <p className={`text-sm font-semibold leading-tight ${isTeTesten ? 'text-zinc-500' : 'text-zinc-100'}`}>
           {freelancer.name}
         </p>
@@ -1501,14 +1503,14 @@ function FreelancerRow({ freelancer, onClick, matchReason, matchConcern, matchRa
         )}
       </div>
 
-      {/* Right: rating + price */}
-      <div className="flex-shrink-0 flex flex-col items-end gap-1.5">
+      {/* Right: rating + price — its own full-width row once wrapped */}
+      <div className="flex-shrink-0 flex items-center justify-between w-full sm:w-auto sm:flex-col sm:items-end gap-2 sm:gap-1.5">
         {freelancer.rating
           ? <RatingStars value={freelancer.rating} size={13} />
           : <span className="text-xs text-zinc-700">–</span>
         }
         {freelancer.price_info && (
-          <span className="text-xs text-zinc-500">{freelancer.price_info}</span>
+          <span className="text-xs text-zinc-500 text-right">{freelancer.price_info}</span>
         )}
       </div>
     </div>

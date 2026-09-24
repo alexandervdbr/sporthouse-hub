@@ -1114,9 +1114,9 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
         )}
       </nav>
 
-      {/* Toolbar */}
-      <div className="flex items-center gap-3 mb-5 flex-wrap">
-        <div className="relative flex-1 min-w-[160px] max-w-sm">
+      {/* Toolbar — search gets its own full-width row, the action buttons share the row below */}
+      <div className="flex flex-col gap-3 mb-5">
+        <div className="relative w-full sm:max-w-sm">
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
           <input
             type="text"
@@ -1126,40 +1126,42 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
             className="w-full pl-9 pr-4 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-700 transition-colors"
           />
         </div>
-        {canManage && (
+        <div className="flex items-center gap-3 flex-wrap">
+          {canManage && (
+            <button
+              onClick={() => {
+                setShowNewFolder(true)
+                setCreateFolderError(null)
+                setTimeout(() => newFolderRef.current?.focus(), 50)
+              }}
+              className="flex items-center gap-2 px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-sm text-white rounded-lg transition-colors flex-shrink-0"
+            >
+              <FolderPlus size={14} />
+              Nieuwe map
+            </button>
+          )}
+          {!showTrash && !isGlobalSearch && breadcrumbs.length > 1 && (
+            <button
+              onClick={handleDownloadCurrentFolder}
+              disabled={downloadingZip}
+              className="flex items-center gap-2 px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-sm text-white rounded-lg transition-colors flex-shrink-0 disabled:opacity-50"
+            >
+              {downloadingZip ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+              Map downloaden
+            </button>
+          )}
           <button
-            onClick={() => {
-              setShowNewFolder(true)
-              setCreateFolderError(null)
-              setTimeout(() => newFolderRef.current?.focus(), 50)
-            }}
-            className="flex items-center gap-2 px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-sm text-white rounded-lg transition-colors flex-shrink-0"
+            onClick={() => setShowTrash(v => !v)}
+            className={`flex items-center gap-2 px-3.5 py-2 border text-sm rounded-lg transition-colors flex-shrink-0 ${
+              showTrash
+                ? 'bg-zinc-700 border-zinc-600 text-white'
+                : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-white'
+            }`}
           >
-            <FolderPlus size={14} />
-            Nieuwe map
+            <Trash2 size={14} />
+            Prullenbak
           </button>
-        )}
-        {!showTrash && !isGlobalSearch && breadcrumbs.length > 1 && (
-          <button
-            onClick={handleDownloadCurrentFolder}
-            disabled={downloadingZip}
-            className="flex items-center gap-2 px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-sm text-white rounded-lg transition-colors flex-shrink-0 disabled:opacity-50"
-          >
-            {downloadingZip ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-            Map downloaden
-          </button>
-        )}
-        <button
-          onClick={() => setShowTrash(v => !v)}
-          className={`flex items-center gap-2 px-3.5 py-2 border text-sm rounded-lg transition-colors flex-shrink-0 ${
-            showTrash
-              ? 'bg-zinc-700 border-zinc-600 text-white'
-              : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-white'
-          }`}
-        >
-          <Trash2 size={14} />
-          Prullenbak
-        </button>
+        </div>
       </div>
 
       {/* Sort + type filter */}
