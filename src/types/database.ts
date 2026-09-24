@@ -84,4 +84,5 @@ export interface ReelInspiration {
   error_message: string | null
   saved_at: string
   note: string | null
+  share_count: number
 }

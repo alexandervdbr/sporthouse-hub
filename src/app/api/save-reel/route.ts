@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { after } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
-import { fetchInstagramOembed, InstagramOembedError } from '@/lib/instagram-oembed'
+import { fetchInstagramOembed, InstagramOembedError, normalizeInstagramUrl } from '@/lib/instagram-oembed'
 import { classifyReel } from '@/lib/reel-classification'
 import { hostThumbnailOnDrive } from '@/lib/reel-thumbnail-storage'
 import { getReelMediaTypes } from '@/lib/reel-media-types'
@@ -37,8 +37,14 @@ export async function POST(request: NextRequest) {
   // (URL + a trailing description/username line) rather than a bare URL —
   // pull out just the URL rather than storing the raw blob.
   const urlMatch = body.url?.match(/https?:\/\/(?:www\.)?instagram\.com\/\S+/i)
-  const url = urlMatch?.[0]
-  if (!url) return Response.json({ status: 'error', message: 'url is verplicht.' }, { status: 400 })
+  const rawUrl = urlMatch?.[0]
+  if (!rawUrl) return Response.json({ status: 'error', message: 'url is verplicht.' }, { status: 400 })
+
+  // Strip Instagram's per-share tracking parameter (?igsh=...) so re-shares
+  // of the exact same post compare equal — both here and in what gets stored,
+  // so the dedup check below (and the DB's unique(url) constraint) actually
+  // catch them instead of silently creating a second card.
+  const url = normalizeInstagramUrl(rawUrl)
 
   // Optional — sent by the "with note" Shortcut variant only; the default,
   // one-tap Shortcut never includes this key at all. Empty/whitespace-only
@@ -49,17 +55,22 @@ export async function POST(request: NextRequest) {
   // top instead, and skip re-running oEmbed/classification for it. A note
   // on the re-share is still worth capturing (e.g. saving it again later
   // specifically to annotate it) — but never clear an existing note just
-  // because this particular share didn't include one.
+  // because this particular share didn't include one. share_count is a quiet
+  // "hype meter" — how many times this exact post has been sent in.
   const { data: existing } = await admin
     .from('reel_inspiration')
-    .select('id')
+    .select('id, share_count')
     .eq('url', url)
     .maybeSingle()
 
   if (existing) {
     await admin
       .from('reel_inspiration')
-      .update({ saved_at: new Date().toISOString(), ...(note ? { note } : {}) })
+      .update({
+        saved_at: new Date().toISOString(),
+        share_count: existing.share_count + 1,
+        ...(note ? { note } : {}),
+      })
       .eq('id', existing.id)
     return Response.json({ status: 'ok', id: existing.id })
   }

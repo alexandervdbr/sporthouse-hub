@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { ExternalLink, Clock, AlertCircle, Trash2, X, Search, Plus, ChevronLeft, ChevronRight, Folder, FolderPlus, LayoutGrid, Shuffle, RefreshCw, StickyNote } from 'lucide-react'
+import { ExternalLink, Clock, AlertCircle, Trash2, X, Search, Plus, ChevronLeft, ChevronRight, Folder, FolderPlus, LayoutGrid, Shuffle, RefreshCw, StickyNote, Repeat2 } from 'lucide-react'
 import { ReelInspiration } from '@/types/database'
 import { createClient } from '@/lib/supabase/client'
 
@@ -401,8 +401,17 @@ function ReelCard({ reel, onOpen, onDelete }: { reel: ReelInspiration; onOpen: (
           </div>
         )}
 
-        {reel.media_types.length > 0 && (
+        {(reel.media_types.length > 0 || reel.share_count > 1) && (
           <div className="absolute top-2 left-2 flex flex-wrap gap-1 max-w-[calc(100%-1rem)]">
+            {reel.share_count > 1 && (
+              <span
+                className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-black/70 text-zinc-200"
+                title={`${reel.share_count}x doorgestuurd`}
+              >
+                <Repeat2 size={10} />
+                {reel.share_count}
+              </span>
+            )}
             {reel.media_types.map(type => (
               <span key={type} className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-black/70 text-zinc-200">
                 {type}
@@ -564,7 +573,7 @@ export default function ReelGallery({ reels: initialReels, isAdmin, mediaTypes: 
     async function refetch() {
       const { data } = await supabase
         .from('reel_inspiration')
-        .select('id, user_id, url, thumbnail_url, caption, author, media_types, thumbnail_drive_id, tags, confidence, status, error_message, saved_at, note')
+        .select('id, user_id, url, thumbnail_url, caption, author, media_types, thumbnail_drive_id, tags, confidence, status, error_message, saved_at, note, share_count')
         .order('saved_at', { ascending: false })
       if (data) setReels(data as ReelInspiration[])
     }
