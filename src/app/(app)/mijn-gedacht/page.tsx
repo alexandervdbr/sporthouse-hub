@@ -15,10 +15,15 @@ export default async function MijnGedachtPage() {
   // embed_html (~3-8KB of boilerplate per row) is only needed once a card's
   // preview modal opens — left out here and fetched lazily by the modal via
   // GET /api/reels/[id] instead of shipping it for every row on every load.
-  const { data: reels } = await supabase
+  const { data: reels, error: reelsError } = await supabase
     .from('reel_inspiration')
     .select('id, user_id, url, thumbnail_url, caption, author, media_types, thumbnail_drive_id, tags, confidence, status, error_message, saved_at, note, share_count')
     .order('saved_at', { ascending: false })
+
+  // A query failure (e.g. a migration not yet applied) used to look
+  // identical to "no reels saved" — log it so it shows up in server logs
+  // instead of silently rendering the empty state.
+  if (reelsError) console.error('reel_inspiration query mislukt:', reelsError.message)
 
   const mediaTypes = await getReelMediaTypes(supabase)
 
