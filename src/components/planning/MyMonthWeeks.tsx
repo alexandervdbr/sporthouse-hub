@@ -41,19 +41,23 @@ export default function MyMonthWeeks({
         return (
           <div key={wi} ref={containsToday ? todayRowRef : undefined}>
             <div className="grid grid-cols-7" style={{ position: 'sticky', top: 0, zIndex: 20 }}>
-              {week.map(wd => (
-                <div
-                  key={`h-${wd.year}-${wd.month}-${wd.day}`}
-                  style={{ backgroundColor: wd.isToday ? '#111d11' : '#161616' }}
-                  className="border-b border-r border-zinc-800 px-2 py-2 text-center last:border-r-0"
-                >
-                  <p className="text-[10px] uppercase tracking-wide text-zinc-500">{wd.dayName.slice(0, 2)}</p>
-                  <p className={`text-sm font-semibold ${wd.isToday ? 'text-emerald-400' : 'text-zinc-300'}`}>{wd.day}</p>
-                </div>
-              ))}
+              {week.map(wd => {
+                const isOverflow = wd.month !== month
+                return (
+                  <div
+                    key={`h-${wd.year}-${wd.month}-${wd.day}`}
+                    style={{ backgroundColor: wd.isToday ? '#111d11' : '#161616', opacity: isOverflow ? 0.4 : 1 }}
+                    className="border-b border-r border-zinc-800 px-2 py-2 text-center last:border-r-0"
+                  >
+                    <p className="text-[10px] uppercase tracking-wide text-zinc-500">{wd.dayName.slice(0, 2)}</p>
+                    <p className={`text-sm font-semibold ${wd.isToday ? 'text-emerald-400' : 'text-zinc-300'}`}>{wd.day}</p>
+                  </div>
+                )
+              })}
             </div>
             <div className="grid grid-cols-7">
               {week.map(wd => {
+                const isOverflow = wd.month !== month
                 const key = weekDayCellKey(wd, dept, emp)
                 const cell = data[key] ?? emptyCell()
                 return (
@@ -61,7 +65,7 @@ export default function MyMonthWeeks({
                     key={key}
                     onClick={() => !readOnly && setEditing({ wd, cell })}
                     disabled={readOnly}
-                    style={{ backgroundColor: wd.isToday ? 'rgba(58,145,63,0.06)' : undefined }}
+                    style={{ backgroundColor: wd.isToday ? 'rgba(58,145,63,0.06)' : undefined, opacity: isOverflow ? 0.4 : 1 }}
                     className={`relative border-b border-r border-zinc-800/60 last:border-r-0 p-3 min-h-[76px] flex flex-col items-center justify-center gap-0.5 ${readOnly ? '' : 'cursor-pointer hover:brightness-110'}`}
                   >
                     {cell.value ? (
