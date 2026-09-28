@@ -49,12 +49,15 @@ export default function MobileMyWeekAgenda({
                 <span className={`text-base font-semibold ${wd.isToday ? 'text-emerald-400' : 'text-zinc-200'}`}>{wd.day}</span>
               </div>
               {cell.value ? (
-                <span
-                  className="flex-1 truncate rounded-md px-2.5 py-1.5 text-xs font-semibold"
-                  style={{ backgroundColor: cell.bgColor ?? 'rgba(255,255,255,0.08)', color: cell.bgColor ? '#fff' : '#a1a1aa' }}
-                >
-                  {cell.value}
-                </span>
+                <div className="flex-1 min-w-0 space-y-0.5">
+                  <span
+                    className="block truncate rounded-md px-2.5 py-1.5 text-xs font-semibold"
+                    style={{ backgroundColor: cell.bgColor ?? 'rgba(255,255,255,0.08)', color: cell.bgColor ? '#fff' : '#a1a1aa' }}
+                  >
+                    {cell.value}
+                  </span>
+                  {cell.note && <span className="block truncate text-[10px] text-zinc-500 px-0.5">{cell.note}</span>}
+                </div>
               ) : (
                 <span className="flex-1 text-xs text-zinc-600">{readOnly ? '—' : 'Tik om in te vullen'}</span>
               )}

@@ -32,22 +32,16 @@ function mergedStatusOptions(presets: PlanningPreset[]): StatusOption[] {
   return result
 }
 
-// A saved value is either "<status>" or "<status> - <detail>" for one of
-// the known options (matching the convention already present in the real
-// data, e.g. "SHG - THUIS", "PS - 18u00 - 23u00") — split it back apart so
-// re-opening an already-set day shows the picker in the right state,
-// instead of only ever falling back to raw custom text.
-function splitValue(cell: CellData, options: StatusOption[]): { statusName: string | null; detail: string } {
+// Exact match only — status and note are genuinely separate fields now
+// (not a "STATUS - detail" string glued together), so there's no suffix
+// parsing to get wrong.
+function matchStatus(cell: CellData, options: StatusOption[]): string | null {
   const raw = cell.value.trim()
-  if (!raw) return { statusName: null, detail: '' }
+  if (!raw) return null
   for (const opt of options) {
-    if (cell.bgColor !== opt.color) continue
-    const up = raw.toUpperCase()
-    const optUp = opt.name.toUpperCase()
-    if (up === optUp) return { statusName: opt.name, detail: '' }
-    if (up.startsWith(`${optUp} - `)) return { statusName: opt.name, detail: raw.slice(opt.name.length + 3) }
+    if (cell.bgColor === opt.color && raw.toUpperCase() === opt.name.toUpperCase()) return opt.name
   }
-  return { statusName: null, detail: raw }
+  return null
 }
 
 export default function DayEditor({
@@ -63,14 +57,14 @@ export default function DayEditor({
   onClose: () => void
 }) {
   const options = mergedStatusOptions(presets)
-  const initial = splitValue(initialCell, options)
+  const matchedStatus = matchStatus(initialCell, options)
 
-  const [statusName, setStatusName] = useState<string | null>(initial.statusName)
-  const [detail, setDetail] = useState(initial.detail)
+  const [statusName, setStatusName] = useState<string | null>(matchedStatus)
   // Only meaningful once no status is picked — fully custom text, replacing
   // the whole value (matches today's plain-typing behaviour for anything
   // that doesn't fit a known status).
-  const [customText, setCustomText] = useState(initial.statusName ? '' : initial.detail)
+  const [customText, setCustomText] = useState(matchedStatus ? '' : initialCell.value)
+  const [note, setNote] = useState(initialCell.note ?? '')
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose() }
@@ -81,14 +75,14 @@ export default function DayEditor({
   const selectedOption = options.find(o => o.name === statusName) ?? null
 
   function handleSave() {
+    const trimmedNote = note.trim() || null
     if (selectedOption) {
-      const value = detail.trim() ? `${selectedOption.name} - ${detail.trim()}` : selectedOption.name
-      onSave({ value: value.toUpperCase(), bold: true, textColor: '#ffffff', bgColor: selectedOption.color })
+      onSave({ value: selectedOption.name.toUpperCase(), bold: true, textColor: '#ffffff', bgColor: selectedOption.color, note: trimmedNote })
       return
     }
     const value = customText.trim()
     if (!value) { onClear(); return }
-    onSave({ value: value.toUpperCase(), bold: true, textColor: '#ffffff', bgColor: null })
+    onSave({ value: value.toUpperCase(), bold: true, textColor: '#ffffff', bgColor: null, note: trimmedNote })
   }
 
   return (
@@ -131,22 +125,7 @@ export default function DayEditor({
               </div>
             </div>
 
-            {selectedOption ? (
-              <div>
-                <label className="block text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mb-1.5">
-                  Detail (optioneel)
-                </label>
-                <input
-                  autoFocus
-                  type="text"
-                  value={detail}
-                  onChange={e => setDetail(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleSave() }}
-                  placeholder="bv. 18u00 - 23u00"
-                  className="w-full px-3 py-2 bg-zinc-800/60 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors"
-                />
-              </div>
-            ) : (
+            {!selectedOption && (
               <div>
                 <label className="block text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mb-1.5">
                   Of typ iets anders
@@ -161,6 +140,22 @@ export default function DayEditor({
                 />
               </div>
             )}
+
+            <div>
+              <label className="block text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mb-1.5">
+                Notitie (optioneel)
+              </label>
+              <textarea
+                value={note}
+                onChange={e => setNote(e.target.value)}
+                placeholder="bv. F1 (RC Racing), 18u00 - 23u00…"
+                rows={2}
+                className="w-full px-3 py-2 bg-zinc-800/60 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors resize-none"
+              />
+              <p className="text-[10px] text-zinc-600 mt-1">
+                Wordt getoond onder de status, telt niet mee als een eigen status.
+              </p>
+            </div>
           </div>
         )}
 

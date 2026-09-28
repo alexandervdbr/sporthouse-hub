@@ -139,7 +139,7 @@ export default function WeekGrid({
   }
 
   const cellPad = variant === 'spacious' ? 'p-3' : 'p-1.5'
-  const cellMinH = variant === 'spacious' ? 'min-h-[76px]' : 'min-h-[44px]'
+  const cellMinH = variant === 'spacious' ? 'min-h-[76px]' : 'min-h-[52px]'
   const nameColWidth = showNameColumn ? 160 : 0
   const gridTemplateColumns = showNameColumn
     ? `${nameColWidth}px repeat(7, minmax(0, 1fr))`
@@ -223,15 +223,20 @@ export default function WeekGrid({
                       opacity: locked ? 0.45 : 1,
                       touchAction: 'none',
                     }}
-                    className={`relative border-b border-zinc-800/60 border-r ${cellPad} ${cellMinH} flex items-center justify-center ${locked ? '' : 'cursor-pointer'}`}
+                    className={`relative border-b border-zinc-800/60 border-r ${cellPad} ${cellMinH} flex flex-col items-center justify-center gap-0.5 ${locked ? '' : 'cursor-pointer'}`}
                   >
                     {cell.value ? (
-                      <span
-                        className="w-full text-center truncate rounded-md px-1.5 py-1 text-[11px] font-semibold"
-                        style={{ backgroundColor: cell.bgColor ?? 'rgba(255,255,255,0.08)', color: cell.bgColor ? '#fff' : '#a1a1aa' }}
-                      >
-                        {cell.value}
-                      </span>
+                      <>
+                        <span
+                          className="w-full text-center truncate rounded-md px-1.5 py-1 text-[11px] font-semibold"
+                          style={{ backgroundColor: cell.bgColor ?? 'rgba(255,255,255,0.08)', color: cell.bgColor ? '#fff' : '#a1a1aa' }}
+                        >
+                          {cell.value}
+                        </span>
+                        {cell.note && (
+                          <span className="w-full text-center truncate text-[9px] text-zinc-500 px-1">{cell.note}</span>
+                        )}
+                      </>
                     ) : (
                       !locked && <span className="text-zinc-700 text-xs">+</span>
                     )}

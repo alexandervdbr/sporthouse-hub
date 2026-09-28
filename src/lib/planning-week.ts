@@ -5,12 +5,17 @@ export interface CellData {
   bold:      boolean
   textColor: string | null
   bgColor:   string | null
+  // Kept separate from `value` on purpose — every day with the same status
+  // ("PS", "SHG", …) should look identical (same pill, same color), with
+  // any specifics (a client, a time, a reason) shown as a secondary note
+  // instead of becoming a one-off status of its own.
+  note: string | null
 }
 
 export type PlanningWeekData = Record<string, CellData>
 
 export function emptyCell(): CellData {
-  return { value: '', bold: true, textColor: '#ffffff', bgColor: null }
+  return { value: '', bold: true, textColor: '#ffffff', bgColor: null, note: null }
 }
 
 export interface WeekDay {
@@ -59,6 +64,12 @@ export function addWeeks(anchor: Date, delta: number): Date {
 
 export function addDays(anchor: Date, delta: number): Date {
   return new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() + delta)
+}
+
+// Day fixed at 1 to avoid native Date overflow when the current day doesn't
+// exist in the target month (e.g. Jan 31 + 1 month silently becoming Mar 3).
+export function addMonths(anchor: Date, delta: number): Date {
+  return new Date(anchor.getFullYear(), anchor.getMonth() + delta, 1)
 }
 
 // A single day, independent of any week grouping — used by the mobile Team

@@ -3,16 +3,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ChevronLeft, ChevronRight, Loader2, Settings, Search, X } from 'lucide-react'
-import { DEPARTMENTS, type Department } from '@/lib/planning-config'
+import { DEPARTMENTS, DUTCH_MONTHS, type Department } from '@/lib/planning-config'
 import {
-  addWeeks, dateCellKey, getWeekDates, groupWeekByMonth, weekDayCellKey, weekLabel,
+  addMonths, addWeeks, dateCellKey, getWeekDates, groupWeekByMonth, weekDayCellKey, weekLabel,
   type CellData, type PlanningWeekData, type WeekDay,
 } from '@/lib/planning-week'
 import { isAdminUser } from '@/lib/auth-permissions'
 import type { PlanningPreset } from '@/lib/planning-presets'
 import PlanningConfigModal from './PlanningConfigModal'
 import NamePicker from './NamePicker'
+import MiniCalendarPicker from './MiniCalendarPicker'
 import WeekGrid, { type Person } from './WeekGrid'
+import MyMonthCalendar from './MyMonthCalendar'
 import MobileMyWeekAgenda from './MobileMyWeekAgenda'
 import MobileTeamDayStepper from './MobileTeamDayStepper'
 
@@ -21,14 +23,25 @@ function norm(s: string) {
 }
 
 type Tab = 'mijn' | 'team'
+type ViewMode = 'week' | 'month'
+
+const SELECT_COLS = 'year, month, day, department, employee, value, bold, text_color, bg_color, note'
 
 export default function PlanningApp() {
   const supabase = createClient()
 
   const [tab, setTab] = useState<Tab>('mijn')
+  // Month view is only offered on "Mijn week" — a people × 7-day grid
+  // reduced to a whole month for Team would just recreate the original
+  // too-dense-to-use problem this redesign exists to fix.
+  const [viewMode, setViewMode] = useState<ViewMode>('week')
   const [weekAnchor, setWeekAnchor] = useState(() => new Date())
   const week = useMemo(() => getWeekDates(weekAnchor), [weekAnchor])
   const isCurrentWeek = week.some(w => w.isToday)
+  const anchorYear = weekAnchor.getFullYear()
+  const anchorMonth = weekAnchor.getMonth() + 1
+  const isCurrentMonth = anchorYear === new Date().getFullYear() && anchorMonth === new Date().getMonth() + 1
+  const periodLabel = viewMode === 'month' ? `${DUTCH_MONTHS[anchorMonth - 1]} ${anchorYear}` : weekLabel(week)
 
   const [activeDepts, setActiveDepts] = useState<Department[]>(DEPARTMENTS)
   const [presets, setPresets] = useState<PlanningPreset[]>([])
@@ -141,17 +154,16 @@ export default function PlanningApp() {
     [everyEmployee, myIdentity]
   )
 
-  // ── Load the week's data ────────────────────────────────────────────────
+  // ── Load the visible period's data (a week, or a whole month) ───────────
   useEffect(() => {
     let cancelled = false
     async function load() {
       setLoading(true)
-      const groups = groupWeekByMonth(week)
-      const results = await Promise.all(groups.map(g =>
-        supabase.from('planning_entries')
-          .select('year, month, day, department, employee, value, bold, text_color, bg_color')
-          .eq('year', g.year).eq('month', g.month).in('day', g.days)
-      ))
+      const results = viewMode === 'month'
+        ? [await supabase.from('planning_entries').select(SELECT_COLS).eq('year', anchorYear).eq('month', anchorMonth)]
+        : await Promise.all(groupWeekByMonth(week).map(g =>
+            supabase.from('planning_entries').select(SELECT_COLS).eq('year', g.year).eq('month', g.month).in('day', g.days)
+          ))
       if (cancelled) return
       const map: PlanningWeekData = {}
       for (const res of results) {
@@ -159,6 +171,7 @@ export default function PlanningApp() {
           map[dateCellKey(r.year, r.month, r.day, r.department, r.employee)] = {
             value: r.value, bold: r.bold ?? true,
             textColor: r.text_color ?? '#ffffff', bgColor: r.bg_color ?? null,
+            note: r.note ?? null,
           }
         }
       }
@@ -168,7 +181,7 @@ export default function PlanningApp() {
     load()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [week])
+  }, [viewMode, week, anchorYear, anchorMonth])
 
   // ── Apply / clear ────────────────────────────────────────────────────────
   async function applyToTargets(targets: { wd: WeekDay; dept: string; emp: string }[], cell: CellData) {
@@ -179,7 +192,7 @@ export default function PlanningApp() {
     })
     const rows = targets.map(t => ({
       year: t.wd.year, month: t.wd.month, day: t.wd.day, department: t.dept, employee: t.emp,
-      value: cell.value, bold: cell.bold, text_color: cell.textColor, bg_color: cell.bgColor,
+      value: cell.value, bold: cell.bold, text_color: cell.textColor, bg_color: cell.bgColor, note: cell.note,
       updated_by: userEmail,
     }))
     await supabase.from('planning_entries').upsert(rows, { onConflict: 'year,month,day,department,employee' })
@@ -199,6 +212,9 @@ export default function PlanningApp() {
   }
 
   function goToToday() { setWeekAnchor(new Date()) }
+  function goPrev() { setWeekAnchor(a => viewMode === 'month' ? addMonths(a, -1) : addWeeks(a, -1)) }
+  function goNext() { setWeekAnchor(a => viewMode === 'month' ? addMonths(a, 1) : addWeeks(a, 1)) }
+  const isCurrentPeriod = viewMode === 'month' ? isCurrentMonth : isCurrentWeek
 
   const visibleTeam: Person[] = useMemo(() => {
     if (!teamSearch.trim()) return everyEmployee
@@ -208,18 +224,18 @@ export default function PlanningApp() {
 
   return (
     <div className="flex flex-col h-full gap-3">
-      {/* Week navigation — shared by both tabs */}
+      {/* Period navigation — shared by both tabs */}
       <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
-        <button onClick={() => setWeekAnchor(a => addWeeks(a, -1))} aria-label="Vorige week"
+        <button onClick={goPrev} aria-label={viewMode === 'month' ? 'Vorige maand' : 'Vorige week'}
           className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-sh-grey hover:border-zinc-700 transition-colors">
           <ChevronLeft size={15} />
         </button>
-        <span className="text-sm font-semibold text-sh-grey min-w-[180px] text-center">{weekLabel(week)}</span>
-        <button onClick={() => setWeekAnchor(a => addWeeks(a, 1))} aria-label="Volgende week"
+        <MiniCalendarPicker anchor={weekAnchor} onSelect={setWeekAnchor} label={periodLabel} />
+        <button onClick={goNext} aria-label={viewMode === 'month' ? 'Volgende maand' : 'Volgende week'}
           className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-sh-grey hover:border-zinc-700 transition-colors">
           <ChevronRight size={15} />
         </button>
-        {!isCurrentWeek && (
+        {!isCurrentPeriod && (
           <button onClick={goToToday}
             className="px-3 py-1.5 rounded-lg text-sm font-medium bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-sh-grey hover:border-zinc-700 transition-colors">
             Vandaag
@@ -227,13 +243,32 @@ export default function PlanningApp() {
         )}
         {loading && <Loader2 size={13} className="animate-spin text-zinc-600" />}
 
-        {isBeheer && (
-          <button onClick={() => setShowConfig(true)}
-            className="ml-auto w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700 transition-colors"
-            title="Planning configuratie">
-            <Settings size={15} />
-          </button>
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          {/* Month view only makes sense for one person at a time — see the
+              comment on viewMode's declaration. */}
+          {tab === 'mijn' && (
+            <div className="flex items-center gap-1 p-1 rounded-lg bg-zinc-900 border border-zinc-800">
+              {(['week', 'month'] as ViewMode[]).map(v => (
+                <button
+                  key={v}
+                  onClick={() => setViewMode(v)}
+                  className="px-2.5 py-1 rounded-md text-xs font-medium transition-colors"
+                  style={viewMode === v ? { backgroundColor: '#3A913F', color: '#fff' } : { color: '#a1a1aa' }}
+                >
+                  {v === 'week' ? 'Week' : 'Maand'}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {isBeheer && (
+            <button onClick={() => setShowConfig(true)}
+              className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700 transition-colors"
+              title="Planning configuratie">
+              <Settings size={15} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Tabs */}
@@ -241,13 +276,13 @@ export default function PlanningApp() {
         {(['mijn', 'team'] as Tab[]).map(t => (
           <button
             key={t}
-            onClick={() => setTab(t)}
+            onClick={() => { setTab(t); if (t === 'team') setViewMode('week') }}
             className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
               tab === t ? 'text-sh-grey' : 'text-zinc-500 hover:text-zinc-300 border-transparent'
             }`}
             style={tab === t ? { borderColor: '#3A913F' } : undefined}
           >
-            {t === 'mijn' ? 'Mijn week' : 'Team'}
+            {t === 'mijn' ? (viewMode === 'month' ? 'Mijn maand' : 'Mijn week') : 'Team'}
           </button>
         ))}
       </div>
@@ -255,34 +290,48 @@ export default function PlanningApp() {
       <div className="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden">
         {tab === 'mijn' && (
           myPerson ? (
-            <>
-              <div className="hidden lg:block h-full">
-                <WeekGrid
-                  week={week}
-                  people={[myPerson]}
-                  data={data}
-                  canEditCol={canEditCol}
-                  presets={presets}
-                  onApply={applyToTargets}
-                  onClear={clearTargets}
-                  groupHeaders={false}
-                  showNameColumn={false}
-                  variant="spacious"
-                />
-              </div>
-              <div className="lg:hidden">
-                <MobileMyWeekAgenda
-                  week={week}
-                  dept={myPerson.dept}
-                  emp={myPerson.emp}
-                  data={data}
-                  readOnly={!canEditCol(myPerson.emp)}
-                  presets={presets}
-                  onApply={applyToTargets}
-                  onClear={clearTargets}
-                />
-              </div>
-            </>
+            viewMode === 'month' ? (
+              <MyMonthCalendar
+                year={anchorYear}
+                month={anchorMonth}
+                dept={myPerson.dept}
+                emp={myPerson.emp}
+                data={data}
+                readOnly={!canEditCol(myPerson.emp)}
+                presets={presets}
+                onApply={applyToTargets}
+                onClear={clearTargets}
+              />
+            ) : (
+              <>
+                <div className="hidden lg:block h-full">
+                  <WeekGrid
+                    week={week}
+                    people={[myPerson]}
+                    data={data}
+                    canEditCol={canEditCol}
+                    presets={presets}
+                    onApply={applyToTargets}
+                    onClear={clearTargets}
+                    groupHeaders={false}
+                    showNameColumn={false}
+                    variant="spacious"
+                  />
+                </div>
+                <div className="lg:hidden">
+                  <MobileMyWeekAgenda
+                    week={week}
+                    dept={myPerson.dept}
+                    emp={myPerson.emp}
+                    data={data}
+                    readOnly={!canEditCol(myPerson.emp)}
+                    presets={presets}
+                    onApply={applyToTargets}
+                    onClear={clearTargets}
+                  />
+                </div>
+              </>
+            )
           ) : (
             <div className="py-12 text-center text-sm text-zinc-500">
               {identityLoaded ? 'Nog geen naam gekozen.' : 'Laden…'}

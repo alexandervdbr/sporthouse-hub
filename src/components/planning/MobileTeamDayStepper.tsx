@@ -101,12 +101,15 @@ export default function MobileTeamDayStepper({
                   >
                     <span className="flex-1 text-sm font-medium text-zinc-200 truncate">{person.emp}</span>
                     {cell.value ? (
-                      <span
-                        className="truncate rounded-md px-2 py-1 text-[11px] font-semibold max-w-[45%]"
-                        style={{ backgroundColor: cell.bgColor ?? 'rgba(255,255,255,0.08)', color: cell.bgColor ? '#fff' : '#a1a1aa' }}
-                      >
-                        {cell.value}
-                      </span>
+                      <div className="max-w-[45%] space-y-0.5">
+                        <span
+                          className="block truncate rounded-md px-2 py-1 text-[11px] font-semibold"
+                          style={{ backgroundColor: cell.bgColor ?? 'rgba(255,255,255,0.08)', color: cell.bgColor ? '#fff' : '#a1a1aa' }}
+                        >
+                          {cell.value}
+                        </span>
+                        {cell.note && <span className="block truncate text-[9px] text-zinc-500 text-right px-0.5">{cell.note}</span>}
+                      </div>
                     ) : (
                       <span className="text-xs text-zinc-600">—</span>
                     )}
