@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { MoreVertical, Copy, ClipboardPaste, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { MoreVertical, Copy, ClipboardPaste, Trash2, Star, ChevronDown, ChevronRight } from 'lucide-react'
 import { DUTCH_MONTHS } from '@/lib/planning-config'
 import { emptyCell, weekDayCellKey, type CellData, type PlanningWeekData, type WeekDay } from '@/lib/planning-week'
 import type { PlanningPreset } from '@/lib/planning-presets'
@@ -24,8 +24,14 @@ interface Selection {
   endCol: number
 }
 
+interface SectionPrefs {
+  favorites: string[]
+  collapsed: string[]
+}
+
 const SEL_BG = 'rgba(59,130,246,0.15)'
 const SEL_BDR = '1px solid rgba(59,130,246,0.5)'
+const EMPTY_PREFS: SectionPrefs = { favorites: [], collapsed: [] }
 
 // Shared by both tabs — Team passes the full roster (grouped, dense); Mijn
 // week passes a single person and no group headers (bigger, calmer cells).
@@ -35,6 +41,7 @@ const SEL_BDR = '1px solid rgba(59,130,246,0.5)'
 export default function WeekGrid({
   week, people, data, canEditCol, presets, onApply, onClear,
   groupHeaders = false, showNameColumn = true, variant = 'compact', personSubtitle,
+  prefsKey, forceExpandSections = false,
 }: {
   week: WeekDay[]
   people: Person[]
@@ -47,6 +54,11 @@ export default function WeekGrid({
   showNameColumn?: boolean
   variant?: 'compact' | 'spacious'
   personSubtitle?: (p: Person) => string
+  // Favorite/collapsed department sections — Team-only, remembered per
+  // identity (there's no separate login-account preference store, so this
+  // reuses the same localStorage-per-identity pattern as "who am I".
+  prefsKey?: string
+  forceExpandSections?: boolean
 }) {
   const dragRef = useRef<{ rowIdx: number; startCol: number } | null>(null)
   const [selection, setSelection] = useState<Selection | null>(null)
@@ -55,6 +67,7 @@ export default function WeekGrid({
   const clipboardRef = useRef<CellData | null>(null)
   const [hasClipboard, setHasClipboard] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const [prefs, setPrefs] = useState<SectionPrefs>(EMPTY_PREFS)
 
   useEffect(() => {
     if (!menuKey) return
@@ -65,12 +78,85 @@ export default function WeekGrid({
     return () => document.removeEventListener('mousedown', onOutside)
   }, [menuKey])
 
+  useEffect(() => {
+    if (!prefsKey) { setPrefs(EMPTY_PREFS); return }
+    try {
+      const stored = localStorage.getItem(`planning-sections:${prefsKey}`)
+      setPrefs(stored ? JSON.parse(stored) : EMPTY_PREFS)
+    } catch { setPrefs(EMPTY_PREFS) }
+  }, [prefsKey])
+
+  function toggleFavorite(dept: string) {
+    if (!prefsKey) return
+    setPrefs(prev => {
+      const next = {
+        ...prev,
+        favorites: prev.favorites.includes(dept) ? prev.favorites.filter(d => d !== dept) : [...prev.favorites, dept],
+      }
+      try { localStorage.setItem(`planning-sections:${prefsKey}`, JSON.stringify(next)) } catch { /* private browsing */ }
+      return next
+    })
+  }
+
+  function toggleCollapsed(dept: string) {
+    if (!prefsKey) return
+    setPrefs(prev => {
+      const next = {
+        ...prev,
+        collapsed: prev.collapsed.includes(dept) ? prev.collapsed.filter(d => d !== dept) : [...prev.collapsed, dept],
+      }
+      try { localStorage.setItem(`planning-sections:${prefsKey}`, JSON.stringify(next)) } catch { /* private browsing */ }
+      return next
+    })
+  }
+
+  // Grouping, favorite-first ordering, and collapse all happen here in one
+  // pass so the row index assigned to each person (used by drag-select and
+  // the pointer-move hit-test) always matches renderedPeople — reordering
+  // departments must never desync those from the `people` prop's own order.
+  type RenderRow =
+    | { kind: 'dept-header'; dept: string; count: number }
+    | { kind: 'person'; rowIdx: number; person: Person }
+
+  const { renderRows, renderedPeople } = useMemo(() => {
+    const groups = groupHeaders
+      ? Object.entries(
+          people.reduce<Record<string, Person[]>>((acc, p) => {
+            (acc[p.dept] ??= []).push(p)
+            return acc
+          }, {})
+        )
+      : [['', people] as [string, Person[]]]
+
+    const ordered = groupHeaders && prefsKey
+      ? [...groups].sort((a, b) => {
+          const af = prefs.favorites.includes(a[0]) ? 0 : 1
+          const bf = prefs.favorites.includes(b[0]) ? 0 : 1
+          return af - bf
+        })
+      : groups
+
+    const rr: RenderRow[] = []
+    const rp: Person[] = []
+    for (const [deptName, deptPeople] of ordered) {
+      const isCollapsed = groupHeaders && prefsKey && !forceExpandSections && prefs.collapsed.includes(deptName)
+      if (groupHeaders && deptName) rr.push({ kind: 'dept-header', dept: deptName, count: deptPeople.length })
+      if (isCollapsed) continue
+      for (const person of deptPeople) {
+        const rowIdx = rp.length
+        rp.push(person)
+        rr.push({ kind: 'person', rowIdx, person })
+      }
+    }
+    return { renderRows: rr, renderedPeople: rp }
+  }, [people, groupHeaders, prefsKey, prefs.favorites, prefs.collapsed, forceExpandSections])
+
   function dayTitle(wd: WeekDay) {
     return `${wd.dayName} ${wd.day} ${DUTCH_MONTHS[wd.month - 1]}`
   }
 
   function openEditorFor(rowIdx: number, colStart: number, colEnd: number) {
-    const person = people[rowIdx]
+    const person = renderedPeople[rowIdx]
     if (!person || !canEditCol(person.emp)) return
     const targets: Target[] = week.slice(colStart, colEnd + 1).map(wd => ({ wd, dept: person.dept, emp: person.emp }))
     const single = targets.length === 1
@@ -83,9 +169,13 @@ export default function WeekGrid({
     setEditing({ targets, cell: initial, title, subtitle: personSubtitle?.(person) })
   }
 
-  function handlePointerDown(e: React.PointerEvent, rowIdx: number, colIdx: number) {
-    const person = people[rowIdx]
-    if (!person || !canEditCol(person.emp)) return
+  function handlePointerDown(e: React.PointerEvent, person: Person, rowIdx: number, colIdx: number) {
+    if (!canEditCol(person.emp)) return
+    // Without this, starting the drag on the status pill's text kicks off the
+    // browser's native text-selection/drag-start behavior, which cancels the
+    // pointer sequence mid-drag (pointermove stops firing) — the range would
+    // silently freeze at the first cell.
+    e.preventDefault()
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
     dragRef.current = { rowIdx, startCol: colIdx }
     setSelection({ rowIdx, startCol: colIdx, endCol: colIdx })
@@ -116,23 +206,20 @@ export default function WeekGrid({
     setSelection(null)
   }
 
-  function handleCopy(rowIdx: number, colIdx: number) {
-    const person = people[rowIdx]
+  function handleCopy(person: Person, colIdx: number) {
     const key = weekDayCellKey(week[colIdx], person.dept, person.emp)
     clipboardRef.current = data[key] ?? emptyCell()
     setHasClipboard(true)
     setMenuKey(null)
   }
 
-  function handlePaste(rowIdx: number, colIdx: number) {
-    const person = people[rowIdx]
+  function handlePaste(person: Person, colIdx: number) {
     if (!canEditCol(person.emp) || !clipboardRef.current) { setMenuKey(null); return }
     onApply([{ wd: week[colIdx], dept: person.dept, emp: person.emp }], clipboardRef.current)
     setMenuKey(null)
   }
 
-  function handleClearCell(rowIdx: number, colIdx: number) {
-    const person = people[rowIdx]
+  function handleClearCell(person: Person, colIdx: number) {
     if (!canEditCol(person.emp)) { setMenuKey(null); return }
     onClear([{ wd: week[colIdx], dept: person.dept, emp: person.emp }])
     setMenuKey(null)
@@ -144,8 +231,6 @@ export default function WeekGrid({
   const gridTemplateColumns = showNameColumn
     ? `${nameColWidth}px repeat(7, minmax(0, 1fr))`
     : 'repeat(7, minmax(0, 1fr))'
-
-  let globalRowIdx = -1
 
   return (
     <div className="h-full overflow-y-auto rounded-xl border border-zinc-800">
@@ -166,41 +251,49 @@ export default function WeekGrid({
           </div>
         ))}
 
-        {(() => {
-          const rows: React.ReactNode[] = []
-          const groups = groupHeaders
-            ? Object.entries(
-                people.reduce<Record<string, Person[]>>((acc, p) => {
-                  (acc[p.dept] ??= []).push(p)
-                  return acc
-                }, {})
-              )
-            : [['', people] as [string, Person[]]]
+        {renderRows.map(row => {
+          if (row.kind === 'dept-header') {
+            const { dept, count } = row
+            const isFav = prefs.favorites.includes(dept)
+            const isCollapsed = !forceExpandSections && prefs.collapsed.includes(dept)
+            return (
+              <div key={`dept-${dept}`} style={{ gridColumn: '1 / -1' }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900/60 text-[10px] font-semibold text-zinc-500 uppercase tracking-widest">
+                <button
+                  onClick={() => toggleCollapsed(dept)}
+                  disabled={forceExpandSections}
+                  className="flex items-center gap-1.5 hover:text-zinc-300 transition-colors disabled:cursor-default"
+                >
+                  {isCollapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
+                  {dept}
+                  <span className="normal-case font-normal text-zinc-600">({count})</span>
+                </button>
+                {prefsKey && (
+                  <button
+                    onClick={() => toggleFavorite(dept)}
+                    aria-label={isFav ? 'Verwijder als favoriet' : 'Markeer als favoriet'}
+                    className={`ml-auto transition-colors ${isFav ? 'text-amber-400' : 'text-zinc-600 hover:text-zinc-400'}`}
+                  >
+                    <Star size={11} fill={isFav ? 'currentColor' : 'none'} />
+                  </button>
+                )}
+              </div>
+            )
+          }
 
-          for (const [deptName, deptPeople] of groups) {
-            if (groupHeaders && deptName) {
-              rows.push(
-                <div key={`dept-${deptName}`} style={{ gridColumn: '1 / -1' }}
-                  className="px-3 py-1.5 bg-zinc-900/60 text-[10px] font-semibold text-zinc-500 uppercase tracking-widest">
-                  {deptName}
+          const { person, rowIdx } = row
+          const locked = !canEditCol(person.emp)
+
+          return (
+            <div key={`row-${rowIdx}`} style={{ display: 'contents' }}>
+              {showNameColumn && (
+                <div
+                  className={`border-b border-r border-zinc-800 px-3 flex items-center text-sm font-medium truncate ${locked ? 'text-zinc-600' : 'text-zinc-300'}`}>
+                  {person.emp}
                 </div>
-              )
-            }
-            for (const person of deptPeople) {
-              globalRowIdx += 1
-              const rowIdx = globalRowIdx
-              const locked = !canEditCol(person.emp)
+              )}
 
-              if (showNameColumn) {
-                rows.push(
-                  <div key={`name-${rowIdx}`}
-                    className={`border-b border-r border-zinc-800 px-3 flex items-center text-sm font-medium truncate ${locked ? 'text-zinc-600' : 'text-zinc-300'}`}>
-                    {person.emp}
-                  </div>
-                )
-              }
-
-              week.forEach((wd, colIdx) => {
+              {week.map((wd, colIdx) => {
                 const key = weekDayCellKey(wd, person.dept, person.emp)
                 const cell = data[key] ?? emptyCell()
                 const isSelected = selection && selection.rowIdx === rowIdx &&
@@ -208,20 +301,23 @@ export default function WeekGrid({
                   colIdx <= Math.max(selection.startCol, selection.endCol)
                 const menuOpen = menuKey === key
 
-                rows.push(
+                return (
                   <div
                     key={key}
                     data-row={rowIdx}
                     data-col={colIdx}
-                    onPointerDown={e => handlePointerDown(e, rowIdx, colIdx)}
+                    onPointerDown={e => handlePointerDown(e, person, rowIdx, colIdx)}
                     onPointerMove={handlePointerMove}
                     onPointerUp={handlePointerUp}
+                    onDragStart={e => e.preventDefault()}
                     style={{
                       backgroundColor: isSelected ? SEL_BG : wd.isToday ? 'rgba(58,145,63,0.06)' : undefined,
                       outline: isSelected ? SEL_BDR : undefined,
                       outlineOffset: '-1px',
                       opacity: locked ? 0.45 : 1,
                       touchAction: 'none',
+                      userSelect: 'none',
+                      WebkitUserSelect: 'none',
                     }}
                     className={`relative border-b border-zinc-800/60 border-r ${cellPad} ${cellMinH} flex flex-col items-center justify-center gap-0.5 ${locked ? '' : 'cursor-pointer'}`}
                   >
@@ -255,16 +351,16 @@ export default function WeekGrid({
                     {menuOpen && (
                       <div ref={menuRef} onPointerDown={e => e.stopPropagation()}
                         className="absolute right-0 top-full mt-1 z-30 w-36 rounded-lg overflow-hidden shadow-2xl bg-zinc-800 border border-zinc-700">
-                        <button onClick={() => handleCopy(rowIdx, colIdx)}
+                        <button onClick={() => handleCopy(person, colIdx)}
                           className="w-full flex items-center gap-2 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors">
                           <Copy size={12} /> Kopiëren
                         </button>
-                        <button onClick={() => handlePaste(rowIdx, colIdx)} disabled={!hasClipboard}
+                        <button onClick={() => handlePaste(person, colIdx)} disabled={!hasClipboard}
                           className="w-full flex items-center gap-2 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors disabled:opacity-40 disabled:hover:bg-transparent">
                           <ClipboardPaste size={12} /> Plakken
                         </button>
                         {cell.value && (
-                          <button onClick={() => handleClearCell(rowIdx, colIdx)}
+                          <button onClick={() => handleClearCell(person, colIdx)}
                             className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-400 hover:bg-zinc-700 transition-colors">
                             <Trash2 size={12} /> Wissen
                           </button>
@@ -273,11 +369,10 @@ export default function WeekGrid({
                     )}
                   </div>
                 )
-              })
-            }
-          }
-          return rows
-        })()}
+              })}
+            </div>
+          )
+        })}
       </div>
 
       {editing && (

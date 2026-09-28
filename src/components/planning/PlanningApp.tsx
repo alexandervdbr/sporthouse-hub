@@ -376,6 +376,8 @@ export default function PlanningApp() {
                   showNameColumn
                   variant="compact"
                   personSubtitle={p => p.dept}
+                  prefsKey={myIdentity ?? undefined}
+                  forceExpandSections={!!teamSearch.trim()}
                 />
               </div>
             </div>
