@@ -36,6 +36,21 @@ export default function PlanningApp() {
   // reduced to a whole month for Team would just recreate the original
   // too-dense-to-use problem this redesign exists to fix.
   const [viewMode, setViewMode] = useState<ViewMode>('week')
+
+  // Remembered across refreshes/visits — read after mount (same pattern as
+  // the identity lookup below) so this stays in sync even if it changes in
+  // another tab.
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('planning-view-mode')
+      if (stored === 'week' || stored === 'month') setViewMode(stored)
+    } catch { /* private browsing */ }
+  }, [])
+
+  useEffect(() => {
+    try { localStorage.setItem('planning-view-mode', viewMode) } catch { /* private browsing */ }
+  }, [viewMode])
+
   const [weekAnchor, setWeekAnchor] = useState(() => new Date())
   const week = useMemo(() => getWeekDates(weekAnchor), [weekAnchor])
   const isCurrentWeek = week.some(w => w.isToday)

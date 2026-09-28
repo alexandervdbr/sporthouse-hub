@@ -41,7 +41,7 @@ const EMPTY_PREFS: SectionPrefs = { favorites: [], collapsed: [] }
 export default function WeekGrid({
   week, people, data, canEditCol, presets, onApply, onClear,
   groupHeaders = false, showNameColumn = true, variant = 'compact', personSubtitle,
-  prefsKey, forceExpandSections = false,
+  prefsKey, forceExpandSections = false, embedded = false, dimDay,
 }: {
   week: WeekDay[]
   people: Person[]
@@ -59,6 +59,13 @@ export default function WeekGrid({
   // reuses the same localStorage-per-identity pattern as "who am I".
   prefsKey?: string
   forceExpandSections?: boolean
+  // "Mijn maand" stacks several of these (one per calendar week) inside its
+  // own shared scroll container — embedded skips this grid's own outer
+  // rounded/bordered/scrolling wrapper so it doesn't fight that layout.
+  embedded?: boolean
+  // Same view: days outside the month being looked at (the overflow days a
+  // full calendar week can spill in) still render normally, just dimmed.
+  dimDay?: (wd: WeekDay) => boolean
 }) {
   const dragRef = useRef<{ rowIdx: number; startCol: number } | null>(null)
   const [selection, setSelection] = useState<Selection | null>(null)
@@ -233,7 +240,7 @@ export default function WeekGrid({
     : 'repeat(7, minmax(0, 1fr))'
 
   return (
-    <div className="h-full overflow-y-auto rounded-xl border border-zinc-800">
+    <div className={embedded ? '' : 'h-full overflow-y-auto rounded-xl border border-zinc-800'}>
       <div style={{ display: 'grid', gridTemplateColumns }}>
         {/* Header row — the only sticky thing in this whole redesign, and
             it's a single axis (top), because a week never needs to scroll
@@ -244,7 +251,11 @@ export default function WeekGrid({
         )}
         {week.map(wd => (
           <div key={`h-${wd.year}-${wd.month}-${wd.day}`}
-            style={{ position: 'sticky', top: 0, zIndex: 20, backgroundColor: wd.isToday ? '#111d11' : '#161616' }}
+            style={{
+              position: 'sticky', top: 0, zIndex: 20,
+              backgroundColor: wd.isToday ? '#111d11' : '#161616',
+              opacity: dimDay?.(wd) ? 0.4 : 1,
+            }}
             className="border-b border-zinc-800 px-2 py-2 text-center">
             <p className="text-[10px] uppercase tracking-wide text-zinc-500">{wd.dayName.slice(0, 2)}</p>
             <p className={`text-sm font-semibold ${wd.isToday ? 'text-emerald-400' : 'text-zinc-300'}`}>{wd.day}</p>
@@ -314,7 +325,7 @@ export default function WeekGrid({
                       backgroundColor: isSelected ? SEL_BG : wd.isToday ? 'rgba(58,145,63,0.06)' : undefined,
                       outline: isSelected ? SEL_BDR : undefined,
                       outlineOffset: '-1px',
-                      opacity: locked ? 0.45 : 1,
+                      opacity: dimDay?.(wd) ? 0.4 : locked ? 0.45 : 1,
                       touchAction: 'none',
                       userSelect: 'none',
                       WebkitUserSelect: 'none',
