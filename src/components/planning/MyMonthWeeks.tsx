@@ -8,21 +8,22 @@ import type { PlanningPreset } from '@/lib/planning-presets'
 import DayEditor from './DayEditor'
 
 interface Target { wd: WeekDay; dept: string; emp: string }
-interface Selection { start: number; end: number }
 
 const SEL_BG = 'rgba(59,130,246,0.15)'
 const SEL_BDR = '1px solid rgba(59,130,246,0.5)'
 
 // Desktop-only "Mijn maand": the whole month as full calendar weeks stacked
-// on top of each other. Drag-select spans the whole flattened month (a
-// single `data-idx` sequence across every week-row), so dragging from a day
-// in one week straight into the next keeps growing one range instead of
-// being clipped to whichever week-row the drag started in — this is its own
-// drag/copy-paste implementation rather than reusing WeekGrid, since
-// WeekGrid's row/col model is bounded to one instance's own 7 days and
-// can't reach across sibling week-rows. Auto-scrolls to the current week on
-// first load. Mobile keeps the old compact day-grid (MyMonthCalendar) — a
-// 7-wide spacious row doesn't fit a phone.
+// on top of each other. Drag-select is the exact set of cells the pointer
+// actually passed over (a freehand path), not the contiguous range between
+// where you started and ended — dragging straight down one weekday column
+// (e.g. "every Monday") selects only that column, since a vertical drag
+// only ever visits that column's cells, rather than filling in every day of
+// every week in between. This is its own drag/copy-paste implementation
+// rather than reusing WeekGrid, since WeekGrid's row/col model is bounded to
+// one instance's own 7 days and can't reach across sibling week-rows.
+// Auto-scrolls to the current week on first load. Mobile keeps the old
+// compact day-grid (MyMonthCalendar) — a 7-wide spacious row doesn't fit a
+// phone.
 export default function MyMonthWeeks({
   year, month, dept, emp, data, readOnly, presets, onApply, onClear,
 }: {
@@ -40,8 +41,8 @@ export default function MyMonthWeeks({
   const allDays = weeks.flat()
   const todayRowRef = useRef<HTMLDivElement>(null)
 
-  const dragStartRef = useRef<number | null>(null)
-  const [selection, setSelection] = useState<Selection | null>(null)
+  const dragPathRef = useRef<Set<number> | null>(null)
+  const [selection, setSelection] = useState<Set<number> | null>(null)
   const [menuKey, setMenuKey] = useState<string | null>(null)
   const [editing, setEditing] = useState<{ targets: Target[]; cell: CellData; title: string } | null>(null)
   const clipboardRef = useRef<CellData | null>(null)
@@ -65,16 +66,15 @@ export default function MyMonthWeeks({
     return `${wd.dayName} ${wd.day} ${DUTCH_MONTHS[wd.month - 1]}`
   }
 
-  function openEditorFor(lo: number, hi: number) {
-    if (readOnly) return
-    const targets: Target[] = allDays.slice(lo, hi + 1).map(wd => ({ wd, dept, emp }))
+  function openEditorFor(idxs: number[]) {
+    if (readOnly || idxs.length === 0) return
+    const sorted = [...idxs].sort((a, b) => a - b)
+    const targets: Target[] = sorted.map(i => ({ wd: allDays[i], dept, emp }))
     const single = targets.length === 1
     const initial = single
       ? (data[weekDayCellKey(targets[0].wd, dept, emp)] ?? emptyCell())
       : emptyCell()
-    const title = single
-      ? dayTitle(targets[0].wd)
-      : `${targets.length} dagen — ${dayTitle(targets[0].wd)} t/m ${dayTitle(targets[targets.length - 1].wd)}`
+    const title = single ? dayTitle(targets[0].wd) : `${targets.length} dagen geselecteerd`
     setEditing({ targets, cell: initial, title })
   }
 
@@ -85,29 +85,27 @@ export default function MyMonthWeeks({
     // cancels the pointer sequence mid-drag.
     e.preventDefault()
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-    dragStartRef.current = idx
-    setSelection({ start: idx, end: idx })
+    dragPathRef.current = new Set([idx])
+    setSelection(new Set([idx]))
   }
 
   function handlePointerMove(e: React.PointerEvent) {
-    if (dragStartRef.current === null) return
+    if (!dragPathRef.current) return
     const el = document.elementFromPoint(e.clientX, e.clientY)
     const cellEl = el?.closest('[data-idx]') as HTMLElement | null
     if (!cellEl) return
     const idx = Number(cellEl.dataset.idx)
-    setSelection({ start: dragStartRef.current, end: idx })
+    if (dragPathRef.current.has(idx)) return
+    dragPathRef.current.add(idx)
+    setSelection(new Set(dragPathRef.current))
   }
 
   function handlePointerUp(e: React.PointerEvent) {
-    if (dragStartRef.current === null) { setSelection(null); return }
-    const sel = selection
-    dragStartRef.current = null
+    if (!dragPathRef.current) { setSelection(null); return }
+    const idxs = [...dragPathRef.current]
+    dragPathRef.current = null
     try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId) } catch { /* already released */ }
-    if (sel) {
-      const lo = Math.min(sel.start, sel.end)
-      const hi = Math.max(sel.start, sel.end)
-      openEditorFor(lo, hi)
-    }
+    openEditorFor(idxs)
     setSelection(null)
   }
 
@@ -156,9 +154,7 @@ export default function MyMonthWeeks({
                 const isOverflow = wd.month !== month
                 const key = weekDayCellKey(wd, dept, emp)
                 const cell = data[key] ?? emptyCell()
-                const isSelected = selection &&
-                  idx >= Math.min(selection.start, selection.end) &&
-                  idx <= Math.max(selection.start, selection.end)
+                const isSelected = selection?.has(idx) ?? false
                 const menuOpen = menuKey === key
 
                 return (
