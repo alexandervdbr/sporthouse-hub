@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import {
   X,
   Check,
@@ -10,17 +10,32 @@ import {
   Loader2,
   ChevronDown,
   ChevronRight,
+  Archive,
+  ArchiveRestore,
+  TriangleAlert,
 } from 'lucide-react'
 import type { Department } from '@/lib/planning-config'
 import type { PlanningPreset } from '@/lib/planning-presets'
 
+interface ArchivedEmployee { dept: string; emp: string }
+interface Staleness { dept: string; emp: string; lastEntryDate: string }
+
 interface Props {
   departments: Department[]
   onSave: (d: Department[]) => Promise<void>
+  archived: ArchivedEmployee[]
+  onSaveArchived: (a: ArchivedEmployee[]) => Promise<void>
   onClose: () => void
   // Presets zijn beheer-only (de API weigert schrijven sowieso, maar dan moet
   // de tab er ook niet staan om een 403 uit te lokken).
   isBeheer: boolean
+}
+
+const STALE_AFTER_DAYS = 60
+
+function daysAgo(dateStr: string) {
+  const then = new Date(dateStr + 'T00:00:00Z').getTime()
+  return Math.floor((Date.now() - then) / 86_400_000)
 }
 
 const PRESET_COLORS = ['#16a34a', '#ea580c', '#2563eb', '#9333ea', '#dc2626', '#ca8a04', '#db2777', '#52525b']
@@ -178,13 +193,38 @@ function PresetsPanel() {
   )
 }
 
-export default function PlanningConfigModal({ departments, onSave, onClose, isBeheer }: Props) {
+export default function PlanningConfigModal({ departments, onSave, archived, onSaveArchived, onClose, isBeheer }: Props) {
   const [tab, setTab] = useState<'afdelingen' | 'presets'>('afdelingen')
   const [depts, setDepts] = useState<Department[]>(() =>
     departments.map(d => ({ name: d.name, employees: [...d.employees] }))
   )
   const [saving, setSaving] = useState(false)
   const [collapsed, setCollapsed] = useState<Record<number, boolean>>({})
+
+  // Archiveren is een losstaande, meteen-opslaande actie (zoals presets) —
+  // geen aparte kladversie zoals bij afdelingen, want er is niets te
+  // verwerpen: één klik = actief/inactief wisselen.
+  const [busyArchive, setBusyArchive] = useState<string | null>(null)
+  const isArchivedPair = (dept: string, emp: string) => archived.some(a => a.dept === dept && a.emp === emp)
+
+  async function toggleArchived(dept: string, emp: string) {
+    setBusyArchive(`${dept}|${emp}`)
+    const next = isArchivedPair(dept, emp)
+      ? archived.filter(a => !(a.dept === dept && a.emp === emp))
+      : [...archived, { dept, emp }]
+    await onSaveArchived(next)
+    setBusyArchive(null)
+  }
+
+  const [staleness, setStaleness] = useState<Staleness[]>([])
+  useEffect(() => {
+    fetch('/api/planning/staleness').then(r => r.ok ? r.json() : []).then(setStaleness).catch(() => {})
+  }, [])
+  const stalenessMap = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const s of staleness) m.set(`${s.dept}|${s.emp}`, s.lastEntryDate)
+    return m
+  }, [staleness])
 
   // Inline rename state
   const [renamingDept, setRenamingDept] = useState<number | null>(null)
@@ -513,6 +553,10 @@ export default function PlanningConfigModal({ departments, onSave, onClose, isBe
                       const isRenamingThisEmp = renamingEmp?.dept === di && renamingEmp.emp === ei
                       const isEmpDragTarget = dragOverEmp?.dept === di && dragOverEmp.emp === ei
                       const isEmpDragging = dragEmpRef.current?.dept === di && dragEmpRef.current.emp === ei
+                      const isArchivedEmp = isArchivedPair(dept.name, emp)
+                      const isBusy = busyArchive === `${dept.name}|${emp}`
+                      const lastEntry = stalenessMap.get(`${dept.name}|${emp}`)
+                      const stale = !isArchivedEmp && lastEntry && daysAgo(lastEntry) >= STALE_AFTER_DAYS
 
                       return (
                         <div
@@ -526,7 +570,7 @@ export default function PlanningConfigModal({ departments, onSave, onClose, isBe
                           style={{
                             backgroundColor: isEmpDragTarget ? 'rgba(37,99,235,0.10)' : 'transparent',
                             border: isEmpDragTarget ? '1px solid #2563eb' : '1px solid transparent',
-                            opacity: isEmpDragging ? 0.5 : 1,
+                            opacity: isEmpDragging ? 0.5 : isArchivedEmp ? 0.5 : 1,
                           }}
                         >
                           {/* Emp drag handle */}
@@ -556,11 +600,37 @@ export default function PlanningConfigModal({ departments, onSave, onClose, isBe
                             </div>
                           ) : (
                             <button
-                              className="flex-1 text-left text-xs text-zinc-400 hover:text-zinc-200 truncate transition-colors"
+                              className="flex-1 min-w-0 flex items-center gap-1.5 text-left text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
                               onClick={() => startRenameEmp(di, ei)}
                               title="Klik om naam aan te passen"
                             >
-                              {emp}
+                              <span className="truncate">{emp}</span>
+                              {isArchivedEmp && (
+                                <span className="flex-shrink-0 text-[9px] uppercase tracking-wide text-zinc-600">inactief</span>
+                              )}
+                              {stale && (
+                                <span
+                                  className="flex-shrink-0 flex items-center gap-1 text-[9px] text-amber-500"
+                                  title={`Laatste planning: ${lastEntry}`}
+                                >
+                                  <TriangleAlert size={10} />
+                                  {daysAgo(lastEntry!)}d geleden
+                                </span>
+                              )}
+                            </button>
+                          )}
+
+                          {/* Archive toggle (hover, or always if archived) */}
+                          {!isRenamingThisEmp && (
+                            <button
+                              onClick={() => toggleArchived(dept.name, emp)}
+                              disabled={isBusy}
+                              title={isArchivedEmp ? 'Terug actief maken' : 'Archiveren (blijft zichtbaar in oude planningen)'}
+                              className={`flex-shrink-0 transition-all text-zinc-600 hover:text-amber-400 ${
+                                isArchivedEmp ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                              }`}
+                            >
+                              {isBusy ? <Loader2 size={13} className="animate-spin" /> : isArchivedEmp ? <ArchiveRestore size={13} /> : <Archive size={13} />}
                             </button>
                           )}
 
@@ -568,6 +638,7 @@ export default function PlanningConfigModal({ departments, onSave, onClose, isBe
                           {!isRenamingThisEmp && (
                             <button
                               onClick={() => deleteEmployee(di, ei)}
+                              title="Definitief verwijderen"
                               className="flex-shrink-0 opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 transition-all"
                             >
                               <Trash2 size={13} />

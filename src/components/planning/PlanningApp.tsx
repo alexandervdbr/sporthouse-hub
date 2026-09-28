@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ChevronLeft, ChevronRight, Loader2, Settings, Search, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Loader2, Settings, Search, X, Users } from 'lucide-react'
 import { DEPARTMENTS, DUTCH_MONTHS, type Department } from '@/lib/planning-config'
 import {
-  addMonths, addWeeks, dateCellKey, getWeekDates, groupWeekByMonth, weekDayCellKey, weekLabel,
+  addMonths, addWeeks, dateCellKey, getMonthWeeks, getWeekDates, groupWeekByMonth, weekDayCellKey, weekLabel,
   type CellData, type PlanningWeekData, type WeekDay,
 } from '@/lib/planning-week'
 import { isAdminUser } from '@/lib/auth-permissions'
@@ -15,6 +15,7 @@ import NamePicker from './NamePicker'
 import MiniCalendarPicker from './MiniCalendarPicker'
 import WeekGrid, { type Person } from './WeekGrid'
 import MyMonthCalendar from './MyMonthCalendar'
+import MyMonthWeeks from './MyMonthWeeks'
 import MobileMyWeekAgenda from './MobileMyWeekAgenda'
 import MobileTeamDayStepper from './MobileTeamDayStepper'
 
@@ -46,6 +47,13 @@ export default function PlanningApp() {
   const [activeDepts, setActiveDepts] = useState<Department[]>(DEPARTMENTS)
   const [presets, setPresets] = useState<PlanningPreset[]>([])
   const [showConfig, setShowConfig] = useState(false)
+
+  // Mensen die niet meer meedraaien (bv. oud-stagiairs) worden gearchiveerd,
+  // niet verwijderd — anders verdwijnen ze ook uit weken/maanden waarin ze
+  // wél echt gewerkt hebben. Standaard verborgen uit Team, terug op te
+  // vragen via de toggle naast de zoekbalk.
+  const [archived, setArchived] = useState<{ dept: string; emp: string }[]>([])
+  const [showArchived, setShowArchived] = useState(false)
 
   const [data, setData] = useState<PlanningWeekData>({})
   const [loading, setLoading] = useState(true)
@@ -84,6 +92,28 @@ export default function PlanningApp() {
     fetch('/api/planning/presets').then(r => r.json()).then(setPresets).catch(() => {})
   }, [])
 
+  // ── Load archived employees ──────────────────────────────────────────────
+  useEffect(() => {
+    fetch('/api/planning/archived')
+      .then(r => r.json())
+      .then((a: { dept: string; emp: string }[] | null) => { if (Array.isArray(a)) setArchived(a) })
+      .catch(() => {})
+  }, [])
+
+  async function handleSaveArchived(next: { dept: string; emp: string }[]) {
+    setArchived(next)
+    await fetch('/api/planning/archived', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(next),
+    })
+  }
+
+  const isArchived = useCallback(
+    (p: { dept: string; emp: string }) => archived.some(a => a.dept === p.dept && a.emp === p.emp),
+    [archived]
+  )
+
   // ── Load permissions ─────────────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -116,6 +146,22 @@ export default function PlanningApp() {
     [activeDepts]
   )
 
+  // Archived people are excluded from anything that offers a fresh choice
+  // (name picker, first-name guessing) but everyEmployee itself stays the
+  // full list — someone whose own identity got archived should still be
+  // able to see their own past entries.
+  const activeEveryEmployee = useMemo(
+    () => everyEmployee.filter(p => !isArchived(p)),
+    [everyEmployee, isArchived]
+  )
+
+  const pickableDepts = useMemo(
+    () => activeDepts
+      .map(d => ({ name: d.name, employees: d.employees.filter(emp => !isArchived({ dept: d.name, emp })) }))
+      .filter(d => d.employees.length > 0),
+    [activeDepts, isArchived]
+  )
+
   useEffect(() => {
     try {
       const stored = localStorage.getItem('planning-my-name')
@@ -132,16 +178,16 @@ export default function PlanningApp() {
     if (!myName) return null
     const myFirst = norm(myName).split(' ')[0]
     if (!myFirst) return null
-    const candidates = [...new Set(everyEmployee.map(c => c.emp))].filter(emp => norm(emp).split(' ')[0] === myFirst)
+    const candidates = [...new Set(activeEveryEmployee.map(c => c.emp))].filter(emp => norm(emp).split(' ')[0] === myFirst)
     return candidates.length === 1 ? candidates[0] : null
-  }, [myName, everyEmployee])
+  }, [myName, activeEveryEmployee])
 
   // Ask once, only after we've actually checked localStorage and loaded the
   // roster — otherwise this would flash on every load before the stored
   // identity has had a chance to apply.
   useEffect(() => {
-    if (identityLoaded && everyEmployee.length > 0 && !myIdentity && !myColumn) setShowNamePicker(true)
-  }, [identityLoaded, everyEmployee, myIdentity, myColumn])
+    if (identityLoaded && activeEveryEmployee.length > 0 && !myIdentity && !myColumn) setShowNamePicker(true)
+  }, [identityLoaded, activeEveryEmployee, myIdentity, myColumn])
 
   function confirmIdentity(name: string) {
     setMyIdentity(name)
@@ -154,16 +200,19 @@ export default function PlanningApp() {
     [everyEmployee, myIdentity]
   )
 
+  // "Mijn maand" renders full calendar weeks (see getMonthWeeks), so the
+  // first/last week can spill into the neighboring month — those overflow
+  // days need their data loaded too, not just the target month's own days.
+  const daysToLoad = viewMode === 'month' ? getMonthWeeks(anchorYear, anchorMonth).flat() : week
+
   // ── Load the visible period's data (a week, or a whole month) ───────────
   useEffect(() => {
     let cancelled = false
     async function load() {
       setLoading(true)
-      const results = viewMode === 'month'
-        ? [await supabase.from('planning_entries').select(SELECT_COLS).eq('year', anchorYear).eq('month', anchorMonth)]
-        : await Promise.all(groupWeekByMonth(week).map(g =>
-            supabase.from('planning_entries').select(SELECT_COLS).eq('year', g.year).eq('month', g.month).in('day', g.days)
-          ))
+      const results = await Promise.all(groupWeekByMonth(daysToLoad).map(g =>
+        supabase.from('planning_entries').select(SELECT_COLS).eq('year', g.year).eq('month', g.month).in('day', g.days)
+      ))
       if (cancelled) return
       const map: PlanningWeekData = {}
       for (const res of results) {
@@ -217,10 +266,13 @@ export default function PlanningApp() {
   const isCurrentPeriod = viewMode === 'month' ? isCurrentMonth : isCurrentWeek
 
   const visibleTeam: Person[] = useMemo(() => {
-    if (!teamSearch.trim()) return everyEmployee
+    const pool = showArchived ? everyEmployee : activeEveryEmployee
+    if (!teamSearch.trim()) return pool
     const q = norm(teamSearch)
-    return everyEmployee.filter(p => norm(p.emp).includes(q))
-  }, [everyEmployee, teamSearch])
+    return pool.filter(p => norm(p.emp).includes(q))
+  }, [everyEmployee, activeEveryEmployee, showArchived, teamSearch])
+
+  const archivedCount = everyEmployee.length - activeEveryEmployee.length
 
   return (
     <div className="flex flex-col h-full gap-3">
@@ -291,17 +343,34 @@ export default function PlanningApp() {
         {tab === 'mijn' && (
           myPerson ? (
             viewMode === 'month' ? (
-              <MyMonthCalendar
-                year={anchorYear}
-                month={anchorMonth}
-                dept={myPerson.dept}
-                emp={myPerson.emp}
-                data={data}
-                readOnly={!canEditCol(myPerson.emp)}
-                presets={presets}
-                onApply={applyToTargets}
-                onClear={clearTargets}
-              />
+              <>
+                <div className="hidden lg:block h-full">
+                  <MyMonthWeeks
+                    year={anchorYear}
+                    month={anchorMonth}
+                    dept={myPerson.dept}
+                    emp={myPerson.emp}
+                    data={data}
+                    readOnly={!canEditCol(myPerson.emp)}
+                    presets={presets}
+                    onApply={applyToTargets}
+                    onClear={clearTargets}
+                  />
+                </div>
+                <div className="lg:hidden">
+                  <MyMonthCalendar
+                    year={anchorYear}
+                    month={anchorMonth}
+                    dept={myPerson.dept}
+                    emp={myPerson.emp}
+                    data={data}
+                    readOnly={!canEditCol(myPerson.emp)}
+                    presets={presets}
+                    onApply={applyToTargets}
+                    onClear={clearTargets}
+                  />
+                </div>
+              </>
             ) : (
               <>
                 <div className="hidden lg:block h-full">
@@ -347,19 +416,33 @@ export default function PlanningApp() {
         {tab === 'team' && (
           <>
             <div className="hidden lg:flex flex-col gap-3 h-full">
-              <div className="relative max-w-xs flex-shrink-0">
-                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
-                <input
-                  type="text"
-                  value={teamSearch}
-                  onChange={e => setTeamSearch(e.target.value)}
-                  placeholder="Zoek een naam…"
-                  className="w-full pl-8 pr-7 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600 transition-colors"
-                />
-                {teamSearch && (
-                  <button onClick={() => setTeamSearch('')} aria-label="Zoekopdracht wissen"
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300">
-                    <X size={13} />
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <div className="relative max-w-xs flex-1">
+                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={teamSearch}
+                    onChange={e => setTeamSearch(e.target.value)}
+                    placeholder="Zoek een naam…"
+                    className="w-full pl-8 pr-7 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600 transition-colors"
+                  />
+                  {teamSearch && (
+                    <button onClick={() => setTeamSearch('')} aria-label="Zoekopdracht wissen"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300">
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+                {archivedCount > 0 && (
+                  <button
+                    onClick={() => setShowArchived(v => !v)}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors"
+                    style={showArchived
+                      ? { backgroundColor: 'rgba(58,145,63,0.12)', borderColor: '#3A913F', color: '#6ee7a0' }
+                      : { backgroundColor: 'transparent', borderColor: '#27272a', color: '#71717a' }}
+                  >
+                    <Users size={12} />
+                    {showArchived ? 'Verberg inactieve leden' : `Toon inactieve leden (${archivedCount})`}
                   </button>
                 )}
               </div>
@@ -384,7 +467,7 @@ export default function PlanningApp() {
             <div className="lg:hidden">
               <MobileTeamDayStepper
                 week={week}
-                people={everyEmployee}
+                people={showArchived ? everyEmployee : activeEveryEmployee}
                 data={data}
                 canEditCol={canEditCol}
                 presets={presets}
@@ -399,7 +482,7 @@ export default function PlanningApp() {
 
       {showNamePicker && (
         <NamePicker
-          depts={activeDepts}
+          depts={pickableDepts}
           guess={nameGuess}
           onPick={confirmIdentity}
           onCancel={() => setShowNamePicker(false)}
@@ -411,6 +494,8 @@ export default function PlanningApp() {
         <PlanningConfigModal
           departments={activeDepts}
           onSave={handleSaveConfig}
+          archived={archived}
+          onSaveArchived={handleSaveArchived}
           onClose={() => setShowConfig(false)}
           isBeheer={isBeheer}
         />

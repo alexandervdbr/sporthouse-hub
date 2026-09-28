@@ -111,6 +111,23 @@ export function weekLabel(week: WeekDay[]): string {
   return `${shortDate(first)} ${first.year} – ${shortDate(last)} ${last.year}`
 }
 
+// Full calendar weeks (Monday-first) covering a whole month, including the
+// leading/trailing days of neighboring months needed to complete the first
+// and last week — used by "Mijn maand", which renders the month as full
+// week-rows stacked on top of each other rather than a day-only grid.
+export function getMonthWeeks(year: number, month: number): WeekDay[][] {
+  const lastOfMonth = new Date(year, month - 1, new Date(year, month, 0).getDate())
+  const weeks: WeekDay[][] = []
+  let anchor = new Date(year, month - 1, 1)
+  while (true) {
+    const week = getWeekDates(anchor)
+    weeks.push(week)
+    if (week[6].date >= lastOfMonth) break
+    anchor = addWeeks(anchor, 1)
+  }
+  return weeks
+}
+
 // Groups a week's 7 days by (year, month) — usually one group, occasionally
 // two at a month/year boundary — so the caller can issue one Supabase query
 // per group instead of needing a single composite-key IN() query.
