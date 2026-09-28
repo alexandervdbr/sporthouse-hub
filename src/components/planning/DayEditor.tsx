@@ -29,7 +29,9 @@ function mergedStatusOptions(presets: PlanningPreset[]): StatusOption[] {
       result.push({ name: o.label, color: o.bgColor })
     }
   }
-  return result
+  // Alphabetical, not insertion order — with ~15 statuses now, "whatever
+  // order they were added in" just reads as a random jumble.
+  return result.sort((a, b) => a.name.localeCompare(b.name, 'nl'))
 }
 
 // Exact match only — status and note are genuinely separate fields now
@@ -106,14 +108,14 @@ export default function DayEditor({
           <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
             <div>
               <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mb-2">Status</p>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                 {options.map(opt => {
                   const active = statusName === opt.name
                   return (
                     <button
                       key={opt.name}
                       onClick={() => { setStatusName(active ? null : opt.name); setCustomText('') }}
-                      className="px-3 py-1.5 rounded-full text-xs font-medium transition-all"
+                      className="px-2.5 py-1.5 rounded-lg text-xs font-medium truncate text-center transition-all"
                       style={active
                         ? { backgroundColor: opt.color, color: '#fff', border: `1px solid ${opt.color}` }
                         : { backgroundColor: `${opt.color}18`, border: `1px solid ${opt.color}55`, color: opt.color }}

@@ -48,6 +48,24 @@ function PresetsPanel() {
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [colorPickerFor, setColorPickerFor] = useState<string | null>(null)
+  const colorPickerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!colorPickerFor) return
+    function onOutside(e: MouseEvent) {
+      if (colorPickerRef.current && !colorPickerRef.current.contains(e.target as Node)) setColorPickerFor(null)
+    }
+    document.addEventListener('mousedown', onOutside)
+    return () => document.removeEventListener('mousedown', onOutside)
+  }, [colorPickerFor])
+
+  // Alphabetical, not insertion/sort_order — a growing list of statuses just
+  // reads as random clutter otherwise.
+  const sortedPresets = useMemo(
+    () => [...presets].sort((a, b) => a.name.localeCompare(b.name, 'nl')),
+    [presets]
+  )
 
   const [newName, setNewName] = useState('')
   const [newColor, setNewColor] = useState(PRESET_COLORS[0])
@@ -128,33 +146,42 @@ function PresetsPanel() {
         <p className="px-3 py-2 rounded-lg bg-red-950/40 border border-red-900/40 text-xs text-red-400">{error}</p>
       )}
 
-      <div className="space-y-1.5">
-        {presets.map(p => (
-          <div key={p.id} className="flex items-center gap-2 p-2.5 rounded-xl border border-zinc-800 bg-zinc-950/40">
-            <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }} />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+        {sortedPresets.map(p => (
+          <div key={p.id} className="relative flex items-center gap-2 p-2 rounded-xl border border-zinc-800 bg-zinc-950/40">
+            <button
+              onClick={() => setColorPickerFor(id => id === p.id ? null : p.id)}
+              aria-label={`Kleur wijzigen voor ${p.name}`}
+              className="w-4 h-4 rounded-full flex-shrink-0 ring-1 ring-white/10 hover:ring-white/30 transition-all"
+              style={{ backgroundColor: p.color }}
+            />
             <span className="flex-1 min-w-0 text-sm text-zinc-100 truncate">{p.name}</span>
-            <div className="flex items-center gap-1 flex-shrink-0">
-              {PRESET_COLORS.map(c => (
-                <button
-                  key={c}
-                  onClick={() => patchPreset(p, { color: c })}
-                  aria-label={`Kleur ${c}`}
-                  className="w-4 h-4 rounded-full"
-                  style={{ backgroundColor: c, border: p.color === c ? '2px solid #fff' : '2px solid transparent' }}
-                />
-              ))}
-            </div>
             <button
               onClick={() => removePreset(p)}
               disabled={busyId === p.id}
               aria-label={`${p.name} verwijderen`}
-              className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg text-zinc-600 hover:text-red-400"
+              className="w-7 h-7 flex-shrink-0 flex items-center justify-center rounded-lg text-zinc-600 hover:text-red-400"
             >
-              {busyId === p.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+              {busyId === p.id ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
             </button>
+
+            {colorPickerFor === p.id && (
+              <div ref={colorPickerRef} onClick={e => e.stopPropagation()}
+                className="absolute left-0 top-full mt-1 z-30 flex items-center gap-1.5 p-2 rounded-lg shadow-2xl bg-zinc-800 border border-zinc-700">
+                {PRESET_COLORS.map(c => (
+                  <button
+                    key={c}
+                    onClick={() => { patchPreset(p, { color: c }); setColorPickerFor(null) }}
+                    aria-label={`Kleur ${c}`}
+                    className="w-5 h-5 rounded-full"
+                    style={{ backgroundColor: c, border: p.color === c ? '2px solid #fff' : '2px solid transparent' }}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         ))}
-        {presets.length === 0 && <p className="py-4 text-center text-sm text-zinc-600">Nog geen presets.</p>}
+        {sortedPresets.length === 0 && <p className="py-4 text-center text-sm text-zinc-600 col-span-full">Nog geen presets.</p>}
       </div>
 
       <div>

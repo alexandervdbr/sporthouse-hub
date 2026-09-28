@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ChevronLeft, ChevronRight, Loader2, Settings, Search, X, Users } from 'lucide-react'
 import { DEPARTMENTS, DUTCH_MONTHS, type Department } from '@/lib/planning-config'
@@ -247,33 +247,77 @@ export default function PlanningApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, week, anchorYear, anchorMonth])
 
-  // ── Apply / clear ────────────────────────────────────────────────────────
-  async function applyToTargets(targets: { wd: WeekDay; dept: string; emp: string }[], cell: CellData) {
+  // ── Apply / clear, with local undo (Ctrl+Z) ─────────────────────────────
+  // The stack lives only in this component's memory — reset on reload, never
+  // shared — so undo can only ever reach changes the current user just made
+  // in this session, never anyone else's edits or anything from before.
+  const undoStackRef = useRef<{ wd: WeekDay; dept: string; emp: string; before: CellData | null }[][]>([])
+
+  type WriteEntry = { wd: WeekDay; dept: string; emp: string; cell: CellData | null }
+
+  async function writeEntries(entries: WriteEntry[]) {
     setData(prev => {
       const next = { ...prev }
-      for (const t of targets) next[weekDayCellKey(t.wd, t.dept, t.emp)] = cell
+      for (const e of entries) {
+        const key = weekDayCellKey(e.wd, e.dept, e.emp)
+        if (e.cell) next[key] = e.cell
+        else delete next[key]
+      }
       return next
     })
-    const rows = targets.map(t => ({
-      year: t.wd.year, month: t.wd.month, day: t.wd.day, department: t.dept, employee: t.emp,
-      value: cell.value, bold: cell.bold, text_color: cell.textColor, bg_color: cell.bgColor, note: cell.note,
-      updated_by: userEmail,
-    }))
-    await supabase.from('planning_entries').upsert(rows, { onConflict: 'year,month,day,department,employee' })
+    const toUpsert = entries.filter(e => e.cell)
+    const toDelete = entries.filter(e => !e.cell)
+    if (toUpsert.length > 0) {
+      const rows = toUpsert.map(e => ({
+        year: e.wd.year, month: e.wd.month, day: e.wd.day, department: e.dept, employee: e.emp,
+        value: e.cell!.value, bold: e.cell!.bold, text_color: e.cell!.textColor, bg_color: e.cell!.bgColor, note: e.cell!.note,
+        updated_by: userEmail,
+      }))
+      await supabase.from('planning_entries').upsert(rows, { onConflict: 'year,month,day,department,employee' })
+    }
+    if (toDelete.length > 0) {
+      await Promise.all(toDelete.map(e =>
+        supabase.from('planning_entries').delete()
+          .eq('year', e.wd.year).eq('month', e.wd.month).eq('day', e.wd.day)
+          .eq('department', e.dept).eq('employee', e.emp)
+      ))
+    }
+  }
+
+  function pushUndo(targets: { wd: WeekDay; dept: string; emp: string }[]) {
+    const before = targets.map(t => ({ ...t, before: data[weekDayCellKey(t.wd, t.dept, t.emp)] ?? null }))
+    undoStackRef.current.push(before)
+    if (undoStackRef.current.length > 50) undoStackRef.current.shift()
+  }
+
+  async function applyToTargets(targets: { wd: WeekDay; dept: string; emp: string }[], cell: CellData) {
+    pushUndo(targets)
+    await writeEntries(targets.map(t => ({ ...t, cell })))
   }
 
   async function clearTargets(targets: { wd: WeekDay; dept: string; emp: string }[]) {
-    setData(prev => {
-      const next = { ...prev }
-      for (const t of targets) delete next[weekDayCellKey(t.wd, t.dept, t.emp)]
-      return next
-    })
-    await Promise.all(targets.map(t =>
-      supabase.from('planning_entries').delete()
-        .eq('year', t.wd.year).eq('month', t.wd.month).eq('day', t.wd.day)
-        .eq('department', t.dept).eq('employee', t.emp)
-    ))
+    pushUndo(targets)
+    await writeEntries(targets.map(t => ({ ...t, cell: null })))
   }
+
+  async function handleUndo() {
+    const entry = undoStackRef.current.pop()
+    if (!entry) return
+    await writeEntries(entry.map(e => ({ wd: e.wd, dept: e.dept, emp: e.emp, cell: e.before })))
+  }
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const isUndo = (e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z'
+      if (!isUndo) return
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      e.preventDefault()
+      handleUndo()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
 
   function goToToday() { setWeekAnchor(new Date()) }
   function goPrev() { setWeekAnchor(a => viewMode === 'month' ? addMonths(a, -1) : addWeeks(a, -1)) }
