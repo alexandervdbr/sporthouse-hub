@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ChevronLeft, ChevronRight, Loader2, Settings, Search, User, X, CalendarPlus, Check, Undo2, Redo2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ChevronDown, Loader2, Settings, Search, User, X, CalendarPlus, Check, Undo2, Redo2, Minus, Plus, CalendarCheck2 } from 'lucide-react'
 import { DEPARTMENTS, DUTCH_MONTHS, DUTCH_DAYS, getDaysInMonth, cellKey, Department } from '@/lib/planning-config'
 import PlanningConfigModal from '@/components/planning/PlanningConfigModal'
 import { isAdminUser } from '@/lib/auth-permissions'
@@ -28,9 +28,16 @@ interface Sel {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const DAY_W  = 100
-const DATE_W = 48
-const CELL_W = 88
+// Base pixel sizes at 100% zoom — the actual per-render dayW/dateW/cellW
+// used in the grid below are these scaled by the zoom state.
+const BASE_DAY_W  = 100
+const BASE_DATE_W = 48
+const BASE_CELL_W = 88
+const BASE_ROW_H  = 36
+const BASE_FONT_PX = 12
+const ZOOM_MIN = 0.7
+const ZOOM_MAX = 1.4
+const ZOOM_STEP = 0.1
 
 const BG_HEAD  = '#161616'
 const BG_BODY  = '#0d0d0d'
@@ -63,6 +70,7 @@ function norm(s: string) {
 }
 
 const MY_NAME_STORAGE_KEY = 'planning-my-name'
+const ZOOM_STORAGE_KEY = 'planning-zoom'
 
 // ─── Naam-picker: "wie ben jij in dit rooster?" ────────────────────────────────
 // Nodig omdat myColumn (uit de permissies) enkel bestaat voor wie beperkt mag
@@ -350,6 +358,66 @@ export default function PlanningGrid() {
   const now = new Date()
   const [year, setYear]   = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1)
+
+  // Month/year jump-to popover — the year stepper inside it is deliberately
+  // separate from `year` (only committed once a month is actually clicked),
+  // so browsing years in the popover doesn't reload the grid for nothing.
+  const [showMonthPicker, setShowMonthPicker] = useState(false)
+  const [pickerYear, setPickerYear] = useState(year)
+  const monthPickerRef = useRef<HTMLDivElement>(null)
+  useEffect(() => { if (showMonthPicker) setPickerYear(year) }, [showMonthPicker, year])
+  useEffect(() => {
+    if (!showMonthPicker) return
+    function onOutside(e: MouseEvent) {
+      if (monthPickerRef.current && !monthPickerRef.current.contains(e.target as Node)) setShowMonthPicker(false)
+    }
+    document.addEventListener('mousedown', onOutside)
+    return () => document.removeEventListener('mousedown', onOutside)
+  }, [showMonthPicker])
+
+  // Zoom — controls the grid's cell width/row height/font size together, so
+  // "zooming out" actually fits more days/people on screen at once, and
+  // "zooming in" is there for anyone who wants bigger, easier-to-read cells.
+  // Persisted per browser, same convention as onlyMine/myName below.
+  const [zoom, setZoom] = useState(1)
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(ZOOM_STORAGE_KEY)
+      const n = stored ? parseFloat(stored) : NaN
+      if (!Number.isNaN(n)) setZoom(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, n)))
+    } catch { /* private browsing */ }
+  }, [])
+  useEffect(() => {
+    try { localStorage.setItem(ZOOM_STORAGE_KEY, String(zoom)) } catch { /* ignore */ }
+  }, [zoom])
+  const dayW  = Math.round(BASE_DAY_W  * zoom)
+  const dateW = Math.round(BASE_DATE_W * zoom)
+  const cellW = Math.round(BASE_CELL_W * zoom)
+  const rowH  = Math.round(BASE_ROW_H  * zoom)
+  const fontPx = Math.round(BASE_FONT_PX * zoom)
+
+  // "Vandaag" — jumps the grid to the current month/day and scrolls the
+  // matching row (desktop) / day pill (mobile) into view. scrollToken exists
+  // purely to make the effect below re-fire even when the button is pressed
+  // while already on the current month (where year/month wouldn't otherwise
+  // change) — see the effect for why it's keyed on this instead.
+  const [scrollToTodayToken, setScrollToTodayToken] = useState(0)
+  const rowRefs = useRef(new Map<number, HTMLTableRowElement>())
+  const dayPillRefs = useRef(new Map<number, HTMLButtonElement>())
+  function goToToday() {
+    const today = new Date()
+    setYear(today.getFullYear())
+    setMonth(today.getMonth() + 1)
+    setMobileDay(today.getDate())
+    setScrollToTodayToken(t => t + 1)
+  }
+  useEffect(() => {
+    if (scrollToTodayToken === 0) return
+    const today = new Date()
+    rowRefs.current.get(today.getDate())?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    dayPillRefs.current.get(today.getDate())?.scrollIntoView({ inline: 'center', behavior: 'smooth' })
+  }, [scrollToTodayToken])
+
   const [activeDepts, setActiveDepts] = useState<Department[]>(DEPARTMENTS)
   const [data, setData]   = useState<PlanningData>({})
   const [loading, setLoading] = useState(true)
@@ -866,11 +934,49 @@ export default function PlanningGrid() {
     if (input) { input.focus(); input.select() }
   }
 
+  // "Type to overwrite" (see the printable-character branch below) sets the
+  // cell's value directly via applyUpdates, bypassing the input's own change
+  // event — so the caret has to be placed by hand afterwards. Doing that in
+  // the same tick would use the *old* value's length (React hasn't
+  // re-rendered yet); this ref + a `data`-keyed effect defers it until after
+  // the new value has actually committed to the DOM.
+  const pendingCaretEndRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!pendingCaretEndRef.current) return
+    const key = pendingCaretEndRef.current
+    pendingCaretEndRef.current = null
+    const input = document.querySelector<HTMLInputElement>(`input[data-key="${key}"]`)
+    if (input) {
+      input.focus()
+      const end = input.value.length
+      input.setSelectionRange(end, end)
+    }
+  }, [data])
+
   // ── Keyboard shortcuts ──────────────────────────────────────────────────────
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const isMac = navigator.platform.toUpperCase().includes('MAC')
       const ctrl = isMac ? e.metaKey : e.ctrlKey
+
+      if (e.key === 'Escape') {
+        setEditingKey(null)
+        setShowMonthPicker(false)
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+        return
+      }
+
+      // Everything below only makes sense when the grid itself has focus (or
+      // nothing does, e.g. right after arrow-key navigation, which blurs on
+      // purpose). Without this guard, a stale activeKey from an earlier grid
+      // click would hijack these keys while typing in an unrelated field —
+      // e.g. Ctrl+C in the "Zoek een naam" box copying grid cells instead of
+      // the browser's own text selection.
+      const focusEl = document.activeElement
+      const focusIsForeign = focusEl instanceof HTMLElement
+        && focusEl !== document.body
+        && !(focusEl.tagName === 'INPUT' && focusEl.hasAttribute('data-key'))
+      if (focusIsForeign) return
 
       if (ctrl && e.key === 'c') {
         // Ook één aangeklikte cel (enkel activeKey, geen sleep-selectie) is
@@ -902,11 +1008,6 @@ export default function PlanningGrid() {
         if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
         setEditingKey(null)
         handleRedo()
-      }
-      if (e.key === 'Escape') {
-        setEditingKey(null)
-        if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
-        return
       }
 
       // Delete/Backspace when not editing → clear selected cells
@@ -943,8 +1044,41 @@ export default function PlanningGrid() {
         return
       }
 
-      // Arrow-key navigation — always navigate (blurs current editing cell first)
-      if (activeKey && !ctrl && ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) {
+      // Tab / Shift+Tab — move to the next/previous cell, wrapping to the
+      // start of the next row (or end of the previous one) at the row edge.
+      // The cell inputs are deliberately out of the native tab order
+      // (tabIndex={-1}, so Tab doesn't jump the whole browser focus out of a
+      // 30×N grid) — this is what makes Tab do anything at all in here.
+      if (e.key === 'Tab' && (activeKey || editingKey)) {
+        e.preventDefault()
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+        const baseKey = editingKey ?? activeKey!
+        setEditingKey(null)
+        const parts = baseKey.split('|')
+        const curDay = Number(parts[0])
+        const curDept = parts[1]
+        const curEmp  = parts[2]
+        const colIdx = allColumns.findIndex(c => c.dept === curDept && c.emp === curEmp)
+        const dayIdx = days.findIndex(d => d.day === curDay)
+        let nc = colIdx + (e.shiftKey ? -1 : 1)
+        let nd = dayIdx
+        if (nc < 0) { nc = allColumns.length - 1; nd = Math.max(dayIdx - 1, 0) }
+        else if (nc >= allColumns.length) { nc = 0; nd = Math.min(dayIdx + 1, days.length - 1) }
+        const { dept, emp } = allColumns[nc]
+        const newKey = cellKey(days[nd].day, dept, emp)
+        setActiveKey(newKey)
+        setSel({ startDay: days[nd].day, endDay: days[nd].day, startCol: nc, endCol: nc })
+        return
+      }
+
+      // Arrow-key navigation. Left/Right are deliberately skipped while
+      // actively editing — a single-line input has no vertical caret concept,
+      // so Up/Down are safe to keep navigating cells, but Left/Right need to
+      // fall through to the input's own native handling so the caret can
+      // actually move within the text (matching real spreadsheets: arrows
+      // only jump cells once you're no longer mid-edit).
+      const isLeftRight = e.key === 'ArrowLeft' || e.key === 'ArrowRight'
+      if (activeKey && !ctrl && !(editingKey && isLeftRight) && ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) {
         e.preventDefault()
         if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
         setEditingKey(null)
@@ -963,11 +1097,28 @@ export default function PlanningGrid() {
         const newKey = cellKey(days[nd].day, dept, emp)
         setActiveKey(newKey)
         setSel({ startDay: days[nd].day, endDay: days[nd].day, startCol: nc, endCol: nc })
+        return
+      }
+
+      // Typing a character while a cell is selected but not yet editing
+      // starts editing it, overwriting whatever was there — like
+      // Sheets/Excel, where you never have to click before you can type.
+      if (activeKey && !editingKey && !ctrl && !e.altKey && !e.metaKey && e.key.length === 1) {
+        const parts = activeKey.split('|')
+        const day = Number(parts[0])
+        const dept = parts[1]
+        const emp  = parts[2]
+        if (canEditCol(emp)) {
+          e.preventDefault()
+          setEditingKey(activeKey)
+          handleTextChange(day, dept, emp, e.key)
+          pendingCaretEndRef.current = activeKey
+        }
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [sel, activeKey, editingKey, handleCopy, handlePaste, handleFormat, handleClear, handleUndo, handleRedo, data, allColumns, days])
+  }, [sel, activeKey, editingKey, handleCopy, handlePaste, handleFormat, handleClear, handleUndo, handleRedo, handleTextChange, canEditCol, data, allColumns, days])
 
   // ── Mouse up (stop drag) ────────────────────────────────────────────────────
   useEffect(() => {
@@ -1054,26 +1205,105 @@ export default function PlanningGrid() {
     <div className="flex flex-col gap-3 h-full" ref={containerRef}>
 
       {/* Navigation */}
-      <div className="flex items-center gap-3 flex-shrink-0">
-        <button onClick={prev} aria-label="Vorige maand" title="Vorige maand" className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-sh-grey hover:border-zinc-700 transition-colors">
+      <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+        <button onClick={prev} aria-label="Vorige maand" title="Vorige maand" className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-sh-grey hover:border-zinc-700 transition-colors flex-shrink-0">
           <ChevronLeft size={15} />
         </button>
-        <span className="text-sm font-semibold text-sh-grey min-w-[160px] text-center">
-          {DUTCH_MONTHS[month - 1]} {year}
-        </span>
-        <button onClick={next} aria-label="Volgende maand" title="Volgende maand" className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-sh-grey hover:border-zinc-700 transition-colors">
+
+        {/* Click the label to jump straight to any month/year, instead of
+            stepping one month at a time with the chevrons. */}
+        <div className="relative" ref={monthPickerRef}>
+          <button
+            onClick={() => setShowMonthPicker(v => !v)}
+            className="flex items-center gap-1 px-2 py-1 rounded-lg text-sm font-semibold text-sh-grey min-w-[160px] justify-center hover:bg-zinc-800/60 transition-colors"
+          >
+            {DUTCH_MONTHS[month - 1]} {year}
+            <ChevronDown size={13} className={`text-zinc-500 transition-transform ${showMonthPicker ? 'rotate-180' : ''}`} />
+          </button>
+          {showMonthPicker && (
+            <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1.5 z-50 w-60 rounded-xl bg-zinc-900 border border-zinc-800 shadow-2xl p-3">
+              <div className="flex items-center justify-between mb-2.5">
+                <button onClick={() => setPickerYear(y => y - 1)} aria-label="Vorig jaar"
+                  className="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors">
+                  <ChevronLeft size={14} />
+                </button>
+                <span className="text-sm font-semibold text-sh-grey">{pickerYear}</span>
+                <button onClick={() => setPickerYear(y => y + 1)} aria-label="Volgend jaar"
+                  className="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors">
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {DUTCH_MONTHS.map((m, i) => {
+                  const isSelected = i + 1 === month && pickerYear === year
+                  return (
+                    <button
+                      key={m}
+                      onClick={() => { setMonth(i + 1); setYear(pickerYear); setShowMonthPicker(false) }}
+                      className={`px-2 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                        isSelected ? 'text-white' : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+                      }`}
+                      style={isSelected ? { backgroundColor: '#3A913F' } : undefined}
+                    >
+                      {m.slice(0, 3)}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <button onClick={next} aria-label="Volgende maand" title="Volgende maand" className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-sh-grey hover:border-zinc-700 transition-colors flex-shrink-0">
           <ChevronRight size={15} />
         </button>
-        {loading && <Loader2 size={13} className="animate-spin text-zinc-600 ml-1" />}
-        {canEditAll && (
-          <button
-            onClick={() => setShowConfig(true)}
-            className="ml-auto w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700 transition-colors"
-            title="Planning configuratie"
-          >
-            <Settings size={15} />
-          </button>
-        )}
+
+        <button
+          onClick={goToToday}
+          title="Ga naar vandaag"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-sh-grey hover:border-zinc-700 transition-colors flex-shrink-0"
+        >
+          <CalendarCheck2 size={14} />
+          Vandaag
+        </button>
+
+        {loading && <Loader2 size={13} className="animate-spin text-zinc-600" />}
+
+        <div className="ml-auto flex items-center gap-2">
+          {/* Zoom — desktop only, the mobile view is a single-day list with
+              nothing to zoom in/out of. */}
+          <div className="hidden lg:flex items-center gap-1 px-1 py-1 rounded-lg bg-zinc-900 border border-zinc-800">
+            <button
+              onClick={() => setZoom(z => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2)))}
+              disabled={zoom <= ZOOM_MIN}
+              aria-label="Uitzoomen"
+              title="Uitzoomen"
+              className="w-6 h-6 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 disabled:opacity-30 transition-colors"
+            >
+              <Minus size={13} />
+            </button>
+            <span className="text-xs text-zinc-500 w-9 text-center select-none tabular-nums">{Math.round(zoom * 100)}%</span>
+            <button
+              onClick={() => setZoom(z => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2)))}
+              disabled={zoom >= ZOOM_MAX}
+              aria-label="Inzoomen"
+              title="Inzoomen"
+              className="w-6 h-6 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 disabled:opacity-30 transition-colors"
+            >
+              <Plus size={13} />
+            </button>
+          </div>
+
+          {canEditAll && (
+            <button
+              onClick={() => setShowConfig(true)}
+              className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700 transition-colors flex-shrink-0"
+              title="Planning configuratie"
+            >
+              <Settings size={15} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Zoeken & "Alleen ik" — zelfde rij op mobiel en desktop, zodat je niet
@@ -1170,6 +1400,7 @@ export default function PlanningGrid() {
               return (
                 <button
                   key={d.day}
+                  ref={el => { if (el) dayPillRefs.current.set(d.day, el); else dayPillRefs.current.delete(d.day) }}
                   onClick={() => { setMobileDay(d.day); setOpenPaletteKey(null) }}
                   className={`flex-shrink-0 w-11 py-1.5 rounded-lg border text-center transition-colors ${
                     isSel
@@ -1325,17 +1556,17 @@ export default function PlanningGrid() {
           </p>
         )}
         {allColumns.length > 0 && <table
-          className="border-collapse text-xs"
-          style={{ minWidth: DAY_W + DATE_W + allColumns.length * CELL_W }}
+          className="border-collapse"
+          style={{ minWidth: dayW + dateW + allColumns.length * cellW, fontSize: fontPx }}
         >
           <thead>
             {/* Row 1 — Department headers */}
             <tr>
-              <th style={{ position: 'sticky', left: 0, zIndex: 40, width: DAY_W, minWidth: DAY_W, backgroundColor: BG_HEAD }}
+              <th style={{ position: 'sticky', left: 0, zIndex: 40, width: dayW, minWidth: dayW, backgroundColor: BG_HEAD }}
                 className="border-b border-r border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-500">
                 Dag
               </th>
-              <th style={{ position: 'sticky', left: DAY_W, zIndex: 40, width: DATE_W, minWidth: DATE_W, backgroundColor: BG_HEAD }}
+              <th style={{ position: 'sticky', left: dayW, zIndex: 40, width: dateW, minWidth: dateW, backgroundColor: BG_HEAD }}
                 className="border-b border-r-2 border-zinc-700 px-2 py-2 text-center font-semibold text-zinc-500">
                 #
               </th>
@@ -1350,9 +1581,9 @@ export default function PlanningGrid() {
 
             {/* Row 2 — Employee names (clickable for column select) */}
             <tr>
-              <th style={{ position: 'sticky', left: 0, zIndex: 40, width: DAY_W, minWidth: DAY_W, backgroundColor: BG_HEAD }}
+              <th style={{ position: 'sticky', left: 0, zIndex: 40, width: dayW, minWidth: dayW, backgroundColor: BG_HEAD }}
                 className="border-b-2 border-r border-zinc-700" />
-              <th style={{ position: 'sticky', left: DAY_W, zIndex: 40, width: DATE_W, minWidth: DATE_W, backgroundColor: BG_HEAD }}
+              <th style={{ position: 'sticky', left: dayW, zIndex: 40, width: dateW, minWidth: dateW, backgroundColor: BG_HEAD }}
                 className="border-b-2 border-r-2 border-zinc-700" />
               {allColumns.map(({ dept, emp }, ci) => {
                 const isFirstInDept = filteredDepts.find(d => d.name === dept)?.employees[0] === emp
@@ -1365,7 +1596,7 @@ export default function PlanningGrid() {
                   <th key={`h-${dept}-${emp}-${ci}`}
                     onClick={() => onColHeaderClick(ci)}
                     style={{
-                      width: CELL_W, minWidth: CELL_W, maxWidth: CELL_W,
+                      width: cellW, minWidth: cellW, maxWidth: cellW,
                       backgroundColor: isColSelected ? 'rgba(59,130,246,0.15)' : isOwn ? 'rgba(58,145,63,0.1)' : BG_HEAD,
                       borderLeft: isFirstInDept ? '2px solid #3f3f46' : '1px solid #27272a',
                       cursor: 'pointer',
@@ -1388,13 +1619,13 @@ export default function PlanningGrid() {
                 day <= Math.max(sel.startDay, sel.endDay)
 
               return (
-                <tr key={day}>
+                <tr key={day} ref={el => { if (el) rowRefs.current.set(day, el); else rowRefs.current.delete(day) }}>
                   {/* Day name — click to select row */}
                   <td
                     onClick={() => onRowHeaderClick(day)}
                     style={{
                       position: 'sticky', left: 0, zIndex: 20,
-                      width: DAY_W, minWidth: DAY_W,
+                      width: dayW, minWidth: dayW,
                       // Sticky cells must stay opaque — the data columns scroll
                       // underneath them. So the selection tint is layered over
                       // an opaque base instead of replacing it, which would let
@@ -1413,8 +1644,8 @@ export default function PlanningGrid() {
                   <td
                     onClick={() => onRowHeaderClick(day)}
                     style={{
-                      position: 'sticky', left: DAY_W, zIndex: 20,
-                      width: DATE_W, minWidth: DATE_W,
+                      position: 'sticky', left: dayW, zIndex: 20,
+                      width: dateW, minWidth: dateW,
                       backgroundColor: rowBg,
                       backgroundImage: isRowSelected ? `linear-gradient(${SEL_BG}, ${SEL_BG})` : undefined,
                       cursor: 'pointer',
@@ -1445,7 +1676,7 @@ export default function PlanningGrid() {
                         onMouseEnter={() => onCellMouseEnter(day, ci)}
                         onClick={e => onCellClick(day, ci, e)}
                         style={{
-                          width: CELL_W, minWidth: CELL_W, maxWidth: CELL_W,
+                          width: cellW, minWidth: cellW, maxWidth: cellW,
                           padding: 0,
                           backgroundColor: cellBg,
                           borderLeft: isFirstInDept ? '2px solid #3f3f46' : '1px solid #1a1a1a',
@@ -1494,7 +1725,7 @@ export default function PlanningGrid() {
                             fontWeight: cell.bold ? 'bold' : 'normal',
                             color: cell.textColor ?? '#ffffff',
                             textTransform: 'uppercase',
-                            minHeight: 36,
+                            minHeight: rowH,
                             backgroundColor: 'transparent',
                             width: '100%',
                             padding: '0 4px',
