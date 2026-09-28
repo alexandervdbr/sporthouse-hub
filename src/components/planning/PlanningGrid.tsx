@@ -396,6 +396,22 @@ export default function PlanningGrid() {
   const rowH  = Math.round(BASE_ROW_H  * zoom)
   const fontPx = Math.round(BASE_FONT_PX * zoom)
 
+  // Department-header row's real rendered height, so the employee-name row
+  // right below it can stick at exactly that offset instead of overlapping
+  // it. Measured (not hardcoded) because it changes with zoom. Sticky is set
+  // directly on each <th> rather than on <thead>/<tr> — more consistently
+  // supported across browsers for a frozen-header table than sticky on the
+  // table-row-group/table-row boxes themselves.
+  const headerRow1Ref = useRef<HTMLTableRowElement>(null)
+  const [headerRow1Height, setHeaderRow1Height] = useState(0)
+  useEffect(() => {
+    const el = headerRow1Ref.current
+    if (!el) return
+    const ro = new ResizeObserver(([entry]) => setHeaderRow1Height(entry.contentRect.height))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   // "Vandaag" — jumps the grid to the current month/day and scrolls the
   // matching row (desktop) / day pill (mobile) into view. scrollToken exists
   // purely to make the effect below re-fire even when the button is pressed
@@ -1560,30 +1576,34 @@ export default function PlanningGrid() {
           style={{ minWidth: dayW + dateW + allColumns.length * cellW, fontSize: fontPx }}
         >
           <thead>
-            {/* Row 1 — Department headers */}
-            <tr>
-              <th style={{ position: 'sticky', left: 0, zIndex: 40, width: dayW, minWidth: dayW, backgroundColor: BG_HEAD }}
+            {/* Row 1 — Department headers. Sticky both left (the Dag/#
+                corner) and top (the whole row), so it stays visible whether
+                you scroll sideways through people or down through days. */}
+            <tr ref={headerRow1Ref}>
+              <th style={{ position: 'sticky', left: 0, top: 0, zIndex: 50, width: dayW, minWidth: dayW, backgroundColor: BG_HEAD }}
                 className="border-b border-r border-zinc-800 px-3 py-2 text-left font-semibold text-zinc-500">
                 Dag
               </th>
-              <th style={{ position: 'sticky', left: dayW, zIndex: 40, width: dateW, minWidth: dateW, backgroundColor: BG_HEAD }}
+              <th style={{ position: 'sticky', left: dayW, top: 0, zIndex: 50, width: dateW, minWidth: dateW, backgroundColor: BG_HEAD }}
                 className="border-b border-r-2 border-zinc-700 px-2 py-2 text-center font-semibold text-zinc-500">
                 #
               </th>
               {filteredDepts.map(dept => (
                 <th key={dept.name} colSpan={dept.employees.length}
-                  style={{ backgroundColor: BG_HEAD, borderLeft: '2px solid #3f3f46' }}
+                  style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: BG_HEAD, borderLeft: '2px solid #3f3f46' }}
                   className="border-b border-zinc-800 px-2 py-2 text-center font-semibold text-sh-grey whitespace-nowrap">
                   {dept.name}
                 </th>
               ))}
             </tr>
 
-            {/* Row 2 — Employee names (clickable for column select) */}
+            {/* Row 2 — Employee names (clickable for column select). Sticks
+                right below row 1 (top: headerRow1Height, measured above)
+                instead of overlapping it. */}
             <tr>
-              <th style={{ position: 'sticky', left: 0, zIndex: 40, width: dayW, minWidth: dayW, backgroundColor: BG_HEAD }}
+              <th style={{ position: 'sticky', left: 0, top: headerRow1Height, zIndex: 50, width: dayW, minWidth: dayW, backgroundColor: BG_HEAD }}
                 className="border-b-2 border-r border-zinc-700" />
-              <th style={{ position: 'sticky', left: dayW, zIndex: 40, width: dateW, minWidth: dateW, backgroundColor: BG_HEAD }}
+              <th style={{ position: 'sticky', left: dayW, top: headerRow1Height, zIndex: 50, width: dateW, minWidth: dateW, backgroundColor: BG_HEAD }}
                 className="border-b-2 border-r-2 border-zinc-700" />
               {allColumns.map(({ dept, emp }, ci) => {
                 const isFirstInDept = filteredDepts.find(d => d.name === dept)?.employees[0] === emp
@@ -1596,6 +1616,7 @@ export default function PlanningGrid() {
                   <th key={`h-${dept}-${emp}-${ci}`}
                     onClick={() => onColHeaderClick(ci)}
                     style={{
+                      position: 'sticky', top: headerRow1Height, zIndex: 40,
                       width: cellW, minWidth: cellW, maxWidth: cellW,
                       backgroundColor: isColSelected ? 'rgba(59,130,246,0.15)' : isOwn ? 'rgba(58,145,63,0.1)' : BG_HEAD,
                       borderLeft: isFirstInDept ? '2px solid #3f3f46' : '1px solid #27272a',
