@@ -40,6 +40,30 @@ const AMBIGUOUS_FIRST_NAME_OVERRIDES: Record<string, { surnamePrefix: string; de
   ],
 }
 
+// The department config always used to start life as the hardcoded
+// DEPARTMENTS fallback and only get replaced once /api/planning/config
+// resolved — for a returning person whose real identity lives only in the
+// synced config (not that old hardcoded list), myPerson couldn't resolve
+// until that fetch finished, so "Mijn week" visibly flashed a loading
+// state on every single refresh even though myIdentity itself was already
+// known instantly from localStorage. Seeding straight from a cached copy
+// of the last successfully-loaded config removes that network round-trip
+// from the critical path entirely for anyone who's loaded this before —
+// the fresh fetch still runs and corrects anything that's genuinely
+// changed, but there's no visible gap while it's in flight.
+const CONFIG_CACHE_KEY = 'planning-config-cache'
+
+function loadCachedDepts(): Department[] {
+  try {
+    const raw = localStorage.getItem(CONFIG_CACHE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed
+    }
+  } catch { /* private browsing, or never loaded before on this device */ }
+  return DEPARTMENTS
+}
+
 export default function PlanningApp() {
   const supabase = createClient()
 
@@ -84,7 +108,7 @@ export default function PlanningApp() {
   const usingWeekNav = tab === 'team' && (teamViewMode === 'week' || isMobileViewport)
   const periodLabel = usingWeekNav ? weekLabel(week) : `${DUTCH_MONTHS[anchorMonth - 1]} ${anchorYear}`
 
-  const [activeDepts, setActiveDepts] = useState<Department[]>(DEPARTMENTS)
+  const [activeDepts, setActiveDepts] = useState<Department[]>(() => loadCachedDepts())
   const [configLoaded, setConfigLoaded] = useState(false)
   const [presets, setPresets] = useState<PlanningPreset[]>([])
   const [showConfig, setShowConfig] = useState(false)
@@ -117,8 +141,13 @@ export default function PlanningApp() {
   useEffect(() => {
     fetch('/api/planning/config')
       .then(r => r.json())
-      .then((cfg: Department[] | null) => { if (Array.isArray(cfg) && cfg.length > 0) setActiveDepts(cfg) })
-      .catch(() => { /* fall back to hardcoded DEPARTMENTS */ })
+      .then((cfg: Department[] | null) => {
+        if (Array.isArray(cfg) && cfg.length > 0) {
+          setActiveDepts(cfg)
+          try { localStorage.setItem(CONFIG_CACHE_KEY, JSON.stringify(cfg)) } catch { /* private browsing */ }
+        }
+      })
+      .catch(() => { /* fall back to the cached or hardcoded config */ })
       .finally(() => setConfigLoaded(true))
   }, [])
 
@@ -129,6 +158,7 @@ export default function PlanningApp() {
       body: JSON.stringify(newDepts),
     })
     setActiveDepts(newDepts)
+    try { localStorage.setItem(CONFIG_CACHE_KEY, JSON.stringify(newDepts)) } catch { /* private browsing */ }
   }
 
   // ── Team contacts — the real, actually-maintained source of "who works
