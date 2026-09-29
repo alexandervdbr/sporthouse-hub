@@ -97,13 +97,20 @@ export default function PlanningApp() {
       .catch(() => {})
   }, [])
 
-  // Self-heals any duplicate names already sitting in the saved config
-  // (across all departments, not just within one) — a real bug briefly
-  // let the reconciliation effect below double-save a batch before its own
-  // write had landed, so this also cleans up whatever that already wrote.
-  const dedupingRef = useRef(false)
+  // All three self-healing/reconciliation effects below write to the same
+  // config, so they share one lock — set synchronously before the async
+  // save starts, checked by every effect (including ones declared after
+  // this render's effects have already run), so two of them can never both
+  // compute "what needs fixing" against the same pre-save state and each
+  // save their own half of the fix (that double-save race is exactly what
+  // produced the very duplicates the effects below now clean up).
+  const configWriteRef = useRef(false)
+
+  // 1) Exact duplicate names anywhere in the saved config (case/accent-
+  // insensitive) — e.g. the same name saved twice by the double-save race
+  // above before this lock existed.
   useEffect(() => {
-    if (!isBeheer || activeDepts.length === 0 || dedupingRef.current) return
+    if (!isBeheer || activeDepts.length === 0 || configWriteRef.current) return
     const seen = new Set<string>()
     let changed = false
     const next = activeDepts.map(d => {
@@ -116,22 +123,54 @@ export default function PlanningApp() {
       return { ...d, employees }
     })
     if (!changed) return
-    dedupingRef.current = true
-    handleSaveConfig(next).finally(() => { dedupingRef.current = false })
+    configWriteRef.current = true
+    handleSaveConfig(next).finally(() => { configWriteRef.current = false })
   }, [isBeheer, activeDepts])
 
-  // Runs whenever the config or the Team list changes; a no-op once nothing's
-  // missing, so it settles after one save instead of looping. Only actually
-  // persists for a beheerder — everyone else can read the reconciled config
-  // once someone with rights has loaded the page, but can't write it.
-  // reconcilingRef prevents two overlapping saves (e.g. dev's Strict Mode
-  // double-invoking this effect) from both computing "missing" against the
-  // same pre-save state and each adding the same batch once — the exact bug
-  // the dedupe effect above exists to also clean up after the fact.
-  const reconcilingRef = useRef(false)
+  // 2) A long-standing manual-entry convention here stores lots of people as
+  // a bare first name only ("Yaro", "Tim", …) rather than a full name.
+  // Team-sync (below) matches on full name, so none of those matched their
+  // real Team contact ("Yaro Bauwens") and each got a second, fuller-named
+  // entry added — a duplicate of someone already there. This merges those
+  // back: any full name whose first name matches an existing BARE entry
+  // gets dropped, keeping the bare one — years of planning_entries rows are
+  // keyed by exactly that bare string, so that's the one that has to stay.
   useEffect(() => {
-    if (!isBeheer || teamContacts.length === 0 || activeDepts.length === 0 || reconcilingRef.current) return
+    if (!isBeheer || activeDepts.length === 0 || configWriteRef.current) return
+    const bareFirstNames = new Set(
+      activeDepts.flatMap(d => d.employees)
+        .filter(e => e.trim().split(/\s+/).length === 1)
+        .map(e => normName(e))
+    )
+    let changed = false
+    const next = activeDepts.map(d => {
+      const employees = d.employees.filter(e => {
+        const parts = e.trim().split(/\s+/)
+        if (parts.length === 1) return true
+        if (bareFirstNames.has(normName(parts[0]))) { changed = true; return false }
+        return true
+      })
+      return { ...d, employees }
+    })
+    if (!changed) return
+    configWriteRef.current = true
+    handleSaveConfig(next).finally(() => { configWriteRef.current = false })
+  }, [isBeheer, activeDepts])
+
+  // 3) New Team contacts land in a "Nieuw" bucket automatically. Someone
+  // already represented by a bare first name (see above) counts as known —
+  // otherwise this would just recreate the exact duplicates effect 2 cleans
+  // up. Trade-off: a genuinely new person who happens to share a first name
+  // with an existing bare entry won't be auto-added either; same as any
+  // other name-only match in this feature, that's a manual add.
+  useEffect(() => {
+    if (!isBeheer || teamContacts.length === 0 || activeDepts.length === 0 || configWriteRef.current) return
     const known = new Set(activeDepts.flatMap(d => d.employees.map(e => normName(e))))
+    const bareFirstNames = new Set(
+      activeDepts.flatMap(d => d.employees)
+        .filter(e => e.trim().split(/\s+/).length === 1)
+        .map(e => normName(e))
+    )
     const seenTeamNames = new Set<string>()
     const uniqueTeamContacts = teamContacts.filter(c => {
       const key = normName(c.name)
@@ -139,14 +178,19 @@ export default function PlanningApp() {
       seenTeamNames.add(key)
       return true
     })
-    const missing = uniqueTeamContacts.filter(c => !known.has(normName(c.name)))
+    const missing = uniqueTeamContacts.filter(c => {
+      const full = normName(c.name)
+      if (known.has(full)) return false
+      const first = normName(c.name.trim().split(/\s+/)[0])
+      return !bareFirstNames.has(first)
+    })
     if (missing.length === 0) return
     const next = activeDepts.map(d => ({ ...d, employees: [...d.employees] }))
     let bucket = next.find(d => d.name === UNASSIGNED_DEPT)
     if (!bucket) { bucket = { name: UNASSIGNED_DEPT, employees: [] }; next.push(bucket) }
     bucket.employees.push(...missing.map(c => c.name))
-    reconcilingRef.current = true
-    handleSaveConfig(next).finally(() => { reconcilingRef.current = false })
+    configWriteRef.current = true
+    handleSaveConfig(next).finally(() => { configWriteRef.current = false })
   }, [isBeheer, teamContacts, activeDepts])
 
   // ── Load presets ─────────────────────────────────────────────────────────
