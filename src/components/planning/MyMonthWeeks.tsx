@@ -1,29 +1,51 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { MoreVertical, Copy, ClipboardPaste, Trash2 } from 'lucide-react'
+import { MoreVertical, Copy, ClipboardPaste, Trash2, Check, X } from 'lucide-react'
 import { DUTCH_MONTHS } from '@/lib/planning-config'
 import { emptyCell, getMonthWeeks, weekDayCellKey, type CellData, type PlanningWeekData, type WeekDay } from '@/lib/planning-week'
 import type { PlanningPreset } from '@/lib/planning-presets'
 import DayEditor from './DayEditor'
 
 interface Target { wd: WeekDay; dept: string; emp: string }
+interface DragState { start: number; additive: boolean; cells: Set<number> }
 
 const SEL_BG = 'rgba(59,130,246,0.15)'
 const SEL_BDR = '1px solid rgba(59,130,246,0.5)'
 
+// A day's flat index is wi*7+ci — row/col math below turns two such indices
+// into every index inside the rectangle they bound, regardless of which
+// direction the drag went.
+function rectIndices(aIdx: number, bIdx: number): number[] {
+  const ar = Math.floor(aIdx / 7), ac = aIdx % 7
+  const br = Math.floor(bIdx / 7), bc = bIdx % 7
+  const r0 = Math.min(ar, br), r1 = Math.max(ar, br)
+  const c0 = Math.min(ac, bc), c1 = Math.max(ac, bc)
+  const out: number[] = []
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) out.push(r * 7 + c)
+  return out
+}
+
 // Desktop-only "Mijn maand": the whole month as full calendar weeks stacked
-// on top of each other. Drag-select is the exact set of cells the pointer
-// actually passed over (a freehand path), not the contiguous range between
-// where you started and ended — dragging straight down one weekday column
-// (e.g. "every Monday") selects only that column, since a vertical drag
-// only ever visits that column's cells, rather than filling in every day of
-// every week in between. This is its own drag/copy-paste implementation
-// rather than reusing WeekGrid, since WeekGrid's row/col model is bounded to
-// one instance's own 7 days and can't reach across sibling week-rows.
-// Auto-scrolls to the current week on first load. Mobile keeps the old
-// compact day-grid (MyMonthCalendar) — a 7-wide spacious row doesn't fit a
-// phone.
+// on top of each other.
+//
+// Selection model:
+// - Plain drag → a real selection box (every day inside the rectangle
+//   between where you started and let go, not just the cells the cursor
+//   physically crossed) — release immediately opens the editor for it, same
+//   fast path as before.
+// - Ctrl/Cmd+click or Ctrl/Cmd+drag → builds up a "committed" selection that
+//   can include non-adjacent days, without opening the editor on every
+//   click, so you can keep adding more days first.
+// - Shift+click → extends the committed selection as a box from the last
+//   plain click ("anchor") to the shift-clicked day.
+// - Once something is committed, Enter / double-click / the floating
+//   "Bewerken" button opens the editor for that whole (possibly
+//   non-contiguous) set at once. Escape or a fresh plain click clears it.
+//
+// This is its own drag/copy-paste implementation rather than reusing
+// WeekGrid, since WeekGrid's row/col model is bounded to one instance's own
+// 7 days and can't reach across sibling week-rows.
 export default function MyMonthWeeks({
   year, month, dept, emp, data, readOnly, presets, onApply, onClear,
 }: {
@@ -41,16 +63,24 @@ export default function MyMonthWeeks({
   const allDays = weeks.flat()
   const todayRowRef = useRef<HTMLDivElement>(null)
 
-  const dragPathRef = useRef<Set<number> | null>(null)
-  const [selection, setSelection] = useState<Set<number> | null>(null)
+  const [drag, setDrag] = useState<DragState | null>(null)
+  const [committed, setCommitted] = useState<Set<number> | null>(null)
+  const anchorRef = useRef<number | null>(null)
+
   const [menuKey, setMenuKey] = useState<string | null>(null)
   const [editing, setEditing] = useState<{ targets: Target[]; cell: CellData; title: string } | null>(null)
   const clipboardRef = useRef<CellData | null>(null)
   const [hasClipboard, setHasClipboard] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
+  const displaySelection = drag
+    ? (drag.additive ? new Set([...(committed ?? []), ...drag.cells]) : drag.cells)
+    : committed
+
   useEffect(() => {
     todayRowRef.current?.scrollIntoView({ block: 'center' })
+    setCommitted(null)
+    setDrag(null)
   }, [year, month])
 
   useEffect(() => {
@@ -78,6 +108,23 @@ export default function MyMonthWeeks({
     setEditing({ targets, cell: initial, title })
   }
 
+  // Enter commits the current selection, Escape drops it — both skipped
+  // while typing anywhere else (a rename field, the note textarea, …).
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if (e.key === 'Enter' && committed && committed.size > 0) {
+        e.preventDefault()
+        openEditorFor([...committed])
+      } else if (e.key === 'Escape' && committed) {
+        setCommitted(null)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
   function handlePointerDown(e: React.PointerEvent, idx: number) {
     if (readOnly) return
     // Without this, starting the drag on the status pill's text kicks off
@@ -85,28 +132,53 @@ export default function MyMonthWeeks({
     // cancels the pointer sequence mid-drag.
     e.preventDefault()
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-    dragPathRef.current = new Set([idx])
-    setSelection(new Set([idx]))
+
+    if (e.shiftKey && anchorRef.current !== null) {
+      setCommitted(new Set(rectIndices(anchorRef.current, idx)))
+      return
+    }
+
+    anchorRef.current = idx
+    setDrag({ start: idx, additive: e.ctrlKey || e.metaKey, cells: new Set([idx]) })
   }
 
   function handlePointerMove(e: React.PointerEvent) {
-    if (!dragPathRef.current) return
+    if (!drag) return
     const el = document.elementFromPoint(e.clientX, e.clientY)
     const cellEl = el?.closest('[data-idx]') as HTMLElement | null
     if (!cellEl) return
     const idx = Number(cellEl.dataset.idx)
-    if (dragPathRef.current.has(idx)) return
-    dragPathRef.current.add(idx)
-    setSelection(new Set(dragPathRef.current))
+    setDrag(prev => prev && { ...prev, cells: new Set(rectIndices(prev.start, idx)) })
   }
 
   function handlePointerUp(e: React.PointerEvent) {
-    if (!dragPathRef.current) { setSelection(null); return }
-    const idxs = [...dragPathRef.current]
-    dragPathRef.current = null
+    if (!drag) return
     try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId) } catch { /* already released */ }
-    openEditorFor(idxs)
-    setSelection(null)
+
+    if (!drag.additive) {
+      const idxs = [...drag.cells]
+      setDrag(null)
+      setCommitted(null)
+      openEditorFor(idxs)
+      return
+    }
+
+    if (drag.cells.size === 1) {
+      const only = [...drag.cells][0]
+      setCommitted(prev => {
+        const next = new Set(prev ?? [])
+        if (next.has(only)) next.delete(only); else next.add(only)
+        return next.size ? next : null
+      })
+    } else {
+      setCommitted(prev => new Set([...(prev ?? []), ...drag.cells]))
+    }
+    setDrag(null)
+  }
+
+  function handleDoubleClick(idx: number) {
+    if (readOnly) return
+    openEditorFor(committed && committed.size > 0 ? [...committed] : [idx])
   }
 
   function handleCopy(wd: WeekDay) {
@@ -154,7 +226,7 @@ export default function MyMonthWeeks({
                 const isOverflow = wd.month !== month
                 const key = weekDayCellKey(wd, dept, emp)
                 const cell = data[key] ?? emptyCell()
-                const isSelected = selection?.has(idx) ?? false
+                const isSelected = displaySelection?.has(idx) ?? false
                 const menuOpen = menuKey === key
 
                 return (
@@ -164,6 +236,7 @@ export default function MyMonthWeeks({
                     onPointerDown={e => handlePointerDown(e, idx)}
                     onPointerMove={handlePointerMove}
                     onPointerUp={handlePointerUp}
+                    onDoubleClick={() => handleDoubleClick(idx)}
                     onDragStart={e => e.preventDefault()}
                     style={{
                       backgroundColor: isSelected ? SEL_BG : wd.isToday ? 'rgba(58,145,63,0.06)' : undefined,
@@ -230,14 +303,36 @@ export default function MyMonthWeeks({
         )
       })}
 
+      {committed && committed.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-3 py-2 rounded-full shadow-2xl bg-zinc-800 border border-zinc-700">
+          <span className="text-xs text-zinc-300 pl-1">
+            {committed.size} {committed.size === 1 ? 'dag' : 'dagen'} geselecteerd
+          </span>
+          <button
+            onClick={() => openEditorFor([...committed])}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-white transition-colors"
+            style={{ backgroundColor: '#3A913F' }}
+          >
+            <Check size={12} /> Bewerken
+          </button>
+          <button
+            onClick={() => setCommitted(null)}
+            aria-label="Selectie wissen"
+            className="w-6 h-6 flex items-center justify-center rounded-full text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700 transition-colors"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      )}
+
       {editing && (
         <DayEditor
           title={editing.title}
           initialCell={editing.cell}
           presets={presets}
           readOnly={false}
-          onSave={cell => { onApply(editing.targets, cell); setEditing(null) }}
-          onClear={() => { onClear(editing.targets); setEditing(null) }}
+          onSave={cell => { onApply(editing.targets, cell); setEditing(null); setCommitted(null) }}
+          onClear={() => { onClear(editing.targets); setEditing(null); setCommitted(null) }}
           onClose={() => setEditing(null)}
         />
       )}
