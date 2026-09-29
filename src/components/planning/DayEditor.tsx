@@ -24,7 +24,7 @@ function rectIndices(aIdx: number, bIdx: number): number[] {
   return out
 }
 
-interface StatusOption {
+export interface StatusOption {
   name: string
   color: string
 }
@@ -34,7 +34,7 @@ interface StatusOption {
 // (Verlof/Ziek/Recup/RBFA/…) fill in anything an admin hasn't added as a
 // real preset yet, so the picker isn't empty on day one. A preset with the
 // same name always wins (admin's own color, not the hardcoded one).
-function mergedStatusOptions(presets: PlanningPreset[]): StatusOption[] {
+export function mergedStatusOptions(presets: PlanningPreset[]): StatusOption[] {
   const seen = new Set<string>()
   const result: StatusOption[] = []
   for (const p of presets) {
@@ -65,7 +65,7 @@ function matchStatus(cell: CellData, options: StatusOption[]): string | null {
 }
 
 export default function DayEditor({
-  title, subtitle, initialCell, presets, readOnly, onSave, onClear, onClose, dateEditor,
+  title, subtitle, initialCell, presets, readOnly, onSave, onClear, onClose, dateEditor, emailToName,
 }: {
   title: string
   subtitle?: string
@@ -84,6 +84,9 @@ export default function DayEditor({
     selected: WeekDay[]
     onChange: (next: WeekDay[]) => void
   }
+  // Resolves a stored updated_by email to a real name, so the "last edited"
+  // trace reads "Robin B." instead of a raw email address.
+  emailToName?: Map<string, string>
 }) {
   const options = mergedStatusOptions(presets)
   const matchedStatus = matchStatus(initialCell, options)
@@ -163,6 +166,18 @@ export default function DayEditor({
 
   const selectedOption = options.find(o => o.name === statusName) ?? null
 
+  // Only ever set on a genuinely single, previously-saved cell (see
+  // CellData) — a multi-day/multi-person selection's initialCell is always
+  // a fresh empty one, so this line simply doesn't appear for those.
+  const lastEdited = initialCell.updatedBy
+    ? {
+        name: emailToName?.get(initialCell.updatedBy.trim().toLowerCase()) ?? initialCell.updatedBy,
+        when: initialCell.updatedAt
+          ? new Date(initialCell.updatedAt).toLocaleString('nl-BE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+          : null,
+      }
+    : null
+
   function handleSave() {
     const trimmedNote = note.trim() || null
     if (selectedOption) {
@@ -188,6 +203,12 @@ export default function DayEditor({
             <X size={16} />
           </button>
         </div>
+
+        {lastEdited && (
+          <p className="px-5 pt-2.5 text-[10px] text-zinc-600 flex-shrink-0">
+            Laatst gewijzigd door {lastEdited.name}{lastEdited.when && ` · ${lastEdited.when}`}
+          </p>
+        )}
 
         {readOnly ? (
           <div className="px-5 py-6 text-sm text-zinc-500">Je hebt geen rechten om dit te bewerken.</div>

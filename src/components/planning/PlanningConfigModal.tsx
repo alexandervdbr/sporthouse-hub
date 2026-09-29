@@ -249,6 +249,34 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
     setBusyArchive(null)
   }
 
+  // Everyone flagged "niet in Team" (see the badge below), collected up
+  // front so a beheerder can spot every remaining conflict at a glance
+  // instead of scrolling every department looking for the badge by eye.
+  const [showNotInTeamDigest, setShowNotInTeamDigest] = useState(true)
+  const [flashDept, setFlashDept] = useState<number | null>(null)
+  const deptRefs = useRef<Record<number, HTMLDivElement | null>>({})
+
+  const notInTeamList = useMemo(() => {
+    const out: { dept: string; deptIdx: number; emp: string }[] = []
+    depts.forEach((d, di) => {
+      d.employees.forEach(emp => {
+        const isArch = archived.some(a => a.dept === d.name && a.emp === emp)
+        if (!isArch && !teamNameSet.has(normName(emp))) out.push({ dept: d.name, deptIdx: di, emp })
+      })
+    })
+    return out
+  }, [depts, teamNameSet, archived])
+
+  function jumpToDept(deptIdx: number) {
+    setTab('afdelingen')
+    setCollapsed(prev => ({ ...prev, [deptIdx]: false }))
+    requestAnimationFrame(() => {
+      deptRefs.current[deptIdx]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+    setFlashDept(deptIdx)
+    setTimeout(() => setFlashDept(d => (d === deptIdx ? null : d)), 1500)
+  }
+
   const [staleness, setStaleness] = useState<Staleness[]>([])
   useEffect(() => {
     fetch('/api/planning/staleness').then(r => r.ok ? r.json() : []).then(setStaleness).catch(() => {})
@@ -536,6 +564,36 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
         {/* Body — scrollable */}
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
           {isBeheer && tab === 'presets' && <PresetsPanel />}
+
+          {(!isBeheer || tab === 'afdelingen') && notInTeamList.length > 0 && (
+            <div className="rounded-xl border border-amber-900/40 bg-amber-950/20 overflow-hidden">
+              <button
+                onClick={() => setShowNotInTeamDigest(v => !v)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-amber-400"
+              >
+                <TriangleAlert size={13} />
+                {notInTeamList.length} naam{notInTeamList.length === 1 ? '' : 'en'} niet gekoppeld aan Team
+                <span className="ml-auto text-amber-600">
+                  {showNotInTeamDigest ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                </span>
+              </button>
+              {showNotInTeamDigest && (
+                <div className="px-3 pb-2 space-y-0.5">
+                  {notInTeamList.map((n, i) => (
+                    <button
+                      key={i}
+                      onClick={() => jumpToDept(n.deptIdx)}
+                      className="w-full flex items-center justify-between gap-2 px-2 py-1 rounded-lg text-xs text-zinc-300 hover:bg-amber-900/20 transition-colors text-left"
+                    >
+                      <span className="truncate">{n.emp}</span>
+                      <span className="flex-shrink-0 text-[10px] text-zinc-500">{n.dept}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {(!isBeheer || tab === 'afdelingen') && depts.map((dept, di) => {
             const isDragTarget = dragOverDept === di || dragOverEmp?.dept === di && dragOverEmp.emp === -1
             const isCollapsed = !!collapsed[di]
@@ -545,6 +603,7 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
             return (
               <div
                 key={di}
+                ref={el => { deptRefs.current[di] = el }}
                 draggable
                 onDragStart={() => onDeptDragStart(di)}
                 onDragOver={e => dragEmpRef.current ? onDeptHeaderDragOver(e, di) : onDeptDragOver(e, di)}
@@ -552,8 +611,8 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
                 onDragEnd={onDeptDragEnd}
                 className="group rounded-xl border transition-all"
                 style={{
-                  borderColor: isDragTarget ? '#2563eb' : '#27272a',
-                  backgroundColor: isDragTarget ? 'rgba(37,99,235,0.06)' : '#111111',
+                  borderColor: flashDept === di ? '#f59e0b' : isDragTarget ? '#2563eb' : '#27272a',
+                  backgroundColor: flashDept === di ? 'rgba(245,158,11,0.08)' : isDragTarget ? 'rgba(37,99,235,0.06)' : '#111111',
                   opacity: isDraggingThis ? 0.5 : 1,
                 }}
               >

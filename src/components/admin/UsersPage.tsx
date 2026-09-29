@@ -80,6 +80,7 @@ const SECTION_GROUPS = [
     sections: [
       { key: 'planning',         label: 'Planning bekijken' },
       { key: 'planning_volledig', label: 'Planning bewerken' },
+      { key: 'planning_statistieken', label: 'Statistieken bekijken (Planning)' },
     ],
   },
   {

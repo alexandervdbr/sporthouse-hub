@@ -10,6 +10,12 @@ export interface CellData {
   // any specifics (a client, a time, a reason) shown as a secondary note
   // instead of becoming a one-off status of its own.
   note: string | null
+  // Who touched this cell last, and when — set on every write (see
+  // PlanningApp's writeEntries). Absent on rows written before this existed,
+  // and never populated on a freshly-opened empty cell, so its presence
+  // alone means "this is a real, previously-saved single cell."
+  updatedBy?: string | null
+  updatedAt?: string | null
 }
 
 export type PlanningWeekData = Record<string, CellData>

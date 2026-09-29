@@ -13,7 +13,7 @@ interface Target { wd: WeekDay; dept: string; emp: string }
 // or checking "what does this month look like" at a glance; day-to-day
 // editing still happens via the exact same DayEditor as the week view.
 export default function MyMonthCalendar({
-  year, month, dept, emp, data, readOnly, presets, onApply, onClear,
+  year, month, dept, emp, data, readOnly, presets, onApply, onClear, emailToName,
 }: {
   year: number
   month: number
@@ -24,6 +24,7 @@ export default function MyMonthCalendar({
   presets: PlanningPreset[]
   onApply: (targets: Target[], value: CellData) => void
   onClear: (targets: Target[]) => void
+  emailToName?: Map<string, string>
 }) {
   const days = getDaysInMonth(year, month)
   const leadingBlanks = (new Date(year, month - 1, 1).getDay() + 6) % 7
@@ -78,6 +79,7 @@ export default function MyMonthCalendar({
           initialCell={data[dateCellKey(year, month, editingDay, dept, emp)] ?? emptyCell()}
           presets={presets}
           readOnly={readOnly}
+          emailToName={emailToName}
           onSave={cell => { onApply([{ wd: wdFor(editingDay), dept, emp }], cell); setEditingDay(null) }}
           onClear={() => { onClear([{ wd: wdFor(editingDay), dept, emp }]); setEditingDay(null) }}
           onClose={() => setEditingDay(null)}

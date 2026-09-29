@@ -14,7 +14,7 @@ import DayEditor from './DayEditor'
 // either edge of the currently-loaded week asks the parent to load the
 // adjacent week and lands on the matching edge day once it arrives.
 export default function MobileTeamDayStepper({
-  week, people, data, canEditCol, presets, onApply, onClear, onNeedAdjacentWeek,
+  week, people, data, canEditCol, presets, onApply, onClear, onNeedAdjacentWeek, emailToName,
 }: {
   week: WeekDay[]
   people: Person[]
@@ -24,6 +24,7 @@ export default function MobileTeamDayStepper({
   onApply: (targets: { wd: WeekDay; dept: string; emp: string }[], value: CellData) => void
   onClear: (targets: { wd: WeekDay; dept: string; emp: string }[]) => void
   onNeedAdjacentWeek: (direction: 1 | -1) => void
+  emailToName?: Map<string, string>
 }) {
   const [dayIdx, setDayIdx] = useState(() => Math.max(0, week.findIndex(w => w.isToday)))
   const pendingEdgeRef = useRef<'start' | 'end' | null>(null)
@@ -131,6 +132,7 @@ export default function MobileTeamDayStepper({
           initialCell={data[weekDayCellKey(editing.wd, editing.dept, editing.emp)] ?? emptyCell()}
           presets={presets}
           readOnly={!canEditCol(editing.emp)}
+          emailToName={emailToName}
           onSave={cell => { onApply([editing], cell); setEditing(null) }}
           onClear={() => { onClear([editing]); setEditing(null) }}
           onClose={() => setEditing(null)}

@@ -48,7 +48,7 @@ function shortDisplayNames(people: Person[]): Map<string, string> {
 // frozen corner (sticky name column *and* sticky day header) since, unlike
 // a week, a month's ~30 columns won't fit without horizontal scrolling.
 export default function TeamMonthGrid({
-  year, month, people, data, canEditCol, presets, onApply, onClear, prefsKey, forceExpandSections = false,
+  year, month, people, data, canEditCol, presets, onApply, onClear, prefsKey, forceExpandSections = false, emailToName,
 }: {
   year: number
   month: number
@@ -60,6 +60,7 @@ export default function TeamMonthGrid({
   onClear: (targets: Target[]) => void
   prefsKey?: string
   forceExpandSections?: boolean
+  emailToName?: Map<string, string>
 }) {
   const days = useMemo(() => {
     const count = new Date(year, month, 0).getDate()
@@ -304,6 +305,7 @@ export default function TeamMonthGrid({
           initialCell={editing.cell}
           presets={presets}
           readOnly={false}
+          emailToName={emailToName}
           onSave={cell => { onApply(editing.targets, cell); setEditing(null) }}
           onClear={() => { onClear(editing.targets); setEditing(null) }}
           onClose={() => setEditing(null)}

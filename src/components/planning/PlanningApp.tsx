@@ -18,13 +18,14 @@ import MyMonthCalendar from './MyMonthCalendar'
 import MyMonthWeeks from './MyMonthWeeks'
 import TeamMonthGrid from './TeamMonthGrid'
 import MobileTeamDayStepper from './MobileTeamDayStepper'
+import PlanningStats from './PlanningStats'
 
 const norm = normName
 
-type Tab = 'mijn' | 'team'
+type Tab = 'mijn' | 'team' | 'stats'
 type TeamViewMode = 'week' | 'month'
 
-const SELECT_COLS = 'year, month, day, department, employee, value, bold, text_color, bg_color, note'
+const SELECT_COLS = 'year, month, day, department, employee, value, bold, text_color, bg_color, note, updated_by, updated_at'
 
 // Known, confirmed overrides for first names shared by more than one real
 // Team contact — see the reconciliation effect below for how this is used.
@@ -84,6 +85,7 @@ export default function PlanningApp() {
   const periodLabel = usingWeekNav ? weekLabel(week) : `${DUTCH_MONTHS[anchorMonth - 1]} ${anchorYear}`
 
   const [activeDepts, setActiveDepts] = useState<Department[]>(DEPARTMENTS)
+  const [configLoaded, setConfigLoaded] = useState(false)
   const [presets, setPresets] = useState<PlanningPreset[]>([])
   const [showConfig, setShowConfig] = useState(false)
 
@@ -102,6 +104,8 @@ export default function PlanningApp() {
   const [canEditAll, setCanEditAll] = useState(true)
   const [myColumn, setMyColumn] = useState<string | null>(null)
   const [isBeheer, setIsBeheer] = useState(false)
+  const [mySections, setMySections] = useState<string[]>([])
+  const [authChecked, setAuthChecked] = useState(false)
 
   const [myIdentity, setMyIdentity] = useState<string | null>(null)
   const [showNamePicker, setShowNamePicker] = useState(false)
@@ -115,6 +119,7 @@ export default function PlanningApp() {
       .then(r => r.json())
       .then((cfg: Department[] | null) => { if (Array.isArray(cfg) && cfg.length > 0) setActiveDepts(cfg) })
       .catch(() => { /* fall back to hardcoded DEPARTMENTS */ })
+      .finally(() => setConfigLoaded(true))
   }, [])
 
   async function handleSaveConfig(newDepts: Department[]) {
@@ -132,13 +137,24 @@ export default function PlanningApp() {
   // admins move them into the right department afterwards. Matched by name
   // only (no shared id with planning_entries), so a rename in Team won't be
   // picked up here — only additions/removals.
-  const [teamContacts, setTeamContacts] = useState<{ id: string; name: string }[]>([])
+  const [teamContacts, setTeamContacts] = useState<{ id: string; name: string; email: string | null }[]>([])
+  const [teamContactsLoaded, setTeamContactsLoaded] = useState(false)
   useEffect(() => {
     fetch('/api/team/members')
       .then(r => r.json())
-      .then((d: { id: string; name: string }[] | null) => { if (Array.isArray(d)) setTeamContacts(d) })
+      .then((d: { id: string; name: string; email: string | null }[] | null) => { if (Array.isArray(d)) setTeamContacts(d) })
       .catch(() => {})
+      .finally(() => setTeamContactsLoaded(true))
   }, [])
+
+  // Real name for whoever last touched a cell (see updated_by) — keyed by
+  // normalized email so DayEditor's trace line reads "Robin B." instead of a
+  // raw address. Same source of truth as the identity email-match below.
+  const emailToName = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const c of teamContacts) if (c.email) m.set(c.email.trim().toLowerCase(), c.name)
+    return m
+  }, [teamContacts])
 
   // All three self-healing/reconciliation effects below write to the same
   // config, so they share one lock — set synchronously before the async
@@ -295,11 +311,12 @@ export default function PlanningApp() {
   // ── Load permissions ─────────────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) return
+      if (!user) { setAuthChecked(true); return }
       setUserEmail(user.email ?? undefined)
       setMyName(user.user_metadata?.full_name ?? user.user_metadata?.name ?? '')
       const permsObj = user.app_metadata?.permissions ?? null
       const sections: string[] = permsObj?.sections ?? []
+      setMySections(sections)
       const admin = isAdminUser(user)
       setIsBeheer(admin)
       if (admin || permsObj === null || sections.includes('planning_volledig')) {
@@ -308,8 +325,11 @@ export default function PlanningApp() {
         setCanEditAll(false)
         setMyColumn(permsObj.planning_column ?? null)
       }
+      setAuthChecked(true)
     })
   }, [])
+
+  const canSeeStats = isBeheer || mySections.includes('planning_statistieken')
 
   const canEditCol = useCallback((emp: string): boolean => {
     if (canEditAll) return true
@@ -352,6 +372,29 @@ export default function PlanningApp() {
     if (myColumn && myColumn !== '__none__') setMyIdentity(myColumn)
   }, [myColumn])
 
+  // Real identity, derived from the login itself instead of a guessed/typed
+  // name: match the logged-in account's email against a Team contact's
+  // email (the same contacts /team already maintains). Runs once everything
+  // it depends on has actually settled (auth, Team contacts, and the real
+  // department config, not just the hardcoded fallback) so it doesn't fire
+  // prematurely against incomplete data. Only ever fills in a still-empty
+  // identity — never overrides a manual pick (see NamePicker below), and
+  // never touches a permission-locked column.
+  const [emailMatchAttempted, setEmailMatchAttempted] = useState(false)
+  useEffect(() => {
+    if (!authChecked || !teamContactsLoaded || !configLoaded) return
+    if (myIdentity || myColumn) { setEmailMatchAttempted(true); return }
+    if (userEmail) {
+      const wanted = userEmail.trim().toLowerCase()
+      const match = teamContacts.find(c => c.email && c.email.trim().toLowerCase() === wanted)
+      if (match && activeEveryEmployee.some(p => p.emp === match.name)) {
+        setMyIdentity(match.name)
+        try { localStorage.setItem('planning-my-name', match.name) } catch { /* ignore */ }
+      }
+    }
+    setEmailMatchAttempted(true)
+  }, [authChecked, teamContactsLoaded, configLoaded, userEmail, teamContacts, myIdentity, myColumn, activeEveryEmployee])
+
   const nameGuess = useMemo(() => {
     if (!myName) return null
     const myFirst = norm(myName).split(' ')[0]
@@ -360,12 +403,12 @@ export default function PlanningApp() {
     return candidates.length === 1 ? candidates[0] : null
   }, [myName, activeEveryEmployee])
 
-  // Ask once, only after we've actually checked localStorage and loaded the
-  // roster — otherwise this would flash on every load before the stored
-  // identity has had a chance to apply.
+  // Ask once, only after we've actually checked localStorage, attempted the
+  // email match above, and loaded the roster — otherwise this would flash
+  // on every load before either has had a chance to apply.
   useEffect(() => {
-    if (identityLoaded && activeEveryEmployee.length > 0 && !myIdentity && !myColumn) setShowNamePicker(true)
-  }, [identityLoaded, activeEveryEmployee, myIdentity, myColumn])
+    if (identityLoaded && emailMatchAttempted && activeEveryEmployee.length > 0 && !myIdentity && !myColumn) setShowNamePicker(true)
+  }, [identityLoaded, emailMatchAttempted, activeEveryEmployee, myIdentity, myColumn])
 
   function confirmIdentity(name: string) {
     setMyIdentity(name)
@@ -399,6 +442,7 @@ export default function PlanningApp() {
             value: r.value, bold: r.bold ?? true,
             textColor: r.text_color ?? '#ffffff', bgColor: r.bg_color ?? null,
             note: r.note ?? null,
+            updatedBy: r.updated_by ?? null, updatedAt: r.updated_at ?? null,
           }
         }
       }
@@ -434,6 +478,7 @@ export default function PlanningApp() {
           const row = payload.new as {
             year: number; month: number; day: number; department: string; employee: string
             value: string; bold: boolean | null; text_color: string | null; bg_color: string | null; note: string | null
+            updated_by: string | null; updated_at: string | null
           }
           setData(prev => ({
             ...prev,
@@ -441,6 +486,7 @@ export default function PlanningApp() {
               value: row.value, bold: row.bold ?? true,
               textColor: row.text_color ?? '#ffffff', bgColor: row.bg_color ?? null,
               note: row.note ?? null,
+              updatedBy: row.updated_by ?? null, updatedAt: row.updated_at ?? null,
             },
           }))
         }
@@ -475,7 +521,7 @@ export default function PlanningApp() {
       const rows = toUpsert.map(e => ({
         year: e.wd.year, month: e.wd.month, day: e.wd.day, department: e.dept, employee: e.emp,
         value: e.cell!.value, bold: e.cell!.bold, text_color: e.cell!.textColor, bg_color: e.cell!.bgColor, note: e.cell!.note,
-        updated_by: userEmail,
+        updated_by: userEmail, updated_at: new Date().toISOString(),
       }))
       await supabase.from('planning_entries').upsert(rows, { onConflict: 'year,month,day,department,employee' })
     }
@@ -539,24 +585,30 @@ export default function PlanningApp() {
 
   return (
     <div className="flex flex-col h-full gap-3">
-      {/* Period navigation — shared by both tabs */}
+      {/* Period navigation — shared by Mijn/Team; Statistieken has its own
+          jaar/maand controls (a report over a chosen period, not "the
+          currently visible week/month"), so this stays hidden there. */}
       <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
-        <button onClick={goPrev} aria-label={usingWeekNav ? 'Vorige week' : 'Vorige maand'}
-          className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-sh-grey hover:border-zinc-700 transition-colors">
-          <ChevronLeft size={15} />
-        </button>
-        <MiniCalendarPicker anchor={weekAnchor} onSelect={setWeekAnchor} label={periodLabel} />
-        <button onClick={goNext} aria-label={usingWeekNav ? 'Volgende week' : 'Volgende maand'}
-          className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-sh-grey hover:border-zinc-700 transition-colors">
-          <ChevronRight size={15} />
-        </button>
-        {!isCurrentPeriod && (
-          <button onClick={goToToday}
-            className="px-3 py-1.5 rounded-lg text-sm font-medium bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-sh-grey hover:border-zinc-700 transition-colors">
-            Vandaag
-          </button>
+        {tab !== 'stats' && (
+          <>
+            <button onClick={goPrev} aria-label={usingWeekNav ? 'Vorige week' : 'Vorige maand'}
+              className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-sh-grey hover:border-zinc-700 transition-colors">
+              <ChevronLeft size={15} />
+            </button>
+            <MiniCalendarPicker anchor={weekAnchor} onSelect={setWeekAnchor} label={periodLabel} />
+            <button onClick={goNext} aria-label={usingWeekNav ? 'Volgende week' : 'Volgende maand'}
+              className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-sh-grey hover:border-zinc-700 transition-colors">
+              <ChevronRight size={15} />
+            </button>
+            {!isCurrentPeriod && (
+              <button onClick={goToToday}
+                className="px-3 py-1.5 rounded-lg text-sm font-medium bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-sh-grey hover:border-zinc-700 transition-colors">
+                Vandaag
+              </button>
+            )}
+            {loading && <Loader2 size={13} className="animate-spin text-zinc-600" />}
+          </>
         )}
-        {loading && <Loader2 size={13} className="animate-spin text-zinc-600" />}
 
         <div className="ml-auto flex items-center gap-2">
           {tab === 'team' && (
@@ -584,9 +636,11 @@ export default function PlanningApp() {
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs — Statistieken alleen zichtbaar met de planning_statistieken
+          permissie (of voor beheerders) — geen aparte plek onder Beheer,
+          gewoon een normale tab die je per persoon kan toekennen. */}
       <div className="flex items-center gap-1 border-b border-zinc-800 flex-shrink-0">
-        {(['mijn', 'team'] as Tab[]).map(t => (
+        {(canSeeStats ? (['mijn', 'team', 'stats'] as Tab[]) : (['mijn', 'team'] as Tab[])).map(t => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -595,7 +649,7 @@ export default function PlanningApp() {
             }`}
             style={tab === t ? { borderColor: '#3A913F' } : undefined}
           >
-            {t === 'mijn' ? 'Mijn maand' : 'Team'}
+            {t === 'mijn' ? 'Mijn maand' : t === 'team' ? 'Team' : 'Statistieken'}
           </button>
         ))}
       </div>
@@ -604,6 +658,11 @@ export default function PlanningApp() {
         {tab === 'mijn' && (
           myPerson ? (
             <>
+              <div className="flex justify-end pb-1.5">
+                <button onClick={() => setShowNamePicker(true)} className="text-[11px] text-zinc-600 hover:text-zinc-300 underline">
+                  Niet jij? Wissel van naam
+                </button>
+              </div>
               <div className="hidden lg:block h-full">
                 <MyMonthWeeks
                   year={anchorYear}
@@ -615,6 +674,7 @@ export default function PlanningApp() {
                   presets={presets}
                   onApply={applyToTargets}
                   onClear={clearTargets}
+                  emailToName={emailToName}
                 />
               </div>
               <div className="lg:hidden">
@@ -628,6 +688,7 @@ export default function PlanningApp() {
                   presets={presets}
                   onApply={applyToTargets}
                   onClear={clearTargets}
+                  emailToName={emailToName}
                 />
               </div>
             </>
@@ -692,6 +753,7 @@ export default function PlanningApp() {
                     personSubtitle={p => p.dept}
                     prefsKey={myIdentity ?? undefined}
                     forceExpandSections={!!teamSearch.trim()}
+                    emailToName={emailToName}
                   />
                 ) : (
                   <TeamMonthGrid
@@ -705,6 +767,7 @@ export default function PlanningApp() {
                     onClear={clearTargets}
                     prefsKey={myIdentity ?? undefined}
                     forceExpandSections={!!teamSearch.trim()}
+                    emailToName={emailToName}
                   />
                 )}
               </div>
@@ -719,9 +782,14 @@ export default function PlanningApp() {
                 onApply={applyToTargets}
                 onClear={clearTargets}
                 onNeedAdjacentWeek={dir => setWeekAnchor(a => addWeeks(a, dir))}
+                emailToName={emailToName}
               />
             </div>
           </>
+        )}
+
+        {tab === 'stats' && canSeeStats && (
+          <PlanningStats departments={activeDepts} archived={archived} presets={presets} />
         )}
       </div>
 

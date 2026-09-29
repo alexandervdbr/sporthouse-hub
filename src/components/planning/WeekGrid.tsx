@@ -60,7 +60,7 @@ function shortDisplayNames(people: Person[]): Map<string, string> {
 export default function WeekGrid({
   week, people, data, canEditCol, presets, onApply, onClear,
   groupHeaders = false, showNameColumn = true, variant = 'compact', personSubtitle,
-  prefsKey, forceExpandSections = false,
+  prefsKey, forceExpandSections = false, emailToName,
 }: {
   week: WeekDay[]
   people: Person[]
@@ -78,6 +78,7 @@ export default function WeekGrid({
   // reuses the same localStorage-per-identity pattern as "who am I".
   prefsKey?: string
   forceExpandSections?: boolean
+  emailToName?: Map<string, string>
 }) {
   const dragRef = useRef<{ rowIdx: number; startCol: number } | null>(null)
   const [selection, setSelection] = useState<Selection | null>(null)
@@ -404,6 +405,7 @@ export default function WeekGrid({
           initialCell={editing.cell}
           presets={presets}
           readOnly={false}
+          emailToName={emailToName}
           onSave={cell => { onApply(editing.targets, cell); setEditing(null) }}
           onClear={() => { onClear(editing.targets); setEditing(null) }}
           onClose={() => setEditing(null)}

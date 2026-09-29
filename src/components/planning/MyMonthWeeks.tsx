@@ -49,7 +49,7 @@ function rectIndices(aIdx: number, bIdx: number): number[] {
 // WeekGrid, since WeekGrid's row/col model is bounded to one instance's own
 // 7 days and can't reach across sibling week-rows.
 export default function MyMonthWeeks({
-  year, month, dept, emp, data, readOnly, presets, onApply, onClear,
+  year, month, dept, emp, data, readOnly, presets, onApply, onClear, emailToName,
 }: {
   year: number
   month: number
@@ -60,6 +60,7 @@ export default function MyMonthWeeks({
   presets: PlanningPreset[]
   onApply: (targets: Target[], value: CellData) => void
   onClear: (targets: Target[]) => void
+  emailToName?: Map<string, string>
 }) {
   const weeks = getMonthWeeks(year, month)
   const allDays = weeks.flat()
@@ -376,6 +377,7 @@ export default function MyMonthWeeks({
           initialCell={editing.cell}
           presets={presets}
           readOnly={false}
+          emailToName={emailToName}
           dateEditor={{
             pool: allDays,
             selected: editing.targets.map(t => t.wd),
