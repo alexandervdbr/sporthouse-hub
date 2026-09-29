@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { X, Check, Trash2 } from 'lucide-react'
 import type { PlanningPreset } from '@/lib/planning-presets'
 import { PLANNING_OPTIONS } from '@/lib/planning-config'
@@ -8,6 +8,20 @@ import type { CellData, WeekDay } from '@/lib/planning-week'
 
 function sameDay(a: WeekDay, b: WeekDay) {
   return a.year === b.year && a.month === b.month && a.day === b.day
+}
+
+// Same row/col rectangle math as MyMonthWeeks' main grid, applied to
+// positions within the "Dagen" pool array (always rendered 7-wide) instead
+// of the month's own flat day index — small enough to duplicate locally
+// rather than share a module for one helper.
+function rectIndices(aIdx: number, bIdx: number): number[] {
+  const ar = Math.floor(aIdx / 7), ac = aIdx % 7
+  const br = Math.floor(bIdx / 7), bc = bIdx % 7
+  const r0 = Math.min(ar, br), r1 = Math.max(ar, br)
+  const c0 = Math.min(ac, bc), c1 = Math.max(ac, bc)
+  const out: number[] = []
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) out.push(r * 7 + c)
+  return out
 }
 
 interface StatusOption {
@@ -81,6 +95,66 @@ export default function DayEditor({
   const [customText, setCustomText] = useState(matchedStatus ? '' : initialCell.value)
   const [note, setNote] = useState(initialCell.note ?? '')
 
+  // Drag/ctrl/shift-click on the "Dagen" pool, same gestures as the main
+  // month grid — except there's no separate "commit vs. open editor" step
+  // here, since we're already inside the editor: a plain drag just toggles
+  // every day it touches, in whichever direction (add/remove) matches
+  // whatever the day you started on already was.
+  const [dateDrag, setDateDrag] = useState<{ start: number; addMode: boolean; cells: Set<number> } | null>(null)
+  const dateAnchorRef = useRef<number | null>(null)
+
+  function isPoolSelected(i: number) {
+    if (!dateEditor) return false
+    const wd = dateEditor.pool[i]
+    return dateEditor.selected.some(s => sameDay(s, wd))
+  }
+
+  function applyDateCells(cells: Set<number>, addMode: boolean) {
+    if (!dateEditor) return
+    let next = dateEditor.selected
+    for (const i of cells) {
+      const wd = dateEditor.pool[i]
+      const already = next.some(s => sameDay(s, wd))
+      if (addMode && !already) next = [...next, wd]
+      else if (!addMode && already) next = next.filter(s => !sameDay(s, wd))
+    }
+    dateEditor.onChange(next)
+  }
+
+  function handleDatePointerDown(e: React.PointerEvent, i: number) {
+    e.preventDefault()
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+
+    if (e.shiftKey && dateAnchorRef.current !== null) {
+      applyDateCells(new Set(rectIndices(dateAnchorRef.current, i)), true)
+      return
+    }
+
+    dateAnchorRef.current = i
+    setDateDrag({ start: i, addMode: !isPoolSelected(i), cells: new Set([i]) })
+  }
+
+  function handleDatePointerMove(e: React.PointerEvent) {
+    if (!dateDrag) return
+    const el = document.elementFromPoint(e.clientX, e.clientY)
+    const cellEl = el?.closest('[data-pool-idx]') as HTMLElement | null
+    if (!cellEl) return
+    const i = Number(cellEl.dataset.poolIdx)
+    setDateDrag(prev => prev && { ...prev, cells: new Set(rectIndices(prev.start, i)) })
+  }
+
+  function handleDatePointerUp(e: React.PointerEvent) {
+    if (!dateDrag) return
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId) } catch { /* already released */ }
+    applyDateCells(dateDrag.cells, dateDrag.addMode)
+    setDateDrag(null)
+  }
+
+  function dateCellDisplaySelected(i: number) {
+    if (dateDrag && dateDrag.cells.has(i)) return dateDrag.addMode
+    return isPoolSelected(i)
+  }
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
@@ -125,22 +199,25 @@ export default function DayEditor({
                   Dagen ({dateEditor.selected.length})
                 </p>
                 <div className="grid grid-cols-7 gap-1">
-                  {dateEditor.pool.map(wd => {
-                    const isSel = dateEditor.selected.some(s => sameDay(s, wd))
+                  {dateEditor.pool.map((wd, i) => {
+                    const isSel = dateCellDisplaySelected(i)
                     return (
                       <button
                         key={`${wd.year}-${wd.month}-${wd.day}`}
-                        onClick={() => {
-                          const next = isSel
-                            ? dateEditor.selected.filter(s => !sameDay(s, wd))
-                            : [...dateEditor.selected, wd]
-                          dateEditor.onChange(next)
-                        }}
+                        data-pool-idx={i}
+                        onPointerDown={e => handleDatePointerDown(e, i)}
+                        onPointerMove={handleDatePointerMove}
+                        onPointerUp={handleDatePointerUp}
+                        onDragStart={e => e.preventDefault()}
                         title={`${wd.dayName} ${wd.day} ${wd.month}`}
+                        style={{
+                          touchAction: 'none',
+                          userSelect: 'none',
+                          WebkitUserSelect: 'none',
+                          backgroundColor: isSel ? '#3A913F' : 'rgba(255,255,255,0.04)',
+                          color: isSel ? '#fff' : wd.isWeekend ? '#52525b' : '#a1a1aa',
+                        }}
                         className="aspect-square rounded-md text-[11px] font-medium flex items-center justify-center transition-colors"
-                        style={isSel
-                          ? { backgroundColor: '#3A913F', color: '#fff' }
-                          : { backgroundColor: 'rgba(255,255,255,0.04)', color: wd.isWeekend ? '#52525b' : '#a1a1aa' }}
                       >
                         {wd.day}
                       </button>

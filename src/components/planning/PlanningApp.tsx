@@ -34,8 +34,10 @@ export default function PlanningApp() {
   const [tab, setTab] = useState<Tab>('mijn')
   // Month view is only offered on "Mijn week" — a people × 7-day grid
   // reduced to a whole month for Team would just recreate the original
-  // too-dense-to-use problem this redesign exists to fix.
-  const [viewMode, setViewMode] = useState<ViewMode>('week')
+  // too-dense-to-use problem this redesign exists to fix. Maand is the
+  // default landing view (overridden below by whatever's remembered from a
+  // previous visit).
+  const [viewMode, setViewMode] = useState<ViewMode>('month')
 
   // Remembered across refreshes/visits — read after mount (same pattern as
   // the identity lookup below) so this stays in sync even if it changes in
