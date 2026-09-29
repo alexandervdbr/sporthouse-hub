@@ -16,29 +16,72 @@ import MiniCalendarPicker from './MiniCalendarPicker'
 import WeekGrid, { type Person } from './WeekGrid'
 import MyMonthCalendar from './MyMonthCalendar'
 import MyMonthWeeks from './MyMonthWeeks'
+import TeamMonthGrid from './TeamMonthGrid'
 import MobileTeamDayStepper from './MobileTeamDayStepper'
 
 const norm = normName
 
 type Tab = 'mijn' | 'team'
+type TeamViewMode = 'week' | 'month'
 
 const SELECT_COLS = 'year, month, day, department, employee, value, bold, text_color, bg_color, note'
+
+// Known, confirmed overrides for first names shared by more than one real
+// Team contact — see the reconciliation effect below for how this is used.
+const AMBIGUOUS_FIRST_NAME_OVERRIDES: Record<string, { surnamePrefix: string; dept: string }[]> = {
+  jelle: [
+    { surnamePrefix: 'v', dept: 'Team PS' },          // Jelle Vlemincx(...)
+    { surnamePrefix: 'd', dept: 'Sport Vl' },         // Jelle Desterbecq
+  ],
+  thijs: [
+    { surnamePrefix: 'm', dept: 'Projectkant SHG' },  // Thijs Meusen
+    { surnamePrefix: 'g', dept: 'FOS' },              // Thijs Goemand(s)
+  ],
+}
 
 export default function PlanningApp() {
   const supabase = createClient()
 
   const [tab, setTab] = useState<Tab>('mijn')
   // "Mijn" is always the month view now — a people × 7-day grid reduced to
-  // a whole month wouldn't fit Team (that's the original too-dense problem
-  // this redesign exists to fix), so Team stays week-based; each tab just
-  // navigates its own kind of period, keyed off the same shared anchor date.
+  // a whole month wouldn't fit Team at that density (the original
+  // too-dense problem this redesign exists to fix), so Team's month view
+  // (below) is a separate, deliberately compact overview rather than the
+  // primary editing surface — the week view stays that. Desktop only;
+  // mobile always gets the week-based day-stepper regardless of this.
+  const [teamViewMode, setTeamViewMode] = useState<TeamViewMode>('week')
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('planning-team-view-mode')
+      if (stored === 'week' || stored === 'month') setTeamViewMode(stored)
+    } catch { /* private browsing */ }
+  }, [])
+  useEffect(() => {
+    try { localStorage.setItem('planning-team-view-mode', teamViewMode) } catch { /* private browsing */ }
+  }, [teamViewMode])
+
+  // Mobile always shows Team's week-based day-stepper regardless of
+  // teamViewMode (a stored 'month' preference could otherwise follow
+  // someone from a desktop session onto a narrow viewport where there's no
+  // month view to show), so the shared nav bar needs to know the actual
+  // viewport, not just the toggle's last setting.
+  const [isMobileViewport, setIsMobileViewport] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 1023px)')
+    setIsMobileViewport(mq.matches)
+    const onChange = () => setIsMobileViewport(mq.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+
   const [weekAnchor, setWeekAnchor] = useState(() => new Date())
   const week = useMemo(() => getWeekDates(weekAnchor), [weekAnchor])
   const isCurrentWeek = week.some(w => w.isToday)
   const anchorYear = weekAnchor.getFullYear()
   const anchorMonth = weekAnchor.getMonth() + 1
   const isCurrentMonth = anchorYear === new Date().getFullYear() && anchorMonth === new Date().getMonth() + 1
-  const periodLabel = tab === 'team' ? weekLabel(week) : `${DUTCH_MONTHS[anchorMonth - 1]} ${anchorYear}`
+  const usingWeekNav = tab === 'team' && (teamViewMode === 'week' || isMobileViewport)
+  const periodLabel = usingWeekNav ? weekLabel(week) : `${DUTCH_MONTHS[anchorMonth - 1]} ${anchorYear}`
 
   const [activeDepts, setActiveDepts] = useState<Department[]>(DEPARTMENTS)
   const [presets, setPresets] = useState<PlanningPreset[]>([])
@@ -132,21 +175,11 @@ export default function PlanningApp() {
   // resolves every one of those against the real Team contact it means,
   // renaming it in place. When a first name matches more than one Team
   // contact (two people both named "Jelle", "Thijs", …), a per-name
-  // override says which surname goes to which department; anything
+  // override (declared at module scope so its reference is stable across
+  // renders) says which surname goes to which department; anything
   // ambiguous with no override is left untouched (still flagged "niet in
   // team" — a genuine remaining conflict to sort out manually) rather than
-  // guessing wrong. Known, confirmed overrides so far:
-  const AMBIGUOUS_FIRST_NAME_OVERRIDES: Record<string, { surnamePrefix: string; dept: string }[]> = {
-    jelle: [
-      { surnamePrefix: 'v', dept: 'Team PS' },        // Jelle Vlemincx(...)
-      { surnamePrefix: 'd', dept: 'Sport Vl' },        // Jelle Desterbecq
-    ],
-    thijs: [
-      { surnamePrefix: 'm', dept: 'Projectkant SHG' }, // Thijs Meusen
-      { surnamePrefix: 'g', dept: 'FOS' },              // Thijs Goemand(s)
-    ],
-  }
-
+  // guessing wrong.
   useEffect(() => {
     if (!isBeheer || teamContacts.length === 0 || activeDepts.length === 0 || configWriteRef.current) return
     let changed = false
@@ -348,7 +381,7 @@ export default function PlanningApp() {
   // "Mijn maand" renders full calendar weeks (see getMonthWeeks), so the
   // first/last week can spill into the neighboring month — those overflow
   // days need their data loaded too, not just the target month's own days.
-  const daysToLoad = tab === 'team' ? week : getMonthWeeks(anchorYear, anchorMonth).flat()
+  const daysToLoad = usingWeekNav ? week : getMonthWeeks(anchorYear, anchorMonth).flat()
 
   // ── Load the visible period's data (a week, or a whole month) ───────────
   useEffect(() => {
@@ -375,7 +408,7 @@ export default function PlanningApp() {
     load()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, week, anchorYear, anchorMonth])
+  }, [usingWeekNav, week, anchorYear, anchorMonth])
 
   // ── Live updates — other people's edits land here as they happen, not
   // just after navigating away and back. Merges straight into `data`
@@ -491,9 +524,9 @@ export default function PlanningApp() {
   })
 
   function goToToday() { setWeekAnchor(new Date()) }
-  function goPrev() { setWeekAnchor(a => tab === 'team' ? addWeeks(a, -1) : addMonths(a, -1)) }
-  function goNext() { setWeekAnchor(a => tab === 'team' ? addWeeks(a, 1) : addMonths(a, 1)) }
-  const isCurrentPeriod = tab === 'team' ? isCurrentWeek : isCurrentMonth
+  function goPrev() { setWeekAnchor(a => usingWeekNav ? addWeeks(a, -1) : addMonths(a, -1)) }
+  function goNext() { setWeekAnchor(a => usingWeekNav ? addWeeks(a, 1) : addMonths(a, 1)) }
+  const isCurrentPeriod = usingWeekNav ? isCurrentWeek : isCurrentMonth
 
   const visibleTeam: Person[] = useMemo(() => {
     const pool = showArchived ? everyEmployee : activeEveryEmployee
@@ -508,12 +541,12 @@ export default function PlanningApp() {
     <div className="flex flex-col h-full gap-3">
       {/* Period navigation — shared by both tabs */}
       <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
-        <button onClick={goPrev} aria-label={tab === 'team' ? 'Vorige week' : 'Vorige maand'}
+        <button onClick={goPrev} aria-label={usingWeekNav ? 'Vorige week' : 'Vorige maand'}
           className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-sh-grey hover:border-zinc-700 transition-colors">
           <ChevronLeft size={15} />
         </button>
         <MiniCalendarPicker anchor={weekAnchor} onSelect={setWeekAnchor} label={periodLabel} />
-        <button onClick={goNext} aria-label={tab === 'team' ? 'Volgende week' : 'Volgende maand'}
+        <button onClick={goNext} aria-label={usingWeekNav ? 'Volgende week' : 'Volgende maand'}
           className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-sh-grey hover:border-zinc-700 transition-colors">
           <ChevronRight size={15} />
         </button>
@@ -526,6 +559,21 @@ export default function PlanningApp() {
         {loading && <Loader2 size={13} className="animate-spin text-zinc-600" />}
 
         <div className="ml-auto flex items-center gap-2">
+          {tab === 'team' && (
+            <div className="hidden lg:flex items-center gap-1 p-1 rounded-lg bg-zinc-900 border border-zinc-800">
+              {(['week', 'month'] as TeamViewMode[]).map(v => (
+                <button
+                  key={v}
+                  onClick={() => setTeamViewMode(v)}
+                  className="px-2.5 py-1 rounded-md text-xs font-medium transition-colors"
+                  style={teamViewMode === v ? { backgroundColor: '#3A913F', color: '#fff' } : { color: '#a1a1aa' }}
+                >
+                  {v === 'week' ? 'Week' : 'Maand'}
+                </button>
+              ))}
+            </div>
+          )}
+
           {isBeheer && (
             <button onClick={() => setShowConfig(true)}
               className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700 transition-colors"
@@ -629,21 +677,36 @@ export default function PlanningApp() {
                 )}
               </div>
               <div className="flex-1 min-h-0">
-                <WeekGrid
-                  week={week}
-                  people={visibleTeam}
-                  data={data}
-                  canEditCol={canEditCol}
-                  presets={presets}
-                  onApply={applyToTargets}
-                  onClear={clearTargets}
-                  groupHeaders
-                  showNameColumn
-                  variant="compact"
-                  personSubtitle={p => p.dept}
-                  prefsKey={myIdentity ?? undefined}
-                  forceExpandSections={!!teamSearch.trim()}
-                />
+                {teamViewMode === 'week' ? (
+                  <WeekGrid
+                    week={week}
+                    people={visibleTeam}
+                    data={data}
+                    canEditCol={canEditCol}
+                    presets={presets}
+                    onApply={applyToTargets}
+                    onClear={clearTargets}
+                    groupHeaders
+                    showNameColumn
+                    variant="compact"
+                    personSubtitle={p => p.dept}
+                    prefsKey={myIdentity ?? undefined}
+                    forceExpandSections={!!teamSearch.trim()}
+                  />
+                ) : (
+                  <TeamMonthGrid
+                    year={anchorYear}
+                    month={anchorMonth}
+                    people={visibleTeam}
+                    data={data}
+                    canEditCol={canEditCol}
+                    presets={presets}
+                    onApply={applyToTargets}
+                    onClear={clearTargets}
+                    prefsKey={myIdentity ?? undefined}
+                    forceExpandSections={!!teamSearch.trim()}
+                  />
+                )}
               </div>
             </div>
             <div className="lg:hidden">
