@@ -12,6 +12,8 @@ interface DragState { start: number; additive: boolean; cells: Set<number> }
 
 const SEL_BG = 'rgba(59,130,246,0.15)'
 const SEL_BDR = '1px solid rgba(59,130,246,0.5)'
+const SCROLL_EDGE = 60
+const SCROLL_MAX_SPEED = 16
 
 // A day's flat index is wi*7+ci — row/col math below turns two such indices
 // into every index inside the rectangle they bound, regardless of which
@@ -62,13 +64,16 @@ export default function MyMonthWeeks({
   const weeks = getMonthWeeks(year, month)
   const allDays = weeks.flat()
   const todayRowRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
 
   const [drag, setDrag] = useState<DragState | null>(null)
   const [committed, setCommitted] = useState<Set<number> | null>(null)
   const anchorRef = useRef<number | null>(null)
+  const pointerPosRef = useRef<{ x: number; y: number } | null>(null)
+  const scrollRafRef = useRef<number | null>(null)
 
   const [menuKey, setMenuKey] = useState<string | null>(null)
-  const [editing, setEditing] = useState<{ targets: Target[]; cell: CellData; title: string } | null>(null)
+  const [editing, setEditing] = useState<{ targets: Target[]; cell: CellData } | null>(null)
   const clipboardRef = useRef<CellData | null>(null)
   const [hasClipboard, setHasClipboard] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -100,12 +105,10 @@ export default function MyMonthWeeks({
     if (readOnly || idxs.length === 0) return
     const sorted = [...idxs].sort((a, b) => a - b)
     const targets: Target[] = sorted.map(i => ({ wd: allDays[i], dept, emp }))
-    const single = targets.length === 1
-    const initial = single
+    const initial = targets.length === 1
       ? (data[weekDayCellKey(targets[0].wd, dept, emp)] ?? emptyCell())
       : emptyCell()
-    const title = single ? dayTitle(targets[0].wd) : `${targets.length} dagen geselecteerd`
-    setEditing({ targets, cell: initial, title })
+    setEditing({ targets, cell: initial })
   }
 
   // Enter commits the current selection, Escape drops it — both skipped
@@ -125,6 +128,44 @@ export default function MyMonthWeeks({
     return () => window.removeEventListener('keydown', onKey)
   })
 
+  // Dragging near the top/bottom edge of the scroll container keeps
+  // scrolling it (and growing the selection rectangle to match) even though
+  // the pointer itself isn't moving — without this, whichever week is just
+  // out of view can never be reached by a single continuous drag.
+  function autoScrollTick(dragStart: number) {
+    const container = containerRef.current
+    const pos = pointerPosRef.current
+    if (container && pos) {
+      const rect = container.getBoundingClientRect()
+      let dy = 0
+      if (pos.y < rect.top + SCROLL_EDGE) {
+        dy = -SCROLL_MAX_SPEED * Math.min(1, (rect.top + SCROLL_EDGE - pos.y) / SCROLL_EDGE)
+      } else if (pos.y > rect.bottom - SCROLL_EDGE) {
+        dy = SCROLL_MAX_SPEED * Math.min(1, (pos.y - (rect.bottom - SCROLL_EDGE)) / SCROLL_EDGE)
+      }
+      if (dy !== 0) {
+        container.scrollTop += dy
+        const el = document.elementFromPoint(pos.x, pos.y)
+        const cellEl = el?.closest('[data-idx]') as HTMLElement | null
+        if (cellEl) {
+          const idx = Number(cellEl.dataset.idx)
+          setDrag(prev => prev && { ...prev, cells: new Set(rectIndices(dragStart, idx)) })
+        }
+      }
+    }
+    scrollRafRef.current = requestAnimationFrame(() => autoScrollTick(dragStart))
+  }
+
+  function stopAutoScroll() {
+    if (scrollRafRef.current !== null) {
+      cancelAnimationFrame(scrollRafRef.current)
+      scrollRafRef.current = null
+    }
+    pointerPosRef.current = null
+  }
+
+  useEffect(() => stopAutoScroll, [])
+
   function handlePointerDown(e: React.PointerEvent, idx: number) {
     if (readOnly) return
     // Without this, starting the drag on the status pill's text kicks off
@@ -140,10 +181,13 @@ export default function MyMonthWeeks({
 
     anchorRef.current = idx
     setDrag({ start: idx, additive: e.ctrlKey || e.metaKey, cells: new Set([idx]) })
+    pointerPosRef.current = { x: e.clientX, y: e.clientY }
+    scrollRafRef.current = requestAnimationFrame(() => autoScrollTick(idx))
   }
 
   function handlePointerMove(e: React.PointerEvent) {
     if (!drag) return
+    pointerPosRef.current = { x: e.clientX, y: e.clientY }
     const el = document.elementFromPoint(e.clientX, e.clientY)
     const cellEl = el?.closest('[data-idx]') as HTMLElement | null
     if (!cellEl) return
@@ -152,6 +196,7 @@ export default function MyMonthWeeks({
   }
 
   function handlePointerUp(e: React.PointerEvent) {
+    stopAutoScroll()
     if (!drag) return
     try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId) } catch { /* already released */ }
 
@@ -200,7 +245,7 @@ export default function MyMonthWeeks({
   }
 
   return (
-    <div className="h-full overflow-y-auto rounded-xl border border-zinc-800">
+    <div ref={containerRef} className="h-full overflow-y-auto rounded-xl border border-zinc-800">
       {weeks.map((week, wi) => {
         const containsToday = week.some(wd => wd.isToday)
         return (
@@ -327,10 +372,19 @@ export default function MyMonthWeeks({
 
       {editing && (
         <DayEditor
-          title={editing.title}
+          title={editing.targets.length === 1 ? dayTitle(editing.targets[0].wd) : `${editing.targets.length} dagen geselecteerd`}
           initialCell={editing.cell}
           presets={presets}
           readOnly={false}
+          dateEditor={{
+            pool: allDays,
+            selected: editing.targets.map(t => t.wd),
+            onChange: next => {
+              if (next.length === 0) { setEditing(null); setCommitted(null); return }
+              const sorted = [...next].sort((a, b) => a.year - b.year || a.month - b.month || a.day - b.day)
+              setEditing(prev => prev && { ...prev, targets: sorted.map(wd => ({ wd, dept, emp })) })
+            },
+          }}
           onSave={cell => { onApply(editing.targets, cell); setEditing(null); setCommitted(null) }}
           onClear={() => { onClear(editing.targets); setEditing(null); setCommitted(null) }}
           onClose={() => setEditing(null)}

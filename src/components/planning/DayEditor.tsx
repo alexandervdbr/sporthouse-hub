@@ -4,7 +4,11 @@ import { useEffect, useState } from 'react'
 import { X, Check, Trash2 } from 'lucide-react'
 import type { PlanningPreset } from '@/lib/planning-presets'
 import { PLANNING_OPTIONS } from '@/lib/planning-config'
-import type { CellData } from '@/lib/planning-week'
+import type { CellData, WeekDay } from '@/lib/planning-week'
+
+function sameDay(a: WeekDay, b: WeekDay) {
+  return a.year === b.year && a.month === b.month && a.day === b.day
+}
 
 interface StatusOption {
   name: string
@@ -47,7 +51,7 @@ function matchStatus(cell: CellData, options: StatusOption[]): string | null {
 }
 
 export default function DayEditor({
-  title, subtitle, initialCell, presets, readOnly, onSave, onClear, onClose,
+  title, subtitle, initialCell, presets, readOnly, onSave, onClear, onClose, dateEditor,
 }: {
   title: string
   subtitle?: string
@@ -57,6 +61,15 @@ export default function DayEditor({
   onSave: (cell: CellData) => void
   onClear: () => void
   onClose: () => void
+  // Lets this popup show/adjust exactly which dates a save will apply to,
+  // instead of the date set being frozen at whatever was selected before
+  // opening it. Only meaningful for a caller dealing in a flat WeekDay set
+  // for one fixed (dept, emp) — MyMonthWeeks' box/ctrl-click selection.
+  dateEditor?: {
+    pool: WeekDay[]
+    selected: WeekDay[]
+    onChange: (next: WeekDay[]) => void
+  }
 }) {
   const options = mergedStatusOptions(presets)
   const matchedStatus = matchStatus(initialCell, options)
@@ -106,6 +119,37 @@ export default function DayEditor({
           <div className="px-5 py-6 text-sm text-zinc-500">Je hebt geen rechten om dit te bewerken.</div>
         ) : (
           <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+            {dateEditor && (
+              <div>
+                <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mb-2">
+                  Dagen ({dateEditor.selected.length})
+                </p>
+                <div className="grid grid-cols-7 gap-1">
+                  {dateEditor.pool.map(wd => {
+                    const isSel = dateEditor.selected.some(s => sameDay(s, wd))
+                    return (
+                      <button
+                        key={`${wd.year}-${wd.month}-${wd.day}`}
+                        onClick={() => {
+                          const next = isSel
+                            ? dateEditor.selected.filter(s => !sameDay(s, wd))
+                            : [...dateEditor.selected, wd]
+                          dateEditor.onChange(next)
+                        }}
+                        title={`${wd.dayName} ${wd.day} ${wd.month}`}
+                        className="aspect-square rounded-md text-[11px] font-medium flex items-center justify-center transition-colors"
+                        style={isSel
+                          ? { backgroundColor: '#3A913F', color: '#fff' }
+                          : { backgroundColor: 'rgba(255,255,255,0.04)', color: wd.isWeekend ? '#52525b' : '#a1a1aa' }}
+                      >
+                        {wd.day}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
             <div>
               <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mb-2">Status</p>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
