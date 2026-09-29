@@ -694,8 +694,15 @@ export default function PlanningApp() {
             </>
           ) : (
             <div className="py-12 text-center text-sm text-zinc-500">
-              {identityLoaded ? 'Nog geen naam gekozen.' : 'Laden…'}
-              {identityLoaded && (
+              {/* Gated on emailMatchAttempted, not just identityLoaded — that
+                  only means "checked localStorage", which resolves almost
+                  instantly on every refresh, well before the real department
+                  config has replaced the hardcoded fallback list. Without
+                  this, a returning person whose identity lives only in the
+                  synced config (not the fallback) would flash this message
+                  for a moment on every reload before myPerson resolves. */}
+              {identityLoaded && emailMatchAttempted ? 'Nog geen naam gekozen.' : 'Laden…'}
+              {identityLoaded && emailMatchAttempted && (
                 <button onClick={() => setShowNamePicker(true)} className="block mx-auto mt-2 text-xs text-zinc-400 hover:text-zinc-200 underline">
                   Kies wie je bent
                 </button>
