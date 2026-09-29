@@ -33,11 +33,11 @@ const SEL_BG = 'rgba(59,130,246,0.15)'
 const SEL_BDR = '1px solid rgba(59,130,246,0.5)'
 const EMPTY_PREFS: SectionPrefs = { favorites: [], collapsed: [] }
 
-// Shared by both tabs — Team passes the full roster (grouped, dense); Mijn
-// week passes a single person and no group headers (bigger, calmer cells).
-// Desktop only: mobile gets its own simpler views (a 7-day-in-one-row grid
-// doesn't fit a phone screen at any density) — see MobileMyWeekAgenda /
-// MobileTeamDayStepper.
+// Used by Team (the full roster, grouped, dense). Desktop only: mobile gets
+// its own simpler view (a 7-day-in-one-row grid doesn't fit a phone screen
+// at any density) — see MobileTeamDayStepper. "Mijn" no longer has a week
+// view (see MyMonthWeeks) but this still supports a single-person/spacious
+// mode in case that's ever needed again.
 export default function WeekGrid({
   week, people, data, canEditCol, presets, onApply, onClear,
   groupHeaders = false, showNameColumn = true, variant = 'compact', personSubtitle,
