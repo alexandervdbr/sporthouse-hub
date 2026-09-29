@@ -17,6 +17,18 @@ const SEL_BDR = '1px solid rgba(59,130,246,0.5)'
 const EMPTY_PREFS: SectionPrefs = { favorites: [], collapsed: [] }
 const NAME_COL_WIDTH = 108
 const DAY_COL_WIDTH = 30
+// Amber to stay visually distinct from the blue drag-selection tint. The
+// name cell is opaque (it's sticky over horizontally-scrolling day columns,
+// so a translucent color there would let scrolled-under cells bleed
+// through) — day cells aren't sticky, so a translucent wash reads fine.
+const ROW_HIGHLIGHT_NAME_BG = '#2e2712'
+const ROW_HIGHLIGHT_CELL_BG = 'rgba(245,158,11,0.10)'
+const WEEKEND_CELL_BG = 'rgba(0,0,0,0.35)'
+const WEEKEND_HEADER_BG = '#121212'
+
+function personKey(p: Person) {
+  return `${p.dept}|${p.emp}`
+}
 
 // Same collision rule as WeekGrid's week view — first name only, unless two
 // people share it, then add the first letter of the last name for whoever
@@ -70,6 +82,9 @@ export default function TeamMonthGrid({
   const [drag, setDrag] = useState<DragState | null>(null)
   const [editing, setEditing] = useState<{ targets: Target[]; cell: CellData; title: string } | null>(null)
   const [prefs, setPrefs] = useState<SectionPrefs>(EMPTY_PREFS)
+  // Keyed by person, not row index, so the highlight stays on the right
+  // person even if favoriting/collapsing a department reorders the rows.
+  const [highlightedKey, setHighlightedKey] = useState<string | null>(null)
 
   // Same localStorage key as WeekGrid's Team view on purpose — favoriting or
   // collapsing a department should apply no matter which of the two views
@@ -205,10 +220,10 @@ export default function TeamMonthGrid({
           className="border-b border-r border-zinc-800" />
         {days.map(wd => (
           <div key={`h-${wd.day}`}
-            style={{ position: 'sticky', top: 0, zIndex: 20, backgroundColor: wd.isToday ? '#111d11' : '#161616' }}
+            style={{ position: 'sticky', top: 0, zIndex: 20, backgroundColor: wd.isToday ? '#111d11' : wd.isWeekend ? WEEKEND_HEADER_BG : '#161616' }}
             className="border-b border-zinc-800 px-0.5 py-1.5 text-center">
-            <p className="text-[8px] uppercase tracking-wide text-zinc-500">{wd.dayName.slice(0, 2)}</p>
-            <p className={`text-[11px] font-semibold ${wd.isToday ? 'text-emerald-400' : 'text-zinc-300'}`}>{wd.day}</p>
+            <p className={`text-[8px] uppercase tracking-wide ${wd.isWeekend ? 'text-zinc-600' : 'text-zinc-500'}`}>{wd.dayName.slice(0, 2)}</p>
+            <p className={`text-[11px] font-semibold ${wd.isToday ? 'text-emerald-400' : wd.isWeekend ? 'text-zinc-500' : 'text-zinc-300'}`}>{wd.day}</p>
           </div>
         ))}
 
@@ -244,13 +259,15 @@ export default function TeamMonthGrid({
 
           const { person, rowIdx } = row
           const locked = !canEditCol(person.emp)
+          const isRowHighlighted = highlightedKey === personKey(person)
 
           return (
             <div key={`row-${rowIdx}`} style={{ display: 'contents' }}>
               <div
                 title={person.emp}
-                style={{ position: 'sticky', left: 0, zIndex: 10, backgroundColor: '#161616' }}
-                className={`border-b border-r border-zinc-800 px-2 flex items-center text-xs font-medium truncate ${locked ? 'text-zinc-600' : 'text-zinc-300'}`}>
+                onClick={() => setHighlightedKey(k => k === personKey(person) ? null : personKey(person))}
+                style={{ position: 'sticky', left: 0, zIndex: 10, backgroundColor: isRowHighlighted ? ROW_HIGHLIGHT_NAME_BG : '#161616' }}
+                className={`border-b border-r border-zinc-800 px-2 flex items-center text-xs font-medium truncate cursor-pointer transition-colors ${locked ? 'text-zinc-600' : 'text-zinc-300'} ${isRowHighlighted ? 'hover:brightness-110' : 'hover:bg-white/[0.03]'}`}>
                 {displayNames.get(person.emp) ?? person.emp}
               </div>
 
@@ -259,6 +276,15 @@ export default function TeamMonthGrid({
                 const cell = data[key] ?? emptyCell()
                 const isSelected = drag && rowIdx >= Math.min(drag.startRow, drag.endRow) && rowIdx <= Math.max(drag.startRow, drag.endRow) &&
                   col >= Math.min(drag.startCol, drag.endCol) && col <= Math.max(drag.startCol, drag.endCol)
+                const cellBg = isSelected
+                  ? SEL_BG
+                  : isRowHighlighted
+                  ? ROW_HIGHLIGHT_CELL_BG
+                  : wd.isToday
+                  ? 'rgba(58,145,63,0.06)'
+                  : wd.isWeekend
+                  ? WEEKEND_CELL_BG
+                  : undefined
 
                 return (
                   <div
@@ -270,7 +296,7 @@ export default function TeamMonthGrid({
                     onPointerUp={handlePointerUp}
                     onDragStart={e => e.preventDefault()}
                     style={{
-                      backgroundColor: isSelected ? SEL_BG : wd.isToday ? 'rgba(58,145,63,0.06)' : undefined,
+                      backgroundColor: cellBg,
                       outline: isSelected ? SEL_BDR : undefined,
                       outlineOffset: '-1px',
                       opacity: locked ? 0.45 : 1,
