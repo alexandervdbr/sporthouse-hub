@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import {
   X,
   Check,
@@ -10,17 +10,36 @@ import {
   Loader2,
   ChevronDown,
   ChevronRight,
+  Archive,
+  ArchiveRestore,
+  TriangleAlert,
 } from 'lucide-react'
-import type { Department } from '@/lib/planning-config'
+import { normName, UNASSIGNED_DEPT, type Department } from '@/lib/planning-config'
 import type { PlanningPreset } from '@/lib/planning-presets'
+
+interface ArchivedEmployee { dept: string; emp: string }
+interface Staleness { dept: string; emp: string; lastEntryDate: string }
 
 interface Props {
   departments: Department[]
   onSave: (d: Department[]) => Promise<void>
+  archived: ArchivedEmployee[]
+  onSaveArchived: (a: ArchivedEmployee[]) => Promise<void>
+  // Real Team contact names (see /team) — anyone here who isn't in this
+  // list either left Team or was always a one-off manually-typed entry;
+  // either way it's flagged so a beheerder can decide what to do with it.
+  teamNames: string[]
   onClose: () => void
   // Presets zijn beheer-only (de API weigert schrijven sowieso, maar dan moet
   // de tab er ook niet staan om een 403 uit te lokken).
   isBeheer: boolean
+}
+
+const STALE_AFTER_DAYS = 60
+
+function daysAgo(dateStr: string) {
+  const then = new Date(dateStr + 'T00:00:00Z').getTime()
+  return Math.floor((Date.now() - then) / 86_400_000)
 }
 
 const PRESET_COLORS = ['#16a34a', '#ea580c', '#2563eb', '#9333ea', '#dc2626', '#ca8a04', '#db2777', '#52525b']
@@ -33,6 +52,24 @@ function PresetsPanel() {
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [colorPickerFor, setColorPickerFor] = useState<string | null>(null)
+  const colorPickerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!colorPickerFor) return
+    function onOutside(e: MouseEvent) {
+      if (colorPickerRef.current && !colorPickerRef.current.contains(e.target as Node)) setColorPickerFor(null)
+    }
+    document.addEventListener('mousedown', onOutside)
+    return () => document.removeEventListener('mousedown', onOutside)
+  }, [colorPickerFor])
+
+  // Alphabetical, not insertion/sort_order — a growing list of statuses just
+  // reads as random clutter otherwise.
+  const sortedPresets = useMemo(
+    () => [...presets].sort((a, b) => a.name.localeCompare(b.name, 'nl')),
+    [presets]
+  )
 
   const [newName, setNewName] = useState('')
   const [newColor, setNewColor] = useState(PRESET_COLORS[0])
@@ -113,33 +150,42 @@ function PresetsPanel() {
         <p className="px-3 py-2 rounded-lg bg-red-950/40 border border-red-900/40 text-xs text-red-400">{error}</p>
       )}
 
-      <div className="space-y-1.5">
-        {presets.map(p => (
-          <div key={p.id} className="flex items-center gap-2 p-2.5 rounded-xl border border-zinc-800 bg-zinc-950/40">
-            <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }} />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+        {sortedPresets.map(p => (
+          <div key={p.id} className="relative flex items-center gap-2 p-2 rounded-xl border border-zinc-800 bg-zinc-950/40">
+            <button
+              onClick={() => setColorPickerFor(id => id === p.id ? null : p.id)}
+              aria-label={`Kleur wijzigen voor ${p.name}`}
+              className="w-4 h-4 rounded-full flex-shrink-0 ring-1 ring-white/10 hover:ring-white/30 transition-all"
+              style={{ backgroundColor: p.color }}
+            />
             <span className="flex-1 min-w-0 text-sm text-zinc-100 truncate">{p.name}</span>
-            <div className="flex items-center gap-1 flex-shrink-0">
-              {PRESET_COLORS.map(c => (
-                <button
-                  key={c}
-                  onClick={() => patchPreset(p, { color: c })}
-                  aria-label={`Kleur ${c}`}
-                  className="w-4 h-4 rounded-full"
-                  style={{ backgroundColor: c, border: p.color === c ? '2px solid #fff' : '2px solid transparent' }}
-                />
-              ))}
-            </div>
             <button
               onClick={() => removePreset(p)}
               disabled={busyId === p.id}
               aria-label={`${p.name} verwijderen`}
-              className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg text-zinc-600 hover:text-red-400"
+              className="w-7 h-7 flex-shrink-0 flex items-center justify-center rounded-lg text-zinc-600 hover:text-red-400"
             >
-              {busyId === p.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+              {busyId === p.id ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
             </button>
+
+            {colorPickerFor === p.id && (
+              <div ref={colorPickerRef} onClick={e => e.stopPropagation()}
+                className="absolute left-0 top-full mt-1 z-30 flex items-center gap-1.5 p-2 rounded-lg shadow-2xl bg-zinc-800 border border-zinc-700">
+                {PRESET_COLORS.map(c => (
+                  <button
+                    key={c}
+                    onClick={() => { patchPreset(p, { color: c }); setColorPickerFor(null) }}
+                    aria-label={`Kleur ${c}`}
+                    className="w-5 h-5 rounded-full"
+                    style={{ backgroundColor: c, border: p.color === c ? '2px solid #fff' : '2px solid transparent' }}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         ))}
-        {presets.length === 0 && <p className="py-4 text-center text-sm text-zinc-600">Nog geen presets.</p>}
+        {sortedPresets.length === 0 && <p className="py-4 text-center text-sm text-zinc-600 col-span-full">Nog geen presets.</p>}
       </div>
 
       <div>
@@ -178,13 +224,68 @@ function PresetsPanel() {
   )
 }
 
-export default function PlanningConfigModal({ departments, onSave, onClose, isBeheer }: Props) {
+export default function PlanningConfigModal({ departments, onSave, archived, onSaveArchived, teamNames, onClose, isBeheer }: Props) {
   const [tab, setTab] = useState<'afdelingen' | 'presets'>('afdelingen')
   const [depts, setDepts] = useState<Department[]>(() =>
     departments.map(d => ({ name: d.name, employees: [...d.employees] }))
   )
   const [saving, setSaving] = useState(false)
   const [collapsed, setCollapsed] = useState<Record<number, boolean>>({})
+
+  const teamNameSet = useMemo(() => new Set(teamNames.map(normName)), [teamNames])
+
+  // Archiveren is een losstaande, meteen-opslaande actie (zoals presets) —
+  // geen aparte kladversie zoals bij afdelingen, want er is niets te
+  // verwerpen: één klik = actief/inactief wisselen.
+  const [busyArchive, setBusyArchive] = useState<string | null>(null)
+  const isArchivedPair = (dept: string, emp: string) => archived.some(a => a.dept === dept && a.emp === emp)
+
+  async function toggleArchived(dept: string, emp: string) {
+    setBusyArchive(`${dept}|${emp}`)
+    const next = isArchivedPair(dept, emp)
+      ? archived.filter(a => !(a.dept === dept && a.emp === emp))
+      : [...archived, { dept, emp }]
+    await onSaveArchived(next)
+    setBusyArchive(null)
+  }
+
+  // Everyone flagged "niet in Team" (see the badge below), collected up
+  // front so a beheerder can spot every remaining conflict at a glance
+  // instead of scrolling every department looking for the badge by eye.
+  const [showNotInTeamDigest, setShowNotInTeamDigest] = useState(true)
+  const [flashDept, setFlashDept] = useState<number | null>(null)
+  const deptRefs = useRef<Record<number, HTMLDivElement | null>>({})
+
+  const notInTeamList = useMemo(() => {
+    const out: { dept: string; deptIdx: number; emp: string }[] = []
+    depts.forEach((d, di) => {
+      d.employees.forEach(emp => {
+        const isArch = archived.some(a => a.dept === d.name && a.emp === emp)
+        if (!isArch && !teamNameSet.has(normName(emp))) out.push({ dept: d.name, deptIdx: di, emp })
+      })
+    })
+    return out
+  }, [depts, teamNameSet, archived])
+
+  function jumpToDept(deptIdx: number) {
+    setTab('afdelingen')
+    setCollapsed(prev => ({ ...prev, [deptIdx]: false }))
+    requestAnimationFrame(() => {
+      deptRefs.current[deptIdx]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+    setFlashDept(deptIdx)
+    setTimeout(() => setFlashDept(d => (d === deptIdx ? null : d)), 1500)
+  }
+
+  const [staleness, setStaleness] = useState<Staleness[]>([])
+  useEffect(() => {
+    fetch('/api/planning/staleness').then(r => r.ok ? r.json() : []).then(setStaleness).catch(() => {})
+  }, [])
+  const stalenessMap = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const s of staleness) m.set(`${s.dept}|${s.emp}`, s.lastEntryDate)
+    return m
+  }, [staleness])
 
   // Inline rename state
   const [renamingDept, setRenamingDept] = useState<number | null>(null)
@@ -285,7 +386,7 @@ export default function PlanningConfigModal({ departments, onSave, onClose, isBe
     }
   }
 
-  // ─── Add dept ─────────────────────────────────────────────────────────────
+  // ─── Add/delete dept ────────────────────────────────────────────────────────
 
   function addDepartment() {
     const idx = depts.length
@@ -294,6 +395,18 @@ export default function PlanningConfigModal({ departments, onSave, onClose, isBe
       setRenamingDept(idx)
       setRenameValue('Nieuwe afdeling')
     }, 0)
+  }
+
+  function deleteDepartment(idx: number) {
+    const dept = depts[idx]
+    if (dept.employees.length > 0) {
+      const ok = confirm(
+        `Afdeling "${dept.name}" verwijderen?\n\nDe ${dept.employees.length} medewerker(s) hierin verdwijnen ook uit deze afdeling — een Team-lid krijgt bij de volgende synchronisatie gewoon opnieuw een plek in "${UNASSIGNED_DEPT}".`
+      )
+      if (!ok) return
+    }
+    setDepts(prev => prev.filter((_, i) => i !== idx))
+    if (renamingDept === idx) setRenamingDept(null)
   }
 
   // ─── Dept drag ────────────────────────────────────────────────────────────
@@ -343,31 +456,51 @@ export default function PlanningConfigModal({ departments, onSave, onClose, isBe
 
   function onEmpDragOver(e: React.DragEvent, deptIdx: number, empIdx: number) {
     e.preventDefault()
-    if (dragEmpRef.current?.dept !== deptIdx) return // only within same dept
     setDragOverEmp({ dept: deptIdx, emp: empIdx })
   }
 
   function onEmpDrop(e: React.DragEvent, deptIdx: number, empIdx: number) {
     e.preventDefault()
     const from = dragEmpRef.current
-    if (!from || from.dept !== deptIdx || from.emp === empIdx) {
-      setDragOverEmp(null)
-      return
-    }
-    setDepts(prev => prev.map((d, i) => {
-      if (i !== deptIdx) return d
-      const emps = [...d.employees]
-      const [moved] = emps.splice(from.emp, 1)
-      emps.splice(empIdx, 0, moved)
-      return { ...d, employees: emps }
-    }))
-    dragEmpRef.current = null
     setDragOverEmp(null)
+    if (!from || (from.dept === deptIdx && from.emp === empIdx)) { dragEmpRef.current = null; return }
+    setDepts(prev => {
+      const next = prev.map(d => ({ ...d, employees: [...d.employees] }))
+      const [moved] = next[from.dept].employees.splice(from.emp, 1)
+      next[deptIdx].employees.splice(empIdx, 0, moved)
+      return next
+    })
+    dragEmpRef.current = null
   }
 
   function onEmpDragEnd() {
     dragEmpRef.current = null
     setDragOverEmp(null)
+  }
+
+  // Dropping directly on a department's header row (rather than on one of
+  // its employee rows) moves someone to the end of that department — the
+  // only way to move someone into a department with no rows to drop onto
+  // yet (e.g. a newly added one, or a collapsed one).
+  function onDeptHeaderDragOver(e: React.DragEvent, deptIdx: number) {
+    if (!dragEmpRef.current) return
+    e.preventDefault()
+    setDragOverEmp({ dept: deptIdx, emp: -1 })
+  }
+
+  function onDeptHeaderDrop(e: React.DragEvent, deptIdx: number) {
+    const from = dragEmpRef.current
+    if (!from) return
+    e.preventDefault()
+    setDragOverEmp(null)
+    if (from.dept === deptIdx) { dragEmpRef.current = null; return }
+    setDepts(prev => {
+      const next = prev.map(d => ({ ...d, employees: [...d.employees] }))
+      const [moved] = next[from.dept].employees.splice(from.emp, 1)
+      next[deptIdx].employees.push(moved)
+      return next
+    })
+    dragEmpRef.current = null
   }
 
   // ─── Save ─────────────────────────────────────────────────────────────────
@@ -431,8 +564,38 @@ export default function PlanningConfigModal({ departments, onSave, onClose, isBe
         {/* Body — scrollable */}
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
           {isBeheer && tab === 'presets' && <PresetsPanel />}
+
+          {(!isBeheer || tab === 'afdelingen') && notInTeamList.length > 0 && (
+            <div className="rounded-xl border border-amber-900/40 bg-amber-950/20 overflow-hidden">
+              <button
+                onClick={() => setShowNotInTeamDigest(v => !v)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-amber-400"
+              >
+                <TriangleAlert size={13} />
+                {notInTeamList.length} naam{notInTeamList.length === 1 ? '' : 'en'} niet gekoppeld aan Team
+                <span className="ml-auto text-amber-600">
+                  {showNotInTeamDigest ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                </span>
+              </button>
+              {showNotInTeamDigest && (
+                <div className="px-3 pb-2 space-y-0.5">
+                  {notInTeamList.map((n, i) => (
+                    <button
+                      key={i}
+                      onClick={() => jumpToDept(n.deptIdx)}
+                      className="w-full flex items-center justify-between gap-2 px-2 py-1 rounded-lg text-xs text-zinc-300 hover:bg-amber-900/20 transition-colors text-left"
+                    >
+                      <span className="truncate">{n.emp}</span>
+                      <span className="flex-shrink-0 text-[10px] text-zinc-500">{n.dept}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {(!isBeheer || tab === 'afdelingen') && depts.map((dept, di) => {
-            const isDragTarget = dragOverDept === di
+            const isDragTarget = dragOverDept === di || dragOverEmp?.dept === di && dragOverEmp.emp === -1
             const isCollapsed = !!collapsed[di]
             const isRenamingThis = renamingDept === di
             const isDraggingThis = dragDeptRef.current === di
@@ -440,15 +603,16 @@ export default function PlanningConfigModal({ departments, onSave, onClose, isBe
             return (
               <div
                 key={di}
+                ref={el => { deptRefs.current[di] = el }}
                 draggable
                 onDragStart={() => onDeptDragStart(di)}
-                onDragOver={e => onDeptDragOver(e, di)}
-                onDrop={e => onDeptDrop(e, di)}
+                onDragOver={e => dragEmpRef.current ? onDeptHeaderDragOver(e, di) : onDeptDragOver(e, di)}
+                onDrop={e => dragEmpRef.current ? onDeptHeaderDrop(e, di) : onDeptDrop(e, di)}
                 onDragEnd={onDeptDragEnd}
-                className="rounded-xl border transition-all"
+                className="group rounded-xl border transition-all"
                 style={{
-                  borderColor: isDragTarget ? '#2563eb' : '#27272a',
-                  backgroundColor: isDragTarget ? 'rgba(37,99,235,0.06)' : '#111111',
+                  borderColor: flashDept === di ? '#f59e0b' : isDragTarget ? '#2563eb' : '#27272a',
+                  backgroundColor: flashDept === di ? 'rgba(245,158,11,0.08)' : isDragTarget ? 'rgba(37,99,235,0.06)' : '#111111',
                   opacity: isDraggingThis ? 0.5 : 1,
                 }}
               >
@@ -504,6 +668,15 @@ export default function PlanningConfigModal({ departments, onSave, onClose, isBe
                   <span className="flex-shrink-0 text-[10px] text-zinc-600 ml-1">
                     {dept.employees.length} medewerkers
                   </span>
+
+                  {/* Delete department (hover) */}
+                  <button
+                    onClick={() => deleteDepartment(di)}
+                    title="Afdeling verwijderen"
+                    className="flex-shrink-0 opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 transition-all"
+                  >
+                    <Trash2 size={13} />
+                  </button>
                 </div>
 
                 {/* Employee list */}
@@ -513,6 +686,11 @@ export default function PlanningConfigModal({ departments, onSave, onClose, isBe
                       const isRenamingThisEmp = renamingEmp?.dept === di && renamingEmp.emp === ei
                       const isEmpDragTarget = dragOverEmp?.dept === di && dragOverEmp.emp === ei
                       const isEmpDragging = dragEmpRef.current?.dept === di && dragEmpRef.current.emp === ei
+                      const isArchivedEmp = isArchivedPair(dept.name, emp)
+                      const isBusy = busyArchive === `${dept.name}|${emp}`
+                      const lastEntry = stalenessMap.get(`${dept.name}|${emp}`)
+                      const stale = !isArchivedEmp && lastEntry && daysAgo(lastEntry) >= STALE_AFTER_DAYS
+                      const notInTeam = !isArchivedEmp && !teamNameSet.has(normName(emp))
 
                       return (
                         <div
@@ -526,7 +704,7 @@ export default function PlanningConfigModal({ departments, onSave, onClose, isBe
                           style={{
                             backgroundColor: isEmpDragTarget ? 'rgba(37,99,235,0.10)' : 'transparent',
                             border: isEmpDragTarget ? '1px solid #2563eb' : '1px solid transparent',
-                            opacity: isEmpDragging ? 0.5 : 1,
+                            opacity: isEmpDragging ? 0.5 : isArchivedEmp ? 0.5 : 1,
                           }}
                         >
                           {/* Emp drag handle */}
@@ -556,11 +734,45 @@ export default function PlanningConfigModal({ departments, onSave, onClose, isBe
                             </div>
                           ) : (
                             <button
-                              className="flex-1 text-left text-xs text-zinc-400 hover:text-zinc-200 truncate transition-colors"
+                              className="flex-1 min-w-0 flex items-center gap-1.5 text-left text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
                               onClick={() => startRenameEmp(di, ei)}
                               title="Klik om naam aan te passen"
                             >
-                              {emp}
+                              <span className="truncate">{emp}</span>
+                              {isArchivedEmp && (
+                                <span className="flex-shrink-0 text-[9px] uppercase tracking-wide text-zinc-600">inactief</span>
+                              )}
+                              {notInTeam && (
+                                <span
+                                  className="flex-shrink-0 text-[9px] uppercase tracking-wide text-zinc-600 border border-zinc-700 rounded px-1"
+                                  title="Geen actieve naamsovereenkomst met Team — ofwel iemand die er niet meer werkt, ofwel een tijdelijke/eenmalige naam"
+                                >
+                                  niet in Team
+                                </span>
+                              )}
+                              {stale && (
+                                <span
+                                  className="flex-shrink-0 flex items-center gap-1 text-[9px] text-amber-500"
+                                  title={`Laatste planning: ${lastEntry}`}
+                                >
+                                  <TriangleAlert size={10} />
+                                  {daysAgo(lastEntry!)}d geleden
+                                </span>
+                              )}
+                            </button>
+                          )}
+
+                          {/* Archive toggle (hover, or always if archived) */}
+                          {!isRenamingThisEmp && (
+                            <button
+                              onClick={() => toggleArchived(dept.name, emp)}
+                              disabled={isBusy}
+                              title={isArchivedEmp ? 'Terug actief maken' : 'Archiveren (blijft zichtbaar in oude planningen)'}
+                              className={`flex-shrink-0 transition-all text-zinc-600 hover:text-amber-400 ${
+                                isArchivedEmp ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                              }`}
+                            >
+                              {isBusy ? <Loader2 size={13} className="animate-spin" /> : isArchivedEmp ? <ArchiveRestore size={13} /> : <Archive size={13} />}
                             </button>
                           )}
 
@@ -568,6 +780,7 @@ export default function PlanningConfigModal({ departments, onSave, onClose, isBe
                           {!isRenamingThisEmp && (
                             <button
                               onClick={() => deleteEmployee(di, ei)}
+                              title="Definitief verwijderen"
                               className="flex-shrink-0 opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 transition-all"
                             >
                               <Trash2 size={13} />
