@@ -128,34 +128,73 @@ export default function PlanningApp() {
   }, [isBeheer, activeDepts])
 
   // 2) A long-standing manual-entry convention here stores lots of people as
-  // a bare first name only ("Yaro", "Tim", …) rather than a full name.
-  // Team-sync (below) matches on full name, so none of those matched their
-  // real Team contact ("Yaro Bauwens") and each got a second, fuller-named
-  // entry added — a duplicate of someone already there. This merges those
-  // back: any full name whose first name matches an existing BARE entry
-  // gets dropped, keeping the bare one — years of planning_entries rows are
-  // keyed by exactly that bare string, so that's the one that has to stay.
+  // a bare first name only ("Yaro", "Tim", …) rather than a full name — this
+  // resolves every one of those against the real Team contact it means,
+  // renaming it in place. When a first name matches more than one Team
+  // contact (two people both named "Jelle", "Thijs", …), a per-name
+  // override says which surname goes to which department; anything
+  // ambiguous with no override is left untouched (still flagged "niet in
+  // team" — a genuine remaining conflict to sort out manually) rather than
+  // guessing wrong. Known, confirmed overrides so far:
+  const AMBIGUOUS_FIRST_NAME_OVERRIDES: Record<string, { surnamePrefix: string; dept: string }[]> = {
+    jelle: [
+      { surnamePrefix: 'v', dept: 'Team PS' },        // Jelle Vlemincx(...)
+      { surnamePrefix: 'd', dept: 'Sport Vl' },        // Jelle Desterbecq
+    ],
+    thijs: [
+      { surnamePrefix: 'm', dept: 'Projectkant SHG' }, // Thijs Meusen
+      { surnamePrefix: 'g', dept: 'FOS' },              // Thijs Goemand(s)
+    ],
+  }
+
   useEffect(() => {
-    if (!isBeheer || activeDepts.length === 0 || configWriteRef.current) return
-    const bareFirstNames = new Set(
-      activeDepts.flatMap(d => d.employees)
-        .filter(e => e.trim().split(/\s+/).length === 1)
-        .map(e => normName(e))
-    )
+    if (!isBeheer || teamContacts.length === 0 || activeDepts.length === 0 || configWriteRef.current) return
     let changed = false
-    const next = activeDepts.map(d => {
-      const employees = d.employees.filter(e => {
-        const parts = e.trim().split(/\s+/)
-        if (parts.length === 1) return true
-        if (bareFirstNames.has(normName(parts[0]))) { changed = true; return false }
-        return true
-      })
-      return { ...d, employees }
-    })
+    const next = activeDepts.map(d => ({ ...d, employees: [...d.employees] }))
+
+    for (const dept of next) {
+      for (let i = 0; i < dept.employees.length; i++) {
+        const emp = dept.employees[i]
+        if (emp.trim().split(/\s+/).length !== 1) continue // only bare names are candidates
+        const firstNorm = normName(emp)
+        const matches = teamContacts.filter(c => normName(c.name.trim().split(/\s+/)[0] ?? '') === firstNorm)
+        if (matches.length === 0) continue // no Team contact at all — a genuine temporary/manual entry
+        if (matches.length === 1) {
+          if (matches[0].name !== emp) { dept.employees[i] = matches[0].name; changed = true }
+          continue
+        }
+        const override = AMBIGUOUS_FIRST_NAME_OVERRIDES[firstNorm]
+        if (!override) continue // ambiguous, no known resolution — leave flagged
+        const here = override.find(o => o.dept === dept.name)
+        if (!here) continue // this slot's department isn't one of the overrides — leave it
+        const contact = matches.find(c => normName(c.name.trim().split(/\s+/)[1] ?? '').startsWith(here.surnamePrefix))
+        if (contact && contact.name !== emp) { dept.employees[i] = contact.name; changed = true }
+      }
+    }
+
+    // Any override target not now present anywhere (the other side of an
+    // ambiguous pair — there's only one bare slot to rename, so whichever
+    // contact didn't get it needs a fresh entry) gets added under its dept.
+    for (const [firstNorm, entries] of Object.entries(AMBIGUOUS_FIRST_NAME_OVERRIDES)) {
+      for (const o of entries) {
+        const contact = teamContacts.find(c =>
+          normName(c.name.trim().split(/\s+/)[0] ?? '') === firstNorm &&
+          normName(c.name.trim().split(/\s+/)[1] ?? '').startsWith(o.surnamePrefix)
+        )
+        if (!contact) continue
+        const present = next.some(d => d.employees.some(e => normName(e) === normName(contact.name)))
+        if (present) continue
+        let bucket = next.find(d => d.name === o.dept)
+        if (!bucket) { bucket = { name: o.dept, employees: [] }; next.push(bucket) }
+        bucket.employees.push(contact.name)
+        changed = true
+      }
+    }
+
     if (!changed) return
     configWriteRef.current = true
     handleSaveConfig(next).finally(() => { configWriteRef.current = false })
-  }, [isBeheer, activeDepts])
+  }, [isBeheer, teamContacts, activeDepts])
 
   // 3) New Team contacts land in a "Nieuw" bucket automatically. Someone
   // already represented by a bare first name (see above) counts as known —
