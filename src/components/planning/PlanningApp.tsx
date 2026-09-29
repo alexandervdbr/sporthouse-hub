@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ChevronLeft, ChevronRight, Loader2, Settings, Search, X, Users } from 'lucide-react'
-import { DEPARTMENTS, DUTCH_MONTHS, type Department } from '@/lib/planning-config'
+import { DEPARTMENTS, DUTCH_MONTHS, UNASSIGNED_DEPT, normName, type Department } from '@/lib/planning-config'
 import {
   addMonths, addWeeks, dateCellKey, getMonthWeeks, getWeekDates, groupWeekByMonth, weekDayCellKey, weekLabel,
   type CellData, type PlanningWeekData, type WeekDay,
@@ -18,9 +18,7 @@ import MyMonthCalendar from './MyMonthCalendar'
 import MyMonthWeeks from './MyMonthWeeks'
 import MobileTeamDayStepper from './MobileTeamDayStepper'
 
-function norm(s: string) {
-  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
-}
+const norm = normName
 
 type Tab = 'mijn' | 'team'
 
@@ -84,6 +82,36 @@ export default function PlanningApp() {
     })
     setActiveDepts(newDepts)
   }
+
+  // ── Team contacts — the real, actually-maintained source of "who works
+  // here" (see /team). New hires land in a "Nieuw" bucket automatically so
+  // they get a planning spot without anyone remembering a separate step;
+  // admins move them into the right department afterwards. Matched by name
+  // only (no shared id with planning_entries), so a rename in Team won't be
+  // picked up here — only additions/removals.
+  const [teamContacts, setTeamContacts] = useState<{ id: string; name: string }[]>([])
+  useEffect(() => {
+    fetch('/api/team/members')
+      .then(r => r.json())
+      .then((d: { id: string; name: string }[] | null) => { if (Array.isArray(d)) setTeamContacts(d) })
+      .catch(() => {})
+  }, [])
+
+  // Runs whenever the config or the Team list changes; a no-op once nothing's
+  // missing, so it settles after one save instead of looping. Only actually
+  // persists for a beheerder — everyone else can read the reconciled config
+  // once someone with rights has loaded the page, but can't write it.
+  useEffect(() => {
+    if (!isBeheer || teamContacts.length === 0 || activeDepts.length === 0) return
+    const known = new Set(activeDepts.flatMap(d => d.employees.map(e => normName(e))))
+    const missing = teamContacts.filter(c => c.name.trim() && !known.has(normName(c.name)))
+    if (missing.length === 0) return
+    const next = activeDepts.map(d => ({ ...d, employees: [...d.employees] }))
+    let bucket = next.find(d => d.name === UNASSIGNED_DEPT)
+    if (!bucket) { bucket = { name: UNASSIGNED_DEPT, employees: [] }; next.push(bucket) }
+    bucket.employees.push(...missing.map(c => c.name))
+    handleSaveConfig(next)
+  }, [isBeheer, teamContacts, activeDepts])
 
   // ── Load presets ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -490,6 +518,7 @@ export default function PlanningApp() {
           onSave={handleSaveConfig}
           archived={archived}
           onSaveArchived={handleSaveArchived}
+          teamNames={teamContacts.map(c => c.name)}
           onClose={() => setShowConfig(false)}
           isBeheer={isBeheer}
         />

@@ -56,3 +56,16 @@ export function getDaysInMonth(year: number, month: number) {
 export function cellKey(day: number, dept: string, emp: string) {
   return `${day}|${dept}|${emp}`
 }
+
+// Accent/case-insensitive match, used wherever a planning employee name is
+// compared against a real Team contact's name (adding new team members
+// automatically, flagging entries that aren't linked to Team). Shared here
+// so both sides of that comparison normalize identically.
+export function normName(s: string) {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
+}
+
+// New Team contacts nobody's assigned to a real planning group yet land
+// here automatically, so they at least get a spot to pick from day one —
+// admins move them into the right department via drag and drop afterwards.
+export const UNASSIGNED_DEPT = 'Nieuw'

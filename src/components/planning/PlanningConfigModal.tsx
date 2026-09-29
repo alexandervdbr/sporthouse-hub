@@ -14,7 +14,7 @@ import {
   ArchiveRestore,
   TriangleAlert,
 } from 'lucide-react'
-import type { Department } from '@/lib/planning-config'
+import { normName, type Department } from '@/lib/planning-config'
 import type { PlanningPreset } from '@/lib/planning-presets'
 
 interface ArchivedEmployee { dept: string; emp: string }
@@ -25,6 +25,10 @@ interface Props {
   onSave: (d: Department[]) => Promise<void>
   archived: ArchivedEmployee[]
   onSaveArchived: (a: ArchivedEmployee[]) => Promise<void>
+  // Real Team contact names (see /team) — anyone here who isn't in this
+  // list either left Team or was always a one-off manually-typed entry;
+  // either way it's flagged so a beheerder can decide what to do with it.
+  teamNames: string[]
   onClose: () => void
   // Presets zijn beheer-only (de API weigert schrijven sowieso, maar dan moet
   // de tab er ook niet staan om een 403 uit te lokken).
@@ -220,13 +224,15 @@ function PresetsPanel() {
   )
 }
 
-export default function PlanningConfigModal({ departments, onSave, archived, onSaveArchived, onClose, isBeheer }: Props) {
+export default function PlanningConfigModal({ departments, onSave, archived, onSaveArchived, teamNames, onClose, isBeheer }: Props) {
   const [tab, setTab] = useState<'afdelingen' | 'presets'>('afdelingen')
   const [depts, setDepts] = useState<Department[]>(() =>
     departments.map(d => ({ name: d.name, employees: [...d.employees] }))
   )
   const [saving, setSaving] = useState(false)
   const [collapsed, setCollapsed] = useState<Record<number, boolean>>({})
+
+  const teamNameSet = useMemo(() => new Set(teamNames.map(normName)), [teamNames])
 
   // Archiveren is een losstaande, meteen-opslaande actie (zoals presets) —
   // geen aparte kladversie zoals bij afdelingen, want er is niets te
@@ -410,31 +416,51 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
 
   function onEmpDragOver(e: React.DragEvent, deptIdx: number, empIdx: number) {
     e.preventDefault()
-    if (dragEmpRef.current?.dept !== deptIdx) return // only within same dept
     setDragOverEmp({ dept: deptIdx, emp: empIdx })
   }
 
   function onEmpDrop(e: React.DragEvent, deptIdx: number, empIdx: number) {
     e.preventDefault()
     const from = dragEmpRef.current
-    if (!from || from.dept !== deptIdx || from.emp === empIdx) {
-      setDragOverEmp(null)
-      return
-    }
-    setDepts(prev => prev.map((d, i) => {
-      if (i !== deptIdx) return d
-      const emps = [...d.employees]
-      const [moved] = emps.splice(from.emp, 1)
-      emps.splice(empIdx, 0, moved)
-      return { ...d, employees: emps }
-    }))
-    dragEmpRef.current = null
     setDragOverEmp(null)
+    if (!from || (from.dept === deptIdx && from.emp === empIdx)) { dragEmpRef.current = null; return }
+    setDepts(prev => {
+      const next = prev.map(d => ({ ...d, employees: [...d.employees] }))
+      const [moved] = next[from.dept].employees.splice(from.emp, 1)
+      next[deptIdx].employees.splice(empIdx, 0, moved)
+      return next
+    })
+    dragEmpRef.current = null
   }
 
   function onEmpDragEnd() {
     dragEmpRef.current = null
     setDragOverEmp(null)
+  }
+
+  // Dropping directly on a department's header row (rather than on one of
+  // its employee rows) moves someone to the end of that department — the
+  // only way to move someone into a department with no rows to drop onto
+  // yet (e.g. a newly added one, or a collapsed one).
+  function onDeptHeaderDragOver(e: React.DragEvent, deptIdx: number) {
+    if (!dragEmpRef.current) return
+    e.preventDefault()
+    setDragOverEmp({ dept: deptIdx, emp: -1 })
+  }
+
+  function onDeptHeaderDrop(e: React.DragEvent, deptIdx: number) {
+    const from = dragEmpRef.current
+    if (!from) return
+    e.preventDefault()
+    setDragOverEmp(null)
+    if (from.dept === deptIdx) { dragEmpRef.current = null; return }
+    setDepts(prev => {
+      const next = prev.map(d => ({ ...d, employees: [...d.employees] }))
+      const [moved] = next[from.dept].employees.splice(from.emp, 1)
+      next[deptIdx].employees.push(moved)
+      return next
+    })
+    dragEmpRef.current = null
   }
 
   // ─── Save ─────────────────────────────────────────────────────────────────
@@ -499,7 +525,7 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
           {isBeheer && tab === 'presets' && <PresetsPanel />}
           {(!isBeheer || tab === 'afdelingen') && depts.map((dept, di) => {
-            const isDragTarget = dragOverDept === di
+            const isDragTarget = dragOverDept === di || dragOverEmp?.dept === di && dragOverEmp.emp === -1
             const isCollapsed = !!collapsed[di]
             const isRenamingThis = renamingDept === di
             const isDraggingThis = dragDeptRef.current === di
@@ -509,8 +535,8 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
                 key={di}
                 draggable
                 onDragStart={() => onDeptDragStart(di)}
-                onDragOver={e => onDeptDragOver(e, di)}
-                onDrop={e => onDeptDrop(e, di)}
+                onDragOver={e => dragEmpRef.current ? onDeptHeaderDragOver(e, di) : onDeptDragOver(e, di)}
+                onDrop={e => dragEmpRef.current ? onDeptHeaderDrop(e, di) : onDeptDrop(e, di)}
                 onDragEnd={onDeptDragEnd}
                 className="rounded-xl border transition-all"
                 style={{
@@ -584,6 +610,7 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
                       const isBusy = busyArchive === `${dept.name}|${emp}`
                       const lastEntry = stalenessMap.get(`${dept.name}|${emp}`)
                       const stale = !isArchivedEmp && lastEntry && daysAgo(lastEntry) >= STALE_AFTER_DAYS
+                      const notInTeam = !isArchivedEmp && !teamNameSet.has(normName(emp))
 
                       return (
                         <div
@@ -634,6 +661,14 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
                               <span className="truncate">{emp}</span>
                               {isArchivedEmp && (
                                 <span className="flex-shrink-0 text-[9px] uppercase tracking-wide text-zinc-600">inactief</span>
+                              )}
+                              {notInTeam && (
+                                <span
+                                  className="flex-shrink-0 text-[9px] uppercase tracking-wide text-zinc-600 border border-zinc-700 rounded px-1"
+                                  title="Geen actieve naamsovereenkomst met Team — ofwel iemand die er niet meer werkt, ofwel een tijdelijke/eenmalige naam"
+                                >
+                                  niet in Team
+                                </span>
                               )}
                               {stale && (
                                 <span
