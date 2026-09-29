@@ -33,9 +33,18 @@ export default function PlanningStats({
     const params = new URLSearchParams({ year: String(year) })
     if (month) params.set('month', String(month))
     fetch(`/api/planning/stats?${params}`)
-      .then(r => { if (!r.ok) throw new Error('failed'); return r.json() })
+      .then(async r => {
+        if (!r.ok) {
+          const body = await r.text().catch(() => '')
+          throw new Error(`${r.status}${body ? `: ${body}` : ''}`)
+        }
+        return r.json()
+      })
       .then(setRows)
-      .catch(() => setError('Kon statistieken niet laden.'))
+      .catch(e => {
+        console.error('Statistieken ophalen mislukt:', e)
+        setError(`Kon statistieken niet laden (${e instanceof Error ? e.message : 'onbekende fout'}).`)
+      })
       .finally(() => setLoading(false))
   }, [year, month])
 
