@@ -294,6 +294,47 @@ export default function PlanningApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, week, anchorYear, anchorMonth])
 
+  // ── Live updates — other people's edits land here as they happen, not
+  // just after navigating away and back. Merges straight into `data`
+  // regardless of the currently visible period; anything outside it just
+  // sits unused until you scroll there, and gets replaced by the load
+  // effect above on the next real navigation anyway.
+  useEffect(() => {
+    const channel = supabase
+      .channel('planning-entries-live')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'planning_entries' },
+        payload => {
+          if (payload.eventType === 'DELETE') {
+            const old = payload.old as { year: number; month: number; day: number; department: string; employee: string }
+            setData(prev => {
+              const next = { ...prev }
+              delete next[dateCellKey(old.year, old.month, old.day, old.department, old.employee)]
+              return next
+            })
+            return
+          }
+          const row = payload.new as {
+            year: number; month: number; day: number; department: string; employee: string
+            value: string; bold: boolean | null; text_color: string | null; bg_color: string | null; note: string | null
+          }
+          setData(prev => ({
+            ...prev,
+            [dateCellKey(row.year, row.month, row.day, row.department, row.employee)]: {
+              value: row.value, bold: row.bold ?? true,
+              textColor: row.text_color ?? '#ffffff', bgColor: row.bg_color ?? null,
+              note: row.note ?? null,
+            },
+          }))
+        }
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // ── Apply / clear, with local undo (Ctrl+Z) ─────────────────────────────
   // The stack lives only in this component's memory — reset on reload, never
   // shared — so undo can only ever reach changes the current user just made
