@@ -65,7 +65,12 @@ function loadCachedDepts(): Department[] {
 }
 
 export default function PlanningApp() {
-  const supabase = createClient()
+  // Memoized (not recreated every render) — a fresh createClient() call
+  // spins up a whole new underlying auth/realtime client, and the live-sync
+  // subscription below only ever attaches to whichever instance existed at
+  // mount anyway. One stable instance for the component's whole lifetime
+  // avoids extra GoTrueClient/RealtimeClient churn in the background.
+  const [supabase] = useState(() => createClient())
 
   const [tab, setTab] = useState<Tab>('mijn')
   // "Mijn" is always the month view now — a people × 7-day grid reduced to
@@ -489,6 +494,21 @@ export default function PlanningApp() {
   // regardless of the currently visible period; anything outside it just
   // sits unused until you scroll there, and gets replaced by the load
   // effect above on the next real navigation anyway.
+  // Realtime's per-row authorization is tied to the access token active at
+  // subscribe time — on a tab left open long enough for that token to
+  // rotate (every ~1h), the socket can keep showing "connected" while
+  // quietly no longer passing RLS for new events unless it's told about
+  // the refreshed token. supabase-js is meant to handle this on its own,
+  // but this makes it explicit rather than relying on that silently working.
+  useEffect(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') {
+        supabase.realtime.setAuth(session?.access_token ?? null)
+      }
+    })
+    return () => sub.subscription.unsubscribe()
+  }, [supabase])
+
   useEffect(() => {
     const channel = supabase
       .channel('planning-entries-live')
@@ -521,7 +541,15 @@ export default function PlanningApp() {
           }))
         }
       )
-      .subscribe()
+      .subscribe((status, err) => {
+        // Previously silent — a dropped/failed connection here looked
+        // identical to "no one else has edited anything yet" from the UI's
+        // perspective. Logged so a stuck/expired socket is at least visible
+        // in the console instead of just quietly not updating.
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          console.error('Planning live-sync kanaal:', status, err ?? '')
+        }
+      })
 
     return () => { supabase.removeChannel(channel) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
