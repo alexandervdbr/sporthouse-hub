@@ -14,7 +14,7 @@ import {
   ArchiveRestore,
   TriangleAlert,
 } from 'lucide-react'
-import { normName, type Department } from '@/lib/planning-config'
+import { normName, UNASSIGNED_DEPT, type Department } from '@/lib/planning-config'
 import type { PlanningPreset } from '@/lib/planning-presets'
 
 interface ArchivedEmployee { dept: string; emp: string }
@@ -358,7 +358,7 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
     }
   }
 
-  // ─── Add dept ─────────────────────────────────────────────────────────────
+  // ─── Add/delete dept ────────────────────────────────────────────────────────
 
   function addDepartment() {
     const idx = depts.length
@@ -367,6 +367,18 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
       setRenamingDept(idx)
       setRenameValue('Nieuwe afdeling')
     }, 0)
+  }
+
+  function deleteDepartment(idx: number) {
+    const dept = depts[idx]
+    if (dept.employees.length > 0) {
+      const ok = confirm(
+        `Afdeling "${dept.name}" verwijderen?\n\nDe ${dept.employees.length} medewerker(s) hierin verdwijnen ook uit deze afdeling — een Team-lid krijgt bij de volgende synchronisatie gewoon opnieuw een plek in "${UNASSIGNED_DEPT}".`
+      )
+      if (!ok) return
+    }
+    setDepts(prev => prev.filter((_, i) => i !== idx))
+    if (renamingDept === idx) setRenamingDept(null)
   }
 
   // ─── Dept drag ────────────────────────────────────────────────────────────
@@ -538,7 +550,7 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
                 onDragOver={e => dragEmpRef.current ? onDeptHeaderDragOver(e, di) : onDeptDragOver(e, di)}
                 onDrop={e => dragEmpRef.current ? onDeptHeaderDrop(e, di) : onDeptDrop(e, di)}
                 onDragEnd={onDeptDragEnd}
-                className="rounded-xl border transition-all"
+                className="group rounded-xl border transition-all"
                 style={{
                   borderColor: isDragTarget ? '#2563eb' : '#27272a',
                   backgroundColor: isDragTarget ? 'rgba(37,99,235,0.06)' : '#111111',
@@ -597,6 +609,15 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
                   <span className="flex-shrink-0 text-[10px] text-zinc-600 ml-1">
                     {dept.employees.length} medewerkers
                   </span>
+
+                  {/* Delete department (hover) */}
+                  <button
+                    onClick={() => deleteDepartment(di)}
+                    title="Afdeling verwijderen"
+                    className="flex-shrink-0 opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 transition-all"
+                  >
+                    <Trash2 size={13} />
+                  </button>
                 </div>
 
                 {/* Employee list */}

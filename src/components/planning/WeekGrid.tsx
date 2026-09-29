@@ -33,6 +33,25 @@ const SEL_BG = 'rgba(59,130,246,0.15)'
 const SEL_BDR = '1px solid rgba(59,130,246,0.5)'
 const EMPTY_PREFS: SectionPrefs = { favorites: [], collapsed: [] }
 
+// First name only, unless that collides with someone else in the same
+// roster — then add the first letter of the last name ("Robin B.") just for
+// whoever collides, so the common case stays as short as possible.
+function shortDisplayNames(people: Person[]): Map<string, string> {
+  const firstNameCounts = new Map<string, number>()
+  for (const p of people) {
+    const first = p.emp.trim().split(/\s+/)[0] ?? p.emp
+    firstNameCounts.set(first, (firstNameCounts.get(first) ?? 0) + 1)
+  }
+  const result = new Map<string, string>()
+  for (const p of people) {
+    const parts = p.emp.trim().split(/\s+/)
+    const first = parts[0] ?? p.emp
+    const collides = (firstNameCounts.get(first) ?? 0) > 1
+    result.set(p.emp, collides && parts[1] ? `${first} ${parts[1][0].toUpperCase()}.` : first)
+  }
+  return result
+}
+
 // Used by Team (the full roster, grouped, dense). Desktop only: mobile gets
 // its own simpler view (a 7-day-in-one-row grid doesn't fit a phone screen
 // at any density) — see MobileTeamDayStepper. "Mijn" no longer has a week
@@ -109,6 +128,8 @@ export default function WeekGrid({
       return next
     })
   }
+
+  const displayNames = useMemo(() => shortDisplayNames(people), [people])
 
   // Grouping, favorite-first ordering, and collapse all happen here in one
   // pass so the row index assigned to each person (used by drag-select and
@@ -290,7 +311,7 @@ export default function WeekGrid({
                 <div
                   title={person.emp}
                   className={`border-b border-r border-zinc-800 px-3 flex items-center text-sm font-medium truncate ${locked ? 'text-zinc-600' : 'text-zinc-300'}`}>
-                  {person.emp.split(' ')[0]}
+                  {displayNames.get(person.emp) ?? person.emp}
                 </div>
               )}
 
