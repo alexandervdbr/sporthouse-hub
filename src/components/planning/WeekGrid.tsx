@@ -288,8 +288,9 @@ export default function WeekGrid({
             <div key={`row-${rowIdx}`} style={{ display: 'contents' }}>
               {showNameColumn && (
                 <div
+                  title={person.emp}
                   className={`border-b border-r border-zinc-800 px-3 flex items-center text-sm font-medium truncate ${locked ? 'text-zinc-600' : 'text-zinc-300'}`}>
-                  {person.emp}
+                  {person.emp.split(' ')[0]}
                 </div>
               )}
 

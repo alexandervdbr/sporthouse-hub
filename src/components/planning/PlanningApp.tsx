@@ -97,20 +97,56 @@ export default function PlanningApp() {
       .catch(() => {})
   }, [])
 
+  // Self-heals any duplicate names already sitting in the saved config
+  // (across all departments, not just within one) — a real bug briefly
+  // let the reconciliation effect below double-save a batch before its own
+  // write had landed, so this also cleans up whatever that already wrote.
+  const dedupingRef = useRef(false)
+  useEffect(() => {
+    if (!isBeheer || activeDepts.length === 0 || dedupingRef.current) return
+    const seen = new Set<string>()
+    let changed = false
+    const next = activeDepts.map(d => {
+      const employees = d.employees.filter(e => {
+        const key = normName(e)
+        if (seen.has(key)) { changed = true; return false }
+        seen.add(key)
+        return true
+      })
+      return { ...d, employees }
+    })
+    if (!changed) return
+    dedupingRef.current = true
+    handleSaveConfig(next).finally(() => { dedupingRef.current = false })
+  }, [isBeheer, activeDepts])
+
   // Runs whenever the config or the Team list changes; a no-op once nothing's
   // missing, so it settles after one save instead of looping. Only actually
   // persists for a beheerder — everyone else can read the reconciled config
   // once someone with rights has loaded the page, but can't write it.
+  // reconcilingRef prevents two overlapping saves (e.g. dev's Strict Mode
+  // double-invoking this effect) from both computing "missing" against the
+  // same pre-save state and each adding the same batch once — the exact bug
+  // the dedupe effect above exists to also clean up after the fact.
+  const reconcilingRef = useRef(false)
   useEffect(() => {
-    if (!isBeheer || teamContacts.length === 0 || activeDepts.length === 0) return
+    if (!isBeheer || teamContacts.length === 0 || activeDepts.length === 0 || reconcilingRef.current) return
     const known = new Set(activeDepts.flatMap(d => d.employees.map(e => normName(e))))
-    const missing = teamContacts.filter(c => c.name.trim() && !known.has(normName(c.name)))
+    const seenTeamNames = new Set<string>()
+    const uniqueTeamContacts = teamContacts.filter(c => {
+      const key = normName(c.name)
+      if (!c.name.trim() || seenTeamNames.has(key)) return false
+      seenTeamNames.add(key)
+      return true
+    })
+    const missing = uniqueTeamContacts.filter(c => !known.has(normName(c.name)))
     if (missing.length === 0) return
     const next = activeDepts.map(d => ({ ...d, employees: [...d.employees] }))
     let bucket = next.find(d => d.name === UNASSIGNED_DEPT)
     if (!bucket) { bucket = { name: UNASSIGNED_DEPT, employees: [] }; next.push(bucket) }
     bucket.employees.push(...missing.map(c => c.name))
-    handleSaveConfig(next)
+    reconcilingRef.current = true
+    handleSaveConfig(next).finally(() => { reconcilingRef.current = false })
   }, [isBeheer, teamContacts, activeDepts])
 
   // ── Load presets ─────────────────────────────────────────────────────────
