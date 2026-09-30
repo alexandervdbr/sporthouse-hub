@@ -549,6 +549,12 @@ export default function PlanningApp() {
           'postgres_changes',
           { event: '*', schema: 'public', table: 'planning_entries' },
           payload => {
+            // Temporary, deliberately loud diagnostic — confirms whether an
+            // event actually reaches this browser tab at all, as opposed to
+            // a delivery/RLS gap upstream that the "SUBSCRIBED" status
+            // alone can't reveal (a channel can join successfully and still
+            // never receive a specific row's events).
+            console.log('Planning live-sync ontving:', payload.eventType, payload.new ?? payload.old)
             if (payload.eventType === 'DELETE') {
               const old = payload.old as { year: number; month: number; day: number; department: string; employee: string }
               setData(prev => {
@@ -575,6 +581,7 @@ export default function PlanningApp() {
           }
         )
         .subscribe((status, err) => {
+          if (status === 'SUBSCRIBED') console.log('Planning live-sync verbonden om', new Date().toLocaleTimeString())
           // Previously silent — a dropped/failed connection here looked
           // identical to "no one else has edited anything yet" from the
           // UI's perspective.
