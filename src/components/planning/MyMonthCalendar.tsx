@@ -9,22 +9,17 @@ import DayEditor from './DayEditor'
 
 interface Target { wd: WeekDay; dept: string; emp: string }
 
-const SEL_BG = 'rgba(59,130,246,0.15)'
-const SEL_BDR = '1px solid rgba(59,130,246,0.5)'
+const SEL_BG = 'rgba(59,130,246,0.12)'
+const SEL_BORDER = '#3b82f6'
 
-// Mobile's own "Mijn maand". Previously ported desktop's drag-rectangle
-// selection to touch — confirmed live that this felt "goofy and buggy" in
-// practice, which checked out against how real scheduling apps (Deputy,
-// When I Work, 7shifts) actually work: none of them use drag-select on
-// mobile at all. The standard mobile pattern for "act on several things at
-// once" is tap a Select button, tap items to check them, act on the
-// selection — the same pattern Photos/Mail/Files use, not a drag gesture
-// fighting the browser's own scroll.
-//
-// So the calendar grid here is pure glance/navigation (color dot per day,
-// tap opens that single day) and the agenda list below is where both
-// reading ("what does this month say") and bulk-editing (via Selecteren)
-// actually happen.
+// Mobile's own "Mijn maand". Went through two rounds here — a drag-select
+// grid (felt like fighting touch with a mouse gesture) and a dot-grid +
+// separate list (the dots didn't carry enough meaning, and the tiny
+// checkbox felt like a decoration, not something to trust tapping) —
+// confirmed against feedback both times. This version is a single
+// scrollable list: every day of the month, full status text, no grid at
+// all. A thin divider marks each new week purely for scanability, not as
+// a layout grid.
 export default function MyMonthCalendar({
   year, month, dept, emp, data, readOnly, presets, onApply, onClear, emailToName,
 }: {
@@ -40,7 +35,6 @@ export default function MyMonthCalendar({
   emailToName?: Map<string, string>
 }) {
   const days = getDaysInMonth(year, month)
-  const leadingBlanks = (new Date(year, month - 1, 1).getDay() + 6) % 7
 
   function wdFor(day: number): WeekDay {
     const d = days.find(x => x.day === day)!
@@ -71,124 +65,89 @@ export default function MyMonthCalendar({
     setSelected(new Set())
   }
 
-  function toggleDay(day: number) {
-    setSelected(prev => {
-      const next = new Set(prev)
-      if (next.has(day)) next.delete(day); else next.add(day)
-      return next
-    })
-  }
-
   function handleDayClick(day: number) {
     if (readOnly) return
-    if (selectMode) { toggleDay(day); return }
+    if (selectMode) {
+      setSelected(prev => {
+        const next = new Set(prev)
+        if (next.has(day)) next.delete(day); else next.add(day)
+        return next
+      })
+      return
+    }
     openEditorForDays([day])
   }
 
-  const populatedDays = days.filter(d => (data[dateCellKey(year, month, d.day, dept, emp)] ?? emptyCell()).value)
-
   return (
     <div>
-      <div className="flex items-center justify-between mb-1.5">
-        <div className="grid grid-cols-7 gap-1 flex-1">
-          {['MA', 'DI', 'WO', 'DO', 'VR', 'ZA', 'ZO'].map(d => (
-            <span key={d} className="text-[10px] text-zinc-600 text-center uppercase tracking-wide">{d}</span>
-          ))}
-        </div>
+      <div className="flex items-center justify-between mb-2 px-0.5">
+        <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest">
+          {DUTCH_MONTHS[month - 1]} {year}
+        </p>
         {!readOnly && (
-          <button onClick={toggleSelectMode} className="ml-2 text-[11px] text-zinc-400 hover:text-zinc-200 underline flex-shrink-0">
+          <button onClick={toggleSelectMode} className="text-[11px] text-zinc-400 hover:text-zinc-200 underline">
             {selectMode ? 'Annuleren' : 'Selecteren'}
           </button>
         )}
       </div>
-      <div className="grid grid-cols-7 gap-1.5">
-        {Array.from({ length: leadingBlanks }).map((_, i) => <div key={`b${i}`} />)}
-        {days.map(d => {
+
+      <div className="space-y-1.5 pb-20">
+        {days.map((d, i) => {
           const key = dateCellKey(year, month, d.day, dept, emp)
           const cell = data[key] ?? emptyCell()
           const isSelected = selectMode && selected.has(d.day)
+          const isNewWeek = i > 0 && d.dayName === 'Maandag'
           return (
-            <button
-              key={d.day}
-              onClick={() => handleDayClick(d.day)}
-              style={{
-                backgroundColor: isSelected ? SEL_BG : d.isToday ? 'rgba(58,145,63,0.08)' : 'rgba(255,255,255,0.02)',
-                borderColor: isSelected ? undefined : d.isToday ? 'rgba(58,145,63,0.35)' : 'rgba(255,255,255,0.07)',
-                outline: isSelected ? SEL_BDR : undefined,
-                outlineOffset: '-1px',
-                opacity: readOnly ? 0.6 : 1,
-              }}
-              className="tap-target aspect-square rounded-lg border p-1.5 flex flex-col items-center justify-center gap-1 transition-colors"
-            >
-              <span className={`text-[11px] ${d.isToday ? 'text-emerald-400 font-semibold' : d.isWeekend ? 'text-zinc-600' : 'text-zinc-500'}`}>
-                {d.day}
-              </span>
-              {/* Color signal only, no status text — a truncated pill in a
-                  44px box ("VE…", "SP…") told you less than nothing; the
-                  agenda list below is where the actual status name lives,
-                  fully spelled out. */}
-              {cell.value && (
-                <span
-                  className="w-1.5 h-1.5 rounded-full"
-                  style={{ backgroundColor: cell.bgColor ?? '#71717a' }}
-                />
+            <div key={d.day}>
+              {isNewWeek && (
+                <p className="text-[10px] text-zinc-600 uppercase tracking-wide mt-3 mb-1.5 px-0.5">
+                  Week van {d.day} {DUTCH_MONTHS[month - 1].slice(0, 3)}
+                </p>
               )}
-            </button>
-          )
-        })}
-      </div>
-
-      {/* Agenda list — only days that actually have something planned,
-          each shown with its full (untruncated) status and note. Tap a row
-          to edit it directly; in select mode, tap toggles it into the bulk
-          selection instead (same rows, same list — Select mode just
-          changes what a tap does, exactly like Photos/Mail's own pattern). */}
-      <div className="mt-4 space-y-1.5">
-        <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest px-0.5">Deze maand</p>
-        {populatedDays.length === 0 ? (
-          <p className="py-4 text-center text-xs text-zinc-600">Nog niets ingevuld deze maand.</p>
-        ) : (
-          populatedDays.map(d => {
-            const key = dateCellKey(year, month, d.day, dept, emp)
-            const cell = data[key] ?? emptyCell()
-            const isSelected = selectMode && selected.has(d.day)
-            return (
               <button
-                key={d.day}
                 onClick={() => handleDayClick(d.day)}
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-colors"
+                className="w-full flex items-center gap-3 pl-2.5 pr-3 py-3 rounded-xl border text-left transition-colors"
                 style={{
-                  borderColor: isSelected ? 'rgba(59,130,246,0.5)' : '#27272a',
+                  borderColor: isSelected ? SEL_BORDER : '#27272a',
                   backgroundColor: isSelected ? SEL_BG : 'rgba(24,24,27,0.6)',
+                  borderLeftWidth: isSelected ? '4px' : '1px',
                 }}
               >
+                {/* Whole row toggles the selection (not just this icon) —
+                    the icon is the visual confirmation, not the hit
+                    target, so this stays big and legible without needing
+                    to itself be huge. */}
                 {selectMode && (
                   <span
-                    className="w-4 h-4 flex-shrink-0 rounded flex items-center justify-center"
+                    className="w-6 h-6 flex-shrink-0 rounded-md flex items-center justify-center transition-colors"
                     style={{
-                      backgroundColor: isSelected ? '#3A913F' : 'transparent',
-                      border: isSelected ? 'none' : '1px solid #52525b',
+                      backgroundColor: isSelected ? '#3A913F' : 'rgba(255,255,255,0.06)',
+                      border: isSelected ? 'none' : '1.5px solid #52525b',
                     }}
                   >
-                    {isSelected && <Check size={11} className="text-white" />}
+                    {isSelected && <Check size={15} className="text-white" strokeWidth={3} />}
                   </span>
                 )}
-                <span className={`w-14 flex-shrink-0 text-xs ${d.isToday ? 'text-emerald-400 font-semibold' : 'text-zinc-500'}`}>
+                <span className={`w-14 flex-shrink-0 text-xs ${d.isToday ? 'text-emerald-400 font-semibold' : d.isWeekend ? 'text-zinc-600' : 'text-zinc-500'}`}>
                   {d.dayName.slice(0, 2).toUpperCase()} {d.day}
                 </span>
-                <span
-                  className="flex-1 min-w-0 truncate rounded-md px-2 py-1 text-xs font-semibold"
-                  style={{ backgroundColor: cell.bgColor ?? 'rgba(255,255,255,0.08)', color: cell.bgColor ? '#fff' : '#a1a1aa' }}
-                >
-                  {cell.value}
-                </span>
+                {cell.value ? (
+                  <span
+                    className="flex-1 min-w-0 truncate rounded-md px-2 py-1.5 text-xs font-semibold"
+                    style={{ backgroundColor: cell.bgColor ?? 'rgba(255,255,255,0.08)', color: cell.bgColor ? '#fff' : '#a1a1aa' }}
+                  >
+                    {cell.value}
+                  </span>
+                ) : (
+                  <span className="flex-1 text-xs text-zinc-700">—</span>
+                )}
                 {cell.note && (
                   <span className="flex-shrink-0 max-w-[30%] truncate text-[10px] text-zinc-500">{cell.note}</span>
                 )}
               </button>
-            )
-          })
-        )}
+            </div>
+          )
+        })}
       </div>
 
       {selectMode && selected.size > 0 && (
