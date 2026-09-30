@@ -113,9 +113,13 @@ async function collectDroppedEntries(dataTransfer: DataTransfer): Promise<Pendin
 }
 
 // Drive's resumable upload requires chunk sizes to be a multiple of 256 KiB
-// (except the final chunk) — 8 MiB keeps any single request short-lived, so
-// a network blip only ever costs one chunk instead of the whole file.
-const UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024
+// (except the final chunk). Capped at 4 MiB because every chunk travels
+// through our own /api/files/upload-relay route, and Vercel rejects any
+// function request body over 4.5 MB with a 413 before our code ever runs —
+// at 8 MiB that meant every file larger than 4.5 MB failed to upload.
+// Smaller chunks also keep any single request short-lived, so a network blip
+// only ever costs one chunk instead of the whole file.
+const UPLOAD_CHUNK_SIZE = 4 * 1024 * 1024
 
 // Sends one Content-Range chunk through our own upload-relay route (same
 // origin — Drive's upload endpoint doesn't return CORS headers, so a direct
