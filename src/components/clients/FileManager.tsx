@@ -318,9 +318,21 @@ function SelectCheckbox({ checked, onToggle }: { checked: boolean; onToggle: () 
 // Real image/video preview when Drive has generated one, falling back to the
 // generic file-type icon otherwise (non-Drive rows, or a thumbnail Drive
 // hasn't produced yet for this file type).
-function FileTile({ file, icon: Icon, color }: { file: FileRecord; icon: typeof File; color: string }) {
+function FileTile({ file, icon: Icon, color, filesApi }: { file: FileRecord; icon: typeof File; color: string; filesApi: string }) {
+  // Served through our own proxy rather than the thumbnail_link stored on the
+  // row: Google's link is session-bound and 403s within about a day, so tiles
+  // for anything but freshly uploaded files quietly fell back to the generic
+  // icon. Same lesson /api/reels/thumbnail and /api/files/download each hit
+  // before this. The row's thumbnail_link is now only a record of whether
+  // Drive ever managed to render one at all.
   if (file.storage_provider === 'drive' && file.thumbnail_link) {
-    return <DriveThumbnail src={file.thumbnail_link} alt={file.filename} video={getFileCategory(file.file_type) === 'video'} />
+    return (
+      <DriveThumbnail
+        src={`${filesApi}/thumbnail?id=${file.id}&size=small`}
+        alt={file.filename}
+        video={getFileCategory(file.file_type) === 'video'}
+      />
+    )
   }
   return <Icon size={15} className={color} />
 }
@@ -1432,7 +1444,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                       className={`flex items-center gap-3 px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg group hover:border-zinc-700 transition-colors ${isPreviewable ? 'cursor-pointer' : ''}`}
                     >
                       <div className={`w-9 h-9 rounded-lg ${bg} flex items-center justify-center flex-shrink-0 overflow-hidden`}>
-                        <FileTile file={file} icon={Icon} color={color} />
+                        <FileTile file={file} icon={Icon} color={color} filesApi={filesApi} />
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-white truncate">{file.filename}</p>
@@ -1671,7 +1683,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                     <GripVertical size={13} className="text-zinc-700 group-hover:text-zinc-500 flex-shrink-0 transition-colors" />
 
                     <div className={`w-9 h-9 rounded-lg ${bg} flex items-center justify-center flex-shrink-0 overflow-hidden`}>
-                      <FileTile file={file} icon={Icon} color={color} />
+                      <FileTile file={file} icon={Icon} color={color} filesApi={filesApi} />
                     </div>
 
                     <div className="flex-1 min-w-0">

@@ -260,7 +260,7 @@ export async function downloadFile(driveFileId: string) {
 // itself — a PSD, a video's poster frame — which is all you need to recognise
 // a file, and far cheaper than booting Drive's whole preview app in an iframe.
 //
-// The size suffix is pinned to =s2400 on purpose. Measured against real PSDs,
+// The large size is pinned to =s2400 on purpose. Measured against real PSDs,
 // Drive caps these at 1024px on the long edge and returns the identical image
 // for =s1600, =s2400 and =s4000 — so this asks for the maximum it will ever
 // give. Asking for one fixed size also means Drive only ever generates and
@@ -270,10 +270,16 @@ export async function downloadFile(driveFileId: string) {
 // Returns null rather than throwing when Drive has no thumbnail (folders,
 // formats it can't render, a file still being processed right after upload)
 // so callers can quietly fall back to the preview iframe.
-const THUMBNAIL_SIZE = 2400
+// Two fixed sizes, no arbitrary numbers: a list tile is ~36px (220 covers it
+// on a retina screen at a few tens of KB), the viewer wants everything Drive
+// will give. Keeping it to two means Drive renders at most two variants per
+// file, so the slow first-render is paid twice per file at worst, ever.
+const THUMBNAIL_SIZES = { small: 220, large: 2400 } as const
+export type ThumbnailSize = keyof typeof THUMBNAIL_SIZES
 
 export async function fetchThumbnail(
-  driveFileId: string
+  driveFileId: string,
+  size: ThumbnailSize = 'large'
 ): Promise<{ body: ReadableStream; contentType: string } | null> {
   const drive = getClient()
 
@@ -287,7 +293,7 @@ export async function fetchThumbnail(
   if (!link) return null
 
   // Google's own link carries a small default (=s220). Swap it for ours.
-  const sized = link.replace(/=s\d+(-c)?$/, `=s${THUMBNAIL_SIZE}`)
+  const sized = link.replace(/=s\d+(-c)?$/, `=s${THUMBNAIL_SIZES[size]}`)
 
   // This URL is short-lived and session-bound — it 403s within about a day,
   // the same lesson /api/reels/thumbnail already documents. That's exactly

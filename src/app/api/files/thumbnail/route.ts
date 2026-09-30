@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
-import { fetchThumbnail } from '@/lib/drive-storage'
+import { fetchThumbnail, type ThumbnailSize } from '@/lib/drive-storage'
 import { hasClientAccess } from '@/lib/auth-permissions'
 
 export const maxDuration = 60
@@ -25,8 +25,12 @@ export async function GET(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Niet ingelogd.' }, { status: 401 })
 
-  const id = new URL(request.url).searchParams.get('id')
+  const params = new URL(request.url).searchParams
+  const id = params.get('id')
   if (!id) return NextResponse.json({ error: 'ID ontbreekt.' }, { status: 400 })
+  // Anything but an explicit 'small' means the viewer-sized image, so a
+  // typo'd or missing value degrades to a correct (if larger) response.
+  const size: ThumbnailSize = params.get('size') === 'small' ? 'small' : 'large'
 
   const admin = adminClient()
   const { data: file } = await admin
@@ -43,7 +47,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const thumb = await fetchThumbnail(file.drive_file_id)
+    const thumb = await fetchThumbnail(file.drive_file_id, size)
     if (!thumb) {
       return NextResponse.json({ error: 'Geen voorbeeld beschikbaar.' }, { status: 404 })
     }
