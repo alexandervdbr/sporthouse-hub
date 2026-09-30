@@ -256,6 +256,52 @@ export async function downloadFile(driveFileId: string) {
   return res.data as unknown as NodeJS.ReadableStream
 }
 
+// Drive renders a flat preview image for formats the browser can't display
+// itself — a PSD, a video's poster frame — which is all you need to recognise
+// a file, and far cheaper than booting Drive's whole preview app in an iframe.
+//
+// The size suffix is pinned to =s2400 on purpose. Measured against real PSDs,
+// Drive caps these at 1024px on the long edge and returns the identical image
+// for =s1600, =s2400 and =s4000 — so this asks for the maximum it will ever
+// give. Asking for one fixed size also means Drive only ever generates and
+// caches a single variant: the first request for a size it hasn't rendered
+// before took 15s in testing, every later one a few hundred ms.
+//
+// Returns null rather than throwing when Drive has no thumbnail (folders,
+// formats it can't render, a file still being processed right after upload)
+// so callers can quietly fall back to the preview iframe.
+const THUMBNAIL_SIZE = 2400
+
+export async function fetchThumbnail(
+  driveFileId: string
+): Promise<{ body: ReadableStream; contentType: string } | null> {
+  const drive = getClient()
+
+  const meta = await drive.files.get({
+    fileId: driveFileId,
+    fields: 'thumbnailLink',
+    supportsAllDrives: true,
+  })
+
+  const link = meta.data.thumbnailLink
+  if (!link) return null
+
+  // Google's own link carries a small default (=s220). Swap it for ours.
+  const sized = link.replace(/=s\d+(-c)?$/, `=s${THUMBNAIL_SIZE}`)
+
+  // This URL is short-lived and session-bound — it 403s within about a day,
+  // the same lesson /api/reels/thumbnail already documents. That's exactly
+  // why it's fetched fresh here per request and proxied, instead of being
+  // handed to the browser.
+  const res = await fetch(sized, { signal: AbortSignal.timeout(20000) })
+  if (!res.ok || !res.body) return null
+
+  return {
+    body: res.body,
+    contentType: res.headers.get('content-type') ?? 'image/png',
+  }
+}
+
 // ─── Folder resolution ──────────────────────────────────────────────────────
 //
 // Mirrors an app-level folder hierarchy (edition/section/client, or a client's

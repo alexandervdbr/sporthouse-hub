@@ -1086,6 +1086,20 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   const previewList = previewSource.filter(isPreviewableFile)
   const previewIndex = previewFile ? previewList.findIndex(f => f.id === previewFile.id) : -1
 
+  // Fetch the previews either side of the current one ahead of time. Stepping
+  // through a folder is overwhelmingly sequential, so by the time the arrow
+  // key is pressed the next image is usually already in the browser cache and
+  // appears with no visible load at all.
+  useEffect(() => {
+    if (previewIndex < 0) return
+    for (const neighbour of [previewList[previewIndex - 1], previewList[previewIndex + 1]]) {
+      if (neighbour) new Image().src = `${filesApi}/thumbnail?id=${neighbour.id}`
+    }
+    // previewList is rebuilt on every render; keying the effect on the id of
+    // each neighbour instead keeps it to one prefetch per actual move.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewIndex, previewList[previewIndex - 1]?.id, previewList[previewIndex + 1]?.id, filesApi])
+
   const hasResults = isGlobalSearch
     ? filteredGlobal.length > 0
     : filteredFolders.length > 0 || filteredFiles.length > 0
@@ -2013,6 +2027,8 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
           title={previewFile.filename}
           webViewLink={previewFile.web_view_link}
           downloadHref={`${filesApi}/download?id=${previewFile.id}`}
+          thumbnailHref={`${filesApi}/thumbnail?id=${previewFile.id}`}
+          isVideo={getFileCategory(previewFile.file_type) === 'video'}
           onClose={() => setPreviewFile(null)}
           onPrev={previewIndex > 0 ? () => setPreviewFile(previewList[previewIndex - 1]) : undefined}
           onNext={previewIndex >= 0 && previewIndex < previewList.length - 1 ? () => setPreviewFile(previewList[previewIndex + 1]) : undefined}
