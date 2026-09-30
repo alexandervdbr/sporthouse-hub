@@ -536,14 +536,22 @@ export default function PlanningApp() {
   useEffect(() => {
     let cancelled = false
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
-    let channel: ReturnType<typeof supabase.channel> | null = null
+    // The channel this effect currently considers "live" — deliberately
+    // separate from the local `thisChannel` captured inside connect()'s
+    // closure below. removeChannel()/unsubscribe() fires that same
+    // channel's own status callback with CLOSED synchronously as part of
+    // its normal cleanup — confirmed live, this produced an infinite
+    // self-triggering reconnect loop (thousands of "CLOSED" logs in a
+    // tight cycle) before this identity check existed, because that
+    // self-inflicted CLOSED was indistinguishable from a real dropped
+    // connection. Once `current` no longer points at a given channel, its
+    // callback is from a superseded attempt and gets ignored entirely.
+    let current: ReturnType<typeof supabase.channel> | null = null
+    let backoff = 2000
+    const MAX_BACKOFF = 30000
 
     function connect() {
-      // A fresh topic name per attempt, rather than reusing the same one —
-      // removeChannel + an identically-named subscribe back to back has
-      // shown occasional internal state carryover in supabase-js; a unique
-      // name per connect() sidesteps that entirely.
-      channel = supabase
+      const thisChannel = supabase
         .channel(`planning-entries-live-${Date.now()}`)
         .on(
           'postgres_changes',
@@ -581,27 +589,44 @@ export default function PlanningApp() {
           }
         )
         .subscribe((status, err) => {
-          if (status === 'SUBSCRIBED') console.log('Planning live-sync verbonden om', new Date().toLocaleTimeString())
+          if (thisChannel !== current) return // superseded — ignore
+          if (status === 'SUBSCRIBED') {
+            backoff = 2000
+            console.log('Planning live-sync verbonden om', new Date().toLocaleTimeString())
+            return
+          }
           // Previously silent — a dropped/failed connection here looked
           // identical to "no one else has edited anything yet" from the
-          // UI's perspective.
+          // UI's perspective. Exponential backoff (capped at 30s) instead
+          // of a fixed 2s retry — a real network/connectivity outage
+          // shouldn't turn into a tight hammering loop while it's down.
           if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
             console.error('Planning live-sync kanaal:', status, err ?? '')
             if (!cancelled) {
               reconnectTimer = setTimeout(() => {
-                if (channel) supabase.removeChannel(channel)
-                connect()
-              }, 2000)
+                backoff = Math.min(backoff * 2, MAX_BACKOFF)
+                reconnect()
+              }, backoff)
             }
           }
         })
+      current = thisChannel
     }
+
+    function reconnect() {
+      const old = current
+      current = null // so the old channel's own cleanup-triggered CLOSED is ignored above
+      if (old) supabase.removeChannel(old)
+      connect()
+    }
+
     connect()
 
     function handleVisibility() {
       if (document.visibilityState !== 'visible') return
-      if (channel) supabase.removeChannel(channel)
-      connect()
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
+      backoff = 2000
+      reconnect()
       setRefreshTick(t => t + 1)
     }
     document.addEventListener('visibilitychange', handleVisibility)
@@ -610,7 +635,9 @@ export default function PlanningApp() {
       cancelled = true
       document.removeEventListener('visibilitychange', handleVisibility)
       if (reconnectTimer) clearTimeout(reconnectTimer)
-      if (channel) supabase.removeChannel(channel)
+      const old = current
+      current = null
+      if (old) supabase.removeChannel(old)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
