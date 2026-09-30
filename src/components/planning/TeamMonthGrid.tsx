@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Star, ChevronDown, ChevronRight } from 'lucide-react'
 import { DUTCH_MONTHS } from '@/lib/planning-config'
 import { dayInfo, emptyCell, weekDayCellKey, type CellData, type PlanningWeekData, type WeekDay } from '@/lib/planning-week'
@@ -77,6 +77,14 @@ export default function TeamMonthGrid({
   const days = useMemo(() => {
     const count = new Date(year, month, 0).getDate()
     return Array.from({ length: count }, (_, i) => dayInfo(new Date(year, month - 1, i + 1)))
+  }, [year, month])
+
+  // Scrolled into view on mount/whenever the visible month changes — a
+  // ~30-column month otherwise opens scrolled all the way left (day 1),
+  // hiding "today" off to the right until you scroll to find it.
+  const todayColRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    todayColRef.current?.scrollIntoView({ inline: 'center', block: 'nearest' })
   }, [year, month])
 
   const [drag, setDrag] = useState<DragState | null>(null)
@@ -208,11 +216,15 @@ export default function TeamMonthGrid({
     setDrag(null)
   }
 
-  const gridTemplateColumns = `${NAME_COL_WIDTH}px repeat(${days.length}, ${DAY_COL_WIDTH}px)`
+  // minmax(...,1fr) instead of a flat px width — day columns keep their
+  // legibility floor on a narrow viewport (where the grid still needs to
+  // scroll horizontally, same as before) but stretch to absorb any leftover
+  // width on a wide screen instead of leaving it empty on the right.
+  const gridTemplateColumns = `${NAME_COL_WIDTH}px repeat(${days.length}, minmax(${DAY_COL_WIDTH}px, 1fr))`
 
   return (
     <div className="h-full overflow-auto rounded-xl border border-zinc-800">
-      <div style={{ display: 'grid', gridTemplateColumns, width: 'max-content' }}>
+      <div style={{ display: 'grid', gridTemplateColumns, width: '100%', minWidth: 'max-content' }}>
         {/* Frozen corner — sticky on both axes, unlike the week view (which
             only ever needs a top-sticky header since 7 columns never
             require horizontal scroll). */}
@@ -220,6 +232,7 @@ export default function TeamMonthGrid({
           className="border-b border-r border-zinc-800" />
         {days.map(wd => (
           <div key={`h-${wd.day}`}
+            ref={wd.isToday ? todayColRef : undefined}
             style={{ position: 'sticky', top: 0, zIndex: 20, backgroundColor: wd.isToday ? '#111d11' : wd.isWeekend ? WEEKEND_HEADER_BG : '#161616' }}
             className="border-b border-zinc-800 px-0.5 py-1.5 text-center">
             <p className={`text-[8px] uppercase tracking-wide ${wd.isWeekend ? 'text-zinc-600' : 'text-zinc-500'}`}>{wd.dayName.slice(0, 2)}</p>
@@ -233,26 +246,35 @@ export default function TeamMonthGrid({
             const isFav = prefs.favorites.includes(dept)
             const isCollapsed = !forceExpandSections && prefs.collapsed.includes(dept)
             return (
-              <div key={`dept-${dept}`} style={{ gridColumn: '1 / -1', position: 'sticky', left: 0, width: 'fit-content', minWidth: '100%' }}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900/60 text-[10px] font-semibold text-zinc-500 uppercase tracking-widest">
-                <button
-                  onClick={() => toggleCollapsed(dept)}
-                  disabled={forceExpandSections}
-                  className="flex items-center gap-1.5 hover:text-zinc-300 transition-colors disabled:cursor-default"
-                >
-                  {isCollapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
-                  {dept}
-                  <span className="normal-case font-normal text-zinc-600">({count})</span>
-                </button>
-                {prefsKey && (
+              <div key={`dept-${dept}`} style={{ gridColumn: '1 / -1', width: 'fit-content', minWidth: '100%' }}
+                className="bg-zinc-900/60">
+                {/* Sticky positioning here (not on the row above) — that
+                    outer div only exists to paint the full-width tint across
+                    however far the row scrolls; its own left edge sits at
+                    column 1 and never moves, so "sticky" on it was a no-op.
+                    This inner label is the thing that actually needs to stay
+                    pinned to the viewport's left edge while scrolling. */}
+                <div style={{ position: 'sticky', left: 0, zIndex: 10, width: 'fit-content' }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold text-zinc-500 uppercase tracking-widest">
                   <button
-                    onClick={() => toggleFavorite(dept)}
-                    aria-label={isFav ? 'Verwijder als favoriet' : 'Markeer als favoriet'}
-                    className={`ml-auto transition-colors ${isFav ? 'text-amber-400' : 'text-zinc-600 hover:text-zinc-400'}`}
+                    onClick={() => toggleCollapsed(dept)}
+                    disabled={forceExpandSections}
+                    className="flex items-center gap-1.5 hover:text-zinc-300 transition-colors disabled:cursor-default"
                   >
-                    <Star size={11} fill={isFav ? 'currentColor' : 'none'} />
+                    {isCollapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
+                    {dept}
+                    <span className="normal-case font-normal text-zinc-600">({count})</span>
                   </button>
-                )}
+                  {prefsKey && (
+                    <button
+                      onClick={() => toggleFavorite(dept)}
+                      aria-label={isFav ? 'Verwijder als favoriet' : 'Markeer als favoriet'}
+                      className={`transition-colors ${isFav ? 'text-amber-400' : 'text-zinc-600 hover:text-zinc-400'}`}
+                    >
+                      <Star size={11} fill={isFav ? 'currentColor' : 'none'} />
+                    </button>
+                  )}
+                </div>
               </div>
             )
           }
