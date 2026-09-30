@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Download, X, Film, ImageIcon } from 'lucide-react'
+import { Download, X, Film, ImageIcon, ChevronLeft, ChevronRight } from 'lucide-react'
 
 // Drive generates thumbnails asynchronously after upload, so the URL can be
 // briefly unresolvable right after a file lands — retry a few times with
@@ -41,28 +41,50 @@ export function DriveThumbnail({ src, alt, video }: { src: string; alt: string; 
 // In-platform preview for a Drive file — embeds Google's own preview iframe
 // (handles video seeking/streaming for us) inside a lightbox, so users never
 // leave the app just to look at something they uploaded.
-export function DrivePreviewModal({ driveFileId, title, webViewLink, downloadHref, onClose }: {
+export function DrivePreviewModal({ driveFileId, title, webViewLink, downloadHref, onClose, onPrev, onNext, position }: {
   driveFileId: string
   title: string
   webViewLink?: string | null
   downloadHref?: string
   onClose: () => void
+  // Optional: pass these to let the viewer step through a list of files
+  // (left/right arrow keys, or the chevrons). Callers that preview a single
+  // file leave them out and the modal renders exactly as before.
+  onPrev?: () => void
+  onNext?: () => void
+  position?: { index: number; total: number }
 }) {
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onClose(); return }
+      // Don't hijack the arrow keys from a focused field, or from a browser
+      // shortcut the user meant for the page (e.g. alt+left = history back).
+      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
+      const el = e.target as HTMLElement | null
+      if (el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName))) return
+      if (e.key === 'ArrowLeft' && onPrev) { e.preventDefault(); onPrev() }
+      if (e.key === 'ArrowRight' && onNext) { e.preventDefault(); onNext() }
+    }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [onClose, onPrev, onNext])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col"
-        style={{ background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.12)', maxHeight: '85vh' }}>
+      <div className="relative w-full max-w-6xl rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+        style={{ background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.12)', height: '90vh' }}>
 
         <div className="flex items-center justify-between px-5 py-3 flex-shrink-0"
           style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-          <p className="text-sm font-medium text-zinc-200 truncate pr-4">{title}</p>
+          <div className="flex items-baseline gap-3 min-w-0 pr-4">
+            <p className="text-sm font-medium text-zinc-200 truncate">{title}</p>
+            {position && position.total > 1 && (
+              <span className="text-xs text-zinc-500 flex-shrink-0 tabular-nums">
+                {position.index + 1} / {position.total}
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-1 flex-shrink-0">
             {downloadHref && (
               <a href={downloadHref} download aria-label="Downloaden" title="Downloaden"
@@ -76,13 +98,18 @@ export function DrivePreviewModal({ driveFileId, title, webViewLink, downloadHre
           </div>
         </div>
 
-        <div className="flex-1 bg-black" style={{ minHeight: '60vh' }}>
+        <div className="flex-1 min-h-0 bg-black relative">
           <iframe
             src={`https://drive.google.com/file/d/${driveFileId}/preview`}
-            className="w-full h-full"
-            style={{ minHeight: '60vh' }}
+            className="w-full h-full block"
             allow="autoplay"
           />
+          {(onPrev || onNext) && (
+            <>
+              <NavButton side="left"  onClick={onPrev} label="Vorige (pijl links)"  icon={ChevronLeft} />
+              <NavButton side="right" onClick={onNext} label="Volgende (pijl rechts)" icon={ChevronRight} />
+            </>
+          )}
         </div>
 
         {webViewLink && (
@@ -95,5 +122,24 @@ export function DrivePreviewModal({ driveFileId, title, webViewLink, downloadHre
         )}
       </div>
     </div>
+  )
+}
+
+function NavButton({ side, onClick, label, icon: Icon }: {
+  side: 'left' | 'right'
+  onClick?: () => void
+  label: string
+  icon: typeof ChevronLeft
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={!onClick}
+      aria-label={label}
+      title={label}
+      className={`absolute top-1/2 -translate-y-1/2 ${side === 'left' ? 'left-3' : 'right-3'} p-2 rounded-full bg-black/60 text-white backdrop-blur-sm transition-opacity hover:bg-black/80 disabled:opacity-0 disabled:pointer-events-none`}
+    >
+      <Icon size={22} />
+    </button>
   )
 }
