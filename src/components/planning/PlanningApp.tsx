@@ -467,37 +467,62 @@ export default function PlanningApp() {
   // regardless of whether the realtime socket caught everything meanwhile.
   const [refreshTick, setRefreshTick] = useState(0)
 
-  // ── Load the visible period's data (a week, or a whole month) ───────────
-  useEffect(() => {
-    let cancelled = false
-    async function load() {
-      setLoading(true)
-      const results = await Promise.all(groupWeekByMonth(daysToLoad).map(g =>
-        supabase.from('planning_entries').select(SELECT_COLS).eq('year', g.year).eq('month', g.month).in('day', g.days)
-      ))
-      if (cancelled) return
-      const map: PlanningWeekData = {}
-      for (const res of results) {
-        for (const r of res.data ?? []) {
-          map[dateCellKey(r.year, r.month, r.day, r.department, r.employee)] = {
-            value: r.value, bold: r.bold ?? true,
-            textColor: r.text_color ?? '#ffffff', bgColor: r.bg_color ?? null,
-            note: r.note ?? null,
-            updatedBy: r.updated_by ?? null, updatedAt: r.updated_at ?? null,
-          }
+  // Extracted out of the effect below so the same fetch can also be run
+  // silently by the background-poll and network-restored safety nets
+  // further down, without duplicating the query/merge logic. `loadCallId`
+  // supersedes React's usual per-effect cancellation flag — any caller
+  // (navigation, poll, or reconnect) can trigger a load, so "am I still
+  // the most recent one" needs to be tracked globally, not per-effect.
+  const loadCallIdRef = useRef(0)
+  const loadPeriodData = useCallback(async (opts?: { silent?: boolean }) => {
+    const callId = ++loadCallIdRef.current
+    if (!opts?.silent) setLoading(true)
+    const results = await Promise.all(groupWeekByMonth(daysToLoad).map(g =>
+      supabase.from('planning_entries').select(SELECT_COLS).eq('year', g.year).eq('month', g.month).in('day', g.days)
+    ))
+    if (callId !== loadCallIdRef.current) return // superseded by a newer load
+    const map: PlanningWeekData = {}
+    for (const res of results) {
+      for (const r of res.data ?? []) {
+        map[dateCellKey(r.year, r.month, r.day, r.department, r.employee)] = {
+          value: r.value, bold: r.bold ?? true,
+          textColor: r.text_color ?? '#ffffff', bgColor: r.bg_color ?? null,
+          note: r.note ?? null,
+          updatedBy: r.updated_by ?? null, updatedAt: r.updated_at ?? null,
         }
       }
-      setData(map)
-      setLoading(false)
     }
-    load()
-    return () => { cancelled = true }
+    setData(map)
+    if (!opts?.silent) setLoading(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [daysToLoad])
+
+  // Kept in a ref so the polling effect below (registered once, empty deps
+  // — it shouldn't tear down and recreate its interval on every render)
+  // always calls the version bound to the currently visible period.
+  const loadPeriodDataRef = useRef(loadPeriodData)
+  useEffect(() => { loadPeriodDataRef.current = loadPeriodData }, [loadPeriodData])
+
+  // ── Load the visible period's data (a week, or a whole month) ───────────
+  useEffect(() => {
+    loadPeriodData()
     // refreshTick has no real value of its own — bumping it is just a way to
     // force this effect to re-run (a fresh refetch) when the tab regains
     // visibility, as a safety net independent of whether the realtime
     // socket below actually caught everything while backgrounded.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [usingWeekNav, week, anchorYear, anchorMonth, refreshTick])
+  }, [loadPeriodData, refreshTick])
+
+  // No matter how solid the realtime socket is, a fully backgrounded tab
+  // that's never refocused (or a laptop asleep with the tab still
+  // frontmost) has no browser-level signal this app can react to at all —
+  // that's a real, universal limit, not something fixable here. This
+  // silent poll puts a hard ceiling on how stale things are ever allowed
+  // to get regardless: worst case, whatever's on screen catches up within
+  // one interval even if the socket died in a way nothing else caught.
+  useEffect(() => {
+    const id = setInterval(() => { loadPeriodDataRef.current({ silent: true }) }, 20000)
+    return () => clearInterval(id)
+  }, [])
 
   // ── Live updates — other people's edits land here as they happen, not
   // just after navigating away and back. Merges straight into `data`
@@ -622,18 +647,27 @@ export default function PlanningApp() {
 
     connect()
 
-    function handleVisibility() {
-      if (document.visibilityState !== 'visible') return
+    // Shared by tab-refocus AND network-restored — a laptop waking from
+    // sleep with the tab still frontmost the whole time fires 'online',
+    // not visibilitychange, since the tab was never actually hidden; a
+    // dropped wifi/network change is a distinct failure mode from a
+    // throttled background tab and needs its own trigger.
+    function handleReconnectSignal() {
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
       backoff = 2000
       reconnect()
       setRefreshTick(t => t + 1)
     }
+    function handleVisibility() {
+      if (document.visibilityState === 'visible') handleReconnectSignal()
+    }
     document.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('online', handleReconnectSignal)
 
     return () => {
       cancelled = true
       document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('online', handleReconnectSignal)
       if (reconnectTimer) clearTimeout(reconnectTimer)
       const old = current
       current = null
