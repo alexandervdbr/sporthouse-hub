@@ -208,11 +208,15 @@ export default function TeamMonthGrid({
     setDrag(null)
   }
 
-  const gridTemplateColumns = `${NAME_COL_WIDTH}px repeat(${days.length}, ${DAY_COL_WIDTH}px)`
+  // minmax(...,1fr) instead of a flat px width — day columns keep their
+  // legibility floor on a narrow viewport (where the grid still needs to
+  // scroll horizontally, same as before) but stretch to absorb any leftover
+  // width on a wide screen instead of leaving it empty on the right.
+  const gridTemplateColumns = `${NAME_COL_WIDTH}px repeat(${days.length}, minmax(${DAY_COL_WIDTH}px, 1fr))`
 
   return (
     <div className="h-full overflow-auto rounded-xl border border-zinc-800">
-      <div style={{ display: 'grid', gridTemplateColumns, width: 'max-content' }}>
+      <div style={{ display: 'grid', gridTemplateColumns, width: '100%', minWidth: 'max-content' }}>
         {/* Frozen corner — sticky on both axes, unlike the week view (which
             only ever needs a top-sticky header since 7 columns never
             require horizontal scroll). */}
