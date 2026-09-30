@@ -11,13 +11,18 @@ const ARCHIVE_EXTS  = ['zip', 'rar', '7z', 'tar', 'gz', 'bz2']
 const DOC_EXTS      = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'md', 'csv', 'rtf', 'odt', 'ods', 'odp']
 const FONT_EXTS     = ['ttf', 'otf', 'woff', 'woff2', 'eot']
 const CODE_EXTS     = ['js', 'ts', 'tsx', 'jsx', 'py', 'html', 'css', 'json', 'xml', 'yaml', 'yml', 'sql']
+// Design/creative source files (Adobe, Affinity, Figma, Sketch). Binary project
+// files we only ever store and hand back — never parse — so they're as safe to
+// keep as any archive, and the team uploads them as templates.
+const DESIGN_EXTS   = ['psd', 'psb', 'ai', 'indd', 'idml', 'eps', 'xd', 'sketch', 'fig', 'afphoto', 'afdesign', 'afpub', 'aep', 'prproj']
 
 export const ALLOWED_UPLOAD_EXTS = [
   ...IMAGE_EXTS, ...VIDEO_EXTS, ...AUDIO_EXTS, ...ARCHIVE_EXTS, ...DOC_EXTS, ...FONT_EXTS, ...CODE_EXTS,
+  ...DESIGN_EXTS,
 ]
 
 export const ALLOWED_UPLOAD_HINT =
-  "Afbeeldingen, video's, audio, documenten, archieven, lettertypes en code-/configbestanden"
+  "Afbeeldingen, video's, audio, documenten, archieven, lettertypes, ontwerpbestanden (PSD, AI, INDD, …) en code-/configbestanden"
 
 export function fileExt(filename: string): string {
   return filename.includes('.') ? filename.split('.').pop()!.toLowerCase() : ''

@@ -7,7 +7,7 @@ import {
   Pencil, MoreVertical, X, Check, FolderPlus,
   FileText, FileImage, FileVideo, FileAudio,
   FileArchive, File, FileCode, FileType2,
-  AlertCircle, GripVertical, ArrowUpDown,
+  AlertCircle, GripVertical, ArrowUpDown, Palette,
 } from 'lucide-react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
@@ -240,6 +240,7 @@ const ARCHIVE_EXTS = ['zip', 'rar', '7z', 'tar', 'gz', 'bz2']
 const CODE_EXTS = ['js', 'ts', 'tsx', 'jsx', 'py', 'html', 'css', 'json', 'xml', 'yaml', 'yml', 'sh', 'sql']
 const DOC_EXTS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'md', 'csv', 'rtf']
 const FONT_EXTS = ['ttf', 'otf', 'woff', 'woff2', 'eot']
+const DESIGN_EXTS = ['psd', 'psb', 'ai', 'indd', 'idml', 'eps', 'xd', 'sketch', 'fig', 'afphoto', 'afdesign', 'afpub', 'aep', 'prproj']
 
 function getFileIcon(fileType: string) {
   const t = fileType.toLowerCase()
@@ -250,6 +251,7 @@ function getFileIcon(fileType: string) {
   if (CODE_EXTS.includes(t)) return { icon: FileCode, color: 'text-emerald-400', bg: 'bg-emerald-950/50' }
   if (DOC_EXTS.includes(t)) return { icon: FileText, color: 'text-zinc-300', bg: 'bg-zinc-800' }
   if (FONT_EXTS.includes(t)) return { icon: FileType2, color: 'text-cyan-400', bg: 'bg-cyan-950/50' }
+  if (DESIGN_EXTS.includes(t)) return { icon: Palette, color: 'text-indigo-400', bg: 'bg-indigo-950/50' }
   return { icon: File, color: 'text-zinc-400', bg: 'bg-zinc-800' }
 }
 
