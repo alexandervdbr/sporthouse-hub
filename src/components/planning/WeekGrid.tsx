@@ -250,18 +250,24 @@ export default function WeekGrid({
   const cellPad = variant === 'spacious' ? 'p-3' : 'p-1.5'
   const cellMinH = variant === 'spacious' ? 'min-h-[76px]' : 'min-h-[52px]'
   const nameColWidth = showNameColumn ? 160 : 0
+  // minmax(64px, 1fr) instead of a bare 1fr — this used to assume "7
+  // columns always fit" (desktop-only), so columns just squeezed toward
+  // nothing on a narrow screen. The 64px floor keeps a day column legible
+  // on mobile and forces horizontal scroll instead, same technique already
+  // applied to TeamMonthGrid's day columns.
   const gridTemplateColumns = showNameColumn
-    ? `${nameColWidth}px repeat(7, minmax(0, 1fr))`
-    : 'repeat(7, minmax(0, 1fr))'
+    ? `${nameColWidth}px repeat(7, minmax(64px, 1fr))`
+    : 'repeat(7, minmax(64px, 1fr))'
 
   return (
-    <div className="h-full overflow-y-auto rounded-xl border border-zinc-800">
-      <div style={{ display: 'grid', gridTemplateColumns }}>
-        {/* Header row — the only sticky thing in this whole redesign, and
-            it's a single axis (top), because a week never needs to scroll
-            sideways. No frozen-corner complexity like the old month grid. */}
+    <div className="h-full overflow-auto rounded-xl border border-zinc-800">
+      <div style={{ display: 'grid', gridTemplateColumns, width: '100%', minWidth: 'max-content' }}>
+        {/* Header row was the only sticky thing here on purpose — "a week
+            never needs to scroll sideways" was a desktop-only assumption.
+            Now that mobile can reach this view too, the corner + name
+            column need the same frozen-corner treatment as TeamMonthGrid. */}
         {showNameColumn && (
-          <div style={{ position: 'sticky', top: 0, zIndex: 20, backgroundColor: '#161616' }}
+          <div style={{ position: 'sticky', top: 0, left: 0, zIndex: 30, backgroundColor: '#161616' }}
             className="border-b border-r border-zinc-800" />
         )}
         {week.map(wd => (
@@ -279,26 +285,33 @@ export default function WeekGrid({
             const isFav = prefs.favorites.includes(dept)
             const isCollapsed = !forceExpandSections && prefs.collapsed.includes(dept)
             return (
-              <div key={`dept-${dept}`} style={{ gridColumn: '1 / -1' }}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900/60 text-[10px] font-semibold text-zinc-500 uppercase tracking-widest">
-                <button
-                  onClick={() => toggleCollapsed(dept)}
-                  disabled={forceExpandSections}
-                  className="flex items-center gap-1.5 hover:text-zinc-300 transition-colors disabled:cursor-default"
-                >
-                  {isCollapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
-                  {dept}
-                  <span className="normal-case font-normal text-zinc-600">({count})</span>
-                </button>
-                {prefsKey && (
+              <div key={`dept-${dept}`} style={{ gridColumn: '1 / -1', width: 'fit-content', minWidth: '100%' }}
+                className="bg-zinc-900/60">
+                {/* Sticky here, not on the row above — that outer div only
+                    paints the full-width tint (its own left edge sits at
+                    column 1 and never moves), the label is what actually
+                    needs to stay pinned while scrolling. */}
+                <div style={{ position: 'sticky', left: 0, zIndex: 10, width: 'fit-content' }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold text-zinc-500 uppercase tracking-widest">
                   <button
-                    onClick={() => toggleFavorite(dept)}
-                    aria-label={isFav ? 'Verwijder als favoriet' : 'Markeer als favoriet'}
-                    className={`ml-auto transition-colors ${isFav ? 'text-amber-400' : 'text-zinc-600 hover:text-zinc-400'}`}
+                    onClick={() => toggleCollapsed(dept)}
+                    disabled={forceExpandSections}
+                    className="flex items-center gap-1.5 hover:text-zinc-300 transition-colors disabled:cursor-default"
                   >
-                    <Star size={11} fill={isFav ? 'currentColor' : 'none'} />
+                    {isCollapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
+                    {dept}
+                    <span className="normal-case font-normal text-zinc-600">({count})</span>
                   </button>
-                )}
+                  {prefsKey && (
+                    <button
+                      onClick={() => toggleFavorite(dept)}
+                      aria-label={isFav ? 'Verwijder als favoriet' : 'Markeer als favoriet'}
+                      className={`transition-colors ${isFav ? 'text-amber-400' : 'text-zinc-600 hover:text-zinc-400'}`}
+                    >
+                      <Star size={11} fill={isFav ? 'currentColor' : 'none'} />
+                    </button>
+                  )}
+                </div>
               </div>
             )
           }
@@ -311,6 +324,7 @@ export default function WeekGrid({
               {showNameColumn && (
                 <div
                   title={person.emp}
+                  style={{ position: 'sticky', left: 0, zIndex: 10, backgroundColor: '#161616' }}
                   className={`border-b border-r border-zinc-800 px-3 flex items-center text-sm font-medium truncate ${locked ? 'text-zinc-600' : 'text-zinc-300'}`}>
                   {displayNames.get(person.emp) ?? person.emp}
                 </div>

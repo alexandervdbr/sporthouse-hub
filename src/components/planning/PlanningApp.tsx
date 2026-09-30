@@ -23,7 +23,7 @@ import PlanningStats from './PlanningStats'
 const norm = normName
 
 type Tab = 'mijn' | 'team' | 'stats'
-type TeamViewMode = 'week' | 'month'
+type TeamViewMode = 'day' | 'week' | 'month'
 
 const SELECT_COLS = 'year, month, day, department, employee, value, bold, text_color, bg_color, note, updated_by, updated_at'
 
@@ -85,33 +85,21 @@ export default function PlanningApp() {
   // "Mijn" is always the month view now — a people × 7-day grid reduced to
   // a whole month wouldn't fit Team at that density (the original
   // too-dense problem this redesign exists to fix), so Team's month view
-  // (below) is a separate, deliberately compact overview rather than the
-  // primary editing surface — the week view stays that. Desktop only;
-  // mobile always gets the week-based day-stepper regardless of this.
-  const [teamViewMode, setTeamViewMode] = useState<TeamViewMode>('week')
+  // is a separate, deliberately compact overview rather than the primary
+  // editing surface — the week view stays that. 'day' is mobile's own
+  // simplest default (the day-stepper) — desktop's toggle never offers it,
+  // but shares the same stored preference/localStorage key, so it's still
+  // a valid value there (see the render below: treated the same as 'week').
+  const [teamViewMode, setTeamViewMode] = useState<TeamViewMode>('day')
   useEffect(() => {
     try {
       const stored = localStorage.getItem('planning-team-view-mode')
-      if (stored === 'week' || stored === 'month') setTeamViewMode(stored)
+      if (stored === 'day' || stored === 'week' || stored === 'month') setTeamViewMode(stored)
     } catch { /* private browsing */ }
   }, [])
   useEffect(() => {
     try { localStorage.setItem('planning-team-view-mode', teamViewMode) } catch { /* private browsing */ }
   }, [teamViewMode])
-
-  // Mobile always shows Team's week-based day-stepper regardless of
-  // teamViewMode (a stored 'month' preference could otherwise follow
-  // someone from a desktop session onto a narrow viewport where there's no
-  // month view to show), so the shared nav bar needs to know the actual
-  // viewport, not just the toggle's last setting.
-  const [isMobileViewport, setIsMobileViewport] = useState(false)
-  useEffect(() => {
-    const mq = window.matchMedia('(max-width: 1023px)')
-    setIsMobileViewport(mq.matches)
-    const onChange = () => setIsMobileViewport(mq.matches)
-    mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
-  }, [])
 
   const [weekAnchor, setWeekAnchor] = useState(() => new Date())
   const week = useMemo(() => getWeekDates(weekAnchor), [weekAnchor])
@@ -119,7 +107,9 @@ export default function PlanningApp() {
   const anchorYear = weekAnchor.getFullYear()
   const anchorMonth = weekAnchor.getMonth() + 1
   const isCurrentMonth = anchorYear === new Date().getFullYear() && anchorMonth === new Date().getMonth() + 1
-  const usingWeekNav = tab === 'team' && (teamViewMode === 'week' || isMobileViewport)
+  // 'day' and 'week' both need a week's worth of data/nav; only 'month'
+  // needs the month-shaped equivalent.
+  const usingWeekNav = tab === 'team' && teamViewMode !== 'month'
   const periodLabel = usingWeekNav ? weekLabel(week) : `${DUTCH_MONTHS[anchorMonth - 1]} ${anchorYear}`
 
   const [activeDepts, setActiveDepts] = useState<Department[]>(() => loadCachedDepts())
@@ -815,7 +805,8 @@ export default function PlanningApp() {
                   key={v}
                   onClick={() => setTeamViewMode(v)}
                   className="px-2.5 py-1 rounded-md text-xs font-medium transition-colors"
-                  style={teamViewMode === v ? { backgroundColor: '#3A913F', color: '#fff' } : { color: '#a1a1aa' }}
+                  style={(teamViewMode === v || (v === 'week' && teamViewMode === 'day'))
+                    ? { backgroundColor: '#3A913F', color: '#fff' } : { color: '#a1a1aa' }}
                 >
                   {v === 'week' ? 'Week' : 'Maand'}
                 </button>
@@ -942,7 +933,24 @@ export default function PlanningApp() {
                 )}
               </div>
               <div className="flex-1 min-h-0">
-                {teamViewMode === 'week' ? (
+                {teamViewMode === 'month' ? (
+                  <TeamMonthGrid
+                    year={anchorYear}
+                    month={anchorMonth}
+                    people={visibleTeam}
+                    data={data}
+                    canEditCol={canEditCol}
+                    presets={presets}
+                    onApply={applyToTargets}
+                    onClear={clearTargets}
+                    prefsKey={myIdentity ?? undefined}
+                    forceExpandSections={!!teamSearch.trim()}
+                    emailToName={emailToName}
+                  />
+                ) : (
+                  // 'day' has no desktop equivalent (that toggle only ever
+                  // offers week/month) — a preference inherited from a
+                  // mobile session falls back to the closest match here.
                   <WeekGrid
                     week={week}
                     people={visibleTeam}
@@ -959,35 +967,98 @@ export default function PlanningApp() {
                     forceExpandSections={!!teamSearch.trim()}
                     emailToName={emailToName}
                   />
-                ) : (
-                  <TeamMonthGrid
-                    year={anchorYear}
-                    month={anchorMonth}
-                    people={visibleTeam}
-                    data={data}
-                    canEditCol={canEditCol}
-                    presets={presets}
-                    onApply={applyToTargets}
-                    onClear={clearTargets}
-                    prefsKey={myIdentity ?? undefined}
-                    forceExpandSections={!!teamSearch.trim()}
-                    emailToName={emailToName}
-                  />
                 )}
               </div>
             </div>
-            <div className="lg:hidden">
-              <MobileTeamDayStepper
-                week={week}
-                people={showArchived ? everyEmployee : activeEveryEmployee}
-                data={data}
-                canEditCol={canEditCol}
-                presets={presets}
-                onApply={applyToTargets}
-                onClear={clearTargets}
-                onNeedAdjacentWeek={dir => setWeekAnchor(a => addWeeks(a, dir))}
-                emailToName={emailToName}
-              />
+
+            {/* Mobile gets a third option ("Dag") desktop doesn't need —
+                the simplest default, since a people×7-day (or ×30-day)
+                grid is inherently denser than a phone screen no matter how
+                it's tuned. Week/Maand now reuse the exact same desktop
+                components: both already have a frozen name column, a
+                minimum column width forcing horizontal scroll instead of
+                squeezing illegible, and pointer-event drag-select that
+                works identically for touch. */}
+            <div className="lg:hidden flex flex-col gap-2 h-full">
+              <div className="flex items-center gap-1 p-1 rounded-lg bg-zinc-900 border border-zinc-800 w-fit flex-shrink-0">
+                {(['day', 'week', 'month'] as TeamViewMode[]).map(v => (
+                  <button
+                    key={v}
+                    onClick={() => setTeamViewMode(v)}
+                    className="px-2.5 py-1 rounded-md text-xs font-medium transition-colors"
+                    style={teamViewMode === v ? { backgroundColor: '#3A913F', color: '#fff' } : { color: '#a1a1aa' }}
+                  >
+                    {v === 'day' ? 'Dag' : v === 'week' ? 'Week' : 'Maand'}
+                  </button>
+                ))}
+              </div>
+
+              {teamViewMode === 'day' ? (
+                <MobileTeamDayStepper
+                  week={week}
+                  people={showArchived ? everyEmployee : activeEveryEmployee}
+                  data={data}
+                  canEditCol={canEditCol}
+                  presets={presets}
+                  onApply={applyToTargets}
+                  onClear={clearTargets}
+                  onNeedAdjacentWeek={dir => setWeekAnchor(a => addWeeks(a, dir))}
+                  emailToName={emailToName}
+                />
+              ) : (
+                <>
+                  <div className="relative flex-shrink-0">
+                    <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={teamSearch}
+                      onChange={e => setTeamSearch(e.target.value)}
+                      placeholder="Zoek een naam…"
+                      className="w-full pl-8 pr-7 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600 transition-colors"
+                    />
+                    {teamSearch && (
+                      <button onClick={() => setTeamSearch('')} aria-label="Zoekopdracht wissen"
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300">
+                        <X size={13} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex-1 min-h-0">
+                    {teamViewMode === 'month' ? (
+                      <TeamMonthGrid
+                        year={anchorYear}
+                        month={anchorMonth}
+                        people={visibleTeam}
+                        data={data}
+                        canEditCol={canEditCol}
+                        presets={presets}
+                        onApply={applyToTargets}
+                        onClear={clearTargets}
+                        prefsKey={myIdentity ?? undefined}
+                        forceExpandSections={!!teamSearch.trim()}
+                        emailToName={emailToName}
+                      />
+                    ) : (
+                      <WeekGrid
+                        week={week}
+                        people={visibleTeam}
+                        data={data}
+                        canEditCol={canEditCol}
+                        presets={presets}
+                        onApply={applyToTargets}
+                        onClear={clearTargets}
+                        groupHeaders
+                        showNameColumn
+                        variant="compact"
+                        personSubtitle={p => p.dept}
+                        prefsKey={myIdentity ?? undefined}
+                        forceExpandSections={!!teamSearch.trim()}
+                        emailToName={emailToName}
+                      />
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </>
         )}

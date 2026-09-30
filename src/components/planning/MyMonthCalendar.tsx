@@ -201,17 +201,56 @@ export default function MyMonthCalendar({
               <span className={`text-[11px] ${d.isToday ? 'text-emerald-400 font-semibold' : d.isWeekend ? 'text-zinc-600' : 'text-zinc-500'}`}>
                 {d.day}
               </span>
+              {/* Color signal only, no status text — a truncated pill in a
+                  44px box ("VE…", "SP…") tells you less than nothing at
+                  all; the agenda list below is where the actual status
+                  name lives, fully spelled out. */}
               {cell.value && (
                 <span
-                  className="w-full truncate rounded px-1 py-0.5 text-center text-[9px] font-semibold"
-                  style={{ backgroundColor: cell.bgColor ?? 'rgba(255,255,255,0.1)', color: cell.bgColor ? '#fff' : '#a1a1aa' }}
-                >
-                  {cell.value}
-                </span>
+                  className="w-1.5 h-1.5 rounded-full"
+                  style={{ backgroundColor: cell.bgColor ?? '#71717a' }}
+                />
               )}
             </div>
           )
         })}
+      </div>
+
+      {/* Agenda list — only days that actually have something planned,
+          each shown with its full (untruncated) status and note. The grid
+          above is for the month's shape and multi-day selection; this is
+          where you can actually read what it says without tapping in. */}
+      <div className="mt-4 space-y-1.5">
+        <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest px-0.5">Deze maand</p>
+        {days.filter(d => (data[dateCellKey(year, month, d.day, dept, emp)] ?? emptyCell()).value).length === 0 ? (
+          <p className="py-4 text-center text-xs text-zinc-600">Nog niets ingevuld deze maand.</p>
+        ) : (
+          days.map(d => {
+            const key = dateCellKey(year, month, d.day, dept, emp)
+            const cell = data[key] ?? emptyCell()
+            if (!cell.value) return null
+            return (
+              <button
+                key={d.day}
+                onClick={() => !readOnly && openEditorFor([gridIdx(d.day)])}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border border-zinc-800 bg-zinc-900/60 text-left transition-colors hover:border-zinc-700"
+              >
+                <span className={`w-14 flex-shrink-0 text-xs ${d.isToday ? 'text-emerald-400 font-semibold' : 'text-zinc-500'}`}>
+                  {d.dayName.slice(0, 2).toUpperCase()} {d.day}
+                </span>
+                <span
+                  className="flex-1 min-w-0 truncate rounded-md px-2 py-1 text-xs font-semibold"
+                  style={{ backgroundColor: cell.bgColor ?? 'rgba(255,255,255,0.08)', color: cell.bgColor ? '#fff' : '#a1a1aa' }}
+                >
+                  {cell.value}
+                </span>
+                {cell.note && (
+                  <span className="flex-shrink-0 max-w-[35%] truncate text-[10px] text-zinc-500">{cell.note}</span>
+                )}
+              </button>
+            )
+          })
+        )}
       </div>
 
       {committed && committed.size > 0 && (
