@@ -1075,6 +1075,17 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
     sortKey
   )
 
+  // Files the preview modal can step through with the arrow keys: the same
+  // list the previewed file was opened from, in the order shown on screen,
+  // minus anything Drive can't render. Falls back to the global search
+  // results when the preview was opened from there rather than the folder.
+  const isPreviewableFile = (f: FileRecord) => f.storage_provider === 'drive' && !!f.drive_file_id
+  const previewSource = previewFile && filteredFiles.some(f => f.id === previewFile.id)
+    ? filteredFiles
+    : filteredGlobal
+  const previewList = previewSource.filter(isPreviewableFile)
+  const previewIndex = previewFile ? previewList.findIndex(f => f.id === previewFile.id) : -1
+
   const hasResults = isGlobalSearch
     ? filteredGlobal.length > 0
     : filteredFolders.length > 0 || filteredFiles.length > 0
@@ -2003,6 +2014,9 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
           webViewLink={previewFile.web_view_link}
           downloadHref={`${filesApi}/download?id=${previewFile.id}`}
           onClose={() => setPreviewFile(null)}
+          onPrev={previewIndex > 0 ? () => setPreviewFile(previewList[previewIndex - 1]) : undefined}
+          onNext={previewIndex >= 0 && previewIndex < previewList.length - 1 ? () => setPreviewFile(previewList[previewIndex + 1]) : undefined}
+          position={previewIndex >= 0 ? { index: previewIndex, total: previewList.length } : undefined}
         />
       )}
       </div>
