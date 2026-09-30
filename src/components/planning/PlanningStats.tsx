@@ -50,11 +50,18 @@ export default function PlanningStats({
 
   const options = useMemo(() => mergedStatusOptions(presets), [presets])
 
+  // Keyed by the UPPERCASE value on purpose — every saved cell's value is
+  // always uppercased (see DayEditor's handleSave), but a preset's display
+  // name usually isn't ("Recup", "Verlof", "De Spor", ...). Comparing the
+  // raw strings meant any preset whose name wasn't already all-caps (so,
+  // most of them) silently showed 0 here regardless of real data —
+  // "SHG"/"NB"/"PS" happened to look right purely by accident of already
+  // being uppercase to begin with.
   const countsByEmployee = useMemo(() => {
     const m = new Map<string, Map<string, number>>()
     for (const r of rows) {
       const byValue = m.get(r.employee) ?? new Map<string, number>()
-      byValue.set(r.value, r.count)
+      byValue.set(r.value.toUpperCase(), r.count)
       m.set(r.employee, byValue)
     }
     return m
@@ -138,7 +145,7 @@ export default function PlanningStats({
                         {emp}
                       </td>
                       {options.map(opt => {
-                        const count = byValue?.get(opt.name) ?? 0
+                        const count = byValue?.get(opt.name.toUpperCase()) ?? 0
                         return (
                           <td
                             key={opt.name}
