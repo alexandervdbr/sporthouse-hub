@@ -261,6 +261,17 @@ function getFileIcon(fileType: string) {
 
 type TypeFilter = 'all' | 'image' | 'video' | 'document' | 'other'
 
+// Formats worth showing as a flat preview image instead of Drive's viewer:
+// ones where the rendered image IS the content. Deliberately excludes PDFs
+// and text — you want the real viewer to page or read those — which also
+// keeps the inline text editor honest: it rewrites a file's contents under
+// the same id (updateFileContent), and preview images are cached as
+// immutable, so a text file previewed this way could go stale after an edit.
+function canPreviewAsImage(fileType: string): boolean {
+  const t = fileType.toLowerCase()
+  return IMAGE_EXTS.includes(t) || DESIGN_EXTS.includes(t) || VIDEO_EXTS.includes(t)
+}
+
 function getFileCategory(fileType: string): TypeFilter {
   const t = fileType.toLowerCase()
   if (IMAGE_EXTS.includes(t)) return 'image'
@@ -1093,7 +1104,9 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   useEffect(() => {
     if (previewIndex < 0) return
     for (const neighbour of [previewList[previewIndex - 1], previewList[previewIndex + 1]]) {
-      if (neighbour) new Image().src = `${filesApi}/thumbnail?id=${neighbour.id}`
+      if (neighbour && canPreviewAsImage(neighbour.file_type)) {
+        new Image().src = `${filesApi}/thumbnail?id=${neighbour.id}`
+      }
     }
     // previewList is rebuilt on every render; keying the effect on the id of
     // each neighbour instead keeps it to one prefetch per actual move.
@@ -2027,7 +2040,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
           title={previewFile.filename}
           webViewLink={previewFile.web_view_link}
           downloadHref={`${filesApi}/download?id=${previewFile.id}`}
-          thumbnailHref={`${filesApi}/thumbnail?id=${previewFile.id}`}
+          thumbnailHref={canPreviewAsImage(previewFile.file_type) ? `${filesApi}/thumbnail?id=${previewFile.id}` : undefined}
           isVideo={getFileCategory(previewFile.file_type) === 'video'}
           onClose={() => setPreviewFile(null)}
           onPrev={previewIndex > 0 ? () => setPreviewFile(previewList[previewIndex - 1]) : undefined}
