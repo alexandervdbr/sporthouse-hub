@@ -73,6 +73,15 @@ export default function PlanningApp() {
   const [supabase] = useState(() => createClient())
 
   const [tab, setTab] = useState<Tab>('mijn')
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('planning-active-tab')
+      if (stored === 'mijn' || stored === 'team' || stored === 'stats') setTab(stored)
+    } catch { /* private browsing */ }
+  }, [])
+  useEffect(() => {
+    try { localStorage.setItem('planning-active-tab', tab) } catch { /* private browsing */ }
+  }, [tab])
   // "Mijn" is always the month view now — a people × 7-day grid reduced to
   // a whole month wouldn't fit Team at that density (the original
   // too-dense problem this redesign exists to fix), so Team's month view
@@ -365,6 +374,15 @@ export default function PlanningApp() {
   }, [])
 
   const canSeeStats = isBeheer || mySections.includes('planning_statistieken')
+
+  // A restored 'stats' tab (see the localStorage restore above) needs to be
+  // corrected once permissions actually resolve, in case that permission
+  // was since revoked, or this device's stored preference belongs to
+  // someone else — otherwise the content pane would just sit empty (its
+  // own tab button also gone, since that's gated the same way).
+  useEffect(() => {
+    if (authChecked && tab === 'stats' && !canSeeStats) setTab('mijn')
+  }, [authChecked, tab, canSeeStats])
 
   const canEditCol = useCallback((emp: string): boolean => {
     if (canEditAll) return true
