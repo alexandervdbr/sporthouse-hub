@@ -1,12 +1,16 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Download, X, Film, ImageIcon, ChevronLeft, ChevronRight, Loader2, Play, Maximize2 } from 'lucide-react'
+import { Download, X, Film, ImageIcon, ChevronLeft, ChevronRight, Loader2, Play, Maximize2, Info } from 'lucide-react'
 
 // Drive generates thumbnails asynchronously after upload, so the URL can be
 // briefly unresolvable right after a file lands — retry a few times with
 // backoff before giving up and showing the icon fallback.
 const THUMB_RETRY_DELAYS = [3000, 6000, 12000]
+
+// Anything this small can only be Photoshop's own embedded preview, never
+// Drive's render.
+const LIMITED_PREVIEW_MAX_PX = 200
 
 export function DriveThumbnail({ src, alt, video }: { src: string; alt: string; video: boolean }) {
   const [attempt, setAttempt] = useState(0)
@@ -69,6 +73,7 @@ export function DrivePreviewModal({
   const [showViewer, setShowViewer] = useState(false)
   const [thumbLoaded, setThumbLoaded] = useState(false)
   const [thumbFailed, setThumbFailed] = useState(false)
+  const [limited, setLimited] = useState(false)
 
   // Stepping to another file reuses this same component, so every per-file
   // bit of state has to go back to its starting point — otherwise file two
@@ -82,6 +87,7 @@ export function DrivePreviewModal({
     setShowViewer(false)
     setThumbLoaded(false)
     setThumbFailed(false)
+    setLimited(false)
   }
 
   // Fall back to the iframe when there's no preview image to show, or Drive
@@ -120,7 +126,7 @@ export function DrivePreviewModal({
             )}
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
-            {!useIframe && (
+            {!useIframe && !limited && (
               <button onClick={() => setShowViewer(true)} aria-label="Openen in viewer" title="Openen in viewer (zoomen, bladeren)"
                 className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors">
                 <Maximize2 size={16} />
@@ -157,10 +163,33 @@ export function DrivePreviewModal({
                 key={driveFileId}
                 src={thumbnailHref}
                 alt={title}
-                className={`w-full h-full object-contain transition-opacity duration-150 ${thumbLoaded ? 'opacity-100' : 'opacity-0'}`}
-                onLoad={() => setThumbLoaded(true)}
+                className={`w-full h-full transition-opacity duration-150 ${thumbLoaded ? 'opacity-100' : 'opacity-0'} ${
+                  // Photoshop's embedded preview tops out at 160px. Blown up
+                  // to fill the frame it just looks broken, so it's shown at a
+                  // modest size instead — small and sharp reads as deliberate.
+                  limited ? 'object-contain p-16 md:p-24' : 'object-contain'
+                }`}
+                onLoad={(e) => {
+                  setThumbLoaded(true)
+                  // Nothing in the response tells us which preview we got, but
+                  // the size does: Drive renders up to 1024px, the embedded one
+                  // never exceeds 160.
+                  setLimited(e.currentTarget.naturalWidth <= LIMITED_PREVIEW_MAX_PX)
+                }}
                 onError={() => setThumbFailed(true)}
               />
+              {limited && thumbLoaded && (
+                <div className="absolute inset-x-0 bottom-0 px-5 py-3 bg-black/70 backdrop-blur-sm">
+                  <p className="text-xs text-zinc-300 flex items-start gap-2">
+                    <Info size={14} className="flex-shrink-0 mt-px text-zinc-500" />
+                    <span>
+                      Beperkt voorbeeld — dit bestand is te groot voor een volledige voorbeeldweergave.
+                      Dit is de kleine afbeelding die Photoshop zelf in het bestand bewaart.
+                      {downloadHref && <> <a href={downloadHref} download className="text-zinc-100 underline underline-offset-2 hover:text-white">Download het bestand</a> om het scherp te bekijken.</>}
+                    </span>
+                  </p>
+                </div>
+              )}
               {/* A still frame is enough to pick the right clip out of a
                   folder, but not to watch it — that needs Drive's player. */}
               {isVideo && thumbLoaded && (

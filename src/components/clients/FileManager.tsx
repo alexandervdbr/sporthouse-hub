@@ -245,6 +245,9 @@ const CODE_EXTS = ['js', 'ts', 'tsx', 'jsx', 'py', 'html', 'css', 'json', 'xml',
 const DOC_EXTS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'md', 'csv', 'rtf']
 const FONT_EXTS = ['ttf', 'otf', 'woff', 'woff2', 'eot']
 const DESIGN_EXTS = ['psd', 'psb', 'ai', 'indd', 'idml', 'eps', 'xd', 'sketch', 'fig', 'afphoto', 'afdesign', 'afpub', 'aep', 'prproj']
+// Formats that carry their own preview image, readable even when Drive won't
+// render one (see lib/psd-thumbnail).
+const EMBEDDED_PREVIEW_EXTS = ['psd', 'psb']
 
 function getFileIcon(fileType: string) {
   const t = fileType.toLowerCase()
@@ -325,7 +328,14 @@ function FileTile({ file, icon: Icon, color, filesApi }: { file: FileRecord; ico
   // icon. Same lesson /api/reels/thumbnail and /api/files/download each hit
   // before this. The row's thumbnail_link is now only a record of whether
   // Drive ever managed to render one at all.
-  if (file.storage_provider === 'drive' && file.thumbnail_link) {
+  // thumbnail_link records whether Drive ever rendered a preview. A PSD is
+  // worth asking for even when it didn't: above roughly 40-90 MB Drive gives
+  // up entirely, and those files fall back to the preview Photoshop embedded
+  // — which at tile size is indistinguishable from the real thing. A miss
+  // costs nothing: DriveThumbnail lands on the icon either way.
+  const worthAsking = file.thumbnail_link || EMBEDDED_PREVIEW_EXTS.includes(file.file_type.toLowerCase())
+
+  if (file.storage_provider === 'drive' && worthAsking) {
     return (
       <DriveThumbnail
         src={`${filesApi}/thumbnail?id=${file.id}&size=small`}

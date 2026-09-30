@@ -1,6 +1,7 @@
 import { google } from 'googleapis'
 import { Readable } from 'stream'
 import { createAdminClient } from '@/lib/supabase/server'
+import { extractPsdThumbnail, isPsdFilename, PSD_HEAD_BYTES } from '@/lib/psd-thumbnail'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 // Shared Drive-as-storage layer, used by every feature that stores files in
@@ -277,20 +278,36 @@ export async function downloadFile(driveFileId: string) {
 const THUMBNAIL_SIZES = { small: 220, large: 2400 } as const
 export type ThumbnailSize = keyof typeof THUMBNAIL_SIZES
 
+export interface DriveThumbnailResult {
+  body: ReadableStream
+  contentType: string
+  // True when this is Photoshop's own small embedded preview rather than
+  // Drive's render — capped at 160px, so the UI should present it as a rough
+  // impression instead of the real thing.
+  limited?: boolean
+}
+
 export async function fetchThumbnail(
   driveFileId: string,
   size: ThumbnailSize = 'large'
-): Promise<{ body: ReadableStream; contentType: string } | null> {
+): Promise<DriveThumbnailResult | null> {
   const drive = getClient()
 
   const meta = await drive.files.get({
     fileId: driveFileId,
-    fields: 'thumbnailLink',
+    fields: 'thumbnailLink, name',
     supportsAllDrives: true,
   })
 
   const link = meta.data.thumbnailLink
-  if (!link) return null
+  // Drive stops rendering previews somewhere above 40-90 MB and then offers
+  // no thumbnail at all — which hits exactly the large design files you most
+  // need to recognise. A PSD carries its own preview, so fall back to that.
+  if (!link) {
+    const name = meta.data.name
+    if (!name || !isPsdFilename(name)) return null
+    return fetchEmbeddedPsdThumbnail(driveFileId)
+  }
 
   // Google's own link carries a small default (=s220). Swap it for ours.
   const sized = link.replace(/=s\d+(-c)?$/, `=s${THUMBNAIL_SIZES[size]}`)
@@ -305,6 +322,32 @@ export async function fetchThumbnail(
   return {
     body: res.body,
     contentType: res.headers.get('content-type') ?? 'image/png',
+  }
+}
+
+// Reads just the head of the file — a few hundred KB whether the PSD is 7 MB
+// or 235 MB — and pulls out the JPEG preview Photoshop stored there.
+async function fetchEmbeddedPsdThumbnail(driveFileId: string): Promise<DriveThumbnailResult | null> {
+  const drive = getClient()
+  try {
+    const res = await drive.files.get(
+      { fileId: driveFileId, alt: 'media', supportsAllDrives: true },
+      { responseType: 'arraybuffer', headers: { Range: `bytes=0-${PSD_HEAD_BYTES - 1}` } }
+    )
+    const thumb = extractPsdThumbnail(Buffer.from(res.data as ArrayBuffer))
+    if (!thumb) return null
+
+    // Handed back as a stream so every caller sees one body type, whether the
+    // bytes came from Drive's CDN or out of the file itself.
+    const bytes = new Uint8Array(thumb.jpeg.byteLength)
+    bytes.set(thumb.jpeg)
+    const body = new ReadableStream({
+      start(controller) { controller.enqueue(bytes); controller.close() },
+    })
+    return { body, contentType: 'image/jpeg', limited: true }
+  } catch (err) {
+    console.error('Kon ingebouwd PSD-voorbeeld niet lezen:', err instanceof Error ? err.message : err)
+    return null
   }
 }
 
