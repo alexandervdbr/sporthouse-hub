@@ -461,6 +461,12 @@ export default function PlanningApp() {
   // days need their data loaded too, not just the target month's own days.
   const daysToLoad = usingWeekNav ? week : getMonthWeeks(anchorYear, anchorMonth).flat()
 
+  // Bumped whenever the tab regains visibility (see the realtime effect
+  // below) purely to force the load effect just below to re-run — an
+  // independent safety net so coming back to the tab always refetches,
+  // regardless of whether the realtime socket caught everything meanwhile.
+  const [refreshTick, setRefreshTick] = useState(0)
+
   // ── Load the visible period's data (a week, or a whole month) ───────────
   useEffect(() => {
     let cancelled = false
@@ -486,72 +492,119 @@ export default function PlanningApp() {
     }
     load()
     return () => { cancelled = true }
+    // refreshTick has no real value of its own — bumping it is just a way to
+    // force this effect to re-run (a fresh refetch) when the tab regains
+    // visibility, as a safety net independent of whether the realtime
+    // socket below actually caught everything while backgrounded.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [usingWeekNav, week, anchorYear, anchorMonth])
+  }, [usingWeekNav, week, anchorYear, anchorMonth, refreshTick])
 
   // ── Live updates — other people's edits land here as they happen, not
   // just after navigating away and back. Merges straight into `data`
   // regardless of the currently visible period; anything outside it just
   // sits unused until you scroll there, and gets replaced by the load
   // effect above on the next real navigation anyway.
+  //
   // Realtime's per-row authorization is tied to the access token active at
   // subscribe time — on a tab left open long enough for that token to
   // rotate (every ~1h), the socket can keep showing "connected" while
   // quietly no longer passing RLS for new events unless it's told about
-  // the refreshed token. supabase-js is meant to handle this on its own,
-  // but this makes it explicit rather than relying on that silently working.
+  // the refreshed token. Set immediately from whatever session already
+  // exists (not just on future auth *changes* — a page loaded with an
+  // already-restored session never fires SIGNED_IN/TOKEN_REFRESHED on its
+  // own) and kept current after that.
   useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') {
-        supabase.realtime.setAuth(session?.access_token ?? null)
-      }
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      supabase.realtime.setAuth(session?.access_token ?? null)
+    })
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      supabase.realtime.setAuth(session?.access_token ?? null)
     })
     return () => sub.subscription.unsubscribe()
   }, [supabase])
 
+  // Confirmed live: the socket can simply disappear with no error the app
+  // ever sees — browsers throttle or fully suspend background tabs' timers
+  // and heartbeats, which can kill a long-lived WebSocket without firing a
+  // close event to react to. Two safety nets instead of trusting the
+  // socket to recover on its own: (1) an explicit error/timeout/close
+  // status triggers a delayed resubscribe, and (2) regaining tab
+  // visibility always forces a clean resubscribe *and* bumps refreshTick
+  // (a fresh refetch of whatever's on screen) — so just switching back to
+  // the tab is enough to catch up, regardless of whether the socket
+  // quietly died while backgrounded.
   useEffect(() => {
-    const channel = supabase
-      .channel('planning-entries-live')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'planning_entries' },
-        payload => {
-          if (payload.eventType === 'DELETE') {
-            const old = payload.old as { year: number; month: number; day: number; department: string; employee: string }
-            setData(prev => {
-              const next = { ...prev }
-              delete next[dateCellKey(old.year, old.month, old.day, old.department, old.employee)]
-              return next
-            })
-            return
-          }
-          const row = payload.new as {
-            year: number; month: number; day: number; department: string; employee: string
-            value: string; bold: boolean | null; text_color: string | null; bg_color: string | null; note: string | null
-            updated_by: string | null; updated_at: string | null
-          }
-          setData(prev => ({
-            ...prev,
-            [dateCellKey(row.year, row.month, row.day, row.department, row.employee)]: {
-              value: row.value, bold: row.bold ?? true,
-              textColor: row.text_color ?? '#ffffff', bgColor: row.bg_color ?? null,
-              note: row.note ?? null,
-              updatedBy: row.updated_by ?? null, updatedAt: row.updated_at ?? null,
-            },
-          }))
-        }
-      )
-      .subscribe((status, err) => {
-        // Previously silent — a dropped/failed connection here looked
-        // identical to "no one else has edited anything yet" from the UI's
-        // perspective. Logged so a stuck/expired socket is at least visible
-        // in the console instead of just quietly not updating.
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-          console.error('Planning live-sync kanaal:', status, err ?? '')
-        }
-      })
+    let cancelled = false
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let channel: ReturnType<typeof supabase.channel> | null = null
 
-    return () => { supabase.removeChannel(channel) }
+    function connect() {
+      // A fresh topic name per attempt, rather than reusing the same one —
+      // removeChannel + an identically-named subscribe back to back has
+      // shown occasional internal state carryover in supabase-js; a unique
+      // name per connect() sidesteps that entirely.
+      channel = supabase
+        .channel(`planning-entries-live-${Date.now()}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'planning_entries' },
+          payload => {
+            if (payload.eventType === 'DELETE') {
+              const old = payload.old as { year: number; month: number; day: number; department: string; employee: string }
+              setData(prev => {
+                const next = { ...prev }
+                delete next[dateCellKey(old.year, old.month, old.day, old.department, old.employee)]
+                return next
+              })
+              return
+            }
+            const row = payload.new as {
+              year: number; month: number; day: number; department: string; employee: string
+              value: string; bold: boolean | null; text_color: string | null; bg_color: string | null; note: string | null
+              updated_by: string | null; updated_at: string | null
+            }
+            setData(prev => ({
+              ...prev,
+              [dateCellKey(row.year, row.month, row.day, row.department, row.employee)]: {
+                value: row.value, bold: row.bold ?? true,
+                textColor: row.text_color ?? '#ffffff', bgColor: row.bg_color ?? null,
+                note: row.note ?? null,
+                updatedBy: row.updated_by ?? null, updatedAt: row.updated_at ?? null,
+              },
+            }))
+          }
+        )
+        .subscribe((status, err) => {
+          // Previously silent — a dropped/failed connection here looked
+          // identical to "no one else has edited anything yet" from the
+          // UI's perspective.
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+            console.error('Planning live-sync kanaal:', status, err ?? '')
+            if (!cancelled) {
+              reconnectTimer = setTimeout(() => {
+                if (channel) supabase.removeChannel(channel)
+                connect()
+              }, 2000)
+            }
+          }
+        })
+    }
+    connect()
+
+    function handleVisibility() {
+      if (document.visibilityState !== 'visible') return
+      if (channel) supabase.removeChannel(channel)
+      connect()
+      setRefreshTick(t => t + 1)
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+
+    return () => {
+      cancelled = true
+      document.removeEventListener('visibilitychange', handleVisibility)
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      if (channel) supabase.removeChannel(channel)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
