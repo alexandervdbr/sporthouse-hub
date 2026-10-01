@@ -571,10 +571,11 @@ export default function ReelGallery({ reels: initialReels, isAdmin, mediaTypes: 
     const supabase = createClient()
 
     async function refetch() {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('reel_inspiration')
         .select('id, user_id, url, thumbnail_url, caption, author, media_types, thumbnail_drive_id, tags, confidence, status, error_message, saved_at, note, share_count')
         .order('saved_at', { ascending: false })
+      if (error) console.error('reel_inspiration refetch mislukt:', error.message)
       if (data) setReels(data as ReelInspiration[])
     }
 
