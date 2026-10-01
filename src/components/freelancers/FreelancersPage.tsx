@@ -1225,6 +1225,7 @@ function EditAssignmentModal({ freelancerId, assignment, onClose, onSaved }: {
               <div className="space-y-1 mb-2">
                 {files.map(f => {
                   const isVideo = f.file_type?.startsWith('video/') ?? false
+                  // Proxied rather than linked — see FreelancerPortal for why.
                   const hasThumbnail = f.storage_provider === 'drive' && !!f.thumbnail_link
                   return (
                   <div key={f.id} className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded text-xs text-zinc-300"
@@ -1233,7 +1234,7 @@ function EditAssignmentModal({ freelancerId, assignment, onClose, onSaved }: {
                       className="flex items-center gap-1.5 truncate hover:text-white transition-colors min-w-0">
                       {hasThumbnail ? (
                         <div className="w-5 h-5 rounded overflow-hidden flex-shrink-0">
-                          <DriveThumbnail src={f.thumbnail_link!} alt={f.file_name} video={isVideo} />
+                          <DriveThumbnail src={`/api/freelancers/${freelancerId}/assignments/${assignment.id}/files/thumbnail?fileId=${f.id}&size=small`} alt={f.file_name} video={isVideo} />
                         </div>
                       ) : (
                         <Download size={11} className="flex-shrink-0 text-zinc-600" />

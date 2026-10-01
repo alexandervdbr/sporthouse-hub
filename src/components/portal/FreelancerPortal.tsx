@@ -53,6 +53,10 @@ const STATUS_ORDER: Assignment['status'][] = ['nieuw', 'in_behandeling', 'afgero
 function FileRow({ file }: { file: AssignmentFile }) {
   const ext = file.file_name.split('.').pop()?.toUpperCase() ?? 'FILE'
   const isVideo = file.file_type?.startsWith('video/') ?? false
+  // Through our own proxy, not the row's thumbnail_link: Google's link is
+  // session-bound and 403s within about a day, so stored links only worked
+  // for freshly uploaded files. The row's link now just records whether Drive
+  // ever rendered a preview at all.
   const hasThumbnail = file.storage_provider === 'drive' && !!file.thumbnail_link
 
   return (
@@ -60,7 +64,9 @@ function FileRow({ file }: { file: AssignmentFile }) {
       style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
       <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center flex-shrink-0 text-[10px] font-bold text-zinc-400"
         style={{ background: 'rgba(255,255,255,0.07)' }}>
-        {hasThumbnail ? <DriveThumbnail src={file.thumbnail_link!} alt={file.file_name} video={isVideo} /> : ext}
+        {hasThumbnail
+          ? <DriveThumbnail src={`/api/portal/files/thumbnail?id=${file.id}&size=small`} alt={file.file_name} video={isVideo} />
+          : ext}
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm text-zinc-200 truncate">{file.file_name}</p>

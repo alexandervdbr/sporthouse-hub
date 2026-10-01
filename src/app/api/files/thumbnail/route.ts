@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
-import { fetchThumbnail, type ThumbnailSize } from '@/lib/drive-storage'
 import { hasClientAccess } from '@/lib/auth-permissions'
+import { driveThumbnailResponse, drivePosterResponse, thumbnailSizeFromRequest } from '@/lib/thumbnail-response'
 
 export const maxDuration = 60
 
@@ -13,29 +13,20 @@ function adminClient() {
   )
 }
 
-// Serves Drive's rendered preview image for a file, so the viewer can show a
-// PSD or a video's poster frame as a plain <img> instead of loading Google's
-// preview app in an iframe for every step through a folder.
-//
-// Proxied rather than linked because Drive's own thumbnailLink expires within
-// about a day — see fetchThumbnail. Same auth and per-client access check as
-// the download route next to it.
+// Drive's rendered preview for a client file. Same auth and per-client access
+// check as the download route next to it.
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Niet ingelogd.' }, { status: 401 })
 
-  const params = new URL(request.url).searchParams
-  const id = params.get('id')
+  const id = new URL(request.url).searchParams.get('id')
   if (!id) return NextResponse.json({ error: 'ID ontbreekt.' }, { status: 400 })
-  // Anything but an explicit 'small' means the viewer-sized image, so a
-  // typo'd or missing value degrades to a correct (if larger) response.
-  const size: ThumbnailSize = params.get('size') === 'small' ? 'small' : 'large'
 
   const admin = adminClient()
   const { data: file } = await admin
     .from('files')
-    .select('drive_file_id, client_id')
+    .select('drive_file_id, client_id, poster_drive_file_id')
     .eq('id', id)
     .single()
 
@@ -46,22 +37,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
   }
 
-  try {
-    const thumb = await fetchThumbnail(file.drive_file_id, size)
-    if (!thumb) {
-      return NextResponse.json({ error: 'Geen voorbeeld beschikbaar.' }, { status: 404 })
-    }
-    return new NextResponse(thumb.body, {
-      headers: {
-        'Content-Type': thumb.contentType,
-        // The rendered preview of a given Drive file never changes, and the
-        // URL is keyed by that file's row id, so this is safe to keep for
-        // good — that's what makes stepping back and forth instant.
-        'Cache-Control': 'private, max-age=31536000, immutable',
-      },
-    })
-  } catch (err) {
-    console.error('Kon thumbnail niet ophalen:', err instanceof Error ? err.message : err)
-    return NextResponse.json({ error: 'Kon voorbeeld niet ophalen.' }, { status: 500 })
-  }
+  // Our own captured frame wins over Drive's render when we have one.
+  if (file.poster_drive_file_id) return drivePosterResponse(file.poster_drive_file_id)
+
+  return driveThumbnailResponse(file.drive_file_id, thumbnailSizeFromRequest(request))
 }
