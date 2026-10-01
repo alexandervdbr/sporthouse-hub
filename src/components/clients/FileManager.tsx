@@ -374,9 +374,23 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   // Administratie and each client's files don't restore each other's folder.
   const scopeStorageKey = `${filesApi}:${scopeValue}`
 
-  // Navigation
-  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null)
+  // Navigation. The trail is the only stored state: where you are is simply
+  // its last entry. Keeping a separate currentFolderId alongside it meant two
+  // values that had to agree and could silently stop agreeing — which is
+  // exactly what produced a breadcrumb pointing into a folder while the list
+  // below it still showed the parent, with no click able to recover.
   const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([{ id: null, name: rootLabel }])
+  const currentFolderId = breadcrumbs[breadcrumbs.length - 1]?.id ?? null
+
+  // Bumped by every navigation, so landing on the folder you're already in
+  // still reloads instead of doing nothing at all. Without it a view that got
+  // out of step for any reason stayed stuck until a page reload.
+  const [reloadNonce, setReloadNonce] = useState(0)
+
+  // Nothing is fetched or persisted until the saved trail has been read back,
+  // so a visit costs one request for the folder you were in rather than one
+  // for the root followed by one for the folder.
+  const [restored, setRestored] = useState(false)
 
   // Restore the last-visited folder for this client after a reload, instead
   // of always dropping back to the root. Done in an effect (not a lazy
@@ -394,17 +408,22 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
         // "two children with the same key" crash on restore.
         const deduped = saved.filter((b, i) => saved.findIndex(x => x.id === b.id) === i)
         setBreadcrumbs(deduped)
-        setCurrentFolderId(deduped[deduped.length - 1].id)
       }
-    } catch { /* ignore malformed/unavailable storage */ }
+    } catch { /* ignore malformed/unavailable storage */ } finally {
+      setRestored(true)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeStorageKey])
 
   useEffect(() => {
+    // Guarded on `restored`: this effect also runs on the very first commit,
+    // when breadcrumbs still holds the default root — writing that would wipe
+    // the saved trail a moment before it gets read back.
+    if (!restored) return
     try {
       sessionStorage.setItem(`files-breadcrumbs-${scopeStorageKey}`, JSON.stringify(breadcrumbs))
     } catch { /* ignore, e.g. private-browsing storage restrictions */ }
-  }, [breadcrumbs, scopeStorageKey])
+  }, [breadcrumbs, scopeStorageKey, restored])
 
   // Data
   const [folders, setFolders] = useState<FolderRecord[]>([])
@@ -523,19 +542,54 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null)
   const [dragOverRoot, setDragOverRoot] = useState(false) // for moving back to root
 
+  // Every load cancels the one before it. Without this, two requests for
+  // different folders could be in flight at once and the slower one would win
+  // simply by landing last — leaving the list showing one folder while the
+  // breadcrumb said another.
+  const loadAbortRef = useRef<AbortController | null>(null)
+
   const loadData = useCallback(async () => {
+    loadAbortRef.current?.abort()
+    const controller = new AbortController()
+    loadAbortRef.current = controller
+    const { signal } = controller
+
     setLoading(true)
     const fid = currentFolderId ?? 'null'
-    const [foldersRes, filesRes] = await Promise.all([
-      fetch(`${foldersApi}?${scopeQuery}&parentId=${fid}`),
-      fetch(`${filesApi}?${scopeQuery}&folderId=${fid}`),
-    ])
-    if (foldersRes.ok) setFolders(await foldersRes.json())
-    if (filesRes.ok) setFiles(await filesRes.json())
-    setLoading(false)
-  }, [foldersApi, filesApi, scopeQuery, currentFolderId])
+    try {
+      const [foldersRes, filesRes] = await Promise.all([
+        fetch(`${foldersApi}?${scopeQuery}&parentId=${fid}`, { signal }),
+        fetch(`${filesApi}?${scopeQuery}&folderId=${fid}`, { signal }),
+      ])
+      const [nextFolders, nextFiles] = await Promise.all([
+        foldersRes.ok ? foldersRes.json() : null,
+        filesRes.ok ? filesRes.json() : null,
+      ])
+      if (signal.aborted) return
+      if (nextFolders) setFolders(nextFolders)
+      if (nextFiles) setFiles(nextFiles)
+      setLoading(false)
+    } catch (err) {
+      // An abort means a newer load is already running and owns the spinner;
+      // leaving `loading` alone here is what keeps it from flickering off
+      // while that one is still going.
+      if ((err as Error)?.name === 'AbortError') return
+      console.error('Kon mapinhoud niet laden:', err)
+      setLoading(false)
+    }
+    // reloadNonce is listed on purpose and never read: changing it is what
+    // gives this callback a new identity, which is what makes the effect
+    // below re-run. That's the whole point of it — a navigation that lands
+    // on the folder we're already in has nothing else to change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [foldersApi, filesApi, scopeQuery, currentFolderId, reloadNonce])
 
-  useEffect(() => { loadData() }, [loadData])
+  useEffect(() => {
+    if (!restored) return
+    loadData()
+  }, [loadData, restored])
+
+  useEffect(() => () => loadAbortRef.current?.abort(), [])
 
   // webkitdirectory/directory aren't part of React's typed input attributes —
   // set them directly so the folder-select button can pick a whole folder.
@@ -566,11 +620,17 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   }, [search, filesApi, scopeQuery])
 
   function navigateInto(folder: FolderRecord) {
-    setCurrentFolderId(folder.id)
-    // A folder's id should never legitimately reappear in its own breadcrumb
-    // trail — guard against it regardless of cause, since that's exactly
-    // what produces React's "two children with the same key" crash.
-    setBreadcrumbs(prev => prev.some(b => b.id === folder.id) ? prev : [...prev, { id: folder.id, name: folder.name }])
+    setBreadcrumbs(prev => {
+      // A folder's id should never legitimately reappear in its own trail —
+      // that's what produces React's "two children with the same key" crash.
+      // If it's somehow already there, cut back to it rather than appending:
+      // the trail must always end at the folder just opened, since that's
+      // what tells the rest of the component where we are.
+      const existing = prev.findIndex(b => b.id === folder.id)
+      if (existing !== -1) return prev.slice(0, existing + 1)
+      return [...prev, { id: folder.id, name: folder.name }]
+    })
+    setReloadNonce(n => n + 1)
     setSearch('')
     setMenuOpenId(null)
     setSelectedIds(new Set())
@@ -578,9 +638,10 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   }
 
   function navigateToBreadcrumb(crumb: Breadcrumb, idx: number) {
-    if (idx === breadcrumbs.length - 1) return
-    setCurrentFolderId(crumb.id)
+    // Clicking the crumb you're already on deliberately still reloads — it's
+    // the obvious thing to try when a view looks wrong, so it should fix it.
     setBreadcrumbs(prev => prev.slice(0, idx + 1))
+    setReloadNonce(n => n + 1)
     setSearch('')
     setSelectedIds(new Set())
     setSelectedFolderIds(new Set())
