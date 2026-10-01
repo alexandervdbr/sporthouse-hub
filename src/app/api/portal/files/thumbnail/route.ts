@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { driveThumbnailResponse, thumbnailSizeFromRequest } from '@/lib/thumbnail-response'
+import { getSessionUser } from '@/lib/supabase/claims'
 
 export const maxDuration = 60
 
@@ -9,7 +10,10 @@ export const maxDuration = 60
 // the download route one level up.
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+    // Read path: the token is verified locally instead of being confirmed with
+  // the Auth server on every call — see lib/supabase/claims. Writes in this
+  // file still use getUser().
+  const user = await getSessionUser(supabase)
   if (!user) return NextResponse.json({ error: 'Niet ingelogd.' }, { status: 401 })
 
   const fileId = new URL(request.url).searchParams.get('id')

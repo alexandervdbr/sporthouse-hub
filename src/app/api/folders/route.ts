@@ -1,10 +1,14 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { hasClientAccess } from '@/lib/auth-permissions'
 import { NextRequest } from 'next/server'
+import { getSessionUser } from '@/lib/supabase/claims'
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+    // Read path: the token is verified locally instead of being confirmed with
+  // the Auth server on every call — see lib/supabase/claims. Writes in this
+  // file still use getUser().
+  const user = await getSessionUser(supabase)
   if (!user) return new Response('Unauthorized', { status: 401 })
 
   const { searchParams } = new URL(req.url)
