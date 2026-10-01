@@ -1,13 +1,17 @@
 import { NextRequest } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { canViewSection, canManageSection, isSporthouseSection } from '@/lib/sporthouse-docs'
+import { getSessionUser } from '@/lib/supabase/claims'
 
 // Tegenhanger van /api/folders voor Sporthouse Intern-documenten. Zelfde
 // contract, maar gegroepeerd per section in plaats van per client, en achter
 // de financien_*/administratie_*-permissies.
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+    // Read path: the token is verified locally instead of being confirmed with
+  // the Auth server on every call — see lib/supabase/claims. Writes in this
+  // file still use getUser().
+  const user = await getSessionUser(supabase)
   if (!user) return new Response('Unauthorized', { status: 401 })
 
   const { searchParams } = new URL(req.url)

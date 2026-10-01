@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { getSessionUser } from '@/lib/supabase/claims'
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -25,7 +26,14 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  const { data: { user } } = await supabase.auth.getUser()
+  // Verified locally against the project's JWKS rather than asked of the Auth
+  // server. This runs on every single request — the matcher covers the whole
+  // app — so a round trip here was being paid twice per folder click before
+  // the routes themselves had even started. See lib/supabase/claims for what
+  // that costs in exchange: a revoked session stays valid until its token
+  // expires. The checks below are all gates on reading; every route that
+  // writes still confirms with getUser().
+  const user = await getSessionUser(supabase)
 
   const pathname = request.nextUrl.pathname
   const isLoginPage  = pathname.startsWith('/login')

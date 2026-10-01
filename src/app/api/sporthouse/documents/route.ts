@@ -4,6 +4,7 @@ import { uploadFile, downloadFile, updateFileContent, moveFile, trashFile, isSpo
 import { resolveSporthouseDriveFolderId } from '@/lib/sporthouse-docs-drive'
 import { canViewSection, canManageSection, isSporthouseSection, type SporthouseSection } from '@/lib/sporthouse-docs'
 import { isAllowedUploadExt, ALLOWED_UPLOAD_HINT, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/lib/upload-policy'
+import { getSessionUser } from '@/lib/supabase/claims'
 
 export const maxDuration = 300
 
@@ -21,7 +22,10 @@ async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
 // fully private Shared Drive where nothing is ever shared publicly.
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  // Read path: the token is verified locally instead of being confirmed with
+  // the Auth server on every call — see lib/supabase/claims. POST, PATCH and
+  // DELETE below deliberately still use getUser().
+  const user = await getSessionUser(supabase)
   if (!user) return NextResponse.json({ error: 'Niet ingelogd.' }, { status: 401 })
 
   const { searchParams } = new URL(request.url)

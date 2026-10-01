@@ -7,6 +7,7 @@ import {
   isDriveStorageConfigured, uploadFile, downloadFile, updateFileContent, moveFile, trashFile,
 } from '@/lib/drive-storage'
 import { resolveDriveFolderId } from '@/lib/client-files-drive'
+import { getSessionUser } from '@/lib/supabase/claims'
 
 export const maxDuration = 300 // prevent hanging
 
@@ -142,7 +143,10 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  // Read path: the token is verified locally instead of being confirmed with
+  // the Auth server on every call — see lib/supabase/claims. POST, PATCH and
+  // DELETE below deliberately still use getUser().
+  const user = await getSessionUser(supabase)
   if (!user) return NextResponse.json({ error: 'Niet ingelogd.' }, { status: 401 })
 
   const { searchParams } = new URL(request.url)

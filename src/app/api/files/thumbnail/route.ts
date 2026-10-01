@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { hasClientAccess } from '@/lib/auth-permissions'
 import { driveThumbnailResponse, drivePosterResponse, thumbnailSizeFromRequest } from '@/lib/thumbnail-response'
+import { getSessionUser } from '@/lib/supabase/claims'
 
 export const maxDuration = 60
 
@@ -17,7 +18,10 @@ function adminClient() {
 // check as the download route next to it.
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+    // Read path: the token is verified locally instead of being confirmed with
+  // the Auth server on every call — see lib/supabase/claims. Writes in this
+  // file still use getUser().
+  const user = await getSessionUser(supabase)
   if (!user) return NextResponse.json({ error: 'Niet ingelogd.' }, { status: 401 })
 
   const id = new URL(request.url).searchParams.get('id')
