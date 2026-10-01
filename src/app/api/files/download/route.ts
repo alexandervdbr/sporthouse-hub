@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Readable } from 'stream'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
-import { downloadFile } from '@/lib/drive-storage'
+import { downloadFile, downloadFileRange } from '@/lib/drive-storage'
 import { hasClientAccess } from '@/lib/auth-permissions'
 
 export const maxDuration = 300
@@ -40,13 +40,36 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
   }
 
+  const disposition = `attachment; filename="${encodeURIComponent(file.filename)}"`
+  const range = request.headers.get('range')
+
   try {
+    // Ranges matter here beyond politeness: this streams through a function
+    // with a hard duration limit, so a large file on a slow connection can't
+    // finish in one go. Bounded slices each fit, and a dropped connection
+    // resumes instead of starting over.
+    if (range) {
+      const part = await downloadFileRange(file.drive_file_id, range)
+      const webStream = Readable.toWeb(part.stream as Readable) as ReadableStream
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/octet-stream',
+        'Content-Disposition': disposition,
+        'Accept-Ranges': 'bytes',
+      }
+      if (part.contentRange) headers['Content-Range'] = part.contentRange
+      if (part.contentLength) headers['Content-Length'] = part.contentLength
+      return new NextResponse(webStream, { status: part.partial ? 206 : 200, headers })
+    }
+
     const stream = await downloadFile(file.drive_file_id)
     const webStream = Readable.toWeb(stream as Readable) as ReadableStream
     return new NextResponse(webStream, {
       headers: {
         'Content-Type': 'application/octet-stream',
-        'Content-Disposition': `attachment; filename="${encodeURIComponent(file.filename)}"`,
+        'Content-Disposition': disposition,
+        // Advertised on the full response too — it's how a browser or
+        // download manager learns it may ask for slices at all.
+        'Accept-Ranges': 'bytes',
       },
     })
   } catch (err) {

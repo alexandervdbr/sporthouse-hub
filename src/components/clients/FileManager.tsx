@@ -14,7 +14,7 @@ import StarterKit from '@tiptap/starter-kit'
 import JSZip from 'jszip'
 import { FileRecord } from '@/types/database'
 import { DriveThumbnail, DrivePreviewModal } from '@/components/shared/DrivePreview'
-import { extractVideoPoster } from '@/lib/video-poster'
+import { extractVideoPoster, extractImagePoster, IMAGE_POSTER_MIN_BYTES } from '@/lib/media-poster'
 import { ALLOWED_UPLOAD_HINT, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/lib/upload-policy'
 
 function escapeHtml(s: string) {
@@ -121,6 +121,20 @@ async function collectDroppedEntries(dataTransfer: DataTransfer): Promise<Pendin
 // Smaller chunks also keep any single request short-lived, so a network blip
 // only ever costs one chunk instead of the whole file.
 const UPLOAD_CHUNK_SIZE = 4 * 1024 * 1024
+
+// Zipping happens entirely in this tab: every file is pulled into memory as a
+// blob, JSZip holds them all, and generateAsync builds one more copy of the
+// lot. That caps how much can be downloaded at once far below what can be
+// stored — a couple of large videos is enough to take the tab down, and a
+// crashed tab is a worse answer than a refusal.
+//
+// Above this, we hand the job to Drive, which zips server-side for free.
+const MAX_ZIP_BYTES = 500 * 1024 * 1024
+const MAX_ZIP_LABEL = '500 MB'
+
+function driveFolderUrl(driveFolderId: string) {
+  return `https://drive.google.com/drive/folders/${driveFolderId}`
+}
 
 // Sends one Content-Range chunk through our own upload-relay route (same
 // origin — Drive's upload endpoint doesn't return CORS headers, so a direct
@@ -452,6 +466,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   const [selectedFolderIds, setSelectedFolderIds] = useState<Set<string>>(new Set())
   const [downloadingZip, setDownloadingZip] = useState(false)
   const [zipError, setZipError] = useState<string | null>(null)
+  const [zipDriveUrl, setZipDriveUrl] = useState<string | null>(null)
 
   // Upload
   const [isDragging, setIsDragging] = useState(false)
@@ -945,17 +960,24 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
             throw new Error(error ?? 'Opslaan mislukt.')
           }
 
-          // 4. For video, capture a frame here in the browser and send it up
-          // as the file's thumbnail. Drive stops rendering previews above a
-          // certain size, which is where video lives — and the bytes are
-          // already on this machine, so this costs no download at all.
-          // Strictly best-effort: a codec the browser can't decode, or a
+          // 4. Make the thumbnail here in the browser and send it up. Drive
+          // stops rendering previews above a certain size, and the bytes are
+          // already on this machine, so this costs no download at all. Video
+          // always gets one (its frame is never something Drive picks well);
+          // images only once they're big enough that Drive may give up.
+          // Strictly best-effort: a format the browser can't decode, or a
           // failed POST, leaves the file uploaded and falls back to whatever
           // Drive manages on its own.
-          if (getFileCategory(fileExtOf(entry.file.name)) === 'video') {
+          const category = getFileCategory(fileExtOf(entry.file.name))
+          const needsPoster = category === 'video'
+            || (category === 'image' && entry.file.size >= IMAGE_POSTER_MIN_BYTES)
+
+          if (needsPoster) {
             try {
               const record = await finalizeRes.json()
-              const poster = await extractVideoPoster(entry.file)
+              const poster = category === 'video'
+                ? await extractVideoPoster(entry.file)
+                : await extractImagePoster(entry.file)
               if (poster && record?.id) {
                 const body = new FormData()
                 body.append('id', record.id)
@@ -963,7 +985,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                 await fetch(`${filesApi}/poster`, { method: 'POST', body })
               }
             } catch (err) {
-              console.error('Kon videovoorbeeld niet maken:', err)
+              console.error('Kon voorbeeld niet maken:', err)
             }
           }
 
@@ -1083,10 +1105,27 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
 
   // ── Zip download ────────────────────────────────────────────────────────────
 
-  async function fetchFolderContents(folderId: string): Promise<{ folderName: string; files: { id: string; filename: string; relativePath: string }[] }> {
+  type FolderContents = {
+    folderName: string
+    files: { id: string; filename: string; relativePath: string; fileSize?: number }[]
+    driveFolderId?: string | null
+  }
+
+  async function fetchFolderContents(folderId: string): Promise<FolderContents> {
     const res = await fetch(`${foldersApi}/${folderId}/contents`)
     if (!res.ok) throw new Error('Kon mapinhoud niet ophalen.')
     return res.json()
+  }
+
+  // Shown instead of starting a download that would run the tab out of memory.
+  function tooLargeToZip(totalBytes: number, driveFolderId?: string | null) {
+    const size = formatSize(totalBytes)
+    setZipError(
+      driveFolderId
+        ? `Deze selectie is ${size} en wordt hier in het geheugen ingepakt, wat boven ${MAX_ZIP_LABEL} vastloopt. Download de map rechtstreeks uit Google Drive, of selecteer minder bestanden tegelijk.`
+        : `Deze selectie is ${size} en wordt hier in het geheugen ingepakt, wat boven ${MAX_ZIP_LABEL} vastloopt. Selecteer minder bestanden tegelijk.`
+    )
+    setZipDriveUrl(driveFolderId ? driveFolderUrl(driveFolderId) : null)
   }
 
   async function saveZip(zip: JSZip, filename: string) {
@@ -1102,18 +1141,40 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
     if (!selectedIds.size && !selectedFolderIds.size) return
     setDownloadingZip(true)
     setZipError(null)
+    setZipDriveUrl(null)
     try {
+      // Weigh the whole job before fetching a single byte. The folder listings
+      // are metadata only, so this costs nothing compared to the download it
+      // might prevent.
+      const pickedFiles = Array.from(selectedIds)
+        .map(id => files.find(f => f.id === id))
+        .filter((f): f is FileRecord => !!f)
+
+      const folderContents = await Promise.all(
+        Array.from(selectedFolderIds).map(folderId => fetchFolderContents(folderId))
+      )
+
+      const totalBytes =
+        pickedFiles.reduce((sum, f) => sum + (f.file_size ?? 0), 0) +
+        folderContents.reduce((sum, c) => sum + c.files.reduce((s, f) => s + (f.fileSize ?? 0), 0), 0)
+
+      if (totalBytes > MAX_ZIP_BYTES) {
+        // Only point at Drive when exactly one folder is involved; with a mixed
+        // selection there's no single folder that stands for the whole job.
+        const single = selectedIds.size === 0 && folderContents.length === 1 ? folderContents[0].driveFolderId : null
+        tooLargeToZip(totalBytes, single)
+        setDownloadingZip(false)
+        return
+      }
+
       const zip = new JSZip()
 
-      await Promise.all(Array.from(selectedIds).map(async (id) => {
-        const file = files.find(f => f.id === id)
-        if (!file) return
-        const blob = await fetch(`${filesApi}/download?id=${id}`).then(r => r.blob())
+      await Promise.all(pickedFiles.map(async (file) => {
+        const blob = await fetch(`${filesApi}/download?id=${file.id}`).then(r => r.blob())
         zip.file(file.filename, blob)
       }))
 
-      await Promise.all(Array.from(selectedFolderIds).map(async (folderId) => {
-        const { folderName, files: folderFiles } = await fetchFolderContents(folderId)
+      await Promise.all(folderContents.map(async ({ folderName, files: folderFiles }) => {
         await Promise.all(folderFiles.map(async (f) => {
           const blob = await fetch(`${filesApi}/download?id=${f.id}`).then(r => r.blob())
           zip.file(`${folderName}/${f.relativePath}`, blob)
@@ -1134,8 +1195,17 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
     if (!currentFolderId) return
     setDownloadingZip(true)
     setZipError(null)
+    setZipDriveUrl(null)
     try {
-      const { folderName, files: folderFiles } = await fetchFolderContents(currentFolderId)
+      const { folderName, files: folderFiles, driveFolderId } = await fetchFolderContents(currentFolderId)
+
+      const totalBytes = folderFiles.reduce((sum, f) => sum + (f.fileSize ?? 0), 0)
+      if (totalBytes > MAX_ZIP_BYTES) {
+        tooLargeToZip(totalBytes, driveFolderId)
+        setDownloadingZip(false)
+        return
+      }
+
       const zip = new JSZip()
       await Promise.all(folderFiles.map(async (f) => {
         const blob = await fetch(`${filesApi}/download?id=${f.id}`).then(r => r.blob())
@@ -1382,8 +1452,16 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
       {zipError && (
         <div className="flex items-start gap-2 px-3 py-2.5 mb-5 bg-red-950/50 border border-red-900/50 rounded-lg">
           <AlertCircle size={14} className="text-red-400 flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-red-400 flex-1">{zipError}</p>
-          <button onClick={() => setZipError(null)} aria-label="Foutmelding sluiten" className="text-red-400/70 hover:text-red-300 flex-shrink-0">
+          <div className="flex-1">
+            <p className="text-xs text-red-400">{zipError}</p>
+            {zipDriveUrl && (
+              <a href={zipDriveUrl} target="_blank" rel="noopener noreferrer"
+                className="inline-block mt-1.5 text-xs text-red-300 underline underline-offset-2 hover:text-red-200">
+                Map openen in Google Drive →
+              </a>
+            )}
+          </div>
+          <button onClick={() => { setZipError(null); setZipDriveUrl(null) }} aria-label="Foutmelding sluiten" className="text-red-400/70 hover:text-red-300 flex-shrink-0">
             <X size={13} />
           </button>
         </div>
