@@ -1,12 +1,16 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Download, X, Film, ImageIcon, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Download, X, Film, ImageIcon, ChevronLeft, ChevronRight, Loader2, Play, Maximize2, Info } from 'lucide-react'
 
 // Drive generates thumbnails asynchronously after upload, so the URL can be
 // briefly unresolvable right after a file lands — retry a few times with
 // backoff before giving up and showing the icon fallback.
 const THUMB_RETRY_DELAYS = [3000, 6000, 12000]
+
+// Anything this small can only be Photoshop's own embedded preview, never
+// Drive's render.
+const LIMITED_PREVIEW_MAX_PX = 200
 
 export function DriveThumbnail({ src, alt, video }: { src: string; alt: string; video: boolean }) {
   const [attempt, setAttempt] = useState(0)
@@ -38,22 +42,58 @@ export function DriveThumbnail({ src, alt, video }: { src: string; alt: string; 
   )
 }
 
-// In-platform preview for a Drive file — embeds Google's own preview iframe
-// (handles video seeking/streaming for us) inside a lightbox, so users never
-// leave the app just to look at something they uploaded.
-export function DrivePreviewModal({ driveFileId, title, webViewLink, downloadHref, onClose, onPrev, onNext, position }: {
+// In-platform preview for a Drive file.
+//
+// Two ways to show a file, and which one you get matters for how fast this
+// feels. Google's preview iframe is a whole web app: every file costs a full
+// page load, which is what made stepping through a folder with the arrow keys
+// so sluggish. So when the caller can point at a rendered preview image
+// (thumbnailHref), that image is shown instead — one cached request, instant
+// on the way back. The iframe stays one click away for when you actually want
+// Drive's viewer: playing a video, paging a PDF, zooming in.
+export function DrivePreviewModal({
+  driveFileId, title, webViewLink, downloadHref, thumbnailHref, isVideo, onClose, onPrev, onNext, position,
+}: {
   driveFileId: string
   title: string
   webViewLink?: string | null
   downloadHref?: string
+  // Our own proxy for Drive's rendered preview image. Omit it and the modal
+  // behaves exactly as it always did: straight to the iframe.
+  thumbnailHref?: string
+  isVideo?: boolean
   onClose: () => void
   // Optional: pass these to let the viewer step through a list of files
   // (left/right arrow keys, or the chevrons). Callers that preview a single
-  // file leave them out and the modal renders exactly as before.
+  // file leave them out.
   onPrev?: () => void
   onNext?: () => void
   position?: { index: number; total: number }
 }) {
+  const [showViewer, setShowViewer] = useState(false)
+  const [thumbLoaded, setThumbLoaded] = useState(false)
+  const [thumbFailed, setThumbFailed] = useState(false)
+  const [limited, setLimited] = useState(false)
+
+  // Stepping to another file reuses this same component, so every per-file
+  // bit of state has to go back to its starting point — otherwise file two
+  // inherits file one's loaded/failed/opened-the-viewer state. Adjusted
+  // during render rather than in an effect: React re-runs this component
+  // immediately with the corrected state, before anything paints, so the
+  // previous file's image never briefly shows under the new file's name.
+  const [renderedId, setRenderedId] = useState(driveFileId)
+  if (renderedId !== driveFileId) {
+    setRenderedId(driveFileId)
+    setShowViewer(false)
+    setThumbLoaded(false)
+    setThumbFailed(false)
+    setLimited(false)
+  }
+
+  // Fall back to the iframe when there's no preview image to show, or Drive
+  // couldn't render one (a format it doesn't know, a file still processing).
+  const useIframe = !thumbnailHref || thumbFailed || showViewer
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { onClose(); return }
@@ -86,6 +126,12 @@ export function DrivePreviewModal({ driveFileId, title, webViewLink, downloadHre
             )}
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
+            {!useIframe && !limited && (
+              <button onClick={() => setShowViewer(true)} aria-label="Openen in viewer" title="Openen in viewer (zoomen, bladeren)"
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors">
+                <Maximize2 size={16} />
+              </button>
+            )}
             {downloadHref && (
               <a href={downloadHref} download aria-label="Downloaden" title="Downloaden"
                 className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors">
@@ -99,11 +145,68 @@ export function DrivePreviewModal({ driveFileId, title, webViewLink, downloadHre
         </div>
 
         <div className="flex-1 min-h-0 bg-black relative">
-          <iframe
-            src={`https://drive.google.com/file/d/${driveFileId}/preview`}
-            className="w-full h-full block"
-            allow="autoplay"
-          />
+          {useIframe ? (
+            <iframe
+              src={`https://drive.google.com/file/d/${driveFileId}/preview`}
+              className="w-full h-full block"
+              allow="autoplay"
+            />
+          ) : (
+            <>
+              {!thumbLoaded && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Loader2 size={22} className="animate-spin text-zinc-600" />
+                </div>
+              )}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                key={driveFileId}
+                src={thumbnailHref}
+                alt={title}
+                className={`w-full h-full transition-opacity duration-150 ${thumbLoaded ? 'opacity-100' : 'opacity-0'} ${
+                  // Photoshop's embedded preview tops out at 160px. Blown up
+                  // to fill the frame it just looks broken, so it's shown at a
+                  // modest size instead — small and sharp reads as deliberate.
+                  limited ? 'object-contain p-16 md:p-24' : 'object-contain'
+                }`}
+                onLoad={(e) => {
+                  setThumbLoaded(true)
+                  // Nothing in the response tells us which preview we got, but
+                  // the size does: Drive renders up to 1024px, the embedded one
+                  // never exceeds 160.
+                  setLimited(e.currentTarget.naturalWidth <= LIMITED_PREVIEW_MAX_PX)
+                }}
+                onError={() => setThumbFailed(true)}
+              />
+              {limited && thumbLoaded && (
+                <div className="absolute inset-x-0 bottom-0 px-5 py-3 bg-black/70 backdrop-blur-sm">
+                  <p className="text-xs text-zinc-300 flex items-start gap-2">
+                    <Info size={14} className="flex-shrink-0 mt-px text-zinc-500" />
+                    <span>
+                      Beperkt voorbeeld — dit bestand is te groot voor een volledige voorbeeldweergave.
+                      Dit is de kleine afbeelding die Photoshop zelf in het bestand bewaart.
+                      {downloadHref && <> <a href={downloadHref} download className="text-zinc-100 underline underline-offset-2 hover:text-white">Download het bestand</a> om het scherp te bekijken.</>}
+                    </span>
+                  </p>
+                </div>
+              )}
+              {/* A still frame is enough to pick the right clip out of a
+                  folder, but not to watch it — that needs Drive's player. */}
+              {isVideo && thumbLoaded && (
+                <button
+                  onClick={() => setShowViewer(true)}
+                  aria-label="Afspelen"
+                  title="Afspelen"
+                  className="absolute inset-0 flex items-center justify-center group"
+                >
+                  <span className="p-5 rounded-full bg-black/60 text-white backdrop-blur-sm transition-transform group-hover:scale-110">
+                    <Play size={28} fill="currentColor" />
+                  </span>
+                </button>
+              )}
+            </>
+          )}
+
           {(onPrev || onNext) && (
             <>
               <NavButton side="left"  onClick={onPrev} label="Vorige (pijl links)"  icon={ChevronLeft} />
