@@ -1,7 +1,7 @@
-// Grabs a still frame out of a video in the browser, at upload time, so every
-// video gets a usable thumbnail without depending on Drive — which stops
-// rendering previews entirely above a certain file size, exactly where videos
-// tend to live.
+// Makes a thumbnail in the browser at upload time, so a file gets a usable
+// preview without depending on Drive — which stops rendering previews
+// entirely above a certain file size. For video that's a captured frame; for
+// a large image it's a scaled-down copy.
 //
 // Doing it client-side is what makes this cheap: the file is already on the
 // user's machine, so there's no download, no server time and no file-size
@@ -111,5 +111,41 @@ export async function extractVideoPoster(file: File): Promise<Blob | null> {
     URL.revokeObjectURL(url)
     video.removeAttribute('src')
     video.load()
+  }
+}
+
+// Drive was measured refusing to render anything above somewhere between 37
+// and 96 MB. Images below this are left to Drive: it handles them fine, and a
+// poster would be work for nothing.
+export const IMAGE_POSTER_MIN_BYTES = 25 * 1024 * 1024
+
+// Scales a large image down to poster size. Unlike video this needs no
+// seeking or frame-picking — there's one frame and it's the right one.
+export async function extractImagePoster(file: File): Promise<Blob | null> {
+  if (typeof document === 'undefined') return null
+
+  let bitmap: ImageBitmap | null = null
+  try {
+    // Decoded off the main thread, which matters for a file this size.
+    bitmap = await createImageBitmap(file)
+
+    const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height))
+    const w = Math.max(1, Math.round(bitmap.width * scale))
+    const h = Math.max(1, Math.round(bitmap.height * scale))
+
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+
+    ctx.drawImage(bitmap, 0, 0, w, h)
+    return await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', JPEG_QUALITY))
+  } catch {
+    // A format this browser can't decode (some HEIC, exotic TIFF) — the file
+    // still uploads, it just won't carry a poster.
+    return null
+  } finally {
+    bitmap?.close()
   }
 }

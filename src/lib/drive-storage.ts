@@ -257,6 +257,43 @@ export async function downloadFile(driveFileId: string) {
   return res.data as unknown as NodeJS.ReadableStream
 }
 
+export interface DriveRangeResult {
+  stream: NodeJS.ReadableStream
+  // Present when Drive answered with a partial body; mirrored back to the
+  // browser so it knows which slice it got.
+  contentRange?: string
+  contentLength?: string
+  partial: boolean
+}
+
+// Same download, but passing a browser's Range header through to Drive.
+//
+// Worth the extra path because this route streams through a function with a
+// hard duration limit: a 2 GB file on a slow connection simply can't finish
+// inside it. With ranges the browser asks for bounded slices instead, each
+// comfortably inside the limit, and can resume rather than start over when a
+// connection drops. Drive honours Range on alt=media — verified, it answers
+// 206 with a Content-Range.
+export async function downloadFileRange(
+  driveFileId: string,
+  range: string
+): Promise<DriveRangeResult> {
+  const drive = getClient()
+  const res = await drive.files.get(
+    { fileId: driveFileId, alt: 'media', supportsAllDrives: true },
+    { responseType: 'stream', headers: { Range: range } }
+  )
+  const headers = res.headers as Record<string, string | undefined>
+  return {
+    stream: res.data as unknown as NodeJS.ReadableStream,
+    contentRange: headers['content-range'],
+    contentLength: headers['content-length'],
+    // Drive is free to ignore the Range and send the whole file; status says
+    // which happened, and the response must match what actually came back.
+    partial: res.status === 206,
+  }
+}
+
 // Drive renders a flat preview image for formats the browser can't display
 // itself — a PSD, a video's poster frame — which is all you need to recognise
 // a file, and far cheaper than booting Drive's whole preview app in an iframe.

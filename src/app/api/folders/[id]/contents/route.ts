@@ -41,7 +41,7 @@ export async function GET(
   const { id } = await params
   const admin = createAdminClient()
 
-  const { data: root } = await admin.from('file_folders').select('id, name, client_id').eq('id', id).single()
+  const { data: root } = await admin.from('file_folders').select('id, name, client_id, drive_folder_id').eq('id', id).single()
   if (!root) return NextResponse.json({ error: 'Map niet gevonden.' }, { status: 404 })
   if (!hasClientAccess(user, root.client_id)) return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
 
@@ -50,14 +50,28 @@ export async function GET(
 
   const { data: fileRows } = await admin
     .from('files')
-    .select('id, filename, folder_id')
+    .select('id, filename, folder_id, file_size')
     .in('folder_id', nodes.map(n => n.id))
     .is('deleted_at', null)
 
   const files = (fileRows ?? []).map(f => {
     const prefix = pathById.get(f.folder_id!) ?? ''
-    return { id: f.id, filename: f.filename, relativePath: prefix ? `${prefix}/${f.filename}` : f.filename }
+    return {
+      id: f.id,
+      filename: f.filename,
+      // Returned so the client can add up a download before starting it —
+      // zipping happens in the browser's memory, which a big enough folder
+      // will simply exhaust.
+      fileSize: f.file_size ?? 0,
+      relativePath: prefix ? `${prefix}/${f.filename}` : f.filename,
+    }
   })
 
-  return NextResponse.json({ folderName: root.name, files })
+  return NextResponse.json({
+    folderName: root.name,
+    files,
+    // Lets the client offer Drive's own folder download when ours would be
+    // too large — Google zips it server-side, for free.
+    driveFolderId: root.drive_folder_id ?? null,
+  })
 }

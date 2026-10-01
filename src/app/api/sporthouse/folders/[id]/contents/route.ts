@@ -51,13 +51,20 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
   const { data: docRows } = await admin
     .from('sporthouse_documents')
-    .select('id, filename, folder_id')
+    .select('id, filename, folder_id, file_size')
     .in('folder_id', nodes.map(n => n.id))
     .is('deleted_at', null)
 
   const files = (docRows ?? []).map(d => {
     const prefix = pathById.get(d.folder_id!) ?? ''
-    return { id: d.id, filename: d.filename, relativePath: prefix ? `${prefix}/${d.filename}` : d.filename }
+    return {
+      id: d.id,
+      filename: d.filename,
+      // See the client-files twin: the browser zips in memory, so the client
+      // needs to know the weight before it starts.
+      fileSize: d.file_size ?? 0,
+      relativePath: prefix ? `${prefix}/${d.filename}` : d.filename,
+    }
   })
 
   return NextResponse.json({ folderName: root.name, files })
