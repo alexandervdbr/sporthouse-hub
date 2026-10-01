@@ -245,6 +245,9 @@ const CODE_EXTS = ['js', 'ts', 'tsx', 'jsx', 'py', 'html', 'css', 'json', 'xml',
 const DOC_EXTS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'md', 'csv', 'rtf']
 const FONT_EXTS = ['ttf', 'otf', 'woff', 'woff2', 'eot']
 const DESIGN_EXTS = ['psd', 'psb', 'ai', 'indd', 'idml', 'eps', 'xd', 'sketch', 'fig', 'afphoto', 'afdesign', 'afpub', 'aep', 'prproj']
+// Formats that carry their own preview image, readable even when Drive won't
+// render one (see lib/psd-thumbnail).
+const EMBEDDED_PREVIEW_EXTS = ['psd', 'psb']
 
 function getFileIcon(fileType: string) {
   const t = fileType.toLowerCase()
@@ -260,6 +263,17 @@ function getFileIcon(fileType: string) {
 }
 
 type TypeFilter = 'all' | 'image' | 'video' | 'document' | 'other'
+
+// Formats worth showing as a flat preview image instead of Drive's viewer:
+// ones where the rendered image IS the content. Deliberately excludes PDFs
+// and text — you want the real viewer to page or read those — which also
+// keeps the inline text editor honest: it rewrites a file's contents under
+// the same id (updateFileContent), and preview images are cached as
+// immutable, so a text file previewed this way could go stale after an edit.
+function canPreviewAsImage(fileType: string): boolean {
+  const t = fileType.toLowerCase()
+  return IMAGE_EXTS.includes(t) || DESIGN_EXTS.includes(t) || VIDEO_EXTS.includes(t)
+}
 
 function getFileCategory(fileType: string): TypeFilter {
   const t = fileType.toLowerCase()
@@ -307,9 +321,28 @@ function SelectCheckbox({ checked, onToggle }: { checked: boolean; onToggle: () 
 // Real image/video preview when Drive has generated one, falling back to the
 // generic file-type icon otherwise (non-Drive rows, or a thumbnail Drive
 // hasn't produced yet for this file type).
-function FileTile({ file, icon: Icon, color }: { file: FileRecord; icon: typeof File; color: string }) {
-  if (file.storage_provider === 'drive' && file.thumbnail_link) {
-    return <DriveThumbnail src={file.thumbnail_link} alt={file.filename} video={getFileCategory(file.file_type) === 'video'} />
+function FileTile({ file, icon: Icon, color, filesApi }: { file: FileRecord; icon: typeof File; color: string; filesApi: string }) {
+  // Served through our own proxy rather than the thumbnail_link stored on the
+  // row: Google's link is session-bound and 403s within about a day, so tiles
+  // for anything but freshly uploaded files quietly fell back to the generic
+  // icon. Same lesson /api/reels/thumbnail and /api/files/download each hit
+  // before this. The row's thumbnail_link is now only a record of whether
+  // Drive ever managed to render one at all.
+  // thumbnail_link records whether Drive ever rendered a preview. A PSD is
+  // worth asking for even when it didn't: above roughly 40-90 MB Drive gives
+  // up entirely, and those files fall back to the preview Photoshop embedded
+  // — which at tile size is indistinguishable from the real thing. A miss
+  // costs nothing: DriveThumbnail lands on the icon either way.
+  const worthAsking = file.thumbnail_link || EMBEDDED_PREVIEW_EXTS.includes(file.file_type.toLowerCase())
+
+  if (file.storage_provider === 'drive' && worthAsking) {
+    return (
+      <DriveThumbnail
+        src={`${filesApi}/thumbnail?id=${file.id}&size=small`}
+        alt={file.filename}
+        video={getFileCategory(file.file_type) === 'video'}
+      />
+    )
   }
   return <Icon size={15} className={color} />
 }
@@ -1086,6 +1119,22 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   const previewList = previewSource.filter(isPreviewableFile)
   const previewIndex = previewFile ? previewList.findIndex(f => f.id === previewFile.id) : -1
 
+  // Fetch the previews either side of the current one ahead of time. Stepping
+  // through a folder is overwhelmingly sequential, so by the time the arrow
+  // key is pressed the next image is usually already in the browser cache and
+  // appears with no visible load at all.
+  useEffect(() => {
+    if (previewIndex < 0) return
+    for (const neighbour of [previewList[previewIndex - 1], previewList[previewIndex + 1]]) {
+      if (neighbour && canPreviewAsImage(neighbour.file_type)) {
+        new Image().src = `${filesApi}/thumbnail?id=${neighbour.id}`
+      }
+    }
+    // previewList is rebuilt on every render; keying the effect on the id of
+    // each neighbour instead keeps it to one prefetch per actual move.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewIndex, previewList[previewIndex - 1]?.id, previewList[previewIndex + 1]?.id, filesApi])
+
   const hasResults = isGlobalSearch
     ? filteredGlobal.length > 0
     : filteredFolders.length > 0 || filteredFiles.length > 0
@@ -1405,7 +1454,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                       className={`flex items-center gap-3 px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg group hover:border-zinc-700 transition-colors ${isPreviewable ? 'cursor-pointer' : ''}`}
                     >
                       <div className={`w-9 h-9 rounded-lg ${bg} flex items-center justify-center flex-shrink-0 overflow-hidden`}>
-                        <FileTile file={file} icon={Icon} color={color} />
+                        <FileTile file={file} icon={Icon} color={color} filesApi={filesApi} />
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-white truncate">{file.filename}</p>
@@ -1644,7 +1693,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                     <GripVertical size={13} className="text-zinc-700 group-hover:text-zinc-500 flex-shrink-0 transition-colors" />
 
                     <div className={`w-9 h-9 rounded-lg ${bg} flex items-center justify-center flex-shrink-0 overflow-hidden`}>
-                      <FileTile file={file} icon={Icon} color={color} />
+                      <FileTile file={file} icon={Icon} color={color} filesApi={filesApi} />
                     </div>
 
                     <div className="flex-1 min-w-0">
@@ -2013,6 +2062,8 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
           title={previewFile.filename}
           webViewLink={previewFile.web_view_link}
           downloadHref={`${filesApi}/download?id=${previewFile.id}`}
+          thumbnailHref={canPreviewAsImage(previewFile.file_type) ? `${filesApi}/thumbnail?id=${previewFile.id}` : undefined}
+          isVideo={getFileCategory(previewFile.file_type) === 'video'}
           onClose={() => setPreviewFile(null)}
           onPrev={previewIndex > 0 ? () => setPreviewFile(previewList[previewIndex - 1]) : undefined}
           onNext={previewIndex >= 0 && previewIndex < previewList.length - 1 ? () => setPreviewFile(previewList[previewIndex + 1]) : undefined}
