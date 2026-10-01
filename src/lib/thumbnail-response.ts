@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { fetchThumbnail, type ThumbnailSize } from '@/lib/drive-storage'
+import { Readable } from 'stream'
+import { downloadFile, fetchThumbnail, type ThumbnailSize } from '@/lib/drive-storage'
 
 // Every feature that stores files in Drive needs the same thumbnail endpoint:
 // Google's own thumbnailLink is session-bound and 403s within about a day, so
@@ -34,6 +35,26 @@ export async function driveThumbnailResponse(
     })
   } catch (err) {
     console.error('Kon thumbnail niet ophalen:', err instanceof Error ? err.message : err)
+    return NextResponse.json({ error: 'Kon voorbeeld niet ophalen.' }, { status: 500 })
+  }
+}
+
+// A poster is a frame the browser captured from a video at upload time and
+// stored as its own small JPEG in Drive. It's preferred over asking Drive to
+// render something, because Drive refuses outright above a certain size —
+// which is precisely where video files live.
+export async function drivePosterResponse(posterDriveFileId: string): Promise<NextResponse> {
+  try {
+    const stream = await downloadFile(posterDriveFileId)
+    const body = Readable.toWeb(stream as Readable) as ReadableStream
+    return new NextResponse(body, {
+      headers: {
+        'Content-Type': 'image/jpeg',
+        'Cache-Control': 'private, max-age=31536000, immutable',
+      },
+    })
+  } catch (err) {
+    console.error('Kon videovoorbeeld niet ophalen:', err instanceof Error ? err.message : err)
     return NextResponse.json({ error: 'Kon voorbeeld niet ophalen.' }, { status: 500 })
   }
 }

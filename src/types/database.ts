@@ -37,6 +37,9 @@ export interface FileRecord {
   deleted_by?: string | null
   web_view_link?: string | null
   thumbnail_link?: string | null
+  // Set for videos: a frame the browser captured at upload time, stored as
+  // its own JPEG in Drive (see lib/video-poster).
+  poster_drive_file_id?: string | null
 }
 
 export interface Post {

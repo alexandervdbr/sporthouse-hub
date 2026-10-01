@@ -14,6 +14,7 @@ import StarterKit from '@tiptap/starter-kit'
 import JSZip from 'jszip'
 import { FileRecord } from '@/types/database'
 import { DriveThumbnail, DrivePreviewModal } from '@/components/shared/DrivePreview'
+import { extractVideoPoster } from '@/lib/video-poster'
 import { ALLOWED_UPLOAD_HINT } from '@/lib/upload-policy'
 
 function escapeHtml(s: string) {
@@ -249,6 +250,10 @@ const DESIGN_EXTS = ['psd', 'psb', 'ai', 'indd', 'idml', 'eps', 'xd', 'sketch', 
 // render one (see lib/psd-thumbnail).
 const EMBEDDED_PREVIEW_EXTS = ['psd', 'psb']
 
+function fileExtOf(filename: string): string {
+  return filename.includes('.') ? filename.split('.').pop()!.toLowerCase() : ''
+}
+
 function getFileIcon(fileType: string) {
   const t = fileType.toLowerCase()
   if (IMAGE_EXTS.includes(t)) return { icon: FileImage, color: 'text-blue-400', bg: 'bg-blue-950/50' }
@@ -333,7 +338,9 @@ function FileTile({ file, icon: Icon, color, filesApi }: { file: FileRecord; ico
   // up entirely, and those files fall back to the preview Photoshop embedded
   // — which at tile size is indistinguishable from the real thing. A miss
   // costs nothing: DriveThumbnail lands on the icon either way.
-  const worthAsking = file.thumbnail_link || EMBEDDED_PREVIEW_EXTS.includes(file.file_type.toLowerCase())
+  const worthAsking = file.thumbnail_link
+    || EMBEDDED_PREVIEW_EXTS.includes(file.file_type.toLowerCase())
+    || getFileCategory(file.file_type) === 'video'
 
   if (file.storage_provider === 'drive' && worthAsking) {
     return (
@@ -869,6 +876,28 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
           if (!finalizeRes.ok) {
             const { error } = await finalizeRes.json().catch(() => ({ error: `Opslaan mislukt (${finalizeRes.status}).` }))
             throw new Error(error ?? 'Opslaan mislukt.')
+          }
+
+          // 4. For video, capture a frame here in the browser and send it up
+          // as the file's thumbnail. Drive stops rendering previews above a
+          // certain size, which is where video lives — and the bytes are
+          // already on this machine, so this costs no download at all.
+          // Strictly best-effort: a codec the browser can't decode, or a
+          // failed POST, leaves the file uploaded and falls back to whatever
+          // Drive manages on its own.
+          if (getFileCategory(fileExtOf(entry.file.name)) === 'video') {
+            try {
+              const record = await finalizeRes.json()
+              const poster = await extractVideoPoster(entry.file)
+              if (poster && record?.id) {
+                const body = new FormData()
+                body.append('id', record.id)
+                body.append('poster', poster, 'poster.jpg')
+                await fetch(`${filesApi}/poster`, { method: 'POST', body })
+              }
+            } catch (err) {
+              console.error('Kon videovoorbeeld niet maken:', err)
+            }
           }
 
           setPendingEntries(prev => prev.map((e, j) => j === i ? { ...e, status: 'done', progress: 100 } : e))
