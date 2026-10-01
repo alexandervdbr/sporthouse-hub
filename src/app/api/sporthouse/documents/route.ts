@@ -3,11 +3,10 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { uploadFile, downloadFile, updateFileContent, moveFile, trashFile, isSporthouseDriveConfigured } from '@/lib/drive-storage'
 import { resolveSporthouseDriveFolderId } from '@/lib/sporthouse-docs-drive'
 import { canViewSection, canManageSection, isSporthouseSection, type SporthouseSection } from '@/lib/sporthouse-docs'
-import { isAllowedUploadExt, ALLOWED_UPLOAD_HINT } from '@/lib/upload-policy'
+import { isAllowedUploadExt, ALLOWED_UPLOAD_HINT, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/lib/upload-policy'
 
 export const maxDuration = 300
 
-const MAX_SIZE = 500 * 1024 * 1024 // 500 MB, matches proxyClientMaxBodySize in next.config.mjs
 
 async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
   const chunks: Buffer[] = []
@@ -133,8 +132,8 @@ export async function POST(request: NextRequest) {
   if (!isAllowedUploadExt(file.name)) {
     return NextResponse.json({ error: `Dit bestandstype wordt niet ondersteund. Toegestaan: ${ALLOWED_UPLOAD_HINT}.` }, { status: 400 })
   }
-  if (file.size > MAX_SIZE) {
-    return NextResponse.json({ error: `Bestand mag niet groter zijn dan ${MAX_SIZE / 1024 / 1024} MB.` }, { status: 400 })
+  if (file.size > MAX_UPLOAD_BYTES) {
+    return NextResponse.json({ error: `Bestand mag niet groter zijn dan ${MAX_UPLOAD_LABEL}.` }, { status: 400 })
   }
 
   const admin = createAdminClient()
