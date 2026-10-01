@@ -72,7 +72,13 @@ function SubmissionCard({ sub, canDelete, onDelete }: {
 
   // Drive thumbnails are generated async by Google and may briefly be null
   // right after upload — fall back to the (legacy) signed URL, then to an icon.
-  const previewSrc = isDrive ? (sub.thumbnail_link ?? undefined) : sub.signedUrl
+  // The image itself comes from our own proxy: Google's thumbnail_link is
+  // session-bound and 403s within about a day, so the stored link only ever
+  // worked right after upload. The row's link still tells us whether Drive
+  // managed to render one at all.
+  const previewSrc = isDrive
+    ? (sub.thumbnail_link ? `/api/preassist/thumbnail?id=${sub.id}&size=small` : undefined)
+    : sub.signedUrl
   const openLink = isDrive ? sub.web_view_link ?? undefined : sub.signedUrl
   const downloadHref = isDrive ? `/api/preassist/download?id=${sub.id}` : sub.signedUrl
 
