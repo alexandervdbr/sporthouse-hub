@@ -270,14 +270,20 @@ function getFileIcon(fileType: string) {
 type TypeFilter = 'all' | 'image' | 'video' | 'document' | 'other'
 
 // Formats worth showing as a flat preview image instead of Drive's viewer:
-// ones where the rendered image IS the content. Deliberately excludes PDFs
-// and text — you want the real viewer to page or read those — which also
-// keeps the inline text editor honest: it rewrites a file's contents under
-// the same id (updateFileContent), and preview images are cached as
-// immutable, so a text file previewed this way could go stale after an edit.
+// ones where the rendered image IS the content.
+//
+// Video is deliberately not one of them. A still frame is the right thing on
+// a list tile, but in the viewer it only adds a click — you'd press play on
+// the poster, wait for Drive's player to load, and press play again. Opening
+// a video goes straight to the player instead.
+//
+// PDFs and text are excluded for the opposite reason: you want the real
+// viewer to page or read those. That also keeps the inline text editor
+// honest, since it rewrites a file's contents under the same id
+// (updateFileContent) while preview images are cached as immutable.
 function canPreviewAsImage(fileType: string): boolean {
   const t = fileType.toLowerCase()
-  return IMAGE_EXTS.includes(t) || DESIGN_EXTS.includes(t) || VIDEO_EXTS.includes(t)
+  return IMAGE_EXTS.includes(t) || DESIGN_EXTS.includes(t)
 }
 
 function getFileCategory(fileType: string): TypeFilter {
@@ -2092,7 +2098,6 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
           webViewLink={previewFile.web_view_link}
           downloadHref={`${filesApi}/download?id=${previewFile.id}`}
           thumbnailHref={canPreviewAsImage(previewFile.file_type) ? `${filesApi}/thumbnail?id=${previewFile.id}` : undefined}
-          isVideo={getFileCategory(previewFile.file_type) === 'video'}
           onClose={() => setPreviewFile(null)}
           onPrev={previewIndex > 0 ? () => setPreviewFile(previewList[previewIndex - 1]) : undefined}
           onNext={previewIndex >= 0 && previewIndex < previewList.length - 1 ? () => setPreviewFile(previewList[previewIndex + 1]) : undefined}
