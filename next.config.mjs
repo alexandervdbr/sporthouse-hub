@@ -9,8 +9,11 @@ const nextConfig = {
   experimental: {
     // Global middleware (src/middleware.ts) buffers the request body for
     // every route it runs on, including upload API routes — Next.js caps
-    // that at 10MB by default. Raised to match our own upload size checks.
-    proxyClientMaxBodySize: '500mb',
+    // that at 10MB by default. Raised to match our own upload size checks
+    // (MAX_UPLOAD_BYTES in lib/upload-policy). Note this only lifts Next's
+    // own ceiling: Vercel still rejects any single request body over 4.5 MB,
+    // which is why large uploads go through the chunked path.
+    proxyClientMaxBodySize: '2gb',
   },
   images: {
     remotePatterns: [

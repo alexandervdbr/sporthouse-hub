@@ -4,9 +4,8 @@ import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { isDriveStorageConfigured, createResumableUploadSession } from '@/lib/drive-storage'
 import { resolveDriveFolderId } from '@/lib/client-files-drive'
 import { hasClientAccess } from '@/lib/auth-permissions'
-import { isAllowedUploadExt, ALLOWED_UPLOAD_HINT } from '@/lib/upload-policy'
+import { isAllowedUploadExt, ALLOWED_UPLOAD_HINT, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/lib/upload-policy'
 
-const MAX_SIZE = 500 * 1024 * 1024 // 500 MB, matches proxyClientMaxBodySize in next.config.mjs
 
 function adminClient() {
   return createAdminClient(
@@ -44,8 +43,8 @@ export async function POST(request: NextRequest) {
   if (!hasClientAccess(user, clientId)) {
     return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
   }
-  if (fileSize > MAX_SIZE) {
-    return NextResponse.json({ error: `Bestand mag niet groter zijn dan ${MAX_SIZE / 1024 / 1024} MB.` }, { status: 400 })
+  if (fileSize > MAX_UPLOAD_BYTES) {
+    return NextResponse.json({ error: `Bestand mag niet groter zijn dan ${MAX_UPLOAD_LABEL}.` }, { status: 400 })
   }
 
   const admin = adminClient()

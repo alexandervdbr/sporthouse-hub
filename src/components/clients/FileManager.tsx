@@ -15,7 +15,7 @@ import JSZip from 'jszip'
 import { FileRecord } from '@/types/database'
 import { DriveThumbnail, DrivePreviewModal } from '@/components/shared/DrivePreview'
 import { extractVideoPoster } from '@/lib/video-poster'
-import { ALLOWED_UPLOAD_HINT } from '@/lib/upload-policy'
+import { ALLOWED_UPLOAD_HINT, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/lib/upload-policy'
 
 function escapeHtml(s: string) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -830,9 +830,9 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   // ── Upload ──────────────────────────────────────────────────────────────────
 
   function addEntries(entries: PendingEntry[]) {
-    const tooBig = entries.filter(e => e.file.size > 500 * 1024 * 1024)
-    const ok = entries.filter(e => e.file.size <= 500 * 1024 * 1024)
-    setUploadError(tooBig.length ? `${tooBig.length} bestand${tooBig.length !== 1 ? 'en zijn' : ' is'} groter dan 500 MB en werd${tooBig.length !== 1 ? 'en' : ''} overgeslagen.` : null)
+    const tooBig = entries.filter(e => e.file.size > MAX_UPLOAD_BYTES)
+    const ok = entries.filter(e => e.file.size <= MAX_UPLOAD_BYTES)
+    setUploadError(tooBig.length ? `${tooBig.length} bestand${tooBig.length !== 1 ? 'en zijn' : ' is'} groter dan ${MAX_UPLOAD_LABEL} en werd${tooBig.length !== 1 ? 'en' : ''} overgeslagen.` : null)
     setUploadSuccess(null)
     if (ok.length) setPendingEntries(prev => [...prev, ...ok])
   }

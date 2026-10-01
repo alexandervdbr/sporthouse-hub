@@ -50,3 +50,13 @@ export const ALLOWED_TEXT_DOC_HINT = 'Tekstdocumenten (TXT, MD, CSV, RTF)'
 export function isAllowedTextDocExt(filename: string): boolean {
   return ALLOWED_TEXT_DOC_EXTS.includes(fileExt(filename))
 }
+
+// One ceiling for general-purpose uploads, instead of the same number copied
+// into four routes and a component — where it had already started drifting.
+//
+// Only reachable through the chunked upload path (upload-session → relay →
+// finalize), which slices the file client-side. A whole file posted in one
+// request can never get near this: Vercel rejects any function request body
+// over 4.5 MB before our code runs, whatever we allow here.
+export const MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024
+export const MAX_UPLOAD_LABEL = '2 GB'

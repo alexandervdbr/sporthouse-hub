@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { hasClientAccess, isAdminUser } from '@/lib/auth-permissions'
-import { isAllowedUploadExt, ALLOWED_UPLOAD_HINT } from '@/lib/upload-policy'
+import { isAllowedUploadExt, ALLOWED_UPLOAD_HINT, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/lib/upload-policy'
 import {
   isDriveStorageConfigured, uploadFile, downloadFile, updateFileContent, moveFile, trashFile,
 } from '@/lib/drive-storage'
@@ -10,7 +10,6 @@ import { resolveDriveFolderId } from '@/lib/client-files-drive'
 
 export const maxDuration = 300 // prevent hanging
 
-const MAX_SIZE = 500 * 1024 * 1024 // 500 MB, matches proxyClientMaxBodySize in next.config.mjs
 
 function adminClient() {
   return createAdminClient(
@@ -71,8 +70,8 @@ export async function POST(request: NextRequest) {
   if (!isAllowedUploadExt(file.name)) {
     return NextResponse.json({ error: `Dit bestandstype wordt niet ondersteund. Toegestaan: ${ALLOWED_UPLOAD_HINT}.` }, { status: 400 })
   }
-  if (file.size > MAX_SIZE) {
-    return NextResponse.json({ error: `Bestand mag niet groter zijn dan ${MAX_SIZE / 1024 / 1024} MB.` }, { status: 400 })
+  if (file.size > MAX_UPLOAD_BYTES) {
+    return NextResponse.json({ error: `Bestand mag niet groter zijn dan ${MAX_UPLOAD_LABEL}.` }, { status: 400 })
   }
 
   const admin = adminClient()

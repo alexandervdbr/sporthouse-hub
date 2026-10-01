@@ -3,9 +3,8 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { isSporthouseDriveConfigured, createResumableUploadSession } from '@/lib/drive-storage'
 import { resolveSporthouseDriveFolderId } from '@/lib/sporthouse-docs-drive'
 import { canManageSection, isSporthouseSection } from '@/lib/sporthouse-docs'
-import { isAllowedUploadExt, ALLOWED_UPLOAD_HINT } from '@/lib/upload-policy'
+import { isAllowedUploadExt, ALLOWED_UPLOAD_HINT, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/lib/upload-policy'
 
-const MAX_SIZE = 500 * 1024 * 1024 // 500 MB, matches proxyClientMaxBodySize in next.config.mjs
 
 // Opens a Drive resumable-upload session so the browser can PUT the bytes
 // straight to Google. Files created this way are never shared publicly — the
@@ -37,8 +36,8 @@ export async function POST(request: NextRequest) {
   if (!isAllowedUploadExt(filename)) {
     return NextResponse.json({ error: `Dit bestandstype wordt niet ondersteund. Toegestaan: ${ALLOWED_UPLOAD_HINT}.` }, { status: 400 })
   }
-  if (fileSize > MAX_SIZE) {
-    return NextResponse.json({ error: `Bestand mag niet groter zijn dan ${MAX_SIZE / 1024 / 1024} MB.` }, { status: 400 })
+  if (fileSize > MAX_UPLOAD_BYTES) {
+    return NextResponse.json({ error: `Bestand mag niet groter zijn dan ${MAX_UPLOAD_LABEL}.` }, { status: 400 })
   }
 
   const admin = createAdminClient()
