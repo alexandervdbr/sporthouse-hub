@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Download, X, Film, ImageIcon, ChevronLeft, ChevronRight, Loader2, Play, Maximize2, Info } from 'lucide-react'
+import { Download, X, Film, ImageIcon, ChevronLeft, ChevronRight, Loader2, Maximize2, Info } from 'lucide-react'
 
 // Drive generates thumbnails asynchronously after upload, so the URL can be
 // briefly unresolvable right after a file lands — retry a few times with
@@ -49,10 +49,14 @@ export function DriveThumbnail({ src, alt, video }: { src: string; alt: string; 
 // page load, which is what made stepping through a folder with the arrow keys
 // so sluggish. So when the caller can point at a rendered preview image
 // (thumbnailHref), that image is shown instead — one cached request, instant
-// on the way back. The iframe stays one click away for when you actually want
-// Drive's viewer: playing a video, paging a PDF, zooming in.
+// on the way back. The iframe stays one click away for when you want Drive's
+// own viewer: paging a PDF, zooming in.
+//
+// Callers decide which files get an image. Anything that has to be played or
+// paged is handed over without a thumbnailHref, so it opens straight in the
+// viewer rather than behind a still that needs clicking through.
 export function DrivePreviewModal({
-  driveFileId, title, webViewLink, downloadHref, thumbnailHref, isVideo, onClose, onPrev, onNext, position,
+  driveFileId, title, webViewLink, downloadHref, thumbnailHref, onClose, onPrev, onNext, position,
 }: {
   driveFileId: string
   title: string
@@ -61,7 +65,6 @@ export function DrivePreviewModal({
   // Our own proxy for Drive's rendered preview image. Omit it and the modal
   // behaves exactly as it always did: straight to the iframe.
   thumbnailHref?: string
-  isVideo?: boolean
   onClose: () => void
   // Optional: pass these to let the viewer step through a list of files
   // (left/right arrow keys, or the chevrons). Callers that preview a single
@@ -189,20 +192,6 @@ export function DrivePreviewModal({
                     </span>
                   </p>
                 </div>
-              )}
-              {/* A still frame is enough to pick the right clip out of a
-                  folder, but not to watch it — that needs Drive's player. */}
-              {isVideo && thumbLoaded && (
-                <button
-                  onClick={() => setShowViewer(true)}
-                  aria-label="Afspelen"
-                  title="Afspelen"
-                  className="absolute inset-0 flex items-center justify-center group"
-                >
-                  <span className="p-5 rounded-full bg-black/60 text-white backdrop-blur-sm transition-transform group-hover:scale-110">
-                    <Play size={28} fill="currentColor" />
-                  </span>
-                </button>
               )}
             </>
           )}
