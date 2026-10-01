@@ -129,6 +129,8 @@ const UPLOAD_CHUNK_SIZE = 4 * 1024 * 1024
 // crashed tab is a worse answer than a refusal.
 //
 // Above this, we hand the job to Drive, which zips server-side for free.
+const FOLDER_CACHE_LIMIT = 50
+
 const MAX_ZIP_BYTES = 500 * 1024 * 1024
 const MAX_ZIP_LABEL = '500 MB'
 
@@ -396,6 +398,12 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([{ id: null, name: rootLabel }])
   const currentFolderId = breadcrumbs[breadcrumbs.length - 1]?.id ?? null
 
+  // Which listing is on screen right now. Used to tell "nothing to show yet"
+  // apart from "showing the previous answer while a newer one arrives" —
+  // blanking the list for a spinner on every refresh is what made navigating
+  // feel slow even when the request itself was quick.
+  const listingKey = `${scopeQuery}|${currentFolderId ?? 'null'}`
+
   // Bumped by every navigation, so landing on the folder you're already in
   // still reloads instead of doing nothing at all. Without it a view that got
   // out of step for any reason stayed stuck until a page reload.
@@ -563,14 +571,41 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   // breadcrumb said another.
   const loadAbortRef = useRef<AbortController | null>(null)
 
-  const loadData = useCallback(async () => {
+  // What each folder looked like last time it was open. Finding a file means
+  // walking in and out of folders, and re-fetching a listing you saw ten
+  // seconds ago to draw exactly the same rows is the slowest part of that.
+  // Served immediately, then refreshed in the background, so a revisit costs
+  // nothing and still can't go stale.
+  //
+  // Capped because a long session should not accumulate listings forever;
+  // listings are small, so this is about tidiness rather than real pressure.
+  const folderCacheRef = useRef(new Map<string, { folders: FolderRecord[]; files: FileRecord[] }>())
+  const [shownFor, setShownFor] = useState<string | null>(null)
+
+  const loadData = useCallback(async (fromCache = false) => {
     loadAbortRef.current?.abort()
     const controller = new AbortController()
     loadAbortRef.current = controller
     const { signal } = controller
 
-    setLoading(true)
     const fid = currentFolderId ?? 'null'
+    const cacheKey = `${scopeQuery}|${fid}`
+
+    if (fromCache) {
+      const cached = folderCacheRef.current.get(cacheKey)
+      if (cached) {
+        setFolders(cached.folders)
+        setFiles(cached.files)
+        setShownFor(cacheKey)
+      }
+    } else {
+      // A reload after a change must never be able to serve the listing from
+      // before it — drop the entry so nothing can show a file that was just
+      // deleted or renamed.
+      folderCacheRef.current.delete(cacheKey)
+    }
+
+    setLoading(true)
     try {
       const [foldersRes, filesRes] = await Promise.all([
         fetch(`${foldersApi}?${scopeQuery}&parentId=${fid}`, { signal }),
@@ -583,6 +618,16 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
       if (signal.aborted) return
       if (nextFolders) setFolders(nextFolders)
       if (nextFiles) setFiles(nextFiles)
+      if (nextFolders && nextFiles) {
+        const cache = folderCacheRef.current
+        cache.delete(cacheKey)
+        cache.set(cacheKey, { folders: nextFolders, files: nextFiles })
+        if (cache.size > FOLDER_CACHE_LIMIT) {
+          // Map keeps insertion order, so the first key is the oldest touch.
+          cache.delete(cache.keys().next().value!)
+        }
+      }
+      setShownFor(cacheKey)
       setLoading(false)
     } catch (err) {
       // An abort means a newer load is already running and owns the spinner;
@@ -601,7 +646,8 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
 
   useEffect(() => {
     if (!restored) return
-    loadData()
+    // Navigation may paint from cache; reloads after a change may not.
+    loadData(true)
   }, [loadData, restored])
 
   useEffect(() => () => loadAbortRef.current?.abort(), [])
@@ -1344,6 +1390,9 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
         {draggingFileId && breadcrumbs.length > 1 && (
           <span className="text-xs text-zinc-500 ml-2 italic">Sleep naar een broodkruimel om te verplaatsen</span>
         )}
+        {loading && shownFor === listingKey && (
+          <Loader2 size={12} className="animate-spin text-zinc-600 ml-2" aria-label="Bezig met verversen" />
+        )}
       </nav>
 
       {/* Toolbar — search gets its own full-width row, the action buttons share the row below */}
@@ -1690,7 +1739,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
 
       {/* Content — full-width hit area for drag-select (extends into the side
           gutters up to this page's own edges), inner content still centered */}
-      {!showTrash && !isGlobalSearch && loading ? (
+      {!showTrash && !isGlobalSearch && loading && shownFor !== listingKey ? (
         <div className="max-w-5xl mx-auto flex items-center justify-center py-20">
           <Loader2 size={20} className="animate-spin text-zinc-600" />
         </div>
