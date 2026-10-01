@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Check, X } from 'lucide-react'
 import { DUTCH_MONTHS, getDaysInMonth } from '@/lib/planning-config'
 import { dateCellKey, emptyCell, type CellData, type PlanningWeekData, type WeekDay } from '@/lib/planning-week'
@@ -8,32 +8,18 @@ import type { PlanningPreset } from '@/lib/planning-presets'
 import DayEditor from './DayEditor'
 
 interface Target { wd: WeekDay; dept: string; emp: string }
-interface DragState { start: number; additive: boolean; cells: Set<number> }
 
-const SEL_BG = 'rgba(59,130,246,0.15)'
-const SEL_BDR = '1px solid rgba(59,130,246,0.5)'
+const SEL_BG = 'rgba(59,130,246,0.12)'
+const SEL_BORDER = '#3b82f6'
 
-// Same row/col rectangle math as MyMonthWeeks — a day's flat grid index
-// (leadingBlanks + day - 1, so it matches the actual visual position, not
-// just the day number) turns two such indices into every index inside the
-// rectangle they bound.
-function rectIndices(aIdx: number, bIdx: number): number[] {
-  const ar = Math.floor(aIdx / 7), ac = aIdx % 7
-  const br = Math.floor(bIdx / 7), bc = bIdx % 7
-  const r0 = Math.min(ar, br), r1 = Math.max(ar, br)
-  const c0 = Math.min(ac, bc), c1 = Math.max(ac, bc)
-  const out: number[] = []
-  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) out.push(r * 7 + c)
-  return out
-}
-
-// Mobile's own "Mijn maand" — same drag/ctrl/shift-click box-selection
-// model as desktop's MyMonthWeeks, ported rather than shared since the grid
-// shapes differ (a single month with leading blank slots here vs. stacked
-// full calendar weeks there). On pure touch (no ctrl/shift key to hold)
-// this collapses to exactly the interaction that matters most: drag across
-// days, lift your finger, the editor opens for the whole range at once —
-// previously mobile had no bulk selection at all, one tap per day only.
+// Mobile's own "Mijn maand". Went through two rounds here — a drag-select
+// grid (felt like fighting touch with a mouse gesture) and a dot-grid +
+// separate list (the dots didn't carry enough meaning, and the tiny
+// checkbox felt like a decoration, not something to trust tapping) —
+// confirmed against feedback both times. This version is a single
+// scrollable list: every day of the month, full status text, no grid at
+// all. A thin divider marks each new week purely for scanability, not as
+// a layout grid.
 export default function MyMonthCalendar({
   year, month, dept, emp, data, readOnly, presets, onApply, onClear, emailToName,
 }: {
@@ -49,224 +35,135 @@ export default function MyMonthCalendar({
   emailToName?: Map<string, string>
 }) {
   const days = getDaysInMonth(year, month)
-  const leadingBlanks = (new Date(year, month - 1, 1).getDay() + 6) % 7
-
-  function gridIdx(day: number) { return leadingBlanks + day - 1 }
-  function dayForGridIdx(idx: number) { return idx - leadingBlanks + 1 }
 
   function wdFor(day: number): WeekDay {
     const d = days.find(x => x.day === day)!
     return { date: new Date(year, month - 1, day), year, month, day, dayName: d.dayName, isWeekend: d.isWeekend, isToday: d.isToday }
   }
 
-  const [drag, setDrag] = useState<DragState | null>(null)
-  const [committed, setCommitted] = useState<Set<number> | null>(null)
-  const anchorRef = useRef<number | null>(null)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selected, setSelected] = useState<Set<number>>(new Set())
   const [editing, setEditing] = useState<{ targets: Target[]; cell: CellData } | null>(null)
 
   useEffect(() => {
-    setCommitted(null)
-    setDrag(null)
+    setSelectMode(false)
+    setSelected(new Set())
   }, [year, month])
 
-  const displaySelection = drag
-    ? (drag.additive ? new Set([...(committed ?? []), ...drag.cells]) : drag.cells)
-    : committed
-
-  // A drag rectangle can span into a blank leading slot (e.g. dragging from
-  // day 2 up into the empty cells before day 1) — those simply aren't real
-  // days and get dropped here rather than needing special-casing earlier.
-  function idxsToDays(idxs: Iterable<number>): number[] {
-    const out: number[] = []
-    for (const idx of idxs) {
-      const day = dayForGridIdx(idx)
-      if (day >= 1 && day <= days.length) out.push(day)
-    }
-    return out
-  }
-
-  function openEditorFor(idxs: Iterable<number>) {
-    if (readOnly) return
-    const dayNums = idxsToDays(idxs).sort((a, b) => a - b)
-    if (dayNums.length === 0) return
-    const targets: Target[] = dayNums.map(d => ({ wd: wdFor(d), dept, emp }))
+  function openEditorForDays(dayNums: number[]) {
+    if (readOnly || dayNums.length === 0) return
+    const sorted = [...dayNums].sort((a, b) => a - b)
+    const targets: Target[] = sorted.map(d => ({ wd: wdFor(d), dept, emp }))
     const initial = targets.length === 1
-      ? (data[dateCellKey(year, month, dayNums[0], dept, emp)] ?? emptyCell())
+      ? (data[dateCellKey(year, month, sorted[0], dept, emp)] ?? emptyCell())
       : emptyCell()
     setEditing({ targets, cell: initial })
   }
 
-  // Enter commits the current selection, Escape drops it — mirrors
-  // MyMonthWeeks; harmless no-ops on a pure touch device with no keyboard.
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      const tag = (e.target as HTMLElement)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
-      if (e.key === 'Enter' && committed && committed.size > 0) {
-        e.preventDefault()
-        openEditorFor(committed)
-      } else if (e.key === 'Escape' && committed) {
-        setCommitted(null)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  })
+  function toggleSelectMode() {
+    setSelectMode(v => !v)
+    setSelected(new Set())
+  }
 
-  function handlePointerDown(e: React.PointerEvent, idx: number) {
+  function handleDayClick(day: number) {
     if (readOnly) return
-    // Without this, starting the drag kicks off the browser's native
-    // text-selection/drag-start (and, on touch, page-scroll) behavior,
-    // which cancels the pointer sequence mid-drag.
-    e.preventDefault()
-    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-
-    if (e.shiftKey && anchorRef.current !== null) {
-      setCommitted(new Set(rectIndices(anchorRef.current, idx)))
-      return
-    }
-
-    anchorRef.current = idx
-    setDrag({ start: idx, additive: e.ctrlKey || e.metaKey, cells: new Set([idx]) })
-  }
-
-  function handlePointerMove(e: React.PointerEvent) {
-    if (!drag) return
-    const el = document.elementFromPoint(e.clientX, e.clientY)
-    const cellEl = el?.closest('[data-idx]') as HTMLElement | null
-    if (!cellEl) return
-    const idx = Number(cellEl.dataset.idx)
-    setDrag(prev => prev && { ...prev, cells: new Set(rectIndices(prev.start, idx)) })
-  }
-
-  function handlePointerUp(e: React.PointerEvent) {
-    if (!drag) return
-    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId) } catch { /* already released */ }
-
-    if (!drag.additive) {
-      const cells = drag.cells
-      setDrag(null)
-      setCommitted(null)
-      openEditorFor(cells)
-      return
-    }
-
-    if (drag.cells.size === 1) {
-      const only = [...drag.cells][0]
-      setCommitted(prev => {
-        const next = new Set(prev ?? [])
-        if (next.has(only)) next.delete(only); else next.add(only)
-        return next.size ? next : null
+    if (selectMode) {
+      setSelected(prev => {
+        const next = new Set(prev)
+        if (next.has(day)) next.delete(day); else next.add(day)
+        return next
       })
-    } else {
-      setCommitted(prev => new Set([...(prev ?? []), ...drag.cells]))
+      return
     }
-    setDrag(null)
+    openEditorForDays([day])
   }
 
   return (
     <div>
-      <div className="grid grid-cols-7 gap-1 mb-1.5">
-        {['MA', 'DI', 'WO', 'DO', 'VR', 'ZA', 'ZO'].map(d => (
-          <span key={d} className="text-[10px] text-zinc-600 text-center uppercase tracking-wide">{d}</span>
-        ))}
+      <div className="flex items-center justify-between mb-2 px-0.5">
+        <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest">
+          {DUTCH_MONTHS[month - 1]} {year}
+        </p>
+        {!readOnly && (
+          <button onClick={toggleSelectMode} className="text-[11px] text-zinc-400 hover:text-zinc-200 underline">
+            {selectMode ? 'Annuleren' : 'Selecteren'}
+          </button>
+        )}
       </div>
-      <div className="grid grid-cols-7 gap-1.5">
-        {Array.from({ length: leadingBlanks }).map((_, i) => <div key={`b${i}`} />)}
-        {days.map(d => {
-          const idx = gridIdx(d.day)
+
+      <div className="space-y-1.5 pb-20">
+        {days.map((d, i) => {
           const key = dateCellKey(year, month, d.day, dept, emp)
           const cell = data[key] ?? emptyCell()
-          const isSelected = displaySelection?.has(idx) ?? false
+          const isSelected = selectMode && selected.has(d.day)
+          const isNewWeek = i > 0 && d.dayName === 'Maandag'
           return (
-            <div
-              key={d.day}
-              data-idx={idx}
-              onPointerDown={e => handlePointerDown(e, idx)}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp}
-              onDragStart={e => e.preventDefault()}
-              style={{
-                backgroundColor: isSelected ? SEL_BG : d.isToday ? 'rgba(58,145,63,0.08)' : 'rgba(255,255,255,0.02)',
-                borderColor: isSelected ? undefined : d.isToday ? 'rgba(58,145,63,0.35)' : 'rgba(255,255,255,0.07)',
-                outline: isSelected ? SEL_BDR : undefined,
-                outlineOffset: '-1px',
-                opacity: readOnly ? 0.6 : 1,
-                touchAction: 'none',
-                userSelect: 'none',
-                WebkitUserSelect: 'none',
-              }}
-              className={`tap-target aspect-square rounded-lg border p-1.5 flex flex-col items-center justify-center gap-1 transition-colors ${readOnly ? '' : 'cursor-pointer'}`}
-            >
-              <span className={`text-[11px] ${d.isToday ? 'text-emerald-400 font-semibold' : d.isWeekend ? 'text-zinc-600' : 'text-zinc-500'}`}>
-                {d.day}
-              </span>
-              {/* Color signal only, no status text — a truncated pill in a
-                  44px box ("VE…", "SP…") tells you less than nothing at
-                  all; the agenda list below is where the actual status
-                  name lives, fully spelled out. */}
-              {cell.value && (
-                <span
-                  className="w-1.5 h-1.5 rounded-full"
-                  style={{ backgroundColor: cell.bgColor ?? '#71717a' }}
-                />
+            <div key={d.day}>
+              {isNewWeek && (
+                <p className="text-[10px] text-zinc-600 uppercase tracking-wide mt-3 mb-1.5 px-0.5">
+                  Week van {d.day} {DUTCH_MONTHS[month - 1].slice(0, 3)}
+                </p>
               )}
+              <button
+                onClick={() => handleDayClick(d.day)}
+                className="w-full flex items-center gap-3 pl-2.5 pr-3 py-3 rounded-xl border text-left transition-colors"
+                style={{
+                  borderColor: isSelected ? SEL_BORDER : '#27272a',
+                  backgroundColor: isSelected ? SEL_BG : 'rgba(24,24,27,0.6)',
+                  borderLeftWidth: isSelected ? '4px' : '1px',
+                }}
+              >
+                {/* Whole row toggles the selection (not just this icon) —
+                    the icon is the visual confirmation, not the hit
+                    target, so this stays big and legible without needing
+                    to itself be huge. */}
+                {selectMode && (
+                  <span
+                    className="w-6 h-6 flex-shrink-0 rounded-md flex items-center justify-center transition-colors"
+                    style={{
+                      backgroundColor: isSelected ? '#3A913F' : 'rgba(255,255,255,0.06)',
+                      border: isSelected ? 'none' : '1.5px solid #52525b',
+                    }}
+                  >
+                    {isSelected && <Check size={15} className="text-white" strokeWidth={3} />}
+                  </span>
+                )}
+                <span className={`w-14 flex-shrink-0 text-xs ${d.isToday ? 'text-emerald-400 font-semibold' : d.isWeekend ? 'text-zinc-600' : 'text-zinc-500'}`}>
+                  {d.dayName.slice(0, 2).toUpperCase()} {d.day}
+                </span>
+                {cell.value ? (
+                  <span
+                    className="flex-1 min-w-0 truncate rounded-md px-2 py-1.5 text-xs font-semibold"
+                    style={{ backgroundColor: cell.bgColor ?? 'rgba(255,255,255,0.08)', color: cell.bgColor ? '#fff' : '#a1a1aa' }}
+                  >
+                    {cell.value}
+                  </span>
+                ) : (
+                  <span className="flex-1 text-xs text-zinc-700">—</span>
+                )}
+                {cell.note && (
+                  <span className="flex-shrink-0 max-w-[30%] truncate text-[10px] text-zinc-500">{cell.note}</span>
+                )}
+              </button>
             </div>
           )
         })}
       </div>
 
-      {/* Agenda list — only days that actually have something planned,
-          each shown with its full (untruncated) status and note. The grid
-          above is for the month's shape and multi-day selection; this is
-          where you can actually read what it says without tapping in. */}
-      <div className="mt-4 space-y-1.5">
-        <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest px-0.5">Deze maand</p>
-        {days.filter(d => (data[dateCellKey(year, month, d.day, dept, emp)] ?? emptyCell()).value).length === 0 ? (
-          <p className="py-4 text-center text-xs text-zinc-600">Nog niets ingevuld deze maand.</p>
-        ) : (
-          days.map(d => {
-            const key = dateCellKey(year, month, d.day, dept, emp)
-            const cell = data[key] ?? emptyCell()
-            if (!cell.value) return null
-            return (
-              <button
-                key={d.day}
-                onClick={() => !readOnly && openEditorFor([gridIdx(d.day)])}
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border border-zinc-800 bg-zinc-900/60 text-left transition-colors hover:border-zinc-700"
-              >
-                <span className={`w-14 flex-shrink-0 text-xs ${d.isToday ? 'text-emerald-400 font-semibold' : 'text-zinc-500'}`}>
-                  {d.dayName.slice(0, 2).toUpperCase()} {d.day}
-                </span>
-                <span
-                  className="flex-1 min-w-0 truncate rounded-md px-2 py-1 text-xs font-semibold"
-                  style={{ backgroundColor: cell.bgColor ?? 'rgba(255,255,255,0.08)', color: cell.bgColor ? '#fff' : '#a1a1aa' }}
-                >
-                  {cell.value}
-                </span>
-                {cell.note && (
-                  <span className="flex-shrink-0 max-w-[35%] truncate text-[10px] text-zinc-500">{cell.note}</span>
-                )}
-              </button>
-            )
-          })
-        )}
-      </div>
-
-      {committed && committed.size > 0 && (
+      {selectMode && selected.size > 0 && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-3 py-2 rounded-full shadow-2xl bg-zinc-800 border border-zinc-700">
           <span className="text-xs text-zinc-300 pl-1">
-            {committed.size} {committed.size === 1 ? 'dag' : 'dagen'} geselecteerd
+            {selected.size} {selected.size === 1 ? 'dag' : 'dagen'} geselecteerd
           </span>
           <button
-            onClick={() => openEditorFor(committed)}
+            onClick={() => openEditorForDays([...selected])}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-white transition-colors"
             style={{ backgroundColor: '#3A913F' }}
           >
             <Check size={12} /> Bewerken
           </button>
           <button
-            onClick={() => setCommitted(null)}
+            onClick={() => setSelected(new Set())}
             aria-label="Selectie wissen"
             className="w-6 h-6 flex items-center justify-center rounded-full text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700 transition-colors"
           >
@@ -288,13 +185,13 @@ export default function MyMonthCalendar({
             pool: days.map(d => wdFor(d.day)),
             selected: editing.targets.map(t => t.wd),
             onChange: next => {
-              if (next.length === 0) { setEditing(null); setCommitted(null); return }
+              if (next.length === 0) { setEditing(null); setSelected(new Set()); setSelectMode(false); return }
               const sorted = [...next].sort((a, b) => a.day - b.day)
               setEditing(prev => prev && { ...prev, targets: sorted.map(wd => ({ wd, dept, emp })) })
             },
           }}
-          onSave={cell => { onApply(editing.targets, cell); setEditing(null); setCommitted(null) }}
-          onClear={() => { onClear(editing.targets); setEditing(null); setCommitted(null) }}
+          onSave={cell => { onApply(editing.targets, cell); setEditing(null); setSelected(new Set()); setSelectMode(false) }}
+          onClear={() => { onClear(editing.targets); setEditing(null); setSelected(new Set()); setSelectMode(false) }}
           onClose={() => setEditing(null)}
         />
       )}
