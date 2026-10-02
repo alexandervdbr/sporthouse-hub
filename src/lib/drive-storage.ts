@@ -498,6 +498,13 @@ export async function getOrCreateFolderPath(segments: string[], rootId: string):
   return current
 }
 
+// Drive renames a file the same way it renames a folder — a folder is just a
+// file with a folder mime type.
+export async function renameDriveFile(driveFileId: string, newName: string) {
+  const drive = getClient()
+  await drive.files.update({ fileId: driveFileId, requestBody: { name: newName }, supportsAllDrives: true })
+}
+
 export async function renameDriveFolder(driveFolderId: string, newName: string) {
   const drive = getClient()
   await drive.files.update({ fileId: driveFolderId, requestBody: { name: newName }, supportsAllDrives: true })

@@ -485,6 +485,8 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   const [downloadingZip, setDownloadingZip] = useState(false)
   const [zipError, setZipError] = useState<string | null>(null)
   const [moveError, setMoveError] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [renameError, setRenameError] = useState<string | null>(null)
   const [moveToast, setMoveToast] = useState<
     { file: FileRecord; cameFrom: string | null; cameFromKey: string; targetLabel: string } | null
   >(null)
@@ -790,6 +792,37 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
     loadData()
   }
 
+  async function handleRenameFile(file: FileRecord) {
+    const name = renameValue.trim()
+    setRenamingId(null)
+    if (!name || name === file.filename) return
+
+    setRenameError(null)
+    const previous = file.filename
+    // Shown under the new name straight away; the request still has to reach
+    // Drive, and that's not worth watching a spinner for.
+    setFiles(prev => prev.map(f => f.id === file.id ? { ...f, filename: name } : f))
+    folderCacheRef.current.delete(listingKeyRef.current)
+
+    try {
+      const res = await fetch(`${filesApi}?id=${file.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: name }),
+      })
+      const result = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(result?.error ?? `Hernoemen mislukt (${res.status}).`)
+      // The server may have put the extension back; show what it stored.
+      if (result?.filename && result.filename !== name) {
+        setFiles(prev => prev.map(f => f.id === file.id ? { ...f, filename: result.filename } : f))
+      }
+      folderCacheRef.current.clear()
+    } catch (err) {
+      setFiles(prev => prev.map(f => f.id === file.id ? { ...f, filename: previous } : f))
+      setRenameError(err instanceof Error ? err.message : 'Hernoemen mislukt.')
+    }
+  }
+
   function openDeleteFolderConfirm(folder: FolderRecord) {
     setFolderToDelete(folder)
     setFolderDeleteContentsCount(null)
@@ -801,11 +834,34 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
 
   async function performFolderDelete(mode: 'delete' | 'move') {
     if (!folderToDelete) return
+    const target = folderToDelete
     setDeletingFolderBusy(true)
-    await fetch(`${foldersApi}/${folderToDelete.id}?mode=${mode}`, { method: 'DELETE' })
+    setDeleteError(null)
+
+    // Off the list straight away. Deleting a folder means moving every file
+    // inside it in Drive first, which for a folder holding a large video is
+    // seconds of nothing happening.
+    setFolders(prev => prev.filter(f => f.id !== target.id))
+    folderCacheRef.current.clear()
+
+    try {
+      const res = await fetch(`${foldersApi}/${target.id}?mode=${mode}`, { method: 'DELETE' })
+      if (!res.ok) {
+        // The server has something worth reading here — it refuses the delete
+        // when a file couldn't be moved out first, rather than losing it.
+        // Throwing that away was why a folder could come back on refresh with
+        // no explanation at all.
+        const message = await res.text().catch(() => '')
+        throw new Error(message || `Map verwijderen mislukt (${res.status}).`)
+      }
+      setFolderToDelete(null)
+      loadData()
+    } catch (err) {
+      setFolders(prev => prev.some(f => f.id === target.id) ? prev : [...prev, target])
+      setDeleteError(err instanceof Error ? err.message : 'Map verwijderen mislukt.')
+      setFolderToDelete(null)
+    }
     setDeletingFolderBusy(false)
-    setFolderToDelete(null)
-    loadData()
   }
 
   // ── Drag file → folder ──────────────────────────────────────────────────────
@@ -1227,11 +1283,26 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   }
 
   async function handleDeleteFile(fileId: string) {
+    const removed = files.find(f => f.id === fileId)
     setDeletingId(fileId)
-    const res = await fetch(`${filesApi}?id=${fileId}`, { method: 'DELETE' })
-    const result = await res.json().catch(() => null)
-    setDeleteWarning(result?.warning ?? null)
-    loadData(); setDeletingId(null)
+    setDeleteError(null)
+
+    // Gone from the list at once; the request still has to move it to the
+    // trash in Drive, which is what the wait used to be.
+    setFiles(prev => prev.filter(f => f.id !== fileId))
+    folderCacheRef.current.delete(listingKeyRef.current)
+
+    try {
+      const res = await fetch(`${filesApi}?id=${fileId}`, { method: 'DELETE' })
+      const result = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(result?.error ?? `Verwijderen mislukt (${res.status}).`)
+      // Still surfaced: the file is out of the app but Drive didn't follow.
+      setDeleteWarning(result?.warning ?? null)
+    } catch (err) {
+      if (removed) setFiles(prev => prev.some(f => f.id === fileId) ? prev : [...prev, removed])
+      setDeleteError(err instanceof Error ? err.message : 'Verwijderen mislukt.')
+    }
+    setDeletingId(null)
   }
 
   function toggleSelect(fileId: string) {
@@ -1371,9 +1442,17 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
     if (!confirm(`${ids.length} bestand${ids.length !== 1 ? 'en' : ''} verwijderen? Ze komen in de prullenbak terecht.`)) return
 
     setBulkDeleting(true)
-    const results = await Promise.all(
-      ids.map(id => fetch(`${filesApi}?id=${id}`, { method: 'DELETE' }).then(r => r.json().catch(() => null)))
+    const responses = await Promise.all(
+      ids.map(async id => {
+        const r = await fetch(`${filesApi}?id=${id}`, { method: 'DELETE' })
+        return { ok: r.ok, body: await r.json().catch(() => null) }
+      })
     )
+    const failed = responses.filter(r => !r.ok).length
+    setDeleteError(failed > 0
+      ? `${failed} van de ${ids.length} bestanden konden niet verwijderd worden en staan er nog.`
+      : null)
+    const results = responses.map(r => r.body)
     const warnings = results.filter(r => r?.warning).length
     setDeleteWarning(warnings > 0 ? `${warnings} van de ${ids.length} bestanden werden verwijderd uit de app, maar niet volledig naar de prullenbak in Drive verplaatst.` : null)
     setSelectedIds(new Set())
@@ -1613,6 +1692,26 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
             {undoing ? 'Bezig…' : 'Ongedaan maken'}
           </button>
           <button onClick={() => setMoveToast(null)} aria-label="Sluiten" className="text-zinc-500 hover:text-zinc-300 transition-colors">
+            <X size={13} />
+          </button>
+        </div>
+      )}
+
+      {renameError && (
+        <div className="flex items-start gap-2 px-3 py-2.5 mb-5 bg-red-950/50 border border-red-900/50 rounded-lg">
+          <AlertCircle size={14} className="text-red-400 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-red-400 flex-1">{renameError} De oude naam staat er weer.</p>
+          <button onClick={() => setRenameError(null)} aria-label="Foutmelding sluiten" className="text-red-400/70 hover:text-red-300 flex-shrink-0">
+            <X size={13} />
+          </button>
+        </div>
+      )}
+
+      {deleteError && (
+        <div className="flex items-start gap-2 px-3 py-2.5 mb-5 bg-red-950/50 border border-red-900/50 rounded-lg">
+          <AlertCircle size={14} className="text-red-400 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-red-400 flex-1">{deleteError}</p>
+          <button onClick={() => setDeleteError(null)} aria-label="Foutmelding sluiten" className="text-red-400/70 hover:text-red-300 flex-shrink-0">
             <X size={13} />
           </button>
         </div>
@@ -2050,7 +2149,23 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-white truncate">{file.filename}</p>
+                      {renamingId === file.id ? (
+                        <input
+                          autoFocus
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onBlur={() => handleRenameFile(file)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleRenameFile(file)
+                            if (e.key === 'Escape') setRenamingId(null)
+                          }}
+                          className="w-full bg-zinc-800 border border-zinc-600 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-emerald-600"
+                        />
+                      ) : (
+                        <p className="text-sm font-medium text-white truncate">{file.filename}</p>
+                      )}
                       <div className="flex items-center gap-2 mt-0.5">
                         {file.description && (
                           <p className="text-xs text-zinc-400 truncate">{file.description}</p>
@@ -2072,8 +2187,21 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                       {isText && canEdit && (
                         <button
                           onClick={(e) => { e.stopPropagation(); openEdit(file) }}
-                          title="Bewerken"
+                          title="Inhoud bewerken"
                           className="tap-target p-1.5 rounded-md text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-all"
+                        >
+                          <FileText size={13} />
+                        </button>
+                      )}
+                      {canEdit && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setRenamingId(file.id)
+                            setRenameValue(file.filename)
+                          }}
+                          title="Hernoemen"
+                          className="tap-target p-1.5 rounded-md text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
                         >
                           <Pencil size={13} />
                         </button>
@@ -2416,6 +2544,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
           webViewLink={previewFile.web_view_link}
           downloadHref={`${filesApi}/download?id=${previewFile.id}`}
           thumbnailHref={canPreviewAsImage(previewFile.file_type) ? `${filesApi}/thumbnail?id=${previewFile.id}` : undefined}
+          streamHref={getFileCategory(previewFile.file_type) === 'video' ? `${filesApi}/download?id=${previewFile.id}&inline=1` : undefined}
           onClose={() => setPreviewFile(null)}
           onPrev={previewIndex > 0 ? () => setPreviewFile(previewList[previewIndex - 1]) : undefined}
           onNext={previewIndex >= 0 && previewIndex < previewList.length - 1 ? () => setPreviewFile(previewList[previewIndex + 1]) : undefined}

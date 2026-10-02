@@ -56,7 +56,7 @@ export function DriveThumbnail({ src, alt, video }: { src: string; alt: string; 
 // paged is handed over without a thumbnailHref, so it opens straight in the
 // viewer rather than behind a still that needs clicking through.
 export function DrivePreviewModal({
-  driveFileId, title, webViewLink, downloadHref, thumbnailHref, onClose, onPrev, onNext, position,
+  driveFileId, title, webViewLink, downloadHref, thumbnailHref, streamHref, onClose, onPrev, onNext, position,
 }: {
   driveFileId: string
   title: string
@@ -65,6 +65,11 @@ export function DrivePreviewModal({
   // Our own proxy for Drive's rendered preview image. Omit it and the modal
   // behaves exactly as it always did: straight to the iframe.
   thumbnailHref?: string
+  // Our own inline stream for audio/video. Given one, the file plays in a
+  // plain <video> instead of Drive's embedded player — which on mobile stacks
+  // its own controls underneath the browser's native ones, and offers no
+  // fullscreen of its own. A native element gets both right for free.
+  streamHref?: string
   onClose: () => void
   // Optional: pass these to let the viewer step through a list of files
   // (left/right arrow keys, or the chevrons). Callers that preview a single
@@ -77,6 +82,7 @@ export function DrivePreviewModal({
   const [thumbLoaded, setThumbLoaded] = useState(false)
   const [thumbFailed, setThumbFailed] = useState(false)
   const [limited, setLimited] = useState(false)
+  const [streamFailed, setStreamFailed] = useState(false)
 
   // Stepping to another file reuses this same component, so every per-file
   // bit of state has to go back to its starting point — otherwise file two
@@ -91,11 +97,16 @@ export function DrivePreviewModal({
     setThumbLoaded(false)
     setThumbFailed(false)
     setLimited(false)
+    setStreamFailed(false)
   }
+
+  // A codec the browser can't decode falls back to Drive's player, which can
+  // handle more formats than a <video> element will.
+  const usePlayer = !!streamHref && !streamFailed && !showViewer
 
   // Fall back to the iframe when there's no preview image to show, or Drive
   // couldn't render one (a format it doesn't know, a file still processing).
-  const useIframe = !thumbnailHref || thumbFailed || showViewer
+  const useIframe = !usePlayer && (!thumbnailHref || thumbFailed || showViewer)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -148,7 +159,17 @@ export function DrivePreviewModal({
         </div>
 
         <div className="flex-1 min-h-0 bg-black relative">
-          {useIframe ? (
+          {usePlayer ? (
+            <video
+              key={driveFileId}
+              src={streamHref}
+              controls
+              playsInline
+              preload="metadata"
+              className="w-full h-full block"
+              onError={() => setStreamFailed(true)}
+            />
+          ) : useIframe ? (
             <iframe
               src={`https://drive.google.com/file/d/${driveFileId}/preview`}
               className="w-full h-full block"

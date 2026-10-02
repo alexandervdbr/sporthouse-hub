@@ -4,7 +4,7 @@ import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { hasClientAccess, isAdminUser } from '@/lib/auth-permissions'
 import { isAllowedUploadExt, ALLOWED_UPLOAD_HINT, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/lib/upload-policy'
 import {
-  isDriveStorageConfigured, uploadFile, downloadFile, updateFileContent, moveFile, trashFile,
+  isDriveStorageConfigured, uploadFile, downloadFile, updateFileContent, moveFile, trashFile, renameDriveFile,
 } from '@/lib/drive-storage'
 import { resolveDriveFolderId } from '@/lib/client-files-drive'
 import { getSessionUser } from '@/lib/supabase/claims'
@@ -347,6 +347,52 @@ export async function PATCH(request: NextRequest) {
 
     await admin.from('files').update({ file_size: bytes.byteLength }).eq('id', id)
     return NextResponse.json({ success: true })
+  }
+
+  // Rename
+  if (typeof body.filename === 'string') {
+    const requested = body.filename.trim()
+    if (!requested) return NextResponse.json({ error: 'Naam mag niet leeg zijn.' }, { status: 400 })
+    // Slashes would read as a path in Drive and in any later download.
+    if (requested.includes('/') || requested.includes('\\')) {
+      return NextResponse.json({ error: 'Naam mag geen schuine strepen bevatten.' }, { status: 400 })
+    }
+
+    const { data: file } = await admin
+      .from('files')
+      .select('client_id, filename, file_type, storage_provider, drive_file_id')
+      .eq('id', id)
+      .single()
+
+    if (!file) return NextResponse.json({ error: 'Bestand niet gevonden.' }, { status: 404 })
+    if (!hasClientAccess(user, file.client_id)) {
+      return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 })
+    }
+
+    // Typing a name without an extension shouldn't quietly turn a .psd into a
+    // file nothing recognises — Drive, the preview and the icon all key off
+    // it. Put the original back when it's missing, and leave file_type alone
+    // either way so an edit here can't reclassify the file.
+    const hasExt = requested.includes('.') && !requested.endsWith('.')
+    const filename = hasExt || !file.file_type ? requested : `${requested}.${file.file_type}`
+
+    const { error } = await admin.from('files').update({ filename }).eq('id', id)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    // Mirrored in Drive after the response, like the move below: the app
+    // reads the database, and a Drive hiccup shouldn't hold up the rename.
+    const driveFileId = file.drive_file_id
+    if (file.storage_provider === 'drive' && driveFileId) {
+      after(async () => {
+        try {
+          await renameDriveFile(driveFileId, filename)
+        } catch (err) {
+          console.error('Drive rename error:', err)
+        }
+      })
+    }
+
+    return NextResponse.json({ success: true, filename })
   }
 
   // Folder move — the read (for Drive bookkeeping below) and the write don't

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse, after } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { uploadFile, downloadFile, updateFileContent, moveFile, trashFile, isSporthouseDriveConfigured } from '@/lib/drive-storage'
+import { uploadFile, downloadFile, updateFileContent, moveFile, trashFile, renameDriveFile, isSporthouseDriveConfigured } from '@/lib/drive-storage'
 import { resolveSporthouseDriveFolderId } from '@/lib/sporthouse-docs-drive'
 import { canViewSection, canManageSection, isSporthouseSection, type SporthouseSection } from '@/lib/sporthouse-docs'
 import { isAllowedUploadExt, ALLOWED_UPLOAD_HINT, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/lib/upload-policy'
@@ -202,7 +202,7 @@ export async function PATCH(request: NextRequest) {
 
   const { data: doc } = await admin
     .from('sporthouse_documents')
-    .select('section, storage_provider, storage_path, drive_file_id')
+    .select('section, filename, file_type, storage_provider, storage_path, drive_file_id')
     .eq('id', id)
     .is('deleted_at', null)
     .single()
@@ -210,6 +210,34 @@ export async function PATCH(request: NextRequest) {
   if (!doc) return NextResponse.json({ error: 'Document niet gevonden.' }, { status: 404 })
   if (!canManageSection(user, doc.section as SporthouseSection)) {
     return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 })
+  }
+
+  // Rename — see the twin in /api/files for the extension handling.
+  if (typeof body.filename === 'string') {
+    const requested = body.filename.trim()
+    if (!requested) return NextResponse.json({ error: 'Naam mag niet leeg zijn.' }, { status: 400 })
+    if (requested.includes('/') || requested.includes('\\')) {
+      return NextResponse.json({ error: 'Naam mag geen schuine strepen bevatten.' }, { status: 400 })
+    }
+
+    const hasExt = requested.includes('.') && !requested.endsWith('.')
+    const filename = hasExt || !doc.file_type ? requested : `${requested}.${doc.file_type}`
+
+    const { error } = await admin.from('sporthouse_documents').update({ filename }).eq('id', id)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    const driveFileId = doc.drive_file_id
+    if (doc.storage_provider === 'drive' && driveFileId) {
+      after(async () => {
+        try {
+          await renameDriveFile(driveFileId, filename)
+        } catch (err) {
+          console.error('Drive rename error:', err)
+        }
+      })
+    }
+
+    return NextResponse.json({ success: true, filename })
   }
 
   // Content update: inline text editor
