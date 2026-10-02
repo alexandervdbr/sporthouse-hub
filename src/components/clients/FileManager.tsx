@@ -402,7 +402,17 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   // apart from "showing the previous answer while a newer one arrives" —
   // blanking the list for a spinner on every refresh is what made navigating
   // feel slow even when the request itself was quick.
+  // Which listing the UI is currently on, readable from inside a callback
+  // that was created some renders ago. Aborting the previous request isn't
+  // enough on its own: a handler like "drop a file on a breadcrumb" closes
+  // over the folder you were in when it was created, so if the view moves on
+  // before it runs, it starts a fetch for the folder you just left — and that
+  // answer is newer, so nothing stops it from landing on top. Checked against
+  // this before anything is painted.
+  const listingKeyRef = useRef<string>('')
+
   const listingKey = `${scopeQuery}|${currentFolderId ?? 'null'}`
+  listingKeyRef.current = listingKey
 
   // Bumped by every navigation, so landing on the folder you're already in
   // still reloads instead of doing nothing at all. Without it a view that got
@@ -616,6 +626,15 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
         filesRes.ok ? filesRes.json() : null,
       ])
       if (signal.aborted) return
+      // The folder may have changed while this was in flight, by navigation
+      // or by a handler that outlived it. Cache the answer — it's still a
+      // correct listing of that folder — but don't put it on screen.
+      if (cacheKey !== listingKeyRef.current) {
+        if (nextFolders && nextFiles) {
+          folderCacheRef.current.set(cacheKey, { folders: nextFolders, files: nextFiles })
+        }
+        return
+      }
       if (nextFolders) setFolders(nextFolders)
       if (nextFiles) setFiles(nextFiles)
       if (nextFolders && nextFiles) {
@@ -698,7 +717,20 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
     setSelectedFolderIds(new Set())
   }
 
+  // A breadcrumb is both a place to click and a place to drop a file on. If
+  // the browser follows a drop with a click — and dropping onto a <button>
+  // can — you'd be moved out of the folder you were working in as a side
+  // effect of moving a file out of it. Dropping should move the file and
+  // leave you where you are.
+  const justDroppedRef = useRef(false)
+
+  function markDropped() {
+    justDroppedRef.current = true
+    setTimeout(() => { justDroppedRef.current = false }, 300)
+  }
+
   function navigateToBreadcrumb(crumb: Breadcrumb, idx: number) {
+    if (justDroppedRef.current) return
     // Clicking the crumb you're already on deliberately still reloads — it's
     // the obvious thing to try when a view looks wrong, so it should fix it.
     setBreadcrumbs(prev => prev.slice(0, idx + 1))
@@ -792,6 +824,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
 
   async function onDropOnFolder(e: React.DragEvent, targetFolderId: string) {
     e.preventDefault()
+    markDropped()
     const fileId = e.dataTransfer.getData('fileId')
     setDragOverFolderId(null)
     setDraggingFileId(null)
@@ -807,6 +840,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   // Drop on breadcrumb parent = move back to that folder level
   async function onDropOnBreadcrumb(e: React.DragEvent, targetFolderId: string | null) {
     e.preventDefault()
+    markDropped()
     const fileId = e.dataTransfer.getData('fileId')
     setDragOverRoot(false)
     setDraggingFileId(null)
