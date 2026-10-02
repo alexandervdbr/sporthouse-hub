@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { expandUuid } from '@/lib/short-id'
 
 // The one page in the app a logged-out visitor is allowed to reach, because
 // the whole point is to be readable by the link-preview bots of WhatsApp,
@@ -47,18 +48,24 @@ function tabOf(params: Record<string, string | string[] | undefined>): Tab | nul
   return TABS.includes(raw as Tab) ? (raw as Tab) : null
 }
 
+// Ids travel base64url-encoded to keep the link short; expandUuid hands back
+// anything that isn't one untouched, so the full-length form in an older link
+// still resolves.
 function clientOf(params: Record<string, string | string[] | undefined>) {
   // `client` and `path` are the first shape these links had; still read so
   // that one shared an hour ago keeps working.
-  return one(params.c) ?? one(params.client)
+  const raw = one(params.c) ?? one(params.client)
+  return raw ? expandUuid(raw) : null
 }
 
 function folderOf(params: Record<string, string | string[] | undefined>) {
-  return one(params.f) ?? one(params.folder)
+  const raw = one(params.f) ?? one(params.folder)
+  return raw ? expandUuid(raw) : null
 }
 
 function fileOf(params: Record<string, string | string[] | undefined>) {
-  return one(params.x) ?? one(params.file)
+  const raw = one(params.x) ?? one(params.file)
+  return raw ? expandUuid(raw) : null
 }
 
 // Sporthouse documents live on a client's finance or administration tab, so
