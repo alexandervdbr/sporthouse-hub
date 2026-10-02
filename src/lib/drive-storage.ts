@@ -418,7 +418,30 @@ async function pollUntilResolved(admin: SupabaseClient, parentId: string, name: 
 // isn't in the trash. Dropping a file into a trashed folder succeeds without
 // complaint — Drive just hides the whole subtree — so nothing downstream ever
 // notices; the file plays fine through the app while being invisible in Drive.
+//
+// The check costs a Drive round trip (measured ~300ms), and resolving one
+// file's target folder walks several levels — root, client, then each folder
+// in the path. Checking every level for every file turned a 100-file upload
+// into minutes of extra waiting, so a confirmation is remembered briefly.
+// Folders are not trashed mid-upload in practice, and the window is short
+// enough that a stale answer costs at most one misfiled batch — while the
+// invalidation in forgetCachedFolder keeps the common case exact.
+const FOLDER_ALIVE_TTL_MS = 60 * 1000
+const FOLDER_ALIVE_LIMIT = 200
+const verifiedFolders = new Map<string, number>()
+
+function rememberVerified(folderId: string) {
+  verifiedFolders.delete(folderId)
+  verifiedFolders.set(folderId, Date.now())
+  if (verifiedFolders.size > FOLDER_ALIVE_LIMIT) {
+    verifiedFolders.delete(verifiedFolders.keys().next().value!)
+  }
+}
+
 async function driveFolderIsUsable(folderId: string): Promise<boolean> {
+  const verifiedAt = verifiedFolders.get(folderId)
+  if (verifiedAt !== undefined && Date.now() - verifiedAt < FOLDER_ALIVE_TTL_MS) return true
+
   try {
     const drive = getClient()
     const { data } = await drive.files.get({
@@ -426,9 +449,15 @@ async function driveFolderIsUsable(folderId: string): Promise<boolean> {
       fields: 'trashed',
       supportsAllDrives: true,
     })
-    return !data.trashed
+    if (data.trashed) {
+      verifiedFolders.delete(folderId)
+      return false
+    }
+    rememberVerified(folderId)
+    return true
   } catch {
     // Gone entirely, or no longer reachable by this account.
+    verifiedFolders.delete(folderId)
     return false
   }
 }
@@ -531,6 +560,10 @@ export async function getOrCreateFolder(name: string, parentId: string): Promise
 // would catch that anyway, but only after a wasted Drive round trip — and
 // only for paths that go through it.
 export async function forgetCachedFolder(driveFolderId: string) {
+  // Also drop any remembered "this folder is fine" answer, so a folder that
+  // was just trashed can't be treated as usable for the rest of the window.
+  verifiedFolders.delete(driveFolderId)
+
   const admin = createAdminClient()
   // The folder itself, plus anything cached directly beneath it: trashing a
   // folder in Drive takes its whole subtree with it.

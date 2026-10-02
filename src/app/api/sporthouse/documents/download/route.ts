@@ -48,6 +48,7 @@ export async function GET(request: NextRequest) {
           'Content-Disposition': inlineType
             ? 'inline'
             : `attachment; filename="${encodeURIComponent(doc.filename)}"`,
+          'X-Content-Type-Options': 'nosniff',
           'Accept-Ranges': 'bytes',
         },
       })
