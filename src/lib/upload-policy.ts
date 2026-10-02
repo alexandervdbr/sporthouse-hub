@@ -60,3 +60,34 @@ export function isAllowedTextDocExt(filename: string): boolean {
 // over 4.5 MB before our code runs, whatever we allow here.
 export const MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024
 export const MAX_UPLOAD_LABEL = '2 GB'
+
+// Media types we're willing to serve inline, so the browser plays a file in
+// place instead of downloading it.
+//
+// Deliberately only audio and video. Serving an upload inline means the
+// browser renders it in our origin — for HTML or SVG that's a script
+// execution hole, since anyone who can upload could then run code as a
+// logged-in colleague. Those stay downloads, and anything not on this list
+// falls back to application/octet-stream.
+const INLINE_MIME_BY_EXT: Record<string, string> = {
+  mp4:  'video/mp4',
+  m4v:  'video/x-m4v',
+  mov:  'video/quicktime',
+  webm: 'video/webm',
+  mkv:  'video/x-matroska',
+  avi:  'video/x-msvideo',
+  wmv:  'video/x-ms-wmv',
+  flv:  'video/x-flv',
+  mp3:  'audio/mpeg',
+  m4a:  'audio/mp4',
+  wav:  'audio/wav',
+  aac:  'audio/aac',
+  flac: 'audio/flac',
+  ogg:  'audio/ogg',
+  wma:  'audio/x-ms-wma',
+}
+
+export function inlineMimeType(fileTypeOrName: string): string | null {
+  const ext = fileTypeOrName.includes('.') ? fileExt(fileTypeOrName) : fileTypeOrName.toLowerCase()
+  return INLINE_MIME_BY_EXT[ext] ?? null
+}

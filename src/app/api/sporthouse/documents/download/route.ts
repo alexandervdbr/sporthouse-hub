@@ -3,6 +3,7 @@ import { Readable } from 'stream'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { downloadFile } from '@/lib/drive-storage'
 import { canViewSection, type SporthouseSection } from '@/lib/sporthouse-docs'
+import { inlineMimeType } from '@/lib/upload-policy'
 
 export const maxDuration = 300
 
@@ -21,7 +22,7 @@ export async function GET(request: NextRequest) {
   const admin = createAdminClient()
   const { data: doc } = await admin
     .from('sporthouse_documents')
-    .select('section, filename, storage_provider, storage_path, drive_file_id')
+    .select('section, filename, file_type, storage_provider, storage_path, drive_file_id')
     .eq('id', id)
     .single()
 
@@ -30,14 +31,24 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 })
   }
 
+  // See the twin under /api/files: `inline=1` lets the viewer play media in
+  // place, and is honoured only for audio and video so an upload can never be
+  // rendered as markup in our origin.
+  const inlineType = new URL(request.url).searchParams.get('inline') === '1'
+    ? inlineMimeType(doc.file_type ?? '')
+    : null
+
   if (doc.storage_provider === 'drive' && doc.drive_file_id) {
     try {
       const stream = await downloadFile(doc.drive_file_id)
       const webStream = Readable.toWeb(stream as Readable) as ReadableStream
       return new NextResponse(webStream, {
         headers: {
-          'Content-Type': 'application/octet-stream',
-          'Content-Disposition': `attachment; filename="${encodeURIComponent(doc.filename)}"`,
+          'Content-Type': inlineType ?? 'application/octet-stream',
+          'Content-Disposition': inlineType
+            ? 'inline'
+            : `attachment; filename="${encodeURIComponent(doc.filename)}"`,
+          'Accept-Ranges': 'bytes',
         },
       })
     } catch (err) {

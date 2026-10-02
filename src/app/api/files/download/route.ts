@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { downloadFile, downloadFileRange } from '@/lib/drive-storage'
 import { hasClientAccess } from '@/lib/auth-permissions'
+import { inlineMimeType } from '@/lib/upload-policy'
 
 export const maxDuration = 300
 
@@ -40,7 +41,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
   }
 
-  const disposition = `attachment; filename="${encodeURIComponent(file.filename)}"`
+  // `inline=1` asks the browser to play the file in place instead of saving
+  // it — used by the viewer's own video player. Only honoured for media types
+  // (see inlineMimeType); everything else stays a download, because serving
+  // an arbitrary upload inline would run it in our origin.
+  const wantsInline = searchParams.get('inline') === '1'
+  const inlineType = wantsInline ? inlineMimeType(file.file_type ?? '') : null
+
+  const contentType = inlineType ?? 'application/octet-stream'
+  const disposition = inlineType
+    ? 'inline'
+    : `attachment; filename="${encodeURIComponent(file.filename)}"`
   const range = request.headers.get('range')
 
   try {
@@ -52,7 +63,7 @@ export async function GET(request: NextRequest) {
       const part = await downloadFileRange(file.drive_file_id, range)
       const webStream = Readable.toWeb(part.stream as Readable) as ReadableStream
       const headers: Record<string, string> = {
-        'Content-Type': 'application/octet-stream',
+        'Content-Type': contentType,
         'Content-Disposition': disposition,
         'Accept-Ranges': 'bytes',
       }
@@ -65,7 +76,7 @@ export async function GET(request: NextRequest) {
     const webStream = Readable.toWeb(stream as Readable) as ReadableStream
     return new NextResponse(webStream, {
       headers: {
-        'Content-Type': 'application/octet-stream',
+        'Content-Type': contentType,
         'Content-Disposition': disposition,
         // Advertised on the full response too — it's how a browser or
         // download manager learns it may ask for slices at all.
