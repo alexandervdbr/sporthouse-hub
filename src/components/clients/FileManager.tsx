@@ -860,6 +860,11 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
       setFolders(prev => prev.some(f => f.id === target.id) ? prev : [...prev, target])
       setDeleteError(err instanceof Error ? err.message : 'Map verwijderen mislukt.')
       setFolderToDelete(null)
+      // A refused delete can still have moved files up to this folder before
+      // it stopped — the server does that first, on purpose, so nothing is
+      // lost with the folder. Reload so you see where things actually are
+      // instead of having to refresh to find out.
+      loadData()
     }
     setDeletingFolderBusy(false)
   }
