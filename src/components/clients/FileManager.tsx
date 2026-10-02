@@ -184,10 +184,18 @@ function putChunk(
 }
 
 // Asks Drive how much of this session it actually holds, rather than assuming
-// a dropped connection means the chunk was lost. While the upload is
-// incomplete this answer is readable cross-origin; once it's complete it
-// isn't, and a null here means "ask the server".
-function queryUploadStatus(uploadUrl: string, fileSize: number): Promise<number | null> {
+// a dropped connection means the chunk was lost.
+//
+// A failure here is always treated as a failure, never as "it must be
+// finished". Both look identical from the browser — status 0 — because a
+// completed upload answers without CORS headers and so does an unreachable
+// network. Reading that as completion is what made pulling the wifi end an
+// upload instantly: the loop exited, and the finalize call that followed hit
+// the same dead network and surfaced as "Failed to fetch".
+//
+// Whether the upload is actually complete is the server's to answer, after
+// the loop, where the response is readable.
+function queryUploadStatus(uploadUrl: string, fileSize: number): Promise<number> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('PUT', uploadUrl)
@@ -202,8 +210,7 @@ function queryUploadStatus(uploadUrl: string, fileSize: number): Promise<number 
       if (xhr.status === 200 || xhr.status === 201) { resolve(fileSize); return }
       reject(new Error(`Kon upload-status niet controleren (${xhr.status}).`))
     }
-    // Complete uploads answer without CORS headers, which surfaces here.
-    xhr.onerror = () => resolve(null)
+    xhr.onerror = () => reject(new Error('NETWORK_ERROR'))
     xhr.send()
   })
 }
@@ -217,7 +224,12 @@ async function putFileToDrive(file: File, uploadUrl: string, onProgress: (pct: n
 
   let offset = 0
   let consecutiveFailures = 0
-  const MAX_CONSECUTIVE_FAILURES = 5
+  // Eight tries with a backoff that tops out at 8 seconds buys roughly a
+  // minute of patience. A phone changing cells or a wifi hiccup takes seconds
+  // to recover from, and giving up after fifteen of them means re-sending a
+  // gigabyte over something that fixed itself.
+  const MAX_CONSECUTIVE_FAILURES = 8
+  const backoffMs = (attempt: number) => Math.min(attempt, 8) * 1000
 
   while (offset < file.size) {
     const end = Math.min(offset + UPLOAD_CHUNK_SIZE, file.size)
@@ -236,14 +248,13 @@ async function putFileToDrive(file: File, uploadUrl: string, onProgress: (pct: n
       if (consecutiveFailures > MAX_CONSECUTIVE_FAILURES) {
         throw new Error('Upload mislukt na meerdere pogingen.')
       }
-      await new Promise(r => setTimeout(r, 1000 * consecutiveFailures))
+      await new Promise(r => setTimeout(r, backoffMs(consecutiveFailures)))
       try {
-        const received = await queryUploadStatus(uploadUrl, file.size)
-        if (received === null) break   // already complete; let the server say so
-        offset = received
+        offset = await queryUploadStatus(uploadUrl, file.size)
         onProgress(Math.round((offset / file.size) * 100))
       } catch {
-        // Status check failed too — retry the same chunk on the next pass.
+        // Still unreachable — keep the offset and retry the same chunk, until
+        // the attempt budget above runs out.
       }
     }
   }
@@ -1344,7 +1355,13 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
           setPendingEntries(prev => prev.map((e, j) => j === i ? { ...e, status: 'done', progress: 100 } : e))
           doneCount++
         } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err)
+          const raw = err instanceof Error ? err.message : String(err)
+          // "Failed to fetch" is what a browser says when a request couldn't
+          // leave the machine at all. It's accurate and useless; name the
+          // cause instead.
+          const msg = raw === 'Failed to fetch' || raw === 'NETWORK_ERROR'
+            ? 'Geen verbinding — upload afgebroken.'
+            : raw
           setPendingEntries(prev => prev.map((e, j) => j === i ? { ...e, status: 'error', error: msg } : e))
           errorCount++
         }
