@@ -17,6 +17,7 @@ import { DriveThumbnail, DrivePreviewModal } from '@/components/shared/DrivePrev
 import { extractVideoPoster, extractImagePoster, IMAGE_POSTER_MIN_BYTES } from '@/lib/media-poster'
 import { ALLOWED_UPLOAD_HINT, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/lib/upload-policy'
 import { rememberUpload, forgetUpload, pendingUploadsFor, type PendingUpload } from '@/lib/pending-uploads'
+import { shortenUuid } from '@/lib/short-id'
 
 function escapeHtml(s: string) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -1541,9 +1542,11 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
     // once with its slashes url-encoded, which made the link half again as
     // long for nothing.
     const [, , clientId, tab] = window.location.pathname.split('/')
-    url.searchParams.set('c', clientId ?? '')
+    // Ids go in base64url: 22 characters instead of 36, which takes about 40
+    // off a link carrying both a client and a folder.
+    url.searchParams.set('c', shortenUuid(clientId ?? ''))
     url.searchParams.set('t', tab ?? 'files')
-    for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value)
+    for (const [key, value] of Object.entries(params)) url.searchParams.set(key, shortenUuid(value))
     return url.toString()
   }
 
