@@ -31,6 +31,9 @@ export async function driveThumbnailResponse(
         // route keys its URL by a row id, so this is safe to keep for good —
         // that's what makes revisiting a file instant.
         'Cache-Control': 'private, max-age=31536000, immutable',
+        // Drive renders these, but they're still derived from an upload —
+        // declare the type and don't let the browser guess past it.
+        'X-Content-Type-Options': 'nosniff',
       },
     })
   } catch (err) {
@@ -51,6 +54,7 @@ export async function drivePosterResponse(posterDriveFileId: string): Promise<Ne
       headers: {
         'Content-Type': 'image/jpeg',
         'Cache-Control': 'private, max-age=31536000, immutable',
+        'X-Content-Type-Options': 'nosniff',
       },
     })
   } catch (err) {

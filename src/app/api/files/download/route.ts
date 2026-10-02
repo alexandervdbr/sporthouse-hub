@@ -65,6 +65,7 @@ export async function GET(request: NextRequest) {
       const headers: Record<string, string> = {
         'Content-Type': contentType,
         'Content-Disposition': disposition,
+        'X-Content-Type-Options': 'nosniff',
         'Accept-Ranges': 'bytes',
       }
       if (part.contentRange) headers['Content-Range'] = part.contentRange
@@ -78,6 +79,7 @@ export async function GET(request: NextRequest) {
       headers: {
         'Content-Type': contentType,
         'Content-Disposition': disposition,
+        'X-Content-Type-Options': 'nosniff',
         // Advertised on the full response too — it's how a browser or
         // download manager learns it may ask for slices at all.
         'Accept-Ranges': 'bytes',

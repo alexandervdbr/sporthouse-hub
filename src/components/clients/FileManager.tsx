@@ -376,6 +376,33 @@ function FileTile({ file, icon: Icon, color, filesApi }: { file: FileRecord; ico
   return <Icon size={15} className={color} />
 }
 
+// One shape for every in-page notice. These were written out seven times,
+// identical apart from the text and the colour, which is how two of them had
+// already drifted — one lost its close button, another used a different
+// label on it. The upload panel keeps its own, larger pair: they sit inside
+// that panel rather than above the list, and read as part of it.
+function Notice({ tone, children, onDismiss }: {
+  tone: 'error' | 'warning'
+  children: React.ReactNode
+  onDismiss?: () => void
+}) {
+  const colours = tone === 'error'
+    ? { box: 'bg-red-950/50 border-red-900/50', icon: 'text-red-400', text: 'text-red-400', close: 'text-red-400/70 hover:text-red-300' }
+    : { box: 'bg-amber-950/50 border-amber-900/50', icon: 'text-amber-400', text: 'text-amber-400', close: 'text-amber-400/70 hover:text-amber-300' }
+
+  return (
+    <div className={`flex items-start gap-2 px-3 py-2.5 border rounded-lg ${colours.box}`}>
+      <AlertCircle size={14} className={`${colours.icon} flex-shrink-0 mt-0.5`} />
+      <div className={`text-xs flex-1 ${colours.text}`}>{children}</div>
+      {onDismiss && (
+        <button onClick={onDismiss} aria-label="Melding sluiten" className={`${colours.close} flex-shrink-0`}>
+          <X size={13} />
+        </button>
+      )}
+    </div>
+  )
+}
+
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -487,6 +514,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   const [moveError, setMoveError] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [renameError, setRenameError] = useState<string | null>(null)
+  const [trashError, setTrashError] = useState<string | null>(null)
   const [moveToast, setMoveToast] = useState<
     { file: FileRecord; cameFrom: string | null; cameFromKey: string; targetLabel: string } | null
   >(null)
@@ -797,13 +825,24 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   }
 
   async function handleRenameFolder(id: string) {
-    if (!renameValue.trim()) { setRenamingId(null); return }
-    await fetch(`${foldersApi}/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: renameValue.trim() }),
-    })
+    const name = renameValue.trim()
     setRenamingId(null)
+    if (!name) return
+    setRenameError(null)
+
+    try {
+      const res = await fetch(`${foldersApi}/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      if (!res.ok) {
+        const message = await res.text().catch(() => '')
+        throw new Error(message || `Hernoemen mislukt (${res.status}).`)
+      }
+    } catch (err) {
+      setRenameError(err instanceof Error ? err.message : 'Hernoemen mislukt.')
+    }
     loadData()
   }
 
@@ -1482,7 +1521,16 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
 
   async function handleRestore(fileId: string) {
     setRestoringId(fileId)
-    await fetch(`${filesApi}/restore?id=${fileId}`, { method: 'POST' })
+    setTrashError(null)
+    try {
+      const res = await fetch(`${filesApi}/restore?id=${fileId}`, { method: 'POST' })
+      if (!res.ok) {
+        const message = await res.text().catch(() => '')
+        throw new Error(message || `Terugzetten mislukt (${res.status}).`)
+      }
+    } catch (err) {
+      setTrashError(err instanceof Error ? err.message : 'Terugzetten mislukt.')
+    }
     await loadTrash()
     setRestoringId(null)
   }
@@ -1490,7 +1538,16 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   async function handlePurge(fileId: string) {
     if (!confirm('Definitief verwijderen? Dit bestand kan hierna niet meer teruggezet worden.')) return
     setPurgingId(fileId)
-    await fetch(`${filesApi}/purge?id=${fileId}`, { method: 'DELETE' })
+    setTrashError(null)
+    try {
+      const res = await fetch(`${filesApi}/purge?id=${fileId}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const message = await res.text().catch(() => '')
+        throw new Error(message || `Definitief verwijderen mislukt (${res.status}).`)
+      }
+    } catch (err) {
+      setTrashError(err instanceof Error ? err.message : 'Definitief verwijderen mislukt.')
+    }
     await loadTrash()
     setPurgingId(null)
   }
@@ -1689,12 +1746,8 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
       )}
 
       {deleteWarning && (
-        <div className="flex items-start gap-2 px-3 py-2.5 mb-5 bg-amber-950/50 border border-amber-900/50 rounded-lg">
-          <AlertCircle size={14} className="text-amber-400 flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-amber-400 flex-1">{deleteWarning}</p>
-          <button onClick={() => setDeleteWarning(null)} aria-label="Melding sluiten" className="text-amber-400/70 hover:text-amber-300 flex-shrink-0">
-            <X size={13} />
-          </button>
+        <div className="mb-5">
+          <Notice tone="warning" onDismiss={() => setDeleteWarning(null)}>{deleteWarning}</Notice>
         </div>
       )}
 
@@ -1718,50 +1771,34 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
       )}
 
       {renameError && (
-        <div className="flex items-start gap-2 px-3 py-2.5 mb-5 bg-red-950/50 border border-red-900/50 rounded-lg">
-          <AlertCircle size={14} className="text-red-400 flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-red-400 flex-1">{renameError} De oude naam staat er weer.</p>
-          <button onClick={() => setRenameError(null)} aria-label="Foutmelding sluiten" className="text-red-400/70 hover:text-red-300 flex-shrink-0">
-            <X size={13} />
-          </button>
+        <div className="mb-5">
+          <Notice tone="error" onDismiss={() => setRenameError(null)}>{renameError} De oude naam staat er weer.</Notice>
         </div>
       )}
 
       {deleteError && (
-        <div className="flex items-start gap-2 px-3 py-2.5 mb-5 bg-red-950/50 border border-red-900/50 rounded-lg">
-          <AlertCircle size={14} className="text-red-400 flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-red-400 flex-1">{deleteError}</p>
-          <button onClick={() => setDeleteError(null)} aria-label="Foutmelding sluiten" className="text-red-400/70 hover:text-red-300 flex-shrink-0">
-            <X size={13} />
-          </button>
+        <div className="mb-5">
+          <Notice tone="error" onDismiss={() => setDeleteError(null)}>{deleteError}</Notice>
         </div>
       )}
 
       {moveError && (
-        <div className="flex items-start gap-2 px-3 py-2.5 mb-5 bg-red-950/50 border border-red-900/50 rounded-lg">
-          <AlertCircle size={14} className="text-red-400 flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-red-400 flex-1">{moveError} Het bestand staat weer waar het stond.</p>
-          <button onClick={() => setMoveError(null)} aria-label="Foutmelding sluiten" className="text-red-400/70 hover:text-red-300 flex-shrink-0">
-            <X size={13} />
-          </button>
+        <div className="mb-5">
+          <Notice tone="error" onDismiss={() => setMoveError(null)}>{moveError} Het bestand staat weer waar het stond.</Notice>
         </div>
       )}
 
       {zipError && (
-        <div className="flex items-start gap-2 px-3 py-2.5 mb-5 bg-red-950/50 border border-red-900/50 rounded-lg">
-          <AlertCircle size={14} className="text-red-400 flex-shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <p className="text-xs text-red-400">{zipError}</p>
+        <div className="mb-5">
+          <Notice tone="error" onDismiss={() => { setZipError(null); setZipDriveUrl(null) }}>
+            {zipError}
             {zipDriveUrl && (
               <a href={zipDriveUrl} target="_blank" rel="noopener noreferrer"
-                className="inline-block mt-1.5 text-xs text-red-300 underline underline-offset-2 hover:text-red-200">
+                className="block mt-1.5 text-red-300 underline underline-offset-2 hover:text-red-200">
                 Map openen in Google Drive →
               </a>
             )}
-          </div>
-          <button onClick={() => { setZipError(null); setZipDriveUrl(null) }} aria-label="Foutmelding sluiten" className="text-red-400/70 hover:text-red-300 flex-shrink-0">
-            <X size={13} />
-          </button>
+          </Notice>
         </div>
       )}
 
@@ -1833,18 +1870,18 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
               <X size={14} />
             </button>
           </div>
-          {createFolderError && (
-            <div className="flex items-start gap-2 px-3 py-2.5 bg-red-950/50 border border-red-900/50 rounded-lg">
-              <AlertCircle size={14} className="text-red-400 flex-shrink-0 mt-0.5" />
-              <p className="text-xs text-red-400">{createFolderError}</p>
-            </div>
-          )}
+          {createFolderError && <Notice tone="error">{createFolderError}</Notice>}
         </div>
       )}
 
       {/* ── Prullenbak ── */}
       {showTrash && (
         <div className="mb-6">
+          {trashError && (
+            <div className="mb-4">
+              <Notice tone="error" onDismiss={() => setTrashError(null)}>{trashError}</Notice>
+            </div>
+          )}
           {trashLoading ? (
             <div className="flex items-center justify-center py-20">
               <Loader2 size={20} className="animate-spin text-zinc-600" />
