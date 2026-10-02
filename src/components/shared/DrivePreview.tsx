@@ -162,7 +162,7 @@ export function DrivePreviewModal({
           {streamFailed && (
             <div className="absolute inset-x-0 top-0 z-10 px-4 py-2 bg-amber-950/80 backdrop-blur-sm">
               <p className="text-xs text-amber-300">
-                Dit bestand kon hier niet rechtstreeks afgespeeld worden — je kijkt nu via Drive's speler.
+                Dit bestand kon hier niet rechtstreeks afgespeeld worden — je kijkt nu via de speler van Google Drive.
               </p>
             </div>
           )}
