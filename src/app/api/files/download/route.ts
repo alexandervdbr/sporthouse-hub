@@ -2,10 +2,19 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Readable } from 'stream'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
-import { downloadFile, downloadFileRange } from '@/lib/drive-storage'
+import { downloadFileWithMeta, downloadFileRange } from '@/lib/drive-storage'
 import { hasClientAccess } from '@/lib/auth-permissions'
 import { inlineMimeType } from '@/lib/upload-policy'
 
+// Streaming a large file through a function is bounded by this. Left at 300:
+// raising it to the 800 that Fluid Compute can allow made the Vercel build
+// fail, so the ceiling this plan accepts is lower — and guessing at it costs
+// a broken deploy every time.
+//
+// It matters less than it looks. A download that gets cut off here can now be
+// resumed, because the response carries its length and accepts ranges; the
+// browser simply asks for the rest. That only started working in #166, which
+// is why this used to be the whole story and no longer is.
 export const maxDuration = 300
 
 function adminClient() {
@@ -73,18 +82,20 @@ export async function GET(request: NextRequest) {
       return new NextResponse(webStream, { status: part.partial ? 206 : 200, headers })
     }
 
-    const stream = await downloadFile(file.drive_file_id)
-    const webStream = Readable.toWeb(stream as Readable) as ReadableStream
-    return new NextResponse(webStream, {
-      headers: {
-        'Content-Type': contentType,
-        'Content-Disposition': disposition,
-        'X-Content-Type-Options': 'nosniff',
-        // Advertised on the full response too — it's how a browser or
-        // download manager learns it may ask for slices at all.
-        'Accept-Ranges': 'bytes',
-      },
-    })
+    const full = await downloadFileWithMeta(file.drive_file_id)
+    const webStream = Readable.toWeb(full.stream as Readable) as ReadableStream
+    const headers: Record<string, string> = {
+      'Content-Type': contentType,
+      'Content-Disposition': disposition,
+      'X-Content-Type-Options': 'nosniff',
+      // Advertised on the full response too — it's how a browser or
+      // download manager learns it may ask for slices at all.
+      'Accept-Ranges': 'bytes',
+    }
+    // Taken from Drive rather than our own file_size column, so it can't
+    // disagree with the bytes actually being sent.
+    if (full.contentLength) headers['Content-Length'] = full.contentLength
+    return new NextResponse(webStream, { headers })
   } catch (err) {
     console.error('Drive download error:', err)
     return NextResponse.json({ error: 'Kon bestand niet downloaden.' }, { status: 500 })
