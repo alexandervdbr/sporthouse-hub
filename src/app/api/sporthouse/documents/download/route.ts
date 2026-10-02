@@ -4,6 +4,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { downloadFile } from '@/lib/drive-storage'
 import { canViewSection, type SporthouseSection } from '@/lib/sporthouse-docs'
 import { inlineMimeType } from '@/lib/upload-policy'
+import { isFreelancerUser } from '@/lib/auth-permissions'
 
 export const maxDuration = 300
 
@@ -15,6 +16,15 @@ export async function GET(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Niet ingelogd.' }, { status: 401 })
+
+  // This route is deliberately excluded from the proxy's matcher, so that a
+  // streamed file isn't billed twice on its way out. The proxy is also what
+  // keeps freelancer accounts out of every staff route at once — so that
+  // check has to be made here, where it would otherwise be missing. Do not
+  // remove without putting this route back behind the proxy.
+  if (isFreelancerUser(user)) {
+    return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 })
+  }
 
   const id = new URL(request.url).searchParams.get('id')
   if (!id) return NextResponse.json({ error: 'ID ontbreekt.' }, { status: 400 })

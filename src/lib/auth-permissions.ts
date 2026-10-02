@@ -17,6 +17,13 @@ type PermissionUser = {
   app_metadata?: { permissions?: { sections?: string[]; clients?: string[] } } & Record<string, unknown>
 } | null | undefined
 
+// Freelancer accounts may only reach /api/portal/* and /api/auth/*. The proxy
+// enforces that for every route at once; a route that the proxy deliberately
+// skips has to ask here itself.
+export function isFreelancerUser(user: PermissionUser): boolean {
+  return user?.app_metadata?.freelancer === true
+}
+
 export function getSections(user: PermissionUser): string[] {
   return user?.app_metadata?.permissions?.sections ?? []
 }
