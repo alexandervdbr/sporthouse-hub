@@ -484,6 +484,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   const [selectedFolderIds, setSelectedFolderIds] = useState<Set<string>>(new Set())
   const [downloadingZip, setDownloadingZip] = useState(false)
   const [zipError, setZipError] = useState<string | null>(null)
+  const [moveError, setMoveError] = useState<string | null>(null)
   const [zipDriveUrl, setZipDriveUrl] = useState<string | null>(null)
 
   // Upload
@@ -822,6 +823,35 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
     }
   }
 
+  // A file dragged out of this folder leaves it — so take it off the list at
+  // once instead of waiting for the server and then reloading the whole
+  // listing. The move still has to succeed; if it doesn't, the row comes back
+  // and says why, which is the only honest way to show something early.
+  async function moveFileTo(fileId: string, targetFolderId: string | null) {
+    const removed = files.find(f => f.id === fileId)
+    if (!removed) return
+
+    setFiles(prev => prev.filter(f => f.id !== fileId))
+    setMoveError(null)
+    // The listing we just edited by hand is no longer what the cache holds.
+    folderCacheRef.current.delete(listingKeyRef.current)
+
+    try {
+      const res = await fetch(`${filesApi}?id=${fileId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderId: targetFolderId }),
+      })
+      if (!res.ok) throw new Error(`Verplaatsen mislukt (${res.status}).`)
+
+      // Both folders changed, so neither stored listing can be trusted.
+      folderCacheRef.current.clear()
+    } catch (err) {
+      setFiles(prev => prev.some(f => f.id === fileId) ? prev : [...prev, removed])
+      setMoveError(err instanceof Error ? err.message : 'Verplaatsen mislukt.')
+    }
+  }
+
   async function onDropOnFolder(e: React.DragEvent, targetFolderId: string) {
     e.preventDefault()
     markDropped()
@@ -829,12 +859,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
     setDragOverFolderId(null)
     setDraggingFileId(null)
     if (!fileId) return
-    await fetch(`${filesApi}?id=${fileId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ folderId: targetFolderId }),
-    })
-    loadData()
+    await moveFileTo(fileId, targetFolderId)
   }
 
   // Drop on breadcrumb parent = move back to that folder level
@@ -845,12 +870,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
     setDragOverRoot(false)
     setDraggingFileId(null)
     if (!fileId) return
-    await fetch(`${filesApi}?id=${fileId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ folderId: targetFolderId }),
-    })
-    loadData()
+    await moveFileTo(fileId, targetFolderId)
   }
 
   // ── Marquee (rubber-band) selection ─────────────────────────────────────────
@@ -1527,6 +1547,16 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
           <AlertCircle size={14} className="text-amber-400 flex-shrink-0 mt-0.5" />
           <p className="text-xs text-amber-400 flex-1">{deleteWarning}</p>
           <button onClick={() => setDeleteWarning(null)} aria-label="Melding sluiten" className="text-amber-400/70 hover:text-amber-300 flex-shrink-0">
+            <X size={13} />
+          </button>
+        </div>
+      )}
+
+      {moveError && (
+        <div className="flex items-start gap-2 px-3 py-2.5 mb-5 bg-red-950/50 border border-red-900/50 rounded-lg">
+          <AlertCircle size={14} className="text-red-400 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-red-400 flex-1">{moveError} Het bestand staat weer waar het stond.</p>
+          <button onClick={() => setMoveError(null)} aria-label="Foutmelding sluiten" className="text-red-400/70 hover:text-red-300 flex-shrink-0">
             <X size={13} />
           </button>
         </div>

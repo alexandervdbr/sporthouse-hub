@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { hasClientAccess, isAdminUser } from '@/lib/auth-permissions'
@@ -358,19 +358,33 @@ export async function PATCH(request: NextRequest) {
   const { error } = await admin.from('files').update({ folder_id: body.folderId ?? null }).eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Best-effort: mirror the move in Drive too. The DB update above already
-  // succeeded and is the source of truth for the app, so a Drive hiccup here
-  // shouldn't fail the whole request — it just means Drive briefly lags the app.
-  if (file.storage_provider === 'drive' && file.drive_file_id) {
-    try {
-      const { data: client } = await admin.from('clients').select('name').eq('id', file.client_id).single()
-      if (client) {
-        const targetFolderId = await resolveDriveFolderId(admin, file.client_id, client.name, body.folderId ?? null)
-        await moveFile(file.drive_file_id, targetFolderId)
+  // Mirror the move in Drive after the response has gone out, not before it.
+  //
+  // This was always best-effort — the DB update above is what the app reads,
+  // and a Drive hiccup here was already swallowed rather than failing the
+  // request. But it was still awaited, so every drag-and-drop waited on a
+  // chain of Drive calls: look up the client, resolve (and sometimes create)
+  // the target folder path, read the file's current parents, then move it.
+  // That's seconds of waiting for something the answer doesn't depend on.
+  //
+  // The trade: a failure here is now invisible to the caller, so the app and
+  // Drive can drift apart silently. That was already true — it's logged, not
+  // surfaced — but nobody is waiting to notice it any more either.
+  const driveFileId = file.drive_file_id
+  const clientId = file.client_id
+  const targetFolder = body.folderId ?? null
+
+  if (file.storage_provider === 'drive' && driveFileId) {
+    after(async () => {
+      try {
+        const { data: client } = await admin.from('clients').select('name').eq('id', clientId).single()
+        if (!client) return
+        const targetFolderId = await resolveDriveFolderId(admin, clientId, client.name, targetFolder)
+        await moveFile(driveFileId, targetFolderId)
+      } catch (err) {
+        console.error('Drive move error:', err)
       }
-    } catch (err) {
-      console.error('Drive move error:', err)
-    }
+    })
   }
 
   return NextResponse.json({ success: true })
