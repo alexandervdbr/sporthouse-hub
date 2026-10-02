@@ -257,6 +257,25 @@ export async function downloadFile(driveFileId: string) {
   return res.data as unknown as NodeJS.ReadableStream
 }
 
+// Same as downloadFile, but hands back what Drive said about the body. The
+// length matters: without it a browser can't show download progress, can't
+// tell a finished download from a truncated one, and won't resume a broken
+// one — all of which a 1 GB file over a phone connection needs.
+export async function downloadFileWithMeta(driveFileId: string): Promise<{
+  stream: NodeJS.ReadableStream
+  contentLength?: string
+}> {
+  const drive = getClient()
+  const res = await drive.files.get(
+    { fileId: driveFileId, alt: 'media', supportsAllDrives: true },
+    { responseType: 'stream' }
+  )
+  return {
+    stream: res.data as unknown as NodeJS.ReadableStream,
+    contentLength: readHeader(res.headers, 'content-length'),
+  }
+}
+
 export interface DriveRangeResult {
   stream: NodeJS.ReadableStream
   // Present when Drive answered with a partial body; mirrored back to the

@@ -2,11 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Readable } from 'stream'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
-import { downloadFile, downloadFileRange } from '@/lib/drive-storage'
+import { downloadFileWithMeta, downloadFileRange } from '@/lib/drive-storage'
 import { hasClientAccess } from '@/lib/auth-permissions'
 import { inlineMimeType } from '@/lib/upload-policy'
 
-export const maxDuration = 300
+// Streaming a large file through a function is bounded by this. Raised to
+// the Pro ceiling, which Fluid Compute allows: 1 GB only fits inside 300s on
+// a fast connection, and a phone on mobile data doesn't have one. A download
+// that still gets cut can now be resumed, since the response advertises its
+// length and accepts ranges.
+export const maxDuration = 800
 
 function adminClient() {
   return createAdminClient(
@@ -73,18 +78,20 @@ export async function GET(request: NextRequest) {
       return new NextResponse(webStream, { status: part.partial ? 206 : 200, headers })
     }
 
-    const stream = await downloadFile(file.drive_file_id)
-    const webStream = Readable.toWeb(stream as Readable) as ReadableStream
-    return new NextResponse(webStream, {
-      headers: {
-        'Content-Type': contentType,
-        'Content-Disposition': disposition,
-        'X-Content-Type-Options': 'nosniff',
-        // Advertised on the full response too — it's how a browser or
-        // download manager learns it may ask for slices at all.
-        'Accept-Ranges': 'bytes',
-      },
-    })
+    const full = await downloadFileWithMeta(file.drive_file_id)
+    const webStream = Readable.toWeb(full.stream as Readable) as ReadableStream
+    const headers: Record<string, string> = {
+      'Content-Type': contentType,
+      'Content-Disposition': disposition,
+      'X-Content-Type-Options': 'nosniff',
+      // Advertised on the full response too — it's how a browser or
+      // download manager learns it may ask for slices at all.
+      'Accept-Ranges': 'bytes',
+    }
+    // Taken from Drive rather than our own file_size column, so it can't
+    // disagree with the bytes actually being sent.
+    if (full.contentLength) headers['Content-Length'] = full.contentLength
+    return new NextResponse(webStream, { headers })
   } catch (err) {
     console.error('Drive download error:', err)
     return NextResponse.json({ error: 'Kon bestand niet downloaden.' }, { status: 500 })

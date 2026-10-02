@@ -515,6 +515,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [renameError, setRenameError] = useState<string | null>(null)
   const [trashError, setTrashError] = useState<string | null>(null)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
   const [moveToast, setMoveToast] = useState<
     { file: FileRecord; cameFrom: string | null; cameFromKey: string; targetLabel: string } | null
   >(null)
@@ -1327,17 +1328,28 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
 
   async function handleDownload(file: FileRecord) {
     setDownloadingId(file.id)
+    setDownloadError(null)
     try {
       const res = await fetch(`${filesApi}?id=${file.id}`)
-      const result = await res.json()
-      if (!result.url) throw new Error('Geen URL')
-      const blob = await (await fetch(result.url)).blob()
-      const url = URL.createObjectURL(blob)
+      const result = await res.json().catch(() => null)
+      if (!res.ok || !result?.url) throw new Error(result?.error ?? 'Kon de download niet starten.')
+
+      // Handed to the browser to fetch, instead of pulled into memory here
+      // first. It used to read the whole file into a Blob before offering it
+      // — which for a 1 GB video on a phone means holding a gigabyte in the
+      // tab, no progress anywhere, and a failure that showed as nothing at
+      // all. The browser streams it to disk, shows it in its own downloads,
+      // and can resume if the connection drops. The response already carries
+      // Content-Disposition, so it saves rather than navigates.
       const a = document.createElement('a')
-      a.href = url; a.download = result.filename
+      a.href = result.url
+      a.download = result.filename
+      a.rel = 'noopener'
       document.body.appendChild(a); a.click()
-      document.body.removeChild(a); URL.revokeObjectURL(url)
-    } catch { /* silent */ }
+      document.body.removeChild(a)
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : 'Kon de download niet starten.')
+    }
     setDownloadingId(null)
   }
 
@@ -1785,6 +1797,12 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
       {moveError && (
         <div className="mb-5">
           <Notice tone="error" onDismiss={() => setMoveError(null)}>{moveError} Het bestand staat weer waar het stond.</Notice>
+        </div>
+      )}
+
+      {downloadError && (
+        <div className="mb-5">
+          <Notice tone="error" onDismiss={() => setDownloadError(null)}>{downloadError}</Notice>
         </div>
       )}
 
