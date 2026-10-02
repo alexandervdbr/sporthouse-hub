@@ -25,6 +25,23 @@ const norm = normName
 type Tab = 'mijn' | 'team' | 'stats'
 type TeamViewMode = 'week' | 'month'
 
+// The shape SELECT_COLS brings back. Named so the full load and the
+// incremental poll can't drift apart on what they expect.
+interface PlanningRow {
+  year: number
+  month: number
+  day: number
+  department: string
+  employee: string
+  value: string
+  bold: boolean | null
+  text_color: string | null
+  bg_color: string | null
+  note: string | null
+  updated_by: string | null
+  updated_at: string | null
+}
+
 const SELECT_COLS = 'year, month, day, department, employee, value, bold, text_color, bg_color, note, updated_by, updated_at'
 
 // Known, confirmed overrides for first names shared by more than one real
@@ -492,26 +509,97 @@ export default function PlanningApp() {
   // (navigation, poll, or reconnect) can trigger a load, so "am I still
   // the most recent one" needs to be tracked globally, not per-effect.
   const loadCallIdRef = useRef(0)
+
+  // What the last full load of each month held: how many rows, and the newest
+  // timestamp among them. The background poll compares against this instead
+  // of fetching the period again — see pollForChanges below.
+  const periodStateRef = useRef(new Map<string, { count: number; lastSeen: string }>())
+
+  const groupKey = (g: { year: number; month: number }) => `${g.year}-${g.month}`
+
+  function rowToCell(r: PlanningRow) {
+    return {
+      value: r.value, bold: r.bold ?? true,
+      textColor: r.text_color ?? '#ffffff', bgColor: r.bg_color ?? null,
+      note: r.note ?? null,
+      updatedBy: r.updated_by ?? null, updatedAt: r.updated_at ?? null,
+    }
+  }
+
   const loadPeriodData = useCallback(async (opts?: { silent?: boolean }) => {
     const callId = ++loadCallIdRef.current
     if (!opts?.silent) setLoading(true)
-    const results = await Promise.all(groupWeekByMonth(daysToLoad).map(g =>
+    const groups = groupWeekByMonth(daysToLoad)
+    const results = await Promise.all(groups.map(g =>
       supabase.from('planning_entries').select(SELECT_COLS).eq('year', g.year).eq('month', g.month).in('day', g.days)
     ))
     if (callId !== loadCallIdRef.current) return // superseded by a newer load
     const map: PlanningWeekData = {}
-    for (const res of results) {
-      for (const r of res.data ?? []) {
-        map[dateCellKey(r.year, r.month, r.day, r.department, r.employee)] = {
-          value: r.value, bold: r.bold ?? true,
-          textColor: r.text_color ?? '#ffffff', bgColor: r.bg_color ?? null,
-          note: r.note ?? null,
-          updatedBy: r.updated_by ?? null, updatedAt: r.updated_at ?? null,
-        }
+    results.forEach((res, i) => {
+      const rows = (res.data ?? []) as PlanningRow[]
+      for (const r of rows) {
+        map[dateCellKey(r.year, r.month, r.day, r.department, r.employee)] = rowToCell(r)
       }
-    }
+      // Noted so the poll knows what it's comparing to: a different row count
+      // means something was added or removed, and the newest timestamp is
+      // where it should start asking from.
+      periodStateRef.current.set(groupKey(groups[i]), {
+        count: rows.length,
+        lastSeen: rows.reduce<string>((max, r) => (r.updated_at && r.updated_at > max ? r.updated_at : max), '1970-01-01T00:00:00Z'),
+      })
+    })
     setData(map)
     if (!opts?.silent) setLoading(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [daysToLoad])
+
+  // The cheap version of the above, for the background safety net.
+  //
+  // Re-fetching the visible month cost 217 kB every twenty seconds per open
+  // tab — about 39 MB an hour, which is how a 5 GB monthly allowance went in
+  // a few weeks. This asks two much smaller questions instead: what changed
+  // since last time, and are there still as many rows as before.
+  //
+  // The count is what catches a deletion. A row that was removed can't come
+  // back in "what changed", because it no longer exists — so without that
+  // check a shift someone deleted would stay on screen until the period was
+  // reloaded for some other reason.
+  const pollForChanges = useCallback(async () => {
+    const callId = ++loadCallIdRef.current
+    const groups = groupWeekByMonth(daysToLoad)
+
+    for (const g of groups) {
+      const known = periodStateRef.current.get(groupKey(g))
+      if (!known) return loadPeriodDataRef.current({ silent: true })
+
+      const [changed, counted] = await Promise.all([
+        supabase.from('planning_entries').select(SELECT_COLS)
+          .eq('year', g.year).eq('month', g.month).in('day', g.days)
+          .gt('updated_at', known.lastSeen),
+        supabase.from('planning_entries').select('year', { count: 'exact', head: true })
+          .eq('year', g.year).eq('month', g.month).in('day', g.days),
+      ])
+      if (callId !== loadCallIdRef.current) return // a real load started meanwhile
+
+      if ((counted.count ?? known.count) !== known.count) {
+        return loadPeriodDataRef.current({ silent: true })
+      }
+
+      const rows = (changed.data ?? []) as PlanningRow[]
+      if (rows.length === 0) continue
+
+      setData(prev => {
+        const next = { ...prev }
+        for (const r of rows) {
+          next[dateCellKey(r.year, r.month, r.day, r.department, r.employee)] = rowToCell(r)
+        }
+        return next
+      })
+      periodStateRef.current.set(groupKey(g), {
+        count: known.count,
+        lastSeen: rows.reduce<string>((max, r) => (r.updated_at && r.updated_at > max ? r.updated_at : max), known.lastSeen),
+      })
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [daysToLoad])
 
@@ -520,6 +608,9 @@ export default function PlanningApp() {
   // always calls the version bound to the currently visible period.
   const loadPeriodDataRef = useRef(loadPeriodData)
   useEffect(() => { loadPeriodDataRef.current = loadPeriodData }, [loadPeriodData])
+
+  const pollForChangesRef = useRef(pollForChanges)
+  useEffect(() => { pollForChangesRef.current = pollForChanges }, [pollForChanges])
 
   // ── Load the visible period's data (a week, or a whole month) ───────────
   useEffect(() => {
@@ -530,15 +621,26 @@ export default function PlanningApp() {
     // socket below actually caught everything while backgrounded.
   }, [loadPeriodData, refreshTick])
 
-  // No matter how solid the realtime socket is, a fully backgrounded tab
-  // that's never refocused (or a laptop asleep with the tab still
-  // frontmost) has no browser-level signal this app can react to at all —
-  // that's a real, universal limit, not something fixable here. This
-  // silent poll puts a hard ceiling on how stale things are ever allowed
-  // to get regardless: worst case, whatever's on screen catches up within
-  // one interval even if the socket died in a way nothing else caught.
+  // No matter how solid the realtime socket is, a tab left open (or a laptop
+  // asleep with the tab still frontmost) has no browser-level signal this app
+  // can react to — that's a real limit, not something fixable here. This
+  // silent poll puts a ceiling on how stale things are ever allowed to get:
+  // worst case, what's on screen catches up within one interval even if the
+  // socket died in a way nothing else caught.
+  //
+  // Two things keep it from being expensive. It only runs while the page is
+  // actually visible — a backgrounded tab needs fresh data when you come back
+  // to it, and coming back already triggers a full reload on its own. And it
+  // asks pollForChanges rather than reloading the period, which is the
+  // difference between a few hundred bytes and 217 kB a time.
+  //
+  // A minute rather than twenty seconds: this is the backstop behind realtime,
+  // not the thing keeping the screen live.
   useEffect(() => {
-    const id = setInterval(() => { loadPeriodDataRef.current({ silent: true }) }, 20000)
+    const id = setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      pollForChangesRef.current()
+    }, 60000)
     return () => clearInterval(id)
   }, [])
 
