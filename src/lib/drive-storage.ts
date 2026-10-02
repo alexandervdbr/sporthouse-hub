@@ -283,15 +283,30 @@ export async function downloadFileRange(
     { fileId: driveFileId, alt: 'media', supportsAllDrives: true },
     { responseType: 'stream', headers: { Range: range } }
   )
-  const headers = res.headers as Record<string, string | undefined>
   return {
     stream: res.data as unknown as NodeJS.ReadableStream,
-    contentRange: headers['content-range'],
-    contentLength: headers['content-length'],
+    contentRange: readHeader(res.headers, 'content-range'),
+    contentLength: readHeader(res.headers, 'content-length'),
     // Drive is free to ignore the Range and send the whole file; status says
     // which happened, and the response must match what actually came back.
     partial: res.status === 206,
   }
+}
+
+// googleapis hands back a fetch `Headers` instance, where plain property
+// access silently yields undefined — which is how this returned a 206 with no
+// Content-Range at all. Browsers reject a partial response without it, so the
+// video element errored and quietly fell back to Drive's own player, and
+// large downloads never got the resumability this was added for.
+//
+// Written to cope with either shape, since this is exactly the kind of detail
+// that changes between library versions without anything failing loudly.
+function readHeader(headers: unknown, name: string): string | undefined {
+  if (headers && typeof (headers as Headers).get === 'function') {
+    return (headers as Headers).get(name) ?? undefined
+  }
+  const plain = headers as Record<string, string | undefined> | undefined
+  return plain?.[name] ?? plain?.[name.toLowerCase()]
 }
 
 // Drive renders a flat preview image for formats the browser can't display

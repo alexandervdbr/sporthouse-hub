@@ -140,7 +140,7 @@ export function DrivePreviewModal({
             )}
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
-            {!useIframe && !limited && (
+            {!useIframe && !usePlayer && !limited && (
               <button onClick={() => setShowViewer(true)} aria-label="Openen in viewer" title="Openen in viewer (zoomen, bladeren)"
                 className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors">
                 <Maximize2 size={16} />
@@ -159,6 +159,13 @@ export function DrivePreviewModal({
         </div>
 
         <div className="flex-1 min-h-0 bg-black relative">
+          {streamFailed && (
+            <div className="absolute inset-x-0 top-0 z-10 px-4 py-2 bg-amber-950/80 backdrop-blur-sm">
+              <p className="text-xs text-amber-300">
+                Dit bestand kon hier niet rechtstreeks afgespeeld worden — je kijkt nu via Drive's speler.
+              </p>
+            </div>
+          )}
           {usePlayer ? (
             <video
               key={driveFileId}
