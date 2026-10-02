@@ -47,9 +47,14 @@ export async function updateSession(request: NextRequest) {
   const isSaveReelApiPage = pathname.startsWith('/api/save-reel')
   // Must be publicly reachable — this is the URL submitted to Meta App Review.
   const isPrivacyPage = pathname.startsWith('/privacy')
+  // Also public, and on purpose: the link-preview bots of WhatsApp, Slack and
+  // Discord never sign in, so a shared link's card can only say what it opens
+  // if this page answers them. It carries one folder or file name and the
+  // client it belongs to, nothing more — see src/app/share/page.tsx.
+  const isSharePage = pathname.startsWith('/share')
 
   // Unauthenticated → login (API routes get a 401 instead of a redirect)
-  if (!user && !isLoginPage && !isCallbackPage && !isSaveReelApiPage && !isPrivacyPage) {
+  if (!user && !isLoginPage && !isCallbackPage && !isSaveReelApiPage && !isPrivacyPage && !isSharePage) {
     if (isApiPage) {
       return new NextResponse(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
