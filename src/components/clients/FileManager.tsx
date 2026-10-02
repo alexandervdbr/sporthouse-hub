@@ -1540,29 +1540,54 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
 
   // ── File actions ────────────────────────────────────────────────────────────
 
-  // Points at /share rather than straight at this page, so the link-preview
-  // card in WhatsApp, Slack or Discord can say what it opens. Someone who's
-  // signed in is forwarded through without noticing; someone who isn't gets a
-  // card and a login button instead of a redirect to a login page that has
-  // forgotten where they were going.
+  // The long form of a shared link, kept as the fallback for when a short one
+  // can't be registered. Points at /share rather than straight at this page,
+  // so the link-preview card can say what it opens.
   //
   // Built from the address bar rather than a hardcoded host, so it stays
   // right on preview deployments and whatever domain this ends up on.
-  function shareUrl(params: Record<string, string>) {
+  function longShareUrl(params: Record<string, string>) {
     const url = new URL(window.location.href)
     url.pathname = '/share'
     url.search = ''
-    // Just the client and which tab it is — everything else follows from
-    // those two. Carrying the whole path meant the client id appeared twice,
-    // once with its slashes url-encoded, which made the link half again as
-    // long for nothing.
     const [, , clientId, tab] = window.location.pathname.split('/')
-    // Ids go in base64url: 22 characters instead of 36, which takes about 40
-    // off a link carrying both a client and a folder.
+    // Ids go in base64url: 22 characters instead of 36.
     url.searchParams.set('c', shortenUuid(clientId ?? ''))
     url.searchParams.set('t', tab ?? 'files')
     for (const [key, value] of Object.entries(params)) url.searchParams.set(key, shortenUuid(value))
     return url.toString()
+  }
+
+  // A short link: /s/<code>, about a third of the length.
+  //
+  // The code is made here and registered afterwards, rather than fetched. A
+  // clipboard write has to happen inside the click that caused it or Safari
+  // refuses it, so there is no room for a server round trip in between. The
+  // link therefore exists on the clipboard a moment before it exists on the
+  // server — which is fine, because nobody can paste it that fast, and if the
+  // registration fails we say so and hand over the long form instead.
+  function newShareCode() {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+    const bytes = new Uint8Array(10)
+    crypto.getRandomValues(bytes)
+    return Array.from(bytes, b => alphabet[b % alphabet.length]).join('')
+  }
+
+  function shortShareUrl(code: string) {
+    const url = new URL(window.location.href)
+    url.pathname = `/s/${code}`
+    url.search = ''
+    return url.toString()
+  }
+
+  async function registerShareCode(code: string, folderId: string | null, fileId: string | null) {
+    const [, , clientId, tab] = window.location.pathname.split('/')
+    const res = await fetch('/api/share-links', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, clientId, tab: tab || 'files', folderId, fileId }),
+    })
+    if (!res.ok) throw new Error('niet geregistreerd')
   }
 
   // Copied in two flavours at once: the bare URL, and the same URL wrapped in
@@ -1577,6 +1602,33 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   // ampersand or a tag in it would otherwise produce markup we never meant.
   // The href needs no escaping of its own — it comes out of `new URL()`, so
   // it can't carry a quote that would break out of the attribute.
+  // Copies a short link, and registers it behind the back of the copy. The
+  // long form is the fallback: a dead short link is worse than an ugly one,
+  // so if registration fails the clipboard is rewritten with the long URL and
+  // the person is told.
+  async function copyShareLink(
+    label: string,
+    target: { folderId: string | null; fileId: string | null },
+  ) {
+    const code = newShareCode()
+    const short = shortShareUrl(code)
+
+    // Written first, inside the click, because Safari allows nothing else.
+    await copyLink(short, label)
+
+    try {
+      await registerShareCode(code, target.folderId, target.fileId)
+    } catch {
+      const long = longShareUrl({
+        ...(target.folderId ? { f: target.folderId } : {}),
+        ...(target.fileId ? { x: target.fileId } : {}),
+      })
+      setCopiedLabel(null)
+      try { await navigator.clipboard.writeText(long) } catch { /* nothing left to try */ }
+      setCopyError('De korte link kon niet geregistreerd worden. De volledige link staat nu op je klembord.')
+    }
+  }
+
   async function copyLink(url: string, label: string) {
     const html = `<a href="${escapeHtml(url)}">${escapeHtml(label)}</a>`
 
@@ -2462,7 +2514,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                               onClick={(e) => {
                                 e.stopPropagation()
                                 setMenuOpenId(null)
-                                copyLink(shareUrl({ f: folder.id }), folder.name)
+                                copyShareLink(folder.name, { folderId: folder.id, fileId: null })
                               }}
                               className="w-full flex items-center gap-2 px-3 py-2 text-xs text-zinc-300 hover:text-white hover:bg-zinc-700 transition-colors"
                             >
@@ -2596,10 +2648,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
-                          copyLink(
-                            shareUrl({ ...(currentFolderId ? { f: currentFolderId } : {}), x: file.id }),
-                            file.filename
-                          )
+                          copyShareLink(file.filename, { folderId: currentFolderId, fileId: file.id })
                         }}
                         title="Link naar dit bestand kopiëren"
                         className="tap-target p-1.5 rounded-md text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"

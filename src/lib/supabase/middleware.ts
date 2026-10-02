@@ -52,7 +52,7 @@ export async function updateSession(request: NextRequest) {
   // Discord never sign in, so a shared link's card can only say what it opens
   // if this page answers them. It carries one folder or file name and the
   // client it belongs to, nothing more — see src/app/share/page.tsx.
-  const isSharePage = pathname.startsWith('/share')
+  const isSharePage = pathname.startsWith('/share') || pathname.startsWith('/s/')
 
   // Unauthenticated → login (API routes get a 401 instead of a redirect)
   if (!user && !isLoginPage && !isCallbackPage && !isSaveReelApiPage && !isPrivacyPage && !isSharePage) {
