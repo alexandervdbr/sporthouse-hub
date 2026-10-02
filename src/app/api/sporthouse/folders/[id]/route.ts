@@ -1,5 +1,5 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { renameDriveFolder, trashDriveFolder, moveFile, trashAndMoveFile } from '@/lib/drive-storage'
+import { renameDriveFolder, trashDriveFolder, moveFile, trashAndMoveFile, forgetCachedFolder } from '@/lib/drive-storage'
 import { resolveSporthouseDriveFolderId } from '@/lib/sporthouse-docs-drive'
 import { canManageSection, type SporthouseSection } from '@/lib/sporthouse-docs'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -143,6 +143,10 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   if (target.drive_folder_id) {
     try { await trashDriveFolder(target.drive_folder_id) }
     catch (err) { console.error('Drive folder delete error:', err) }
+    // See the twin under /api/folders: a leftover mapping would hand this
+    // trashed folder back to the next folder with the same name.
+    try { await forgetCachedFolder(target.drive_folder_id) }
+    catch (err) { console.error('Drive folder cache cleanup error:', err) }
   }
 
   return new Response(null, { status: 204 })
