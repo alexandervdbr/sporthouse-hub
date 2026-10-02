@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback, useSyncExternalStore } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Folder, FolderOpen, ChevronRight, Home,
   Upload, Download, Trash2, Loader2, Search,
@@ -403,32 +403,11 @@ function Notice({ tone, children, onDismiss }: {
   )
 }
 
-// Our own player exists for one reason: on a phone the browser lays its own
-// media controls over whatever is inside an iframe, so Drive's player ends up
-// with two sets of buttons stacked on each other. On a desktop that doesn't
-// happen, and Drive wins there — it streams straight from Google, while ours
-// routes every byte through our own function first, which is slower to start.
-//
-// So: a touch device on a small screen gets our player, everything else gets
-// Drive's. A touch-capable laptop keeps Drive's, which is what you want.
-const TOUCH_QUERY = '(pointer: coarse) and (max-width: 1024px)'
-
-function subscribeToTouch(onChange: () => void) {
-  if (typeof window === 'undefined') return () => {}
-  const query = window.matchMedia(TOUCH_QUERY)
-  query.addEventListener('change', onChange)
-  return () => query.removeEventListener('change', onChange)
-}
-
-function useIsHandheld() {
-  // Server and first paint assume desktop; useSyncExternalStore corrects it on
-  // hydration without the state-in-effect dance that would flag either way.
-  return useSyncExternalStore(
-    subscribeToTouch,
-    () => window.matchMedia(TOUCH_QUERY).matches,
-    () => false
-  )
-}
+// Note for whoever turns the in-app video player back on: the detection for
+// "is this a phone" lived here, as a media query on `(pointer: coarse) and
+// (max-width: 1024px)` read through useSyncExternalStore. It was dropped
+// along with the player rather than left behind unused — see the comment at
+// the DrivePreviewModal call for why the player went.
 
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`
@@ -464,7 +443,6 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   // answer is newer, so nothing stops it from landing on top. Checked against
   // this before anything is painted.
   const listingKeyRef = useRef<string>('')
-  const isHandheld = useIsHandheld()
 
   const listingKey = `${scopeQuery}|${currentFolderId ?? 'null'}`
   listingKeyRef.current = listingKey
@@ -2830,9 +2808,17 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
           webViewLink={previewFile.web_view_link}
           downloadHref={`${filesApi}/download?id=${previewFile.id}`}
           thumbnailHref={canPreviewAsImage(previewFile.file_type) ? `${filesApi}/thumbnail?id=${previewFile.id}` : undefined}
-          streamHref={isHandheld && getFileCategory(previewFile.file_type) === 'video'
-            ? `${filesApi}/download?id=${previewFile.id}&inline=1`
-            : undefined}
+          // Switched off: our own player streams every byte through a Vercel
+          // function, and a single 1.26 GB video watched a few times used up
+          // most of a month's included transfer. Drive serves the same file
+          // straight from Google at no cost to us.
+          //
+          // The price is the one this was built to solve: on a phone the
+          // browser lays its own media controls over Drive's, so you get two
+          // sets of buttons. An annoyance, where the alternative is a paused
+          // project. Flip this back on — see useIsHandheld — if the transfer
+          // budget ever stops being the binding constraint.
+          streamHref={undefined}
           onClose={() => setPreviewFile(null)}
           onPrev={previewIndex > 0 ? () => setPreviewFile(previewList[previewIndex - 1]) : undefined}
           onNext={previewIndex >= 0 && previewIndex < previewList.length - 1 ? () => setPreviewFile(previewList[previewIndex + 1]) : undefined}
