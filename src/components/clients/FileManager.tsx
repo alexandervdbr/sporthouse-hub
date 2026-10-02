@@ -485,6 +485,10 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   const [downloadingZip, setDownloadingZip] = useState(false)
   const [zipError, setZipError] = useState<string | null>(null)
   const [moveError, setMoveError] = useState<string | null>(null)
+  const [moveToast, setMoveToast] = useState<
+    { file: FileRecord; cameFrom: string | null; cameFromKey: string; targetLabel: string } | null
+  >(null)
+  const [undoing, setUndoing] = useState(false)
   const [zipDriveUrl, setZipDriveUrl] = useState<string | null>(null)
 
   // Upload
@@ -672,6 +676,14 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
 
   useEffect(() => () => loadAbortRef.current?.abort(), [])
 
+  // The confirmation is a courtesy, not a dialog: it clears itself. Pinned
+  // open while an undo is running so it can't vanish mid-click.
+  useEffect(() => {
+    if (!moveToast || undoing) return
+    const timer = setTimeout(() => setMoveToast(null), 8000)
+    return () => clearTimeout(timer)
+  }, [moveToast, undoing])
+
   // webkitdirectory/directory aren't part of React's typed input attributes —
   // set them directly so the folder-select button can pick a whole folder.
   useEffect(() => {
@@ -827,14 +839,18 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   // once instead of waiting for the server and then reloading the whole
   // listing. The move still has to succeed; if it doesn't, the row comes back
   // and says why, which is the only honest way to show something early.
-  async function moveFileTo(fileId: string, targetFolderId: string | null) {
+  async function moveFileTo(fileId: string, targetFolderId: string | null, targetLabel: string) {
     const removed = files.find(f => f.id === fileId)
     if (!removed) return
 
+    const cameFrom = removed.folder_id ?? null
+    const cameFromKey = listingKeyRef.current
+
     setFiles(prev => prev.filter(f => f.id !== fileId))
     setMoveError(null)
+    setMoveToast(null)
     // The listing we just edited by hand is no longer what the cache holds.
-    folderCacheRef.current.delete(listingKeyRef.current)
+    folderCacheRef.current.delete(cameFromKey)
 
     try {
       const res = await fetch(`${filesApi}?id=${fileId}`, {
@@ -846,10 +862,40 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
 
       // Both folders changed, so neither stored listing can be trusted.
       folderCacheRef.current.clear()
+      // Says where it went, and offers the way back — the row vanishing is
+      // fast but tells you nothing on its own.
+      setMoveToast({ file: removed, cameFrom, cameFromKey, targetLabel })
     } catch (err) {
       setFiles(prev => prev.some(f => f.id === fileId) ? prev : [...prev, removed])
       setMoveError(err instanceof Error ? err.message : 'Verplaatsen mislukt.')
     }
+  }
+
+  async function undoMove() {
+    const toast = moveToast
+    if (!toast || undoing) return
+    setUndoing(true)
+    setMoveError(null)
+
+    try {
+      const res = await fetch(`${filesApi}?id=${toast.file.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderId: toast.cameFrom }),
+      })
+      if (!res.ok) throw new Error(`Terugzetten mislukt (${res.status}).`)
+
+      folderCacheRef.current.clear()
+      // Only put the row back if that folder is still what's on screen —
+      // undoing from somewhere else shouldn't make a file appear there.
+      if (listingKeyRef.current === toast.cameFromKey) {
+        setFiles(prev => prev.some(f => f.id === toast.file.id) ? prev : [...prev, toast.file])
+      }
+      setMoveToast(null)
+    } catch (err) {
+      setMoveError(err instanceof Error ? err.message : 'Terugzetten mislukt.')
+    }
+    setUndoing(false)
   }
 
   async function onDropOnFolder(e: React.DragEvent, targetFolderId: string) {
@@ -859,18 +905,19 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
     setDragOverFolderId(null)
     setDraggingFileId(null)
     if (!fileId) return
-    await moveFileTo(fileId, targetFolderId)
+    const target = folders.find(f => f.id === targetFolderId)
+    await moveFileTo(fileId, targetFolderId, target?.name ?? 'de map')
   }
 
   // Drop on breadcrumb parent = move back to that folder level
-  async function onDropOnBreadcrumb(e: React.DragEvent, targetFolderId: string | null) {
+  async function onDropOnBreadcrumb(e: React.DragEvent, targetFolderId: string | null, targetLabel: string) {
     e.preventDefault()
     markDropped()
     const fileId = e.dataTransfer.getData('fileId')
     setDragOverRoot(false)
     setDraggingFileId(null)
     if (!fileId) return
-    await moveFileTo(fileId, targetFolderId)
+    await moveFileTo(fileId, targetFolderId, targetLabel)
   }
 
   // ── Marquee (rubber-band) selection ─────────────────────────────────────────
@@ -1424,7 +1471,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                 disabled={isLast}
                 onDragOver={isDropTarget ? (e) => { e.preventDefault(); setDragOverRoot(true) } : undefined}
                 onDragLeave={isDropTarget ? () => setDragOverRoot(false) : undefined}
-                onDrop={isDropTarget ? (e) => onDropOnBreadcrumb(e, crumb.id) : undefined}
+                onDrop={isDropTarget ? (e) => onDropOnBreadcrumb(e, crumb.id, crumb.name) : undefined}
                 className={`flex items-center gap-1.5 text-sm px-1.5 py-0.5 rounded transition-colors ${
                   isLast
                     ? 'text-white font-semibold cursor-default'
@@ -1547,6 +1594,25 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
           <AlertCircle size={14} className="text-amber-400 flex-shrink-0 mt-0.5" />
           <p className="text-xs text-amber-400 flex-1">{deleteWarning}</p>
           <button onClick={() => setDeleteWarning(null)} aria-label="Melding sluiten" className="text-amber-400/70 hover:text-amber-300 flex-shrink-0">
+            <X size={13} />
+          </button>
+        </div>
+      )}
+
+      {moveToast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 px-4 py-2.5 rounded-xl shadow-2xl"
+          style={{ background: '#232323', border: '1px solid rgba(255,255,255,0.14)' }}>
+          <p className="text-xs text-zinc-300">
+            <span className="text-zinc-100">{moveToast.file.filename}</span> verplaatst naar {moveToast.targetLabel}
+          </p>
+          <button
+            onClick={undoMove}
+            disabled={undoing}
+            className="text-xs font-medium text-emerald-400 hover:text-emerald-300 disabled:opacity-50 transition-colors"
+          >
+            {undoing ? 'Bezig…' : 'Ongedaan maken'}
+          </button>
+          <button onClick={() => setMoveToast(null)} aria-label="Sluiten" className="text-zinc-500 hover:text-zinc-300 transition-colors">
             <X size={13} />
           </button>
         </div>
