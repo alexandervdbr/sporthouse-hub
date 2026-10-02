@@ -7,7 +7,7 @@ import {
   Pencil, MoreVertical, X, Check, FolderPlus,
   FileText, FileImage, FileVideo, FileAudio,
   FileArchive, File, FileCode, FileType2,
-  AlertCircle, GripVertical, ArrowUpDown, Palette,
+  AlertCircle, GripVertical, ArrowUpDown, Palette, Link2,
 } from 'lucide-react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
@@ -261,7 +261,7 @@ const ARCHIVE_EXTS = ['zip', 'rar', '7z', 'tar', 'gz', 'bz2']
 const CODE_EXTS = ['js', 'ts', 'tsx', 'jsx', 'py', 'html', 'css', 'json', 'xml', 'yaml', 'yml', 'sh', 'sql']
 const DOC_EXTS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'md', 'csv', 'rtf']
 const FONT_EXTS = ['ttf', 'otf', 'woff', 'woff2', 'eot']
-const DESIGN_EXTS = ['psd', 'psb', 'ai', 'indd', 'idml', 'eps', 'xd', 'sketch', 'fig', 'afphoto', 'afdesign', 'afpub', 'aep', 'prproj']
+const DESIGN_EXTS = ['psd', 'psb', 'ai', 'indd', 'idml', 'eps', 'xd', 'sketch', 'fig', 'afphoto', 'afdesign', 'afpub', 'aep', 'prproj', 'mogrt']
 // Formats that carry their own preview image, readable even when Drive won't
 // render one (see lib/psd-thumbnail).
 const EMBEDDED_PREVIEW_EXTS = ['psd', 'psb']
@@ -479,28 +479,76 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   // for the root followed by one for the folder.
   const [restored, setRestored] = useState(false)
 
-  // Restore the last-visited folder for this client after a reload, instead
-  // of always dropping back to the root. Done in an effect (not a lazy
-  // useState initializer) so the server-rendered/initial-client render still
-  // matches and only corrects itself right after mount, avoiding a hydration
-  // mismatch.
+  // A file id from the link, held until its folder's contents have loaded —
+  // only then is there a record to hand the preview.
+  const [pendingPreviewId, setPendingPreviewId] = useState<string | null>(null)
+
+  // Where to start: a folder named in the URL wins over the one you last
+  // visited, so a shared link opens what the sender meant rather than
+  // wherever the receiver happened to be. Falls back to sessionStorage, which
+  // is what makes a plain reload keep your place.
   useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem(`files-breadcrumbs-${scopeStorageKey}`)
-      if (!raw) return
-      const saved: Breadcrumb[] = JSON.parse(raw)
-      if (Array.isArray(saved) && saved.length > 0) {
-        // Self-heal: collapse any duplicate folder ids a previously-corrupted
-        // trail might contain, so a stale saved value can never reproduce the
-        // "two children with the same key" crash on restore.
-        const deduped = saved.filter((b, i) => saved.findIndex(x => x.id === b.id) === i)
-        setBreadcrumbs(deduped)
+    let cancelled = false
+
+    async function restore() {
+      const params = new URLSearchParams(window.location.search)
+      const linkedFolder = params.get('folder')
+      const linkedFile = params.get('file')
+      if (linkedFile) setPendingPreviewId(linkedFile)
+
+      if (linkedFolder) {
+        try {
+          const res = await fetch(`${foldersApi}/${linkedFolder}/path`)
+          if (res.ok) {
+            const { trail }: { trail: Breadcrumb[] } = await res.json()
+            if (!cancelled && Array.isArray(trail) && trail.length > 0) {
+              setBreadcrumbs([{ id: null, name: rootLabel }, ...trail])
+              setRestored(true)
+              return
+            }
+          }
+          // A link to a folder that's gone, or that this account can't see,
+          // lands at the root rather than on an error — the rest of the
+          // client's files are still perfectly usable.
+        } catch { /* fall through to the stored trail */ }
       }
-    } catch { /* ignore malformed/unavailable storage */ } finally {
-      setRestored(true)
+
+      try {
+        const raw = sessionStorage.getItem(`files-breadcrumbs-${scopeStorageKey}`)
+        if (raw) {
+          const saved: Breadcrumb[] = JSON.parse(raw)
+          if (Array.isArray(saved) && saved.length > 0) {
+            // Self-heal: collapse any duplicate folder ids a previously-
+            // corrupted trail might contain, so a stale saved value can never
+            // reproduce the "two children with the same key" crash.
+            const deduped = saved.filter((b, i) => saved.findIndex(x => x.id === b.id) === i)
+            if (!cancelled) setBreadcrumbs(deduped)
+          }
+        }
+      } catch { /* ignore malformed/unavailable storage */ }
+
+      if (!cancelled) setRestored(true)
     }
+
+    restore()
+    return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeStorageKey])
+
+  // Keep the address bar pointing at where you actually are, so copying it —
+  // or using the copy-link button — gives a link that opens this folder.
+  // Replaced rather than pushed: walking into a folder shouldn't turn the
+  // browser's back button into a folder-history stepper people didn't ask for.
+  useEffect(() => {
+    if (!restored) return
+    const url = new URL(window.location.href)
+    if (currentFolderId) url.searchParams.set('folder', currentFolderId)
+    else url.searchParams.delete('folder')
+    // Only ever meaningful on the first load; leaving it in would re-open the
+    // preview on every later visit to that link.
+    url.searchParams.delete('file')
+    window.history.replaceState(null, '', url)
+  }, [currentFolderId, restored])
 
   useEffect(() => {
     // Guarded on `restored`: this effect also runs on the very first commit,
@@ -544,6 +592,8 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   const [renameError, setRenameError] = useState<string | null>(null)
   const [trashError, setTrashError] = useState<string | null>(null)
   const [downloadError, setDownloadError] = useState<string | null>(null)
+  const [copiedLabel, setCopiedLabel] = useState<string | null>(null)
+  const [copyError, setCopyError] = useState<string | null>(null)
   const [moveToast, setMoveToast] = useState<
     { file: FileRecord; cameFrom: string | null; cameFromKey: string; targetLabel: string } | null
   >(null)
@@ -735,6 +785,23 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
 
   useEffect(() => () => loadAbortRef.current?.abort(), [])
 
+  // A link can point at one file, not just a folder. Acted on once the
+  // listing is in, since the preview needs the record and not just an id —
+  // and cleared either way, so a file that's been moved or deleted doesn't
+  // leave this waiting forever.
+  useEffect(() => {
+    if (!pendingPreviewId || loading) return
+    const target = files.find(f => f.id === pendingPreviewId)
+    if (target?.drive_file_id) setPreviewFile(target)
+    setPendingPreviewId(null)
+  }, [pendingPreviewId, loading, files])
+
+  useEffect(() => {
+    if (!copiedLabel) return
+    const timer = setTimeout(() => setCopiedLabel(null), 4000)
+    return () => clearTimeout(timer)
+  }, [copiedLabel])
+
   // Upload feedback clears itself too. It used to sit there until a reload,
   // so a success from ten minutes ago still looked like it had just happened.
   // Errors get longer: they're worth reading, and sometimes acting on.
@@ -829,8 +896,14 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
 
   // ── Folder actions ──────────────────────────────────────────────────────────
 
+  // A ref, not the creatingFolder state: two enter presses a few milliseconds
+  // apart both read the state from the same render, so the flag hasn't
+  // flipped yet for the second one. A ref changes immediately.
+  const creatingFolderRef = useRef(false)
+
   async function handleCreateFolder() {
-    if (!newFolderName.trim()) return
+    if (!newFolderName.trim() || creatingFolderRef.current) return
+    creatingFolderRef.current = true
     setCreatingFolder(true)
     setCreateFolderError(null)
     const res = await fetch(foldersApi, {
@@ -851,6 +924,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
       )
     }
     setCreatingFolder(false)
+    creatingFolderRef.current = false
   }
 
   async function handleRenameFolder(id: string) {
@@ -1354,6 +1428,27 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
 
   // ── File actions ────────────────────────────────────────────────────────────
 
+  // Built from the address bar rather than a hardcoded host, so it stays
+  // right on preview deployments and whatever domain this ends up on.
+  function shareUrl(params: Record<string, string>) {
+    const url = new URL(window.location.href)
+    url.search = ''
+    for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value)
+    return url.toString()
+  }
+
+  async function copyLink(url: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopiedLabel(label)
+    } catch {
+      // Clipboard access can be refused outright (an insecure origin, or a
+      // browser that wants a more direct gesture). Saying so beats a button
+      // that looks like it worked.
+      setCopyError('Kon de link niet kopiëren. Kopieer hem uit de adresbalk.')
+    }
+  }
+
   async function handleDownload(file: FileRecord) {
     setDownloadingId(file.id)
     setDownloadError(null)
@@ -1828,6 +1923,24 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
         </div>
       )}
 
+      {copiedLabel && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 px-4 py-2.5 rounded-xl shadow-2xl"
+          style={{ background: '#232323', border: '1px solid rgba(255,255,255,0.14)' }}>
+          <p className="text-xs text-zinc-300">
+            Link naar <span className="text-zinc-100">{copiedLabel}</span> gekopieerd
+          </p>
+          <button onClick={() => setCopiedLabel(null)} aria-label="Sluiten" className="text-zinc-500 hover:text-zinc-300 transition-colors">
+            <X size={13} />
+          </button>
+        </div>
+      )}
+
+      {copyError && (
+        <div className="mb-5">
+          <Notice tone="error" onDismiss={() => setCopyError(null)}>{copyError}</Notice>
+        </div>
+      )}
+
       {downloadError && (
         <div className="mb-5">
           <Notice tone="error" onDismiss={() => setDownloadError(null)}>{downloadError}</Notice>
@@ -2188,6 +2301,16 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                               onClick={(e) => {
                                 e.stopPropagation()
                                 setMenuOpenId(null)
+                                copyLink(shareUrl({ folder: folder.id }), folder.name)
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-zinc-300 hover:text-white hover:bg-zinc-700 transition-colors"
+                            >
+                              <Link2 size={11} /> Link kopiëren
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setMenuOpenId(null)
                                 openDeleteFolderConfirm(folder)
                               }}
                               className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-400 hover:text-red-300 hover:bg-zinc-700 transition-colors"
@@ -2309,6 +2432,19 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                           <Pencil size={13} />
                         </button>
                       )}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          copyLink(
+                            shareUrl({ ...(currentFolderId ? { folder: currentFolderId } : {}), file: file.id }),
+                            file.filename
+                          )
+                        }}
+                        title="Link naar dit bestand kopiëren"
+                        className="tap-target p-1.5 rounded-md text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
+                      >
+                        <Link2 size={13} />
+                      </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDownload(file) }}
                         disabled={downloadingId === file.id}

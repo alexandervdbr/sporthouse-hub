@@ -14,7 +14,7 @@ const CODE_EXTS     = ['js', 'ts', 'tsx', 'jsx', 'py', 'html', 'css', 'json', 'x
 // Design/creative source files (Adobe, Affinity, Figma, Sketch). Binary project
 // files we only ever store and hand back — never parse — so they're as safe to
 // keep as any archive, and the team uploads them as templates.
-const DESIGN_EXTS   = ['psd', 'psb', 'ai', 'indd', 'idml', 'eps', 'xd', 'sketch', 'fig', 'afphoto', 'afdesign', 'afpub', 'aep', 'prproj']
+const DESIGN_EXTS   = ['psd', 'psb', 'ai', 'indd', 'idml', 'eps', 'xd', 'sketch', 'fig', 'afphoto', 'afdesign', 'afpub', 'aep', 'prproj', 'mogrt']
 
 export const ALLOWED_UPLOAD_EXTS = [
   ...IMAGE_EXTS, ...VIDEO_EXTS, ...AUDIO_EXTS, ...ARCHIVE_EXTS, ...DOC_EXTS, ...FONT_EXTS, ...CODE_EXTS,

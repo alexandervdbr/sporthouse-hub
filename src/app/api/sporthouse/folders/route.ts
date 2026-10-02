@@ -61,12 +61,23 @@ export async function POST(req: Request) {
     if (parent.section !== section) return new Response('Parent folder belongs to another section', { status: 400 })
   }
 
+  const folderName = name.trim()
+  const parent = parentId || null
+
+  // Same guard as the client-files twin: a repeated request hands back the
+  // folder that already exists instead of making a second one.
+  const { data: duplicate } = parent === null
+    ? await admin.from('sporthouse_document_folders').select('*').eq('section', section).eq('name', folderName).is('parent_id', null).maybeSingle()
+    : await admin.from('sporthouse_document_folders').select('*').eq('section', section).eq('name', folderName).eq('parent_id', parent).maybeSingle()
+
+  if (duplicate) return Response.json(duplicate, { status: 200 })
+
   const { data, error } = await admin
     .from('sporthouse_document_folders')
     .insert({
       section,
-      name: name.trim(),
-      parent_id: parentId || null,
+      name: folderName,
+      parent_id: parent,
       created_by: user.email,
     })
     .select()
