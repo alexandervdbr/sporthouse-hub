@@ -35,12 +35,55 @@ function safePath(raw: string | null): string | null {
   return raw
 }
 
+// Which tab of a client the link belongs to. Kept to a known set rather than
+// a free-form path: the destination arrives on the query string, so deriving
+// it from a fixed list is both shorter and safer than carrying and validating
+// a path someone could have edited.
+const TABS = ['files', 'finance', 'administration'] as const
+type Tab = (typeof TABS)[number]
+
+function tabOf(params: Record<string, string | string[] | undefined>): Tab | null {
+  const raw = one(params.t)
+  return TABS.includes(raw as Tab) ? (raw as Tab) : null
+}
+
+function clientOf(params: Record<string, string | string[] | undefined>) {
+  // `client` and `path` are the first shape these links had; still read so
+  // that one shared an hour ago keeps working.
+  return one(params.c) ?? one(params.client)
+}
+
+function folderOf(params: Record<string, string | string[] | undefined>) {
+  return one(params.f) ?? one(params.folder)
+}
+
+function fileOf(params: Record<string, string | string[] | undefined>) {
+  return one(params.x) ?? one(params.file)
+}
+
+// Sporthouse documents live on a client's finance or administration tab, so
+// the section follows from the tab rather than needing its own parameter.
+function sectionOf(params: Record<string, string | string[] | undefined>): string | null {
+  const tab = tabOf(params)
+  if (tab === 'finance' || tab === 'administration') return tab
+  const legacy = one(params.section)
+  return legacy === 'finance' || legacy === 'administration' ? legacy : null
+}
+
 function targetUrl(params: Record<string, string | string[] | undefined>): string | null {
-  const path = safePath(one(params.path))
+  const client = clientOf(params)
+  const tab = tabOf(params)
+
+  const path = client && tab
+    ? safePath(`/clients/${client}/${tab}`)
+    // The older shape carried the whole path, url-encoded.
+    : safePath(one(params.path))
+
   if (!path) return null
+
   const search = new URLSearchParams()
-  const folder = one(params.folder)
-  const file = one(params.file)
+  const folder = folderOf(params)
+  const file = fileOf(params)
   if (folder) search.set('folder', folder)
   if (file) search.set('file', file)
   const query = search.toString()
@@ -51,16 +94,15 @@ function targetUrl(params: Record<string, string | string[] | undefined>): strin
 // aren't signed in, including the preview bots. Only names are read.
 async function describe(params: Record<string, string | string[] | undefined>) {
   const admin = createAdminClient()
-  const kind = one(params.kind)
-  const folderId = one(params.folder)
-  const fileId = one(params.file)
+  const folderId = folderOf(params)
+  const fileId = fileOf(params)
+  const section = sectionOf(params)
 
   let itemName: string | null = null
   let context: string | null = null
 
-  if (kind === 'sporthouse') {
-    const section = one(params.section)
-    context = section === 'finance' ? 'Financiën' : section === 'administration' ? 'Administratie' : 'Sporthouse Intern'
+  if (section) {
+    context = section === 'finance' ? 'Financiën' : 'Administratie'
     if (fileId) {
       const { data } = await admin.from('sporthouse_documents').select('filename').eq('id', fileId).maybeSingle()
       itemName = data?.filename ?? null
@@ -70,7 +112,7 @@ async function describe(params: Record<string, string | string[] | undefined>) {
       itemName = data?.name ?? null
     }
   } else {
-    const clientId = one(params.client)
+    const clientId = clientOf(params)
     if (clientId) {
       const { data } = await admin.from('clients').select('name').eq('id', clientId).maybeSingle()
       context = data?.name ?? null

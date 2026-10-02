@@ -1440,11 +1440,13 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
     const url = new URL(window.location.href)
     url.pathname = '/share'
     url.search = ''
-    // Where to land once signed in — the page this manager is mounted on.
-    url.searchParams.set('path', window.location.pathname)
-    // Which tables hold the names shown on the card.
-    url.searchParams.set('kind', foldersApi.includes('/sporthouse/') ? 'sporthouse' : 'client')
-    url.searchParams.set(scopeKey === 'section' ? 'section' : 'client', scopeValue)
+    // Just the client and which tab it is — everything else follows from
+    // those two. Carrying the whole path meant the client id appeared twice,
+    // once with its slashes url-encoded, which made the link half again as
+    // long for nothing.
+    const [, , clientId, tab] = window.location.pathname.split('/')
+    url.searchParams.set('c', clientId ?? '')
+    url.searchParams.set('t', tab ?? 'files')
     for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value)
     return url.toString()
   }
@@ -2346,7 +2348,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                               onClick={(e) => {
                                 e.stopPropagation()
                                 setMenuOpenId(null)
-                                copyLink(shareUrl({ folder: folder.id }), folder.name)
+                                copyLink(shareUrl({ f: folder.id }), folder.name)
                               }}
                               className="w-full flex items-center gap-2 px-3 py-2 text-xs text-zinc-300 hover:text-white hover:bg-zinc-700 transition-colors"
                             >
@@ -2481,7 +2483,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
                         onClick={(e) => {
                           e.stopPropagation()
                           copyLink(
-                            shareUrl({ ...(currentFolderId ? { folder: currentFolderId } : {}), file: file.id }),
+                            shareUrl({ ...(currentFolderId ? { f: currentFolderId } : {}), x: file.id }),
                             file.filename
                           )
                         }}
