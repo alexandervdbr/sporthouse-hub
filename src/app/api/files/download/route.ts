@@ -6,12 +6,16 @@ import { downloadFileWithMeta, downloadFileRange } from '@/lib/drive-storage'
 import { hasClientAccess } from '@/lib/auth-permissions'
 import { inlineMimeType } from '@/lib/upload-policy'
 
-// Streaming a large file through a function is bounded by this. Raised to
-// the Pro ceiling, which Fluid Compute allows: 1 GB only fits inside 300s on
-// a fast connection, and a phone on mobile data doesn't have one. A download
-// that still gets cut can now be resumed, since the response advertises its
-// length and accepts ranges.
-export const maxDuration = 800
+// Streaming a large file through a function is bounded by this. Left at 300:
+// raising it to the 800 that Fluid Compute can allow made the Vercel build
+// fail, so the ceiling this plan accepts is lower — and guessing at it costs
+// a broken deploy every time.
+//
+// It matters less than it looks. A download that gets cut off here can now be
+// resumed, because the response carries its length and accepts ranges; the
+// browser simply asks for the rest. That only started working in #166, which
+// is why this used to be the whole story and no longer is.
+export const maxDuration = 300
 
 function adminClient() {
   return createAdminClient(
