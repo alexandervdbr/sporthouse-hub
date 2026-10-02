@@ -10,6 +10,7 @@ function LoginForm() {
   const searchParams = useSearchParams()
 
   const errorParam = searchParams.get('error')
+  const next = searchParams.get('next')
   const errorMessage =
     errorParam === 'unauthorized' ? 'Dit e-mailadres heeft geen toegang tot het platform. Neem contact op met de beheerder.' :
     errorParam === 'auth'         ? 'Er liep iets mis bij het inloggen. Probeer opnieuw.' :
@@ -21,7 +22,11 @@ function LoginForm() {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        // Carried through the sign-in so a shared link lands where it meant
+        // to, instead of dumping you on the dashboard to find it again.
+        redirectTo: next
+          ? `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`
+          : `${window.location.origin}/auth/callback`,
       },
     })
   }

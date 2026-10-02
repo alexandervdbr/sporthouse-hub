@@ -1428,11 +1428,23 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
 
   // ── File actions ────────────────────────────────────────────────────────────
 
+  // Points at /share rather than straight at this page, so the link-preview
+  // card in WhatsApp, Slack or Discord can say what it opens. Someone who's
+  // signed in is forwarded through without noticing; someone who isn't gets a
+  // card and a login button instead of a redirect to a login page that has
+  // forgotten where they were going.
+  //
   // Built from the address bar rather than a hardcoded host, so it stays
   // right on preview deployments and whatever domain this ends up on.
   function shareUrl(params: Record<string, string>) {
     const url = new URL(window.location.href)
+    url.pathname = '/share'
     url.search = ''
+    // Where to land once signed in — the page this manager is mounted on.
+    url.searchParams.set('path', window.location.pathname)
+    // Which tables hold the names shown on the card.
+    url.searchParams.set('kind', foldersApi.includes('/sporthouse/') ? 'sporthouse' : 'client')
+    url.searchParams.set(scopeKey === 'section' ? 'section' : 'client', scopeValue)
     for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value)
     return url.toString()
   }
