@@ -414,6 +414,30 @@ async function pollUntilResolved(admin: SupabaseClient, parentId: string, name: 
   throw new Error(`Timeout bij wachten op Drive-map "${name}".`)
 }
 
+// A cached id is only worth anything if the folder behind it still exists and
+// isn't in the trash. Dropping a file into a trashed folder succeeds without
+// complaint — Drive just hides the whole subtree — so nothing downstream ever
+// notices; the file plays fine through the app while being invisible in Drive.
+async function driveFolderIsUsable(folderId: string): Promise<boolean> {
+  try {
+    const drive = getClient()
+    const { data } = await drive.files.get({
+      fileId: folderId,
+      fields: 'trashed',
+      supportsAllDrives: true,
+    })
+    return !data.trashed
+  } catch {
+    // Gone entirely, or no longer reachable by this account.
+    return false
+  }
+}
+
+// A claim that never resolved — the request died between claiming and
+// creating — otherwise blocks that (parent, name) pair forever: every later
+// call polls it and times out. Past this age, assume nobody is coming back.
+const PENDING_STALE_MS = 2 * 60 * 1000
+
 async function claimOrAwaitFolder(parentId: string, name: string): Promise<{ claimed: true; rowId: string } | { claimed: false; folderId: string }> {
   const admin = createAdminClient()
 
@@ -423,15 +447,27 @@ async function claimOrAwaitFolder(parentId: string, name: string): Promise<{ cla
   // a genuine cache miss.
   const { data: existing } = await admin
     .from('drive_folders')
-    .select('drive_folder_id')
+    .select('id, drive_folder_id, created_at')
     .eq('parent_drive_folder_id', parentId)
     .eq('name', name)
     .maybeSingle()
 
   if (existing) {
-    if (existing.drive_folder_id !== PENDING) return { claimed: false, folderId: existing.drive_folder_id }
-    // Someone else is actively creating it right now — poll until ready.
-    return { claimed: false, folderId: await pollUntilResolved(admin, parentId, name) }
+    if (existing.drive_folder_id !== PENDING) {
+      if (await driveFolderIsUsable(existing.drive_folder_id)) {
+        return { claimed: false, folderId: existing.drive_folder_id }
+      }
+      // Stale mapping: the folder it points at was trashed or removed in
+      // Drive. Deleting a folder in the app and making a new one with the
+      // same name landed here — the cache handed back the old, trashed id
+      // and everything filed into it quietly disappeared from view.
+      await admin.from('drive_folders').delete().eq('id', existing.id)
+    } else if (Date.now() - new Date(existing.created_at).getTime() > PENDING_STALE_MS) {
+      await admin.from('drive_folders').delete().eq('id', existing.id)
+    } else {
+      // Someone else is actively creating it right now — poll until ready.
+      return { claimed: false, folderId: await pollUntilResolved(admin, parentId, name) }
+    }
   }
 
   const { data: claimed } = await admin
@@ -488,6 +524,18 @@ export async function getOrCreateFolder(name: string, parentId: string): Promise
     await admin.from('drive_folders').delete().eq('id', claim.rowId)
     throw err
   }
+}
+
+// Called when the app deletes a folder, so the cache can't hand its id back
+// for a new folder with the same name later. The check in claimOrAwaitFolder
+// would catch that anyway, but only after a wasted Drive round trip — and
+// only for paths that go through it.
+export async function forgetCachedFolder(driveFolderId: string) {
+  const admin = createAdminClient()
+  // The folder itself, plus anything cached directly beneath it: trashing a
+  // folder in Drive takes its whole subtree with it.
+  await admin.from('drive_folders').delete().eq('drive_folder_id', driveFolderId)
+  await admin.from('drive_folders').delete().eq('parent_drive_folder_id', driveFolderId)
 }
 
 export async function getOrCreateFolderPath(segments: string[], rootId: string): Promise<string> {
