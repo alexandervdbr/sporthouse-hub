@@ -678,6 +678,21 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
 
   useEffect(() => () => loadAbortRef.current?.abort(), [])
 
+  // Upload feedback clears itself too. It used to sit there until a reload,
+  // so a success from ten minutes ago still looked like it had just happened.
+  // Errors get longer: they're worth reading, and sometimes acting on.
+  useEffect(() => {
+    if (!uploadSuccess) return
+    const timer = setTimeout(() => setUploadSuccess(null), 6000)
+    return () => clearTimeout(timer)
+  }, [uploadSuccess])
+
+  useEffect(() => {
+    if (!uploadError) return
+    const timer = setTimeout(() => setUploadError(null), 12000)
+    return () => clearTimeout(timer)
+  }, [uploadError])
+
   // The confirmation is a courtesy, not a dialog: it clears itself. Pinned
   // open while an undo is running so it can't vanish mid-click.
   useEffect(() => {
@@ -2351,7 +2366,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
               <Upload size={18} className="text-zinc-500" />
               <p className="text-sm text-zinc-400">Sleep bestanden of een map, of klik om te uploaden</p>
               <p className="text-xs text-zinc-600">
-                Meerdere bestanden tegelijk mogelijk — max 500 MB per bestand ·{' '}
+                Meerdere bestanden tegelijk mogelijk — max {MAX_UPLOAD_LABEL} per bestand ·{' '}
                 <button
                   onClick={(e) => { e.stopPropagation(); folderInputRef.current?.click() }}
                   className="underline hover:text-zinc-400 transition-colors"
