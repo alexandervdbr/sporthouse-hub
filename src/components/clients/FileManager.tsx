@@ -114,111 +114,107 @@ async function collectDroppedEntries(dataTransfer: DataTransfer): Promise<Pendin
 }
 
 // Drive's resumable upload requires chunk sizes to be a multiple of 256 KiB
-// (except the final chunk). Capped at 4 MiB because every chunk travels
-// through our own /api/files/upload-relay route, and Vercel rejects any
-// function request body over 4.5 MB with a 413 before our code ever runs —
-// at 8 MiB that meant every file larger than 4.5 MB failed to upload.
-// Smaller chunks also keep any single request short-lived, so a network blip
-// only ever costs one chunk instead of the whole file.
-const UPLOAD_CHUNK_SIZE = 4 * 1024 * 1024
-
-// Zipping happens entirely in this tab: every file is pulled into memory as a
-// blob, JSZip holds them all, and generateAsync builds one more copy of the
-// lot. That caps how much can be downloaded at once far below what can be
-// stored — a couple of large videos is enough to take the tab down, and a
-// crashed tab is a worse answer than a refusal.
+// (except the final chunk).
 //
-// Above this, we hand the job to Drive, which zips server-side for free.
-const FOLDER_CACHE_LIMIT = 50
+// 16 MiB now that the bytes go straight to Google: they used to pass through
+// a function of ours, where Vercel rejects any request body over 4.5 MB — and
+// where every byte counted against a transfer budget that one large video was
+// enough to exhaust. Nothing caps this any more, so the number is chosen on
+// its own merits: large enough that a 1 GB file is tens of requests rather
+// than hundreds, small enough that a dropped connection costs little.
+const UPLOAD_CHUNK_SIZE = 16 * 1024 * 1024
 
-const MAX_ZIP_BYTES = 500 * 1024 * 1024
-const MAX_ZIP_LABEL = '500 MB'
+const DRIVE_UPLOAD_PREFIX = 'https://www.googleapis.com/upload/drive/v3/files?'
 
-function driveFolderUrl(driveFolderId: string) {
-  return `https://drive.google.com/drive/folders/${driveFolderId}`
-}
-
-// Sends one Content-Range chunk through our own upload-relay route (same
-// origin — Drive's upload endpoint doesn't return CORS headers, so a direct
-// browser-to-Google PUT always fails to be readable, confirmed via a HAR
-// capture showing status 200 + net::ERR_FAILED on every request). The relay
-// forwards to the Drive session URL server-to-server and mirrors its
-// response back to us, so everything below still reads like talking to Drive
-// directly. Resolves { done: true, driveFileId } once Drive confirms the
-// file is complete (final chunk), or { done: false } if more are expected.
-// The relay itself is backend-agnostic — it only forwards bytes to whichever
-// Drive session URL it's handed — so both backends share this one route.
+// Sends one Content-Range chunk straight to Drive's session URL.
+//
+// Cross-origin, and Google's answer differs by outcome in a way that matters:
+// while the upload is still running it replies 308 with full CORS headers and
+// Range exposed, so the browser can read exactly how far it got. The response
+// to the *final* chunk carries no CORS headers at all — the bytes arrive, but
+// the browser is not allowed to read what came back. That asymmetry is why
+// the last chunk's result is deliberately ignored here and the outcome is
+// established by asking our own server afterwards.
+//
+// (This is also why an earlier attempt concluded Drive "doesn't do CORS" and
+// routed everything through a relay instead: tested with a single chunk, the
+// only response you ever see is the opaque one.)
 function putChunk(
   uploadUrl: string, file: File, start: number, end: number,
   onChunkProgress?: (loaded: number) => void
-): Promise<{ done: boolean; driveFileId?: string }> {
+): Promise<{ receivedBytes: number | null }> {
   return new Promise((resolve, reject) => {
+    const isFinalChunk = end >= file.size
     const xhr = new XMLHttpRequest()
-    xhr.open('PUT', '/api/files/upload-relay')
-    xhr.setRequestHeader('X-Upload-Url', uploadUrl)
+    xhr.open('PUT', uploadUrl)
     xhr.setRequestHeader('Content-Range', `bytes ${start}-${end - 1}/${file.size}`)
-    // Without this, progress only ever updates at chunk boundaries (every
-    // UPLOAD_CHUNK_SIZE) — for any file smaller than one chunk, that means
-    // it sits at 0% for the whole upload and jumps straight to 100%.
+
+    // Without this, progress only ever updates at chunk boundaries — for a
+    // file smaller than one chunk that means 0% until it suddenly finishes.
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onChunkProgress?.(e.loaded)
     }
+
     xhr.onload = () => {
-      if (xhr.status === 200 || xhr.status === 201) {
-        try {
-          const data = JSON.parse(xhr.responseText)
-          if (!data.id) throw new Error('missing id')
-          resolve({ done: true, driveFileId: data.id as string })
-        } catch {
-          reject(new Error('Ongeldig antwoord van Drive.'))
-        }
-      } else if (xhr.status === 308) {
-        resolve({ done: false })
-      } else {
-        reject(new Error(`Upload naar Drive mislukt (${xhr.status}).`))
+      if (xhr.status === 308) {
+        // "bytes=0-1048575", absent when nothing has been stored yet.
+        const range = xhr.getResponseHeader('Range')
+        const received = range ? Number(range.split('-')[1]) + 1 : 0
+        resolve({ receivedBytes: Number.isFinite(received) ? received : 0 })
+        return
       }
+      if (xhr.status === 200 || xhr.status === 201) {
+        // Readable only because this wasn't the finishing chunk after all.
+        resolve({ receivedBytes: file.size })
+        return
+      }
+      reject(new Error(`Upload naar Drive mislukt (${xhr.status}).`))
     }
-    xhr.onerror = () => reject(new Error('NETWORK_ERROR'))
+
+    xhr.onerror = () => {
+      // The finishing chunk always lands here: the bytes went out, and the
+      // browser blocked the response for lacking CORS headers. Treated as
+      // "sent", with the server having the last word on whether it arrived.
+      if (isFinalChunk) resolve({ receivedBytes: null })
+      else reject(new Error('NETWORK_ERROR'))
+    }
+
     xhr.send(file.slice(start, end))
   })
 }
 
-// Asks Drive (via the same relay) how many bytes of this session it actually
-// has, instead of assuming a dropped connection means the chunk was lost —
-// recovers the real position (or the fact that the file already completed)
-// so we can resume from there rather than restarting the whole upload.
-function queryUploadStatus(uploadUrl: string, fileSize: number): Promise<{ done: boolean; driveFileId?: string; receivedBytes: number }> {
+// Asks Drive how much of this session it actually holds, rather than assuming
+// a dropped connection means the chunk was lost. While the upload is
+// incomplete this answer is readable cross-origin; once it's complete it
+// isn't, and a null here means "ask the server".
+function queryUploadStatus(uploadUrl: string, fileSize: number): Promise<number | null> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
-    xhr.open('PUT', '/api/files/upload-relay')
-    xhr.setRequestHeader('X-Upload-Url', uploadUrl)
+    xhr.open('PUT', uploadUrl)
     xhr.setRequestHeader('Content-Range', `bytes */${fileSize}`)
     xhr.onload = () => {
-      if (xhr.status === 200 || xhr.status === 201) {
-        try {
-          const data = JSON.parse(xhr.responseText)
-          if (!data.id) throw new Error('missing id')
-          resolve({ done: true, driveFileId: data.id as string, receivedBytes: fileSize })
-        } catch {
-          reject(new Error('Ongeldig antwoord van Drive.'))
-        }
-      } else if (xhr.status === 308) {
-        const range = xhr.getResponseHeader('Range') // e.g. "bytes=0-1048575", absent if nothing received yet
-        const receivedBytes = range ? parseInt(range.split('-')[1], 10) + 1 : 0
-        resolve({ done: false, receivedBytes })
-      } else {
-        reject(new Error(`Kon upload-status niet controleren (${xhr.status}).`))
+      if (xhr.status === 308) {
+        const range = xhr.getResponseHeader('Range')
+        const received = range ? Number(range.split('-')[1]) + 1 : 0
+        resolve(Number.isFinite(received) ? received : 0)
+        return
       }
+      if (xhr.status === 200 || xhr.status === 201) { resolve(fileSize); return }
+      reject(new Error(`Kon upload-status niet controleren (${xhr.status}).`))
     }
-    xhr.onerror = () => reject(new Error('Netwerkfout tijdens statuscontrole.'))
+    // Complete uploads answer without CORS headers, which surfaces here.
+    xhr.onerror = () => resolve(null)
     xhr.send()
   })
 }
 
-// PUTs a file straight to a Drive resumable-upload session URL (bypassing our
-// own server for the bytes), in chunks, recovering from a dropped connection
-// by asking Drive for the real byte offset instead of restarting from 0.
-async function putFileToDrive(file: File, uploadUrl: string, onProgress: (pct: number) => void): Promise<string> {
+// Walks a file to Drive in chunks, recovering from a dropped connection by
+// asking Drive for the real byte offset instead of starting over. Returns
+// once the last chunk has been sent; whether it arrived is for the server to
+// confirm, since that answer is not readable from here.
+async function putFileToDrive(file: File, uploadUrl: string, onProgress: (pct: number) => void): Promise<void> {
+  if (!uploadUrl.startsWith(DRIVE_UPLOAD_PREFIX)) throw new Error('Ongeldige upload-URL.')
+
   let offset = 0
   let consecutiveFailures = 0
   const MAX_CONSECUTIVE_FAILURES = 5
@@ -227,11 +223,12 @@ async function putFileToDrive(file: File, uploadUrl: string, onProgress: (pct: n
     const end = Math.min(offset + UPLOAD_CHUNK_SIZE, file.size)
     const chunkStart = offset
     try {
-      const result = await putChunk(uploadUrl, file, offset, end, (loaded) => {
+      const { receivedBytes } = await putChunk(uploadUrl, file, offset, end, (loaded) => {
         onProgress(Math.round(((chunkStart + loaded) / file.size) * 100))
       })
-      if (result.done && result.driveFileId) return result.driveFileId
-      offset = end
+      // null means the finishing chunk went out unreadable — nothing left to
+      // send either way.
+      offset = receivedBytes ?? file.size
       consecutiveFailures = 0
       onProgress(Math.round((offset / file.size) * 100))
     } catch {
@@ -241,17 +238,24 @@ async function putFileToDrive(file: File, uploadUrl: string, onProgress: (pct: n
       }
       await new Promise(r => setTimeout(r, 1000 * consecutiveFailures))
       try {
-        const status = await queryUploadStatus(uploadUrl, file.size)
-        if (status.done && status.driveFileId) return status.driveFileId
-        offset = status.receivedBytes
+        const received = await queryUploadStatus(uploadUrl, file.size)
+        if (received === null) break   // already complete; let the server say so
+        offset = received
         onProgress(Math.round((offset / file.size) * 100))
       } catch {
-        // Status check itself failed too — just retry the same chunk on the next loop pass.
+        // Status check failed too — retry the same chunk on the next pass.
       }
     }
   }
+}
 
-  throw new Error('Upload onverwacht niet voltooid.')
+const FOLDER_CACHE_LIMIT = 50
+
+const MAX_ZIP_BYTES = 500 * 1024 * 1024
+const MAX_ZIP_LABEL = '500 MB'
+
+function driveFolderUrl(driveFolderId: string) {
+  return `https://drive.google.com/drive/folders/${driveFolderId}`
 }
 
 const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico', 'tiff', 'avif']
@@ -1282,12 +1286,16 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
           }
           const { uploadUrl } = await sessionRes.json()
 
-          // 2. PUT the file straight to Drive — never touches our server.
-          const driveFileId = await putFileToDrive(entry.file, uploadUrl, (pct) => {
+          // 2. PUT the file straight to Drive — the bytes never touch our
+          // server, which is what keeps a 1 GB upload off the transfer bill.
+          await putFileToDrive(entry.file, uploadUrl, (pct) => {
             setPendingEntries(prev => prev.map((e, j) => j === i ? { ...e, progress: pct } : e))
           })
 
-          // 3. Tell our server what landed, so it can write the DB row.
+          // 3. Hand the session to our server, which asks Drive what it
+          // became and writes the row. The id has to come from there: the
+          // response to the final chunk is unreadable here, and an id the
+          // browser supplied would be one the server took on faith.
           const finalizeRes = await fetch(`${filesApi}/finalize`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1295,7 +1303,8 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
               [scopeKey]: scopeValue,
               folderId,
               description: description.trim() || null,
-              driveFileId,
+              uploadUrl,
+              fileSize: entry.file.size,
             }),
           })
           if (!finalizeRes.ok) {
