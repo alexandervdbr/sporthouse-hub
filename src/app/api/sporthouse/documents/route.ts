@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { uploadFile, downloadFile, updateFileContent, moveFile, trashFile, isSporthouseDriveConfigured } from '@/lib/drive-storage'
 import { resolveSporthouseDriveFolderId } from '@/lib/sporthouse-docs-drive'
@@ -259,15 +259,22 @@ export async function PATCH(request: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Best effort: the DB is the source of truth for the app, so a Drive hiccup
-  // here just means Drive briefly lags behind.
-  if (doc.storage_provider === 'drive' && doc.drive_file_id) {
-    try {
-      const driveFolderId = await resolveSporthouseDriveFolderId(admin, doc.section as SporthouseSection, targetFolderId)
-      await moveFile(doc.drive_file_id, driveFolderId)
-    } catch (err) {
-      console.error('Drive move error:', err)
-    }
+  // Mirrored in Drive after the response goes out — see the twin in
+  // /api/files for the reasoning. The DB is what the app reads, and this was
+  // already best-effort; awaiting it only meant every move waited on a chain
+  // of Drive calls it didn't depend on.
+  const driveFileId = doc.drive_file_id
+  const section = doc.section as SporthouseSection
+
+  if (doc.storage_provider === 'drive' && driveFileId) {
+    after(async () => {
+      try {
+        const driveFolderId = await resolveSporthouseDriveFolderId(admin, section, targetFolderId)
+        await moveFile(driveFileId, driveFolderId)
+      } catch (err) {
+        console.error('Drive move error:', err)
+      }
+    })
   }
 
   return NextResponse.json({ success: true })
