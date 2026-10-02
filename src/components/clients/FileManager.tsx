@@ -224,18 +224,16 @@ async function putFileToDrive(
   file: File,
   uploadUrl: string,
   onProgress: (pct: number) => void,
-  // Resuming an upload from an earlier visit: ask Drive what it already holds
-  // instead of starting at zero. It is the only authority on that — the
-  // browser's own idea of progress died with the page.
-  resume = false
+  // Where to pick up, when resuming an upload from an earlier visit. Asked of
+  // our own server rather than worked out here: a session that already
+  // finished answers the browser without CORS headers, which is
+  // indistinguishable from a dead network. The server has no such problem.
+  startOffset = 0
 ): Promise<void> {
   if (!uploadUrl.startsWith(DRIVE_UPLOAD_PREFIX)) throw new Error('Ongeldige upload-URL.')
 
-  let offset = 0
-  if (resume) {
-    offset = await queryUploadStatus(uploadUrl, file.size)
-    onProgress(Math.round((offset / file.size) * 100))
-  }
+  let offset = startOffset
+  if (startOffset > 0) onProgress(Math.round((startOffset / file.size) * 100))
   let consecutiveFailures = 0
   // Eight tries with a backoff that tops out at 8 seconds buys roughly a
   // minute of patience. A phone changing cells or a wifi hiccup takes seconds
@@ -1256,22 +1254,39 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
     setUploadError(null)
     setResumeProgress(0)
 
-    try {
-      await putFileToDrive(file, pending.uploadUrl, setResumeProgress, true)
+    const finalize = () => fetch(`${filesApi}/finalize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        [scopeKey]: scopeValue,
+        folderId: pending.folderId,
+        description: null,
+        uploadUrl: pending.uploadUrl,
+        fileSize: pending.fileSize,
+      }),
+    })
 
-      const finalizeRes = await fetch(`${filesApi}/finalize`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          [scopeKey]: scopeValue,
-          folderId: pending.folderId,
-          description: null,
-          uploadUrl: pending.uploadUrl,
-          fileSize: pending.fileSize,
-        }),
-      })
-      if (!finalizeRes.ok) {
-        const { error } = await finalizeRes.json().catch(() => ({ error: `Opslaan mislukt (${finalizeRes.status}).` }))
+    try {
+      // Ask the server where this session stands before sending anything. It
+      // answers one of two things: the upload is already complete and here is
+      // the file, or it holds N bytes so far — and both answers are readable,
+      // which is the whole reason to ask it rather than Drive directly.
+      //
+      // That matters most for a small file: anything that fitted in a single
+      // chunk was finished by that chunk, and Drive's reply to a finished
+      // session carries no CORS headers. Asked from the browser it looks
+      // exactly like a dead network, which is how resuming a 1.8 MB PNG ended
+      // in "geen verbinding" while a 286 MB zip resumed perfectly.
+      let settled = await finalize()
+
+      if (settled.status === 409) {
+        const { receivedBytes } = await settled.json().catch(() => ({ receivedBytes: 0 }))
+        await putFileToDrive(file, pending.uploadUrl, setResumeProgress, Number(receivedBytes) || 0)
+        settled = await finalize()
+      }
+
+      if (!settled.ok) {
+        const { error } = await settled.json().catch(() => ({ error: `Opslaan mislukt (${settled.status}).` }))
         throw new Error(error ?? 'Opslaan mislukt.')
       }
 
