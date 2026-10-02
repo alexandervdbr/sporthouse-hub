@@ -16,6 +16,9 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 export interface DriveUploadedFile {
   id: string
+  // Only filled in by getFileMetadata; used to confirm an upload really
+  // landed in the folder it was meant for.
+  parents?: string[] | null
   name: string
   mimeType: string
   size: string | null | undefined
@@ -173,7 +176,7 @@ export async function getFileMetadata(fileId: string): Promise<DriveUploadedFile
   const drive = getClient()
   const res = await drive.files.get({
     fileId,
-    fields: 'id, name, mimeType, size, webViewLink, webContentLink, thumbnailLink',
+    fields: 'id, name, mimeType, size, webViewLink, webContentLink, thumbnailLink, parents',
     supportsAllDrives: true,
   })
   await sharePublicly(fileId)
@@ -185,6 +188,7 @@ export async function getFileMetadata(fileId: string): Promise<DriveUploadedFile
     webViewLink:    res.data.webViewLink!,
     webContentLink: res.data.webContentLink,
     thumbnailLink:  res.data.thumbnailLink,
+    parents:        res.data.parents ?? null,
   }
 }
 
@@ -261,6 +265,39 @@ export async function downloadFile(driveFileId: string) {
 // length matters: without it a browser can't show download progress, can't
 // tell a finished download from a truncated one, and won't resume a broken
 // one — all of which a 1 GB file over a phone connection needs.
+// Asks Drive how far a resumable session got — and, once it's complete, what
+// the file turned out to be.
+//
+// This is what makes a browser-to-Drive upload finishable. Google returns the
+// finished file in the body of the last chunk's response, but without CORS
+// headers, so the browser can see the bytes arrive and not what they became.
+// The same question asked from here comes back fully readable.
+export async function getResumableUploadResult(
+  uploadUrl: string,
+  totalBytes: number
+): Promise<{ done: true; fileId: string } | { done: false; receivedBytes: number }> {
+  const res = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Range': `bytes */${totalBytes}` },
+  })
+
+  if (res.status === 200 || res.status === 201) {
+    const body = await res.json().catch(() => null)
+    const fileId = body?.id
+    if (typeof fileId !== 'string') throw new Error('Drive gaf geen bestands-id terug.')
+    return { done: true, fileId }
+  }
+
+  if (res.status === 308) {
+    // "bytes=0-1048575" — absent entirely when nothing arrived yet.
+    const range = res.headers.get('range')
+    const receivedBytes = range ? Number(range.split('-')[1]) + 1 : 0
+    return { done: false, receivedBytes: Number.isFinite(receivedBytes) ? receivedBytes : 0 }
+  }
+
+  throw new Error(`Onverwacht antwoord van Drive (${res.status}).`)
+}
+
 export async function downloadFileWithMeta(driveFileId: string): Promise<{
   stream: NodeJS.ReadableStream
   contentLength?: string
