@@ -16,6 +16,7 @@ import { FileRecord } from '@/types/database'
 import { DriveThumbnail, DrivePreviewModal } from '@/components/shared/DrivePreview'
 import { extractVideoPoster, extractImagePoster, IMAGE_POSTER_MIN_BYTES } from '@/lib/media-poster'
 import { ALLOWED_UPLOAD_HINT, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/lib/upload-policy'
+import { rememberUpload, forgetUpload, pendingUploadsFor, type PendingUpload } from '@/lib/pending-uploads'
 
 function escapeHtml(s: string) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -219,10 +220,22 @@ function queryUploadStatus(uploadUrl: string, fileSize: number): Promise<number>
 // asking Drive for the real byte offset instead of starting over. Returns
 // once the last chunk has been sent; whether it arrived is for the server to
 // confirm, since that answer is not readable from here.
-async function putFileToDrive(file: File, uploadUrl: string, onProgress: (pct: number) => void): Promise<void> {
+async function putFileToDrive(
+  file: File,
+  uploadUrl: string,
+  onProgress: (pct: number) => void,
+  // Resuming an upload from an earlier visit: ask Drive what it already holds
+  // instead of starting at zero. It is the only authority on that — the
+  // browser's own idea of progress died with the page.
+  resume = false
+): Promise<void> {
   if (!uploadUrl.startsWith(DRIVE_UPLOAD_PREFIX)) throw new Error('Ongeldige upload-URL.')
 
   let offset = 0
+  if (resume) {
+    offset = await queryUploadStatus(uploadUrl, file.size)
+    onProgress(Math.round((offset / file.size) * 100))
+  }
   let consecutiveFailures = 0
   // Eight tries with a backoff that tops out at 8 seconds buys roughly a
   // minute of patience. A phone changing cells or a wifi hiccup takes seconds
@@ -471,6 +484,14 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
   // so a visit costs one request for the folder you were in rather than one
   // for the root followed by one for the folder.
   const [restored, setRestored] = useState(false)
+
+  // Uploads that were still running when this page last went away. Read once
+  // on arrival; the list lives in localStorage, not in React.
+  const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([])
+  const [resuming, setResuming] = useState<string | null>(null)
+  const [resumeProgress, setResumeProgress] = useState(0)
+  const resumeInputRef = useRef<HTMLInputElement>(null)
+  const resumeTargetRef = useRef<PendingUpload | null>(null)
 
   // A file id from the link, held until its folder's contents have loaded —
   // only then is there a record to hand the preview.
@@ -775,6 +796,10 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
     // Navigation may paint from cache; reloads after a change may not.
     loadData(true)
   }, [loadData, restored])
+
+  useEffect(() => {
+    setPendingUploads(pendingUploadsFor(scopeStorageKey))
+  }, [scopeStorageKey, uploading])
 
   useEffect(() => () => loadAbortRef.current?.abort(), [])
 
@@ -1214,6 +1239,60 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
     setPendingEntries(prev => prev.filter((_, i) => i !== index))
   }
 
+  // Picking up an upload that was interrupted. The session is still open at
+  // Drive's end, so only the part that never arrived has to be sent.
+  //
+  // The file has to be chosen again — a page reload takes the bytes with it,
+  // and no browser will hand them back on its own. Checking the name and size
+  // is what stops a different file being poured into an existing session,
+  // which would produce one corrupt file out of two good ones.
+  async function resumeUpload(pending: PendingUpload, file: File) {
+    if (file.name !== pending.filename || file.size !== pending.fileSize) {
+      setUploadError(`Dat is een ander bestand dan "${pending.filename}". Kies hetzelfde bestand om verder te gaan.`)
+      return
+    }
+
+    setResuming(pending.uploadUrl)
+    setUploadError(null)
+    setResumeProgress(0)
+
+    try {
+      await putFileToDrive(file, pending.uploadUrl, setResumeProgress, true)
+
+      const finalizeRes = await fetch(`${filesApi}/finalize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          [scopeKey]: scopeValue,
+          folderId: pending.folderId,
+          description: null,
+          uploadUrl: pending.uploadUrl,
+          fileSize: pending.fileSize,
+        }),
+      })
+      if (!finalizeRes.ok) {
+        const { error } = await finalizeRes.json().catch(() => ({ error: `Opslaan mislukt (${finalizeRes.status}).` }))
+        throw new Error(error ?? 'Opslaan mislukt.')
+      }
+
+      forgetUpload(pending.uploadUrl)
+      setPendingUploads(pendingUploadsFor(scopeStorageKey))
+      setUploadSuccess(`${pending.filename} is alsnog volledig geüpload.`)
+      loadData()
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err)
+      setUploadError(raw === 'Failed to fetch' || raw === 'NETWORK_ERROR'
+        ? 'Geen verbinding — hervatten afgebroken.'
+        : raw)
+    }
+    setResuming(null)
+  }
+
+  function discardPendingUpload(uploadUrl: string) {
+    forgetUpload(uploadUrl)
+    setPendingUploads(pendingUploadsFor(scopeStorageKey))
+  }
+
   async function handleUpload() {
     if (!pendingEntries.length) return
     setUploading(true); setUploadError(null); setUploadSuccess(null)
@@ -1297,6 +1376,18 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
           }
           const { uploadUrl } = await sessionRes.json()
 
+          // Noted before a single byte goes out, so a tab closed mid-upload
+          // leaves something to come back to. Drive holds the session for
+          // about a week and knows how much of it arrived.
+          rememberUpload({
+            uploadUrl,
+            filename: entry.file.name,
+            fileSize: entry.file.size,
+            folderId,
+            scope: scopeStorageKey,
+            startedAt: Date.now(),
+          })
+
           // 2. PUT the file straight to Drive — the bytes never touch our
           // server, which is what keeps a 1 GB upload off the transfer bill.
           await putFileToDrive(entry.file, uploadUrl, (pct) => {
@@ -1352,6 +1443,7 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
             }
           }
 
+          forgetUpload(uploadUrl)
           setPendingEntries(prev => prev.map((e, j) => j === i ? { ...e, status: 'done', progress: 100 } : e))
           doneCount++
         } catch (err) {
@@ -2682,7 +2774,60 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
           </div>
         )}
 
-        {uploadError && (
+        {pendingUploads.length > 0 && !uploading && (
+        <div className="mb-5 rounded-lg px-4 py-3" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)' }}>
+          <p className="text-xs text-zinc-400 mb-2">
+            {pendingUploads.length === 1 ? 'Een upload werd onderbroken' : `${pendingUploads.length} uploads werden onderbroken`}
+            {' '}— Drive bewaart wat er al aankwam, dus alleen de rest hoeft nog.
+          </p>
+          <div className="space-y-1.5">
+            {pendingUploads.map(pending => (
+              <div key={pending.uploadUrl} className="flex items-center gap-3 text-xs">
+                <span className="text-zinc-200 truncate flex-1">{pending.filename}</span>
+                <span className="text-zinc-600 flex-shrink-0">{formatSize(pending.fileSize)}</span>
+                {resuming === pending.uploadUrl ? (
+                  <span className="text-emerald-400 flex-shrink-0 tabular-nums">{resumeProgress}%</span>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => {
+                        resumeTargetRef.current = pending
+                        resumeInputRef.current?.click()
+                      }}
+                      disabled={!!resuming}
+                      className="text-emerald-400 hover:text-emerald-300 disabled:opacity-50 flex-shrink-0"
+                    >
+                      Verder gaan
+                    </button>
+                    <button
+                      onClick={() => discardPendingUpload(pending.uploadUrl)}
+                      aria-label="Vergeten"
+                      className="text-zinc-600 hover:text-zinc-400 flex-shrink-0"
+                    >
+                      <X size={12} />
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+          {/* Opens on "Verder gaan" — the file itself can't survive a reload,
+              so it has to be pointed at once more. */}
+          <input
+            ref={resumeInputRef}
+            type="file"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              const target = resumeTargetRef.current
+              e.target.value = ''
+              if (file && target) resumeUpload(target, file)
+            }}
+          />
+        </div>
+      )}
+
+      {uploadError && (
           <div className="px-4 py-3 bg-red-950/50 border border-red-900/50 rounded-lg">
             <p className="text-sm text-red-400">{uploadError}</p>
           </div>

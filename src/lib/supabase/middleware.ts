@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { getSessionUser } from '@/lib/supabase/claims'
+import { isFreelancerUser } from '@/lib/auth-permissions'
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -67,7 +68,7 @@ export async function updateSession(request: NextRequest) {
   }
 
   if (user) {
-    const isFreelancer = user.app_metadata?.freelancer === true
+    const isFreelancer = isFreelancerUser(user)
 
     // Freelancers only get /api/portal/* and /api/auth/* — every other API
     // route serves staff-only business data and must never be reachable by

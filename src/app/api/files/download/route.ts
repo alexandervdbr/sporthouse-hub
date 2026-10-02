@@ -3,7 +3,7 @@ import { Readable } from 'stream'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { downloadFileWithMeta, downloadFileRange } from '@/lib/drive-storage'
-import { hasClientAccess } from '@/lib/auth-permissions'
+import { hasClientAccess, isFreelancerUser } from '@/lib/auth-permissions'
 import { inlineMimeType } from '@/lib/upload-policy'
 
 // Streaming a large file through a function is bounded by this. Left at 300:
@@ -31,6 +31,15 @@ export async function GET(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Niet ingelogd.' }, { status: 401 })
+
+  // This route is deliberately excluded from the proxy's matcher, so that a
+  // streamed file isn't billed twice on its way out. The proxy is also what
+  // keeps freelancer accounts out of every staff route at once — so that
+  // check has to be made here, where it would otherwise be missing. Do not
+  // remove without putting this route back behind the proxy.
+  if (isFreelancerUser(user)) {
+    return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 })
+  }
 
   const { searchParams } = new URL(request.url)
   const id = searchParams.get('id')
