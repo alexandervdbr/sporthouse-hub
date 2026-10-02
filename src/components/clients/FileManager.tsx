@@ -1437,7 +1437,40 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
     return url.toString()
   }
 
+  // Copied in two flavours at once: the bare URL, and the same URL wrapped in
+  // an anchor with the file or folder name as its text.
+  //
+  // Paste into Slack, Teams, a mail or Notion and you get the word "Talks" as
+  // a clickable link instead of 132 characters of UUID. Paste somewhere that
+  // only takes plain text — WhatsApp, a terminal — and the clipboard hands
+  // over the URL instead, which is exactly right there.
+  //
+  // The label is a filename, so it goes through escapeHtml: a name with an
+  // ampersand or a tag in it would otherwise produce markup we never meant.
+  // The href needs no escaping of its own — it comes out of `new URL()`, so
+  // it can't carry a quote that would break out of the attribute.
   async function copyLink(url: string, label: string) {
+    const html = `<a href="${escapeHtml(url)}">${escapeHtml(label)}</a>`
+
+    try {
+      // Built before any await, since Safari only honours a clipboard write
+      // that happens within the gesture that triggered it.
+      if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'text/html': new Blob([html], { type: 'text/html' }),
+            'text/plain': new Blob([url], { type: 'text/plain' }),
+          }),
+        ])
+      } else {
+        await navigator.clipboard.writeText(url)
+      }
+      setCopiedLabel(label)
+      return
+    } catch { /* fall through to the plain-text attempt below */ }
+
+    // Some browsers refuse write() but allow writeText(); a plain URL on the
+    // clipboard is worth more than a failure message.
     try {
       await navigator.clipboard.writeText(url)
       setCopiedLabel(label)
