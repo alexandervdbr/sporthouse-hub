@@ -884,7 +884,11 @@ export default function PlanningApp() {
       const rows = toUpsert.map(e => ({
         year: e.wd.year, month: e.wd.month, day: e.wd.day, department: e.dept, employee: e.emp,
         value: e.cell!.value, bold: e.cell!.bold, text_color: e.cell!.textColor, bg_color: e.cell!.bgColor, note: e.cell!.note,
-        updated_by: userEmail, updated_at: new Date().toISOString(),
+        // updated_at wordt bewust niet meegestuurd: een trigger op de tabel
+        // zet hem met de klok van de database. De planning zoekt op die
+        // tijdstempel om alleen wijzigingen op te halen, en een browserklok
+        // die achterloopt zou wijzigingen onzichtbaar maken.
+        updated_by: userEmail,
       }))
       await supabase.from('planning_entries').upsert(rows, { onConflict: 'year,month,day,department,employee' })
     }
