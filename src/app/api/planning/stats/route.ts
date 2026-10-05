@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { hasSection } from '@/lib/auth-permissions'
+import { fetchAllRows } from '@/lib/planning-paginate'
 
 // GET — per-employee, per-status day counts for a given year (optionally
 // narrowed to one month) — the aggregation behind the Statistieken tab.
@@ -20,13 +21,23 @@ export async function GET(req: Request) {
   const month = monthParam ? Number(monthParam) : null
   if (!year) return new Response('Missing year', { status: 400 })
 
-  let query = supabase.from('planning_entries').select('employee, value').eq('year', year)
-  if (month) query = query.eq('month', month)
-  const { data, error } = await query
-  if (error) return new Response(error.message, { status: 500 })
+  // Gepagineerd, niet in één vraag: een jaar zit ver boven de duizend rijen
+  // die Supabase standaard teruggeeft, en een drukke maand ook. Zonder dit
+  // telde deze tabel een willekeurig deel van de planning en zag dat er net
+  // zo geloofwaardig uit. Zie src/lib/planning-paginate.ts.
+  let data: { employee: string; value: string }[]
+  try {
+    data = await fetchAllRows<{ employee: string; value: string }>(() => {
+      let query = supabase.from('planning_entries').select('employee, value').eq('year', year)
+      if (month) query = query.eq('month', month)
+      return query.order('id', { ascending: true })
+    })
+  } catch (e) {
+    return new Response(e instanceof Error ? e.message : 'Ophalen mislukt', { status: 500 })
+  }
 
   const counts = new Map<string, Map<string, number>>()
-  for (const row of data ?? []) {
+  for (const row of data) {
     const byValue = counts.get(row.employee) ?? new Map<string, number>()
     byValue.set(row.value, (byValue.get(row.value) ?? 0) + 1)
     counts.set(row.employee, byValue)

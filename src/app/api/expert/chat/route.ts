@@ -4,6 +4,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { DEPARTMENTS, DUTCH_DAYS, DUTCH_MONTHS } from '@/lib/planning-config'
 import { downloadFile } from '@/lib/drive-storage'
 import { formatKennisbank } from '@/lib/kennisbank-questions'
+import { fetchAllRows } from '@/lib/planning-paginate'
 
 export const maxDuration = 300
 import { hasClientAccess } from '@/lib/auth-permissions'
@@ -50,8 +51,31 @@ function nextMonth(year: number, month: number) {
 
 // ─── Planning formatter ───────────────────────────────────────────────────────
 
+type PlanningContextRow = {
+  day: number; year: number; month: number; department: string; employee: string; value: string
+}
+
+async function fetchPlanningMonth(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  year: number,
+  month: number,
+): Promise<PlanningContextRow[]> {
+  try {
+    return await fetchAllRows<PlanningContextRow>(() =>
+      supabase
+        .from('planning_entries')
+        .select('day, year, month, department, employee, value')
+        .eq('year', year)
+        .eq('month', month)
+        .order('id', { ascending: true })
+    )
+  } catch {
+    return []
+  }
+}
+
 function formatPlanning(
-  entries: { day: number; year: number; month: number; department: string; employee: string; value: string }[],
+  entries: PlanningContextRow[],
   dayProjects: { date: string; project_name: string }[],
   year: number,
   month: number,
@@ -164,8 +188,8 @@ export async function POST(request: NextRequest) {
   // ── Fetch all data in parallel ─────────────────────────────────────────────
   const [
     { data: files },
-    { data: planningCur },
-    { data: planningNxt },
+    planningCur,
+    planningNxt,
     { data: equipmentList },
     { data: resCur },
     { data: resNxt },
@@ -173,8 +197,13 @@ export async function POST(request: NextRequest) {
     { data: dayProjNxt },
   ] = await Promise.all([
     supabase.from('files').select('id, filename, description, file_type, storage_path, storage_provider, drive_file_id').eq('client_id', clientId).is('deleted_at', null).order('created_at'),
-    supabase.from('planning_entries').select('day, year, month, department, employee, value').eq('year', curY).eq('month', curM),
-    supabase.from('planning_entries').select('day, year, month, department, employee, value').eq('year', nxt.year).eq('month', nxt.month),
+    // Gepagineerd: een drukke maand gaat over de duizend rijen die Supabase
+    // standaard teruggeeft, en de AI kreeg dan een afgekapte planning mee
+    // zonder dat iets dat liet zien — en antwoordde er even zelfzeker over.
+    // Bij een leesfout liever een lege planning dan een kapot gesprek, net
+    // zoals het hiervoor ging. Zie src/lib/planning-paginate.ts.
+    fetchPlanningMonth(supabase, curY, curM),
+    fetchPlanningMonth(supabase, nxt.year, nxt.month),
     supabase.from('equipment').select('id, name, category').order('category').order('name'),
     supabase.from('equipment_reservations').select('equipment_id, date, reserved_by, project').gte('date', cur.start).lte('date', cur.end),
     supabase.from('equipment_reservations').select('equipment_id, date, reserved_by, project').gte('date', next.start).lte('date', next.end),
@@ -242,8 +271,8 @@ export async function POST(request: NextRequest) {
 
   // ── Build planning context ─────────────────────────────────────────────────
   const planningBlock = [
-    formatPlanning(planningCur ?? [], dayProjCur ?? [], curY, curM),
-    formatPlanning(planningNxt ?? [], dayProjNxt ?? [], nxt.year, nxt.month),
+    formatPlanning(planningCur, dayProjCur ?? [], curY, curM),
+    formatPlanning(planningNxt, dayProjNxt ?? [], nxt.year, nxt.month),
   ].join('\n\n')
 
   // ── Build materiaal context ────────────────────────────────────────────────

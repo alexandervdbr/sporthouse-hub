@@ -6,6 +6,15 @@
 
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { isAdminUser } from '@/lib/auth-permissions'
+import { fetchAllRows } from '@/lib/planning-paginate'
+
+interface StalenessRow {
+  department: string
+  employee: string
+  year: number
+  month: number
+  day: number
+}
 
 export async function GET() {
   const supabase = await createClient()
@@ -13,14 +22,25 @@ export async function GET() {
   if (!user || !isAdminUser(user)) return new Response('Forbidden', { status: 403 })
 
   const admin = createAdminClient()
-  const { data, error } = await admin
-    .from('planning_entries')
-    .select('department, employee, year, month, day')
 
-  if (error) return new Response(error.message, { status: 500 })
+  // Dit leest de hele tabel, dus de duizend-rijen-grens bijt hier het hardst:
+  // ongepagineerd kwam er een willekeurig deel terug en wees de "60 dagen niet
+  // ingepland"-waarschuwing dus naar willekeurige mensen. Zie
+  // src/lib/planning-paginate.ts.
+  let data: StalenessRow[]
+  try {
+    data = await fetchAllRows<StalenessRow>(() =>
+      admin
+        .from('planning_entries')
+        .select('department, employee, year, month, day')
+        .order('id', { ascending: true })
+    )
+  } catch (e) {
+    return new Response(e instanceof Error ? e.message : 'Ophalen mislukt', { status: 500 })
+  }
 
   const lastSeen = new Map<string, number>()
-  for (const r of data ?? []) {
+  for (const r of data) {
     const key = `${r.department}|${r.employee}`
     const t = Date.UTC(r.year, r.month - 1, r.day)
     const prev = lastSeen.get(key)

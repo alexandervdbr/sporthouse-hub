@@ -12,6 +12,7 @@ import { isAdminUser } from '@/lib/auth-permissions'
 import {
   monthCacheKey, readCachedMonth, writeCachedMonth, SELECT_COLS, type PlanningRow,
 } from '@/lib/planning-cache'
+import { fetchAllRows } from '@/lib/planning-paginate'
 import type { PlanningPreset } from '@/lib/planning-presets'
 import PlanningConfigModal from './PlanningConfigModal'
 import NamePicker from './NamePicker'
@@ -27,16 +28,6 @@ const norm = normName
 
 type Tab = 'mijn' | 'team' | 'stats'
 type TeamViewMode = 'week' | 'month'
-
-// Supabase geeft standaard hoogstens 1000 rijen terug. Een drukke maand zit
-// daarboven — maart 2026 heeft er 1257 — en wat eroverheen gaat verdween
-// zonder melding: cellen zagen er leeg uit terwijl er wel iets stond.
-//
-// Daarom in pagina's, tot er minder terugkomt dan een volle pagina. De
-// sortering is daarbij geen smaakkwestie: zonder vaste volgorde mag Postgres
-// rijen per pagina anders ordenen, en dan mis je er alsnog of krijg je ze
-// dubbel. Op `id` is willekeurig maar uniek, en dat is het enige dat telt.
-const PAGE_SIZE = 1000
 
 // How often the background poll brings every visible month up to date, and —
 // the same number on purpose — how recently a month must have been synced for
@@ -55,19 +46,6 @@ const PAGE_SIZE = 1000
 // fresher. The live socket is what keeps editing feel immediate; this is the
 // ceiling on how stale things may get if that socket dies.
 const POLL_INTERVAL = 60000
-
-async function fetchAllRows<T>(
-  build: () => { range: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }> }
-): Promise<T[]> {
-  const all: T[] = []
-  for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await build().range(from, from + PAGE_SIZE - 1)
-    if (error) throw error
-    const page = data ?? []
-    all.push(...page)
-    if (page.length < PAGE_SIZE) return all
-  }
-}
 
 // Known, confirmed overrides for first names shared by more than one real
 // Team contact — see the reconciliation effect below for how this is used.
