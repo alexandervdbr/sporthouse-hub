@@ -1,9 +1,9 @@
 // A copy of the months you've already looked at, kept in the browser.
 //
-// Opening a month used to cost a full fetch of every row in it — 217 kB for a
-// busy month — and you got a loading state while it ran, every single time,
-// including for a month you'd looked at a minute earlier. Walking a few weeks
-// forward and back through March paid that bill on each step.
+// Opening a month used to cost a full fetch of every row in it, and you got a
+// loading state while it ran, every single time, including for a month you'd
+// looked at a minute earlier. Walking a few weeks forward and back through
+// March paid that bill on each step.
 //
 // With a cached copy the grid paints from localStorage before anything leaves
 // the browser, and the network is only asked the much smaller question of what

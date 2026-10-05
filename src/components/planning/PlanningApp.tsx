@@ -38,16 +38,23 @@ type TeamViewMode = 'week' | 'month'
 // dubbel. Op `id` is willekeurig maar uniek, en dat is het enige dat telt.
 const PAGE_SIZE = 1000
 
-// How recently a month must have been synced for navigating back to it to
-// cost nothing at all.
+// How often the background poll brings every visible month up to date, and —
+// the same number on purpose — how recently a month must have been synced for
+// navigating back to it to cost nothing at all.
 //
 // Measured rather than assumed: Supabase gzips its responses, so a full month
 // is about 10 kB on the wire, not the 194 kB of raw JSON. A sync saves most of
 // those bytes but costs two requests where a full fetch costs one — and it is
 // the number of requests the log quota counts, the one we were furthest over.
-// So a month synced moments ago is served from the cached copy and nothing is
-// asked at all; the sixty-second poll and the live socket keep it current.
-const SYNC_MIN_INTERVAL = 30000
+// So a month synced within the last interval is served from the cached copy
+// and nothing is asked at all.
+//
+// One number rather than two, because a shorter threshold would buy nothing:
+// what's on screen is already allowed to be an interval behind, so re-asking
+// sooner than the poll does only adds requests without making anything
+// fresher. The live socket is what keeps editing feel immediate; this is the
+// ceiling on how stale things may get if that socket dies.
+const POLL_INTERVAL = 60000
 
 async function fetchAllRows<T>(
   build: () => { range: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }> }
@@ -599,7 +606,7 @@ export default function PlanningApp() {
   // So an edit or an addition costs a few hundred bytes. A deletion costs one
   // re-fetch. Before this, any change in the count at all forced that
   // re-fetch, including a plain addition.
-  // When each month was last synced in this session — see SYNC_MIN_INTERVAL.
+  // When each month was last synced in this session — see POLL_INTERVAL.
   const lastSyncedRef = useRef(new Map<string, number>())
 
   const syncMonth = useCallback(async (g: { year: number; month: number }, callId: number): Promise<boolean> => {
@@ -699,7 +706,7 @@ export default function PlanningApp() {
         // incrementally (rows were deleted) is re-fetched in full, silently;
         // what's on screen is already a reasonable answer in the meantime.
         const stale = months.filter(g =>
-          Date.now() - (lastSyncedRef.current.get(groupKey(g)) ?? 0) > SYNC_MIN_INTERVAL)
+          Date.now() - (lastSyncedRef.current.get(groupKey(g)) ?? 0) > POLL_INTERVAL)
         if (stale.length === 0) return
         const synced = await Promise.all(stale.map(g => syncMonthRef.current(g, callId)))
         if (callId !== loadCallIdRef.current) return
@@ -726,9 +733,11 @@ export default function PlanningApp() {
 
   // The cheap version of the above, for the background safety net.
   //
-  // Re-fetching the visible month cost 217 kB every twenty seconds per open
-  // tab — about 39 MB an hour, which is how a 5 GB monthly allowance went in
-  // a few weeks. syncMonth asks two much smaller questions instead, and only
+  // Re-fetching the visible month every twenty seconds per open tab is how a
+  // 5 GB monthly allowance went in a few weeks — about 2 MB an hour each, and
+  // three requests a minute on top. (Measured on the wire: Supabase gzips, so
+  // a month is roughly 10 kB a time, not the 194 kB of raw JSON it looks like
+  // locally.) syncMonth asks two much smaller questions instead, and only
   // falls back to a re-fetch when rows were actually deleted.
   const pollForChanges = useCallback(async (): Promise<void> => {
     const callId = ++loadCallIdRef.current
@@ -793,7 +802,7 @@ export default function PlanningApp() {
   // actually visible — a backgrounded tab needs fresh data when you come back
   // to it, and coming back already triggers a full reload on its own. And it
   // asks pollForChanges rather than reloading the period, which is the
-  // difference between a few hundred bytes and 217 kB a time.
+  // difference between about 2 kB and about 10 kB a time.
   //
   // A minute rather than twenty seconds: this is the backstop behind realtime,
   // not the thing keeping the screen live.
@@ -801,7 +810,7 @@ export default function PlanningApp() {
     const id = setInterval(() => {
       if (document.visibilityState !== 'visible') return
       pollForChangesRef.current()
-    }, 60000)
+    }, POLL_INTERVAL)
     return () => clearInterval(id)
   }, [])
 
