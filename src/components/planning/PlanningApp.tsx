@@ -702,17 +702,30 @@ export default function PlanningApp() {
           'postgres_changes',
           { event: '*', schema: 'public', table: 'planning_entries' },
           payload => {
-            // Temporary, deliberately loud diagnostic — confirms whether an
-            // event actually reaches this browser tab at all, as opposed to
-            // a delivery/RLS gap upstream that the "SUBSCRIBED" status
-            // alone can't reveal (a channel can join successfully and still
-            // never receive a specific row's events).
-            console.log('Planning live-sync ontving:', payload.eventType, payload.new ?? payload.old)
             if (payload.eventType === 'DELETE') {
-              const old = payload.old as { year: number; month: number; day: number; department: string; employee: string }
+              const old = payload.old as Partial<PlanningRow>
+
+              // Postgres only puts the primary key in a DELETE's old row
+              // unless the table is set to full replica identity — and this
+              // one's identity is the year/month/day/department/employee
+              // combination, not that id. Measured against the live database:
+              // what arrives here is `{ id: … }` and nothing else, which names
+              // no cell at all.
+              //
+              // Migration 0045 sets that identity, but it depends on having
+              // been applied — and on Realtime having picked it up. Rather
+              // than trust a database setting this code can't see, an
+              // unusable payload falls through to a poll: that compares the
+              // row count, finds one missing, and reloads. One small request,
+              // only when something is actually deleted.
+              if (old.year === undefined || old.department === undefined || old.employee === undefined) {
+                pollForChangesRef.current()
+                return
+              }
+
               setData(prev => {
                 const next = { ...prev }
-                delete next[dateCellKey(old.year, old.month, old.day, old.department, old.employee)]
+                delete next[dateCellKey(old.year!, old.month!, old.day!, old.department!, old.employee!)]
                 return next
               })
               return
