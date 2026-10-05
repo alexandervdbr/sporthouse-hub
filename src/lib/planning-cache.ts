@@ -143,3 +143,14 @@ export function clearPlanningCache() {
     }
   }
 }
+
+// Alleen de maandkopie, zonder de identiteit of de config aan te raken. Nodig
+// nadat cellen van naam veranderd zijn (zie /api/planning/rename): de kopie in
+// de browser staat dan nog op de oude namen, maar wie je bent is ongewijzigd.
+export function clearPlanningMonthCache() {
+  try {
+    localStorage.removeItem(CACHE_KEY)
+  } catch {
+    // Niet beschikbaar (private browsing) — dan staat er ook niets.
+  }
+}

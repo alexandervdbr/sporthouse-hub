@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ChevronLeft, ChevronRight, Loader2, Settings, Search, TriangleAlert, X, Users } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, Loader2, Settings, Search, TriangleAlert, X, Users } from 'lucide-react'
 import { DEPARTMENTS, DUTCH_MONTHS, UNASSIGNED_DEPT, normName, type Department } from '@/lib/planning-config'
 import {
   addMonths, addWeeks, dateCellKey, getMonthWeeks, getWeekDates, groupWeekByMonth, weekDayCellKey, weekLabel,
@@ -10,10 +10,11 @@ import {
 } from '@/lib/planning-week'
 import { isAdminUser } from '@/lib/auth-permissions'
 import {
-  monthCacheKey, readCachedMonth, writeCachedMonth, SELECT_COLS,
+  monthCacheKey, readCachedMonth, writeCachedMonth, clearPlanningMonthCache, SELECT_COLS,
   CONFIG_CACHE_KEY, IDENTITY_KEY, IDENTITY_ACCOUNT_KEY, type PlanningRow,
 } from '@/lib/planning-cache'
 import { fetchAllRows } from '@/lib/planning-paginate'
+import type { PlanningRename, RenameResponse } from '@/lib/planning-rename'
 import type { PlanningPreset } from '@/lib/planning-presets'
 import PlanningConfigModal from './PlanningConfigModal'
 import NamePicker from './NamePicker'
@@ -59,6 +60,25 @@ const AMBIGUOUS_FIRST_NAME_OVERRIDES: Record<string, { surnamePrefix: string; de
     { surnamePrefix: 'm', dept: 'Projectkant SHG' },  // Thijs Meusen
     { surnamePrefix: 'g', dept: 'FOS' },              // Thijs Goemand(s)
   ],
+}
+
+// Wat effect 2 hieronder voorstelt: welke kale voornamen hun echte Team-naam
+// zouden krijgen, welke namen erbij komen, en hoe het rooster er daarna
+// uitziet. Pas als iemand het toepast gaat het naar /api/planning/rename.
+interface RosterProposal {
+  renames: PlanningRename[]
+  additions: { dept: string; emp: string }[]
+  departments: Department[]
+}
+
+function sameProposal(a: RosterProposal | null, b: RosterProposal | null): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+  const key = (p: RosterProposal) => JSON.stringify([
+    p.renames.map(r => [r.fromDept, r.fromEmp, r.toDept, r.toEmp]),
+    p.additions.map(x => [x.dept, x.emp]),
+  ])
+  return key(a) === key(b)
 }
 
 // The department config always used to start life as the hardcoded
@@ -177,6 +197,7 @@ export default function PlanningApp() {
   const [identityLoaded, setIdentityLoaded] = useState(false)
 
   const [teamSearch, setTeamSearch] = useState('')
+  const [showProposal, setShowProposal] = useState(false)
 
   // ── Load departments config ─────────────────────────────────────────────
   // Een lege config (status 200, body `null`) is een geldig antwoord: dan
@@ -251,14 +272,24 @@ export default function PlanningApp() {
   // produced the very duplicates the effects below now clean up).
   const configWriteRef = useRef(false)
 
-  // 1) Exact duplicate names anywhere in the saved config (case/accent-
+  // 1) Exact duplicate names within one department (case/accent-
   // insensitive) — e.g. the same name saved twice by the double-save race
   // above before this lock existed.
+  //
+  // Per afdeling, niet over het hele rooster. Dat deed het eerst wél, en dat
+  // is geen ontdubbeling maar gegevensverlies: twee mensen met dezelfde
+  // voornaam in verschillende afdelingen ("Thibault" bij Stags PS én bij
+  // STAGS Projectkant) zijn twee mensen, en de tweede werd stil uit het
+  // rooster gegooid — met al zijn cellen, want die staan op (afdeling, naam)
+  // en blijven dus achter onder een afdeling die hem niet meer kent.
+  //
+  // Binnen één afdeling is het wél een echt duplicaat: dezelfde sleutel, dus
+  // dezelfde rijen. Daar valt niets te verliezen.
   useEffect(() => {
     if (!isBeheer || configFailed || activeDepts.length === 0 || configWriteRef.current) return
-    const seen = new Set<string>()
     let changed = false
     const next = activeDepts.map(d => {
+      const seen = new Set<string>()
       const employees = d.employees.filter(e => {
         const key = normName(e)
         if (seen.has(key)) { changed = true; return false }
@@ -274,16 +305,29 @@ export default function PlanningApp() {
 
   // 2) A long-standing manual-entry convention here stores lots of people as
   // a bare first name only ("Yaro", "Tim", …) rather than a full name — this
-  // resolves every one of those against the real Team contact it means,
-  // renaming it in place. When a first name matches more than one Team
-  // contact (two people both named "Jelle", "Thijs", …), a per-name
-  // override (declared at module scope so its reference is stable across
-  // renders) says which surname goes to which department; anything
-  // ambiguous with no override is left untouched (still flagged "niet in
-  // team" — a genuine remaining conflict to sort out manually) rather than
-  // guessing wrong.
+  // resolves every one of those against the real Team contact it means.
+  // When a first name matches more than one Team contact (two people both
+  // named "Jelle", "Thijs", …), a per-name override (declared at module
+  // scope so its reference is stable across renders) says which surname goes
+  // to which department; anything ambiguous with no override is left
+  // untouched (still flagged "niet in team" — a genuine remaining conflict
+  // to sort out manually) rather than guessing wrong.
+  //
+  // Dit schreef de hernoemingen vroeger meteen weg, zonder dat iemand erom
+  // vroeg — bij het openen van de pagina door een beheerder. En een
+  // hernoeming is hier geen tekstwijziging: planning_entries staat op
+  // (afdeling, naam), dus alles wat onder "Yaro" stond verdween uit het
+  // raster en bleef meetellen in Statistieken onder een naam die niemand nog
+  // ziet. Onbeheerd, en niet terug te draaien.
+  //
+  // Nu berekent dit effect alleen nog een voorstel. Toepassen gaat via
+  // /api/planning/rename, die de rijen mee verhuist. Niet toepassen laat
+  // alles staan zoals het staat — dat is het veilige antwoord.
+  const [rosterProposal, setRosterProposal] = useState<RosterProposal | null>(null)
   useEffect(() => {
     if (!isBeheer || configFailed || teamContacts.length === 0 || activeDepts.length === 0 || configWriteRef.current) return
+    const renames: PlanningRename[] = []
+    const additions: { dept: string; emp: string }[] = []
     let changed = false
     const next = activeDepts.map(d => ({ ...d, employees: [...d.employees] }))
 
@@ -295,7 +339,11 @@ export default function PlanningApp() {
         const matches = teamContacts.filter(c => normName(c.name.trim().split(/\s+/)[0] ?? '') === firstNorm)
         if (matches.length === 0) continue // no Team contact at all — a genuine temporary/manual entry
         if (matches.length === 1) {
-          if (matches[0].name !== emp) { dept.employees[i] = matches[0].name; changed = true }
+          if (matches[0].name !== emp) {
+            renames.push({ fromDept: dept.name, fromEmp: emp, toDept: dept.name, toEmp: matches[0].name })
+            dept.employees[i] = matches[0].name
+            changed = true
+          }
           continue
         }
         const override = AMBIGUOUS_FIRST_NAME_OVERRIDES[firstNorm]
@@ -303,7 +351,11 @@ export default function PlanningApp() {
         const here = override.find(o => o.dept === dept.name)
         if (!here) continue // this slot's department isn't one of the overrides — leave it
         const contact = matches.find(c => normName(c.name.trim().split(/\s+/)[1] ?? '').startsWith(here.surnamePrefix))
-        if (contact && contact.name !== emp) { dept.employees[i] = contact.name; changed = true }
+        if (contact && contact.name !== emp) {
+          renames.push({ fromDept: dept.name, fromEmp: emp, toDept: dept.name, toEmp: contact.name })
+          dept.employees[i] = contact.name
+          changed = true
+        }
       }
     }
 
@@ -322,14 +374,67 @@ export default function PlanningApp() {
         let bucket = next.find(d => d.name === o.dept)
         if (!bucket) { bucket = { name: o.dept, employees: [] }; next.push(bucket) }
         bucket.employees.push(contact.name)
+        additions.push({ dept: o.dept, emp: contact.name })
         changed = true
       }
     }
 
-    if (!changed) return
-    configWriteRef.current = true
-    handleSaveConfig(next).finally(() => { configWriteRef.current = false })
-  }, [isBeheer, configFailed, teamContacts, activeDepts, handleSaveConfig])
+    // Zelfde voorstel niet opnieuw aanbieden: zonder deze vergelijking zou
+    // elke render die activeDepts aanraakt een nieuw object zetten en de balk
+    // laten knipperen.
+    setRosterProposal(prev => {
+      const proposal = changed ? { renames, additions, departments: next } : null
+      if (sameProposal(prev, proposal)) return prev
+      return proposal
+    })
+  }, [isBeheer, configFailed, teamContacts, activeDepts])
+
+  // Het voorstel toepassen: eerst de rijen verhuizen, dan het rooster
+  // wegschrijven — allebei in één route, zodat ze niet uit elkaar kunnen
+  // lopen. Lukt een verhuizing niet (er staat al iets onder de nieuwe naam op
+  // dezelfde dag), dan gaat er niets door en zegt de balk waarom.
+  const [applyingProposal, setApplyingProposal] = useState(false)
+  const [proposalError, setProposalError] = useState('')
+
+  async function applyRosterProposal() {
+    if (!rosterProposal || applyingProposal) return
+    setApplyingProposal(true)
+    setProposalError('')
+    try {
+      const res = await fetch('/api/planning/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          renames: rosterProposal.renames,
+          departments: rosterProposal.departments,
+        }),
+      })
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as RenameResponse | null
+        const blocked = body?.results?.filter(r => !r.ok) ?? []
+        setProposalError(
+          blocked.length > 0
+            ? blocked.map(r => `${r.fromEmp} → ${r.toEmp}: ${r.reason ?? 'mislukt'}`).join(' · ')
+            : body?.reason ?? `Toepassen mislukt (${res.status}).`
+        )
+        return
+      }
+      setActiveDepts(rosterProposal.departments)
+      try {
+        localStorage.setItem(CONFIG_CACHE_KEY, JSON.stringify(rosterProposal.departments))
+      } catch { /* private browsing */ }
+      setRosterProposal(null)
+      // De verhuisde cellen staan nu onder een andere naam, dus wat in het
+      // raster en in de maandcache zit klopt niet meer. Alleen de maandkopie:
+      // wie je bent is niet veranderd.
+      clearPlanningMonthCache()
+      setRefreshTick(t => t + 1)
+    } catch {
+      setProposalError('Toepassen mislukt — geen verbinding?')
+    } finally {
+      setApplyingProposal(false)
+    }
+  }
 
   // 3) New Team contacts land in a "Nieuw" bucket automatically. Someone
   // already represented by a bare first name (see above) counts as known —
@@ -1214,6 +1319,58 @@ export default function PlanningApp() {
             terugvallijst, die achterhaald kan zijn. De planning zelf is wel
             actueel. Herlaad de pagina; blijft dit staan, meld het dan even.
           </p>
+        </div>
+      )}
+
+      {/* Het rooster-voorstel (zie effect 2). Beheer-only, en bewust hier in
+          plaats van in de configuratiemodal: het is iets wat je wil zien
+          zonder ernaar te gaan zoeken. Niets klikken verandert niets. */}
+      {isBeheer && rosterProposal && (
+        <div className="flex-shrink-0 rounded-xl border border-sky-900/40 bg-sky-950/20 overflow-hidden">
+          <button
+            onClick={() => setShowProposal(v => !v)}
+            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-sky-300"
+          >
+            <Users size={13} className="flex-shrink-0" />
+            {rosterProposal.renames.length > 0
+              ? `${rosterProposal.renames.length} naam${rosterProposal.renames.length === 1 ? '' : 'en'} te koppelen aan Team`
+              : `${rosterProposal.additions.length} naam${rosterProposal.additions.length === 1 ? '' : 'en'} toe te voegen`}
+            <span className="ml-auto text-sky-600">
+              {showProposal ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            </span>
+          </button>
+          {showProposal && (
+            <div className="px-3 pb-2.5 space-y-2">
+              <div className="space-y-0.5">
+                {rosterProposal.renames.map(r => (
+                  <p key={`r-${r.fromDept}|${r.fromEmp}`} className="text-xs text-zinc-300">
+                    <span className="text-zinc-500">{r.fromDept}:</span> {r.fromEmp}
+                    <span className="text-zinc-600"> → </span>{r.toEmp}
+                  </p>
+                ))}
+                {rosterProposal.additions.map(a => (
+                  <p key={`a-${a.dept}|${a.emp}`} className="text-xs text-zinc-300">
+                    <span className="text-zinc-500">{a.dept}:</span> {a.emp}
+                    <span className="text-zinc-600"> (nieuw)</span>
+                  </p>
+                ))}
+              </div>
+              <p className="text-[10px] text-zinc-500">
+                Bestaande planning verhuist mee naar de nieuwe naam. Niets doen
+                laat alles staan zoals het staat.
+              </p>
+              {proposalError && <p className="text-[10px] text-red-400">{proposalError}</p>}
+              <button
+                onClick={applyRosterProposal}
+                disabled={applyingProposal}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white transition-colors disabled:opacity-50"
+                style={{ backgroundColor: '#3A913F' }}
+              >
+                {applyingProposal && <Loader2 size={12} className="animate-spin" />}
+                Toepassen
+              </button>
+            </div>
+          )}
         </div>
       )}
 
