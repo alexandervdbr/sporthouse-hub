@@ -389,10 +389,55 @@ export default function PlanningApp() {
     })
   }, [isBeheer, configFailed, teamContacts, activeDepts])
 
-  // Het voorstel toepassen: eerst de rijen verhuizen, dan het rooster
-  // wegschrijven — allebei in één route, zodat ze niet uit elkaar kunnen
-  // lopen. Lukt een verhuizing niet (er staat al iets onder de nieuwe naam op
-  // dezelfde dag), dan gaat er niets door en zegt de balk waarom.
+  // Bumped whenever the tab regains visibility (see the realtime effect
+  // further down) purely to force the load effect to re-run — an independent
+  // safety net so coming back to the tab always refetches, regardless of
+  // whether the realtime socket caught everything meanwhile.
+  //
+  // Staat hier, boven applyRenames, omdat die hem ook gebruikt: na een
+  // verhuizing staan de cellen onder een andere naam en moet het raster
+  // opnieuw ophalen.
+  const [refreshTick, setRefreshTick] = useState(0)
+
+  // Verhuizen: eerst de rijen, dan het rooster — allebei in één route, zodat
+  // ze niet uit elkaar kunnen lopen. Gedeeld door het voorstel hieronder en
+  // door de configuratiemodal, want die doet precies hetzelfde zodra iemand
+  // daar een naam hernoemt of naar een andere afdeling sleept.
+  const applyRenames = useCallback(async (
+    renames: PlanningRename[],
+    departments: Department[],
+  ): Promise<{ ok: true } | { ok: false; error: string }> => {
+    try {
+      const res = await fetch('/api/planning/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ renames, departments }),
+      })
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as RenameResponse | null
+        const blocked = body?.results?.filter(r => !r.ok) ?? []
+        return {
+          ok: false,
+          error: blocked.length > 0
+            ? blocked.map(r => `${r.fromEmp} → ${r.toEmp}: ${r.reason ?? 'mislukt'}`).join(' · ')
+            : body?.reason ?? `Verplaatsen mislukt (${res.status}).`,
+        }
+      }
+      setActiveDepts(departments)
+      try {
+        localStorage.setItem(CONFIG_CACHE_KEY, JSON.stringify(departments))
+      } catch { /* private browsing */ }
+      // De verhuisde cellen staan nu onder een andere naam, dus wat in het
+      // raster en in de maandcache zit klopt niet meer. Alleen de maandkopie:
+      // wie je bent is niet veranderd.
+      clearPlanningMonthCache()
+      setRefreshTick(t => t + 1)
+      return { ok: true }
+    } catch {
+      return { ok: false, error: 'Verplaatsen mislukt — geen verbinding?' }
+    }
+  }, [])
+
   const [applyingProposal, setApplyingProposal] = useState(false)
   const [proposalError, setProposalError] = useState('')
 
@@ -400,40 +445,10 @@ export default function PlanningApp() {
     if (!rosterProposal || applyingProposal) return
     setApplyingProposal(true)
     setProposalError('')
-    try {
-      const res = await fetch('/api/planning/rename', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          renames: rosterProposal.renames,
-          departments: rosterProposal.departments,
-        }),
-      })
-      if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as RenameResponse | null
-        const blocked = body?.results?.filter(r => !r.ok) ?? []
-        setProposalError(
-          blocked.length > 0
-            ? blocked.map(r => `${r.fromEmp} → ${r.toEmp}: ${r.reason ?? 'mislukt'}`).join(' · ')
-            : body?.reason ?? `Toepassen mislukt (${res.status}).`
-        )
-        return
-      }
-      setActiveDepts(rosterProposal.departments)
-      try {
-        localStorage.setItem(CONFIG_CACHE_KEY, JSON.stringify(rosterProposal.departments))
-      } catch { /* private browsing */ }
-      setRosterProposal(null)
-      // De verhuisde cellen staan nu onder een andere naam, dus wat in het
-      // raster en in de maandcache zit klopt niet meer. Alleen de maandkopie:
-      // wie je bent is niet veranderd.
-      clearPlanningMonthCache()
-      setRefreshTick(t => t + 1)
-    } catch {
-      setProposalError('Toepassen mislukt — geen verbinding?')
-    } finally {
-      setApplyingProposal(false)
-    }
+    const res = await applyRenames(rosterProposal.renames, rosterProposal.departments)
+    if (res.ok) setRosterProposal(null)
+    else setProposalError(res.error)
+    setApplyingProposal(false)
   }
 
   // 3) New Team contacts land in a "Nieuw" bucket automatically. Someone
@@ -696,12 +711,6 @@ export default function PlanningApp() {
     () => (usingWeekNav ? week : getMonthWeeks(anchorYear, anchorMonth).flat()),
     [usingWeekNav, week, anchorYear, anchorMonth]
   )
-
-  // Bumped whenever the tab regains visibility (see the realtime effect
-  // below) purely to force the load effect just below to re-run — an
-  // independent safety net so coming back to the tab always refetches,
-  // regardless of whether the realtime socket caught everything meanwhile.
-  const [refreshTick, setRefreshTick] = useState(0)
 
   // Extracted out of the effect below so the same fetch can also be run
   // silently by the background-poll and network-restored safety nets
@@ -1562,6 +1571,7 @@ export default function PlanningApp() {
           archived={archived}
           onSaveArchived={handleSaveArchived}
           teamNames={teamContacts.map(c => c.name)}
+          onRename={applyRenames}
           onClose={() => { setShowConfig(false); loadPresets() }}
           isBeheer={isBeheer}
         />
