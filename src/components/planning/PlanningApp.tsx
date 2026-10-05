@@ -42,6 +42,29 @@ interface PlanningRow {
   updated_at: string | null
 }
 
+// Supabase geeft standaard hoogstens 1000 rijen terug. Een drukke maand zit
+// daarboven — maart 2026 heeft er 1257 — en wat eroverheen gaat verdween
+// zonder melding: cellen zagen er leeg uit terwijl er wel iets stond.
+//
+// Daarom in pagina's, tot er minder terugkomt dan een volle pagina. De
+// sortering is daarbij geen smaakkwestie: zonder vaste volgorde mag Postgres
+// rijen per pagina anders ordenen, en dan mis je er alsnog of krijg je ze
+// dubbel. Op `id` is willekeurig maar uniek, en dat is het enige dat telt.
+const PAGE_SIZE = 1000
+
+async function fetchAllRows<T>(
+  build: () => { range: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }> }
+): Promise<T[]> {
+  const all: T[] = []
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await build().range(from, from + PAGE_SIZE - 1)
+    if (error) throw error
+    const page = data ?? []
+    all.push(...page)
+    if (page.length < PAGE_SIZE) return all
+  }
+}
+
 const SELECT_COLS = 'year, month, day, department, employee, value, bold, text_color, bg_color, note, updated_by, updated_at'
 
 // Known, confirmed overrides for first names shared by more than one real
@@ -531,12 +554,15 @@ export default function PlanningApp() {
     if (!opts?.silent) setLoading(true)
     const groups = groupWeekByMonth(daysToLoad)
     const results = await Promise.all(groups.map(g =>
-      supabase.from('planning_entries').select(SELECT_COLS).eq('year', g.year).eq('month', g.month).in('day', g.days)
+      fetchAllRows<PlanningRow>(() =>
+        supabase.from('planning_entries').select(SELECT_COLS)
+          .eq('year', g.year).eq('month', g.month).in('day', g.days)
+          .order('id', { ascending: true })
+      )
     ))
     if (callId !== loadCallIdRef.current) return // superseded by a newer load
     const map: PlanningWeekData = {}
-    results.forEach((res, i) => {
-      const rows = (res.data ?? []) as PlanningRow[]
+    results.forEach((rows, i) => {
       for (const r of rows) {
         map[dateCellKey(r.year, r.month, r.day, r.department, r.employee)] = rowToCell(r)
       }
@@ -572,10 +598,13 @@ export default function PlanningApp() {
       const known = periodStateRef.current.get(groupKey(g))
       if (!known) return loadPeriodDataRef.current({ silent: true })
 
-      const [changed, counted] = await Promise.all([
-        supabase.from('planning_entries').select(SELECT_COLS)
-          .eq('year', g.year).eq('month', g.month).in('day', g.days)
-          .gt('updated_at', known.lastSeen),
+      const [changedRows, counted] = await Promise.all([
+        fetchAllRows<PlanningRow>(() =>
+          supabase.from('planning_entries').select(SELECT_COLS)
+            .eq('year', g.year).eq('month', g.month).in('day', g.days)
+            .gt('updated_at', known.lastSeen)
+            .order('id', { ascending: true })
+        ),
         supabase.from('planning_entries').select('year', { count: 'exact', head: true })
           .eq('year', g.year).eq('month', g.month).in('day', g.days),
       ])
@@ -585,7 +614,7 @@ export default function PlanningApp() {
         return loadPeriodDataRef.current({ silent: true })
       }
 
-      const rows = (changed.data ?? []) as PlanningRow[]
+      const rows = changedRows
       if (rows.length === 0) continue
 
       setData(prev => {
