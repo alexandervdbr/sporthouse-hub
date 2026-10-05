@@ -2,8 +2,14 @@
 //
 // Twee vaten liepen in oktober 2026 over: egress (data die Supabase uitgaat)
 // en log ingestion (het aantal verzoeken, want elk verzoek wordt gelogd). De
-// oorzaak was één pagina die elke twintig seconden de hele maand ophaalde —
-// 217 kB per keer, 39 MB per uur per openstaand tabblad.
+// oorzaak was één pagina die elke twintig seconden de hele maand ophaalde.
+//
+// Dit script rapporteerde die omvang eerst als de lengte van de JSON, en dat
+// is misleidend: Supabase pakt zijn antwoorden in. Een maand die er als
+// 194 kB uitziet gaat als 10 kB over de lijn, een factor twintig. Egress
+// wordt op de lijn gemeten, dus wordt hier nu de ingepakte omvang getoond —
+// en daarnaast het aantal verzoeken, want dat is wat log ingestion telt en
+// dat was het vat dat het verst overliep.
 //
 // Dat soort dingen is niet zichtbaar in de code zelf: een timer van vier
 // regels ziet er onschuldig uit. Dit script maakt het zichtbaar, zodat de
@@ -17,6 +23,7 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import { gzipSync } from 'node:zlib'
 import { createClient } from '@supabase/supabase-js'
 
 const env = Object.fromEntries(
@@ -67,12 +74,32 @@ console.log('  hit of er een fetch of een supabase-aanroep in zit.')
 console.log('\n── Omvang van de grote queries ─────────────────────────────')
 
 const now = new Date()
-const { data: month } = await db.from('planning_entries').select('*')
+// Dezelfde kolommen die PlanningApp opvraagt (SELECT_COLS), niet '*'. Dat
+// scheelt werkelijk: de uuid-sleutel pakt slecht in, en de app vraagt hem
+// helemaal niet op — met '*' erbij lijkt een maand twee keer zo duur als hij is.
+const APP_COLS = 'year, month, day, department, employee, value, bold, text_color, bg_color, note, updated_by, updated_at'
+const { data: month } = await db.from('planning_entries').select(APP_COLS)
   .eq('year', now.getFullYear()).eq('month', now.getMonth() + 1)
-const monthBytes = JSON.stringify(month ?? []).length
-console.log(`  planning, één maand:        ${month?.length ?? 0} rijen, ${kb(monthBytes)}`)
-console.log(`     → elke 20s zou ${(monthBytes * 180 / 1048576).toFixed(0)} MB per uur per tabblad zijn`)
-console.log(`     → elke 60s, alleen wijzigingen: vrijwel nul`)
+const monthRaw = JSON.stringify(month ?? []).length
+const monthWire = gzipSync(JSON.stringify(month ?? [])).length
+console.log(`  planning, één maand:        ${month?.length ?? 0} rijen`)
+// Lokaal inpakken geeft een ondergrens: Supabase pakt minder agressief in
+// dan node's standaardinstelling. Nagemeten over HTTP kwam een maand van 741
+// rijen op 10,1 kB uit waar dit 4,8 kB zei, dus ongeveer het dubbele. Goed
+// genoeg om een ontsporing te zien, niet om een factuur mee na te rekenen.
+console.log(`     ruw ${kb(monthRaw)}, over de lijn ~${kb(monthWire)}–${kb(monthWire * 2)} (ingepakt)`)
+console.log(`     → elke 20s ophalen zou ~${(monthWire * 2 * 180 / 1048576).toFixed(1)} MB per uur per tabblad zijn`)
+
+// Wat de planning werkelijk doet sinds de maandcache: niet de maand ophalen,
+// maar per minuut twee kleine vragen stellen per zichtbare maand — wat is er
+// gewijzigd, en hoeveel rijen staan er nu. Beide antwoorden zijn vrijwel leeg;
+// de kosten zitten in de verzoeken zelf, niet in de bytes.
+const POLL_PER_HOUR = 60          // de timer in PlanningApp
+const REQ_PER_SYNC = 2            // gewijzigde rijen + telling
+const BYTES_PER_SYNC = 2200       // gemeten: ~1.1 kB headers per antwoord, lege body
+console.log(`  planning, stilstaand tabblad:`)
+console.log(`     ${POLL_PER_HOUR * REQ_PER_SYNC} verzoeken/uur en ${kb(POLL_PER_HOUR * BYTES_PER_SYNC)}/uur per zichtbare maand`)
+console.log(`     → navigeren naar een pas gesynchroniseerde maand kost niets (cache)`)
 
 const { data: clients } = await db.from('clients').select('id, name').limit(1)
 if (clients?.[0]) {
