@@ -24,7 +24,7 @@ export default function MobileTeamDayStepper({
   week: WeekDay[]
   people: Person[]
   data: PlanningWeekData
-  canEditCol: (emp: string) => boolean
+  canEditCol: (p: Person) => boolean
   presets: PlanningPreset[]
   onApply: (targets: { wd: WeekDay; dept: string; emp: string }[], value: CellData) => void
   onClear: (targets: { wd: WeekDay; dept: string; emp: string }[]) => void
@@ -58,7 +58,7 @@ export default function MobileTeamDayStepper({
   }, {})
 
   if (drilldown) {
-    const locked = !canEditCol(drilldown.emp)
+    const locked = !canEditCol(drilldown)
     return (
       <div className="flex flex-col gap-3">
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -108,7 +108,7 @@ export default function MobileTeamDayStepper({
             subtitle={`${editing.emp} — ${editing.dept}`}
             initialCell={data[weekDayCellKey(editing.wd, editing.dept, editing.emp)] ?? emptyCell()}
             presets={presets}
-            readOnly={!canEditCol(editing.emp)}
+            readOnly={!canEditCol(editing)}
             emailToName={emailToName}
             onSave={cell => { onApply([editing], cell); setEditing(null) }}
             onClear={() => { onClear([editing]); setEditing(null) }}
@@ -183,7 +183,7 @@ export default function MobileTeamDayStepper({
               {deptPeople.map(person => {
                 const key = weekDayCellKey(wd, person.dept, person.emp)
                 const cell = data[key] ?? emptyCell()
-                const locked = !canEditCol(person.emp)
+                const locked = !canEditCol(person)
                 return (
                   <div
                     key={key}
@@ -236,7 +236,7 @@ export default function MobileTeamDayStepper({
           subtitle={`${editing.emp} — ${editing.dept}`}
           initialCell={data[weekDayCellKey(editing.wd, editing.dept, editing.emp)] ?? emptyCell()}
           presets={presets}
-          readOnly={!canEditCol(editing.emp)}
+          readOnly={!canEditCol(editing)}
           emailToName={emailToName}
           onSave={cell => { onApply([editing], cell); setEditing(null) }}
           onClear={() => { onClear([editing]); setEditing(null) }}

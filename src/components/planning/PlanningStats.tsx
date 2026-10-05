@@ -2,11 +2,11 @@
 
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Loader2 } from 'lucide-react'
-import { DUTCH_MONTHS, type Department } from '@/lib/planning-config'
+import { DUTCH_MONTHS, personKey, type Department } from '@/lib/planning-config'
 import type { PlanningPreset } from '@/lib/planning-presets'
 import { mergedStatusOptions } from './DayEditor'
 
-interface StatRow { employee: string; value: string; count: number }
+interface StatRow { department: string; employee: string; value: string; count: number }
 
 // A monthly (or yearly) tally per person, per status — "did Kenny take 15
 // Verlof days this month" at a glance, without counting cells by hand. Not
@@ -49,6 +49,10 @@ export default function PlanningStats({
   }, [year, month])
 
   const options = useMemo(() => mergedStatusOptions(presets), [presets])
+  const optionNames = useMemo(
+    () => new Set(options.map(o => o.name.toUpperCase())),
+    [options]
+  )
 
   // Keyed by the UPPERCASE value on purpose — every saved cell's value is
   // always uppercased (see DayEditor's handleSave), but a preset's display
@@ -57,12 +61,17 @@ export default function PlanningStats({
   // most of them) silently showed 0 here regardless of real data —
   // "SHG"/"NB"/"PS" happened to look right purely by accident of already
   // being uppercase to begin with.
+  //
+  // Gesleuteld op (afdeling, naam) en niet op de naam alleen: twee mensen met
+  // dezelfde voornaam in verschillende afdelingen deelden anders één ingang,
+  // en beide rijen toonden dezelfde getallen.
   const countsByEmployee = useMemo(() => {
     const m = new Map<string, Map<string, number>>()
     for (const r of rows) {
-      const byValue = m.get(r.employee) ?? new Map<string, number>()
+      const key = personKey({ dept: r.department, emp: r.employee })
+      const byValue = m.get(key) ?? new Map<string, number>()
       byValue.set(r.value.toUpperCase(), r.count)
-      m.set(r.employee, byValue)
+      m.set(key, byValue)
     }
     return m
   }, [rows])
@@ -120,6 +129,12 @@ export default function PlanningStats({
                   {opt.name}
                 </th>
               ))}
+              <th
+                className="sticky top-0 z-10 bg-zinc-950 px-2 py-2 text-center font-medium text-zinc-500 border-b border-zinc-800 whitespace-nowrap"
+                title="Vrij getypte waarden die geen eigen status zijn"
+              >
+                Overig
+              </th>
               <th className="sticky top-0 z-10 bg-zinc-950 px-3 py-2 text-center font-semibold text-zinc-400 border-b border-l border-zinc-800 whitespace-nowrap">
                 Totaal
               </th>
@@ -130,15 +145,23 @@ export default function PlanningStats({
               <Fragment key={g.name}>
                 <tr>
                   <td
-                    colSpan={options.length + 2}
+                    colSpan={options.length + 3}
                     className="sticky left-0 bg-zinc-900 px-3 py-1 text-[10px] uppercase tracking-wider text-zinc-500 border-b border-zinc-800"
                   >
                     {g.name}
                   </td>
                 </tr>
                 {g.employees.map(emp => {
-                  const byValue = countsByEmployee.get(emp)
+                  const byValue = countsByEmployee.get(personKey({ dept: g.name, emp }))
                   const total = byValue ? [...byValue.values()].reduce((a, b) => a + b, 0) : 0
+                  // Wat niet in een van de statuskolommen past: vrij getypte
+                  // waarden. Die zaten wél in Totaal maar nergens in de rij,
+                  // waardoor het totaal nooit gelijk was aan wat ernaast stond.
+                  const other = byValue
+                    ? [...byValue.entries()]
+                        .filter(([v]) => !optionNames.has(v))
+                        .reduce((a, [, n]) => a + n, 0)
+                    : 0
                   return (
                     <tr key={emp} className="hover:bg-zinc-900/50">
                       <td className="sticky left-0 z-10 bg-zinc-950 px-3 py-1.5 text-zinc-200 border-r border-zinc-800 whitespace-nowrap">
@@ -156,6 +179,12 @@ export default function PlanningStats({
                           </td>
                         )
                       })}
+                      <td
+                        className="px-2 py-1.5 text-center tabular-nums"
+                        style={other > 0 ? { color: '#a1a1aa', fontWeight: 600 } : { color: '#3f3f46' }}
+                      >
+                        {other > 0 ? other : '–'}
+                      </td>
                       <td className="px-3 py-1.5 text-center font-semibold text-zinc-300 border-l border-zinc-800 tabular-nums">
                         {total || '–'}
                       </td>
@@ -166,7 +195,7 @@ export default function PlanningStats({
             ))}
             {groups.length === 0 && (
               <tr>
-                <td colSpan={options.length + 2} className="py-8 text-center text-zinc-600">
+                <td colSpan={options.length + 3} className="py-8 text-center text-zinc-600">
                   Geen medewerkers om te tonen.
                 </td>
               </tr>

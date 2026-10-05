@@ -7,7 +7,7 @@ import {
   Shield, RefreshCw, ChevronRight, Check, UserCheck, Eye,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { DEPARTMENTS } from '@/lib/planning-config'
+import { DEPARTMENTS, personKey, parsePersonKey } from '@/lib/planning-config'
 import { usePreview } from '@/lib/preview-context'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -253,7 +253,41 @@ const ROLE_PRESETS = [
   },
 ]
 
-const ALL_EMPLOYEES = DEPARTMENTS.flatMap(d => d.employees.map(emp => ({ dept: d.name, emp })))
+// Het echte rooster, niet de hardcoded DEPARTMENTS-lijst.
+//
+// Die lijst stond hier als enige bron, terwijl het rooster al lang in
+// planning_config leeft: deze dropdown bood dus namen aan die daar niet meer
+// zo heten, en iemand die later is toegevoegd stond er nooit in. Een naam
+// toewijzen die niet in het rooster voorkomt sluit die persoon buiten —
+// canEditCol vindt dan niets, en "Mijn maand" blijft leeg.
+//
+// Lukt het ophalen niet, dan is de hardcoded lijst nog altijd beter dan een
+// lege dropdown; vandaar de terugval.
+function usePlanningRoster() {
+  const [roster, setRoster] = useState<{ dept: string; emp: string }[]>(
+    () => DEPARTMENTS.flatMap(d => d.employees.map(emp => ({ dept: d.name, emp })))
+  )
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/planning/config')
+      .then(r => (r.ok ? r.json() : null))
+      .then((cfg: { name: string; employees: string[] }[] | null) => {
+        if (cancelled || !Array.isArray(cfg) || cfg.length === 0) return
+        setRoster(cfg.flatMap(d => d.employees.map(emp => ({ dept: d.name, emp }))))
+      })
+      .catch(() => { /* terugval blijft staan */ })
+    return () => { cancelled = true }
+  }, [])
+  return roster
+}
+
+// Een toekenning van vóór personKey is een kale naam. Die hoort als eigen
+// optie in de lijst te staan, anders valt de select terug op "volledige
+// planning" en zou opslaan de rechten van die persoon stil oprekken.
+function legacyColumnOption(planningColumn: string) {
+  if (!planningColumn || planningColumn === '__none__') return null
+  return parsePersonKey(planningColumn) ? null : planningColumn
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -333,6 +367,8 @@ function InviteModal({ clients, onClose, onInvited }: { clients: ClientOption[];
   const [role,            setRole]            = useState('')
   const [sections,        setSections]        = useState<string[]>([])
   const [planningColumn,  setPlanningColumn]  = useState('')
+  const roster = usePlanningRoster()
+  const legacyColumn = legacyColumnOption(planningColumn)
   const [restrictClients, setRestrictClients] = useState(false)
   const [clientIds,       setClientIds]       = useState<string[]>([])
   const [saving,          setSaving]          = useState(false)
@@ -447,8 +483,11 @@ function InviteModal({ clients, onClose, onInvited }: { clients: ClientOption[];
                   className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 focus:outline-none focus:border-zinc-500 transition-colors">
                   <option value="">— Volledige planning (of via checkbox) —</option>
                   <option value="__none__">— Mag niets bewerken —</option>
-                  {ALL_EMPLOYEES.map(({ dept, emp }) => (
-                    <option key={`${dept}-${emp}`} value={emp}>{emp} ({dept})</option>
+                  {legacyColumn && (
+                    <option value={legacyColumn}>{legacyColumn} (oude toekenning)</option>
+                  )}
+                  {roster.map(({ dept, emp }) => (
+                    <option key={`${dept}-${emp}`} value={personKey({ dept, emp })}>{emp} ({dept})</option>
                   ))}
                 </select>
               </div>
@@ -552,6 +591,8 @@ function PermissionsPanel({
     user.permissions ? user.permissions.sections : allSections
   )
   const [planningColumn, setPlanningColumn] = useState<string>(user.permissions?.planning_column ?? '')
+  const roster = usePlanningRoster()
+  const legacyColumn = legacyColumnOption(planningColumn)
   const [expiresAt,      setExpiresAt]      = useState<string>(
     user.expires_at ? user.expires_at.split('T')[0] : ''
   )
@@ -703,8 +744,11 @@ function PermissionsPanel({
             className="w-full px-3 py-2 bg-zinc-800/60 border border-zinc-700 rounded-lg text-sm text-zinc-200 focus:outline-none focus:border-zinc-600 transition-colors">
             <option value="">— Volledige planning (of via checkbox) —</option>
             <option value="__none__">— Mag niets bewerken —</option>
-            {ALL_EMPLOYEES.map(({ dept, emp }) => (
-              <option key={`${dept}-${emp}`} value={emp}>{emp} ({dept})</option>
+            {legacyColumn && (
+              <option value={legacyColumn}>{legacyColumn} (oude toekenning)</option>
+            )}
+            {roster.map(({ dept, emp }) => (
+              <option key={`${dept}-${emp}`} value={personKey({ dept, emp })}>{emp} ({dept})</option>
             ))}
           </select>
           <p className="text-[10px] text-zinc-600 mt-1.5">Laat leeg als de gebruiker de volledige planning mag bewerken.</p>

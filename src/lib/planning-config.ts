@@ -69,3 +69,26 @@ export function normName(s: string) {
 // here automatically, so they at least get a spot to pick from day one —
 // admins move them into the right department via drag and drop afterwards.
 export const UNASSIGNED_DEPT = 'Nieuw'
+
+// Eén persoon in het rooster is (afdeling, naam) — niet de naam alleen. Het
+// rooster heeft namelijk echt dubbele voornamen: "Thibault" staat bij Stags PS
+// én bij STAGS Projectkant, en dat zijn twee mensen. Op de naam alleen
+// vergelijken betekende dat de tweede zichzelf niet kon kiezen in de
+// naamkiezer, dat één toegewezen permissie-kolom ze beide ontgrendelde, en dat
+// hun dagen in Statistieken bij elkaar opgeteld werden.
+//
+// Zelfde scheidingsteken als de archief- en staleness-sleutels die hier al
+// rondgingen, zodat er één vorm is in plaats van twee.
+export function personKey(p: { dept: string; emp: string }) {
+  return `${p.dept}|${p.emp}`
+}
+
+// Een opgeslagen keuze van vóór deze wijziging is een kale naam zonder
+// scheidingsteken. Die hoeft niet weggegooid te worden: `null` hier betekent
+// "los dit nog op tegen het rooster", en de keuze wordt daarna in de nieuwe
+// vorm teruggeschreven.
+export function parsePersonKey(key: string): { dept: string; emp: string } | null {
+  const i = key.indexOf('|')
+  if (i <= 0 || i === key.length - 1) return null
+  return { dept: key.slice(0, i), emp: key.slice(i + 1) }
+}

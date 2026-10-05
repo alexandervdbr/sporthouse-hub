@@ -1,19 +1,24 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import type { Department } from '@/lib/planning-config'
+import { personKey, type Department } from '@/lib/planning-config'
 
 // "Wie ben jij in dit rooster?" — needed because a restricted user's
 // column comes from their admin-assigned permissions, but most people with
 // full edit rights have no such assignment. This is the generic fallback
 // that works for everyone, admin or not, and is what "Mijn week" defaults
 // to on first use.
+//
+// `guess` en wat eruit komt zijn sleutels (`afdeling|naam`), geen kale namen.
+// De naam alleen was niet genoeg: het rooster heeft echt dubbele voornamen
+// ("Thibault" bij twee afdelingen), en met de naam als waarde kozen beide
+// opties dezelfde persoon — de tweede kon zichzelf dus niet kiezen.
 export default function NamePicker({
   depts, guess, onPick, onCancel, canCancel = true,
 }: {
   depts: Department[]
   guess: string | null
-  onPick: (name: string) => void
+  onPick: (personKey: string) => void
   onCancel: () => void
   canCancel?: boolean
 }) {
@@ -46,7 +51,10 @@ export default function NamePicker({
           <option value="">Kies je naam…</option>
           {depts.map(d => (
             <optgroup key={d.name} label={d.name}>
-              {d.employees.map(emp => <option key={emp} value={emp}>{emp}</option>)}
+              {d.employees.map(emp => {
+                const key = personKey({ dept: d.name, emp })
+                return <option key={key} value={key}>{emp}</option>
+              })}
             </optgroup>
           ))}
         </select>

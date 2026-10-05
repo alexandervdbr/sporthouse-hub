@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import Anthropic from '@anthropic-ai/sdk'
-import { DEPARTMENTS, DUTCH_DAYS, DUTCH_MONTHS } from '@/lib/planning-config'
+import { DEPARTMENTS, DUTCH_DAYS, DUTCH_MONTHS, type Department } from '@/lib/planning-config'
 import { downloadFile } from '@/lib/drive-storage'
 import { formatKennisbank } from '@/lib/kennisbank-questions'
 import { fetchAllRows } from '@/lib/planning-paginate'
@@ -55,6 +55,29 @@ type PlanningContextRow = {
   day: number; year: number; month: number; department: string; employee: string; value: string
 }
 
+// Het echte rooster uit planning_config. Dat stond hier als DEPARTMENTS uit
+// de code — een lijst van 2024 — en die ging zowel naar het teamoverzicht in
+// de prompt als naar de groepering van de planning zelf. De AI vertelde dus
+// over mensen die er niet meer werken en liet nieuwe collega's weg.
+//
+// Via de admin-client: planning_config heeft RLS aan zonder policies, dus de
+// gebruikersclient leest er niets. Mislukt het, dan is de oude lijst nog
+// altijd beter dan geen teamoverzicht.
+async function fetchRoster(): Promise<Department[]> {
+  try {
+    const { data, error } = await createAdminClient()
+      .from('planning_config')
+      .select('value')
+      .eq('key', 'departments')
+      .maybeSingle()
+    if (error) return DEPARTMENTS
+    const cfg = data?.value as Department[] | null
+    return Array.isArray(cfg) && cfg.length > 0 ? cfg : DEPARTMENTS
+  } catch {
+    return DEPARTMENTS
+  }
+}
+
 async function fetchPlanningMonth(
   supabase: Awaited<ReturnType<typeof createClient>>,
   year: number,
@@ -79,6 +102,7 @@ function formatPlanning(
   dayProjects: { date: string; project_name: string }[],
   year: number,
   month: number,
+  roster: Department[],
 ): string {
   if (entries.length === 0) return '(Geen planningsinvoeren voor deze periode.)'
 
@@ -106,7 +130,7 @@ function formatPlanning(
     const header = `**${dayName} ${day} ${DUTCH_MONTHS[month - 1]}**${project ? ` — ${project}` : ''}`
     lines.push(header)
 
-    for (const dept of DEPARTMENTS) {
+    for (const dept of roster) {
       const deptEntries = byDay[day][dept.name]
       if (!deptEntries) continue
       const parts = Object.entries(deptEntries).map(([emp, val]) => `${emp}: ${val}`)
@@ -190,6 +214,7 @@ export async function POST(request: NextRequest) {
     { data: files },
     planningCur,
     planningNxt,
+    roster,
     { data: equipmentList },
     { data: resCur },
     { data: resNxt },
@@ -204,6 +229,7 @@ export async function POST(request: NextRequest) {
     // zoals het hiervoor ging. Zie src/lib/planning-paginate.ts.
     fetchPlanningMonth(supabase, curY, curM),
     fetchPlanningMonth(supabase, nxt.year, nxt.month),
+    fetchRoster(),
     supabase.from('equipment').select('id, name, category').order('category').order('name'),
     supabase.from('equipment_reservations').select('equipment_id, date, reserved_by, project').gte('date', cur.start).lte('date', cur.end),
     supabase.from('equipment_reservations').select('equipment_id, date, reserved_by, project').gte('date', next.start).lte('date', next.end),
@@ -271,8 +297,8 @@ export async function POST(request: NextRequest) {
 
   // ── Build planning context ─────────────────────────────────────────────────
   const planningBlock = [
-    formatPlanning(planningCur, dayProjCur ?? [], curY, curM),
-    formatPlanning(planningNxt, dayProjNxt ?? [], nxt.year, nxt.month),
+    formatPlanning(planningCur, dayProjCur ?? [], curY, curM, roster),
+    formatPlanning(planningNxt, dayProjNxt ?? [], nxt.year, nxt.month, roster),
   ].join('\n\n')
 
   // ── Build materiaal context ────────────────────────────────────────────────
@@ -282,7 +308,7 @@ export async function POST(request: NextRequest) {
   ].join('\n\n')
 
   // ── Build team overview ────────────────────────────────────────────────────
-  const teamBlock = DEPARTMENTS.map(d => `- **${d.name}**: ${d.employees.join(', ')}`).join('\n')
+  const teamBlock = roster.map(d => `- **${d.name}**: ${d.employees.join(', ')}`).join('\n')
 
   const systemPrompt = `Je bent de Expert AI voor ${clientName}, een klant van SporthouseGroup — een Belgisch sport marketing en media bedrijf.
 Je hebt live toegang tot de personeelsplanning, materiaalplanning en bestanden van het platform. Vandaag is het ${now.toLocaleDateString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}.

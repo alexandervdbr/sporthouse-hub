@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ChevronDown, ChevronLeft, ChevronRight, Loader2, Settings, Search, TriangleAlert, X, Users } from 'lucide-react'
-import { DEPARTMENTS, DUTCH_MONTHS, UNASSIGNED_DEPT, normName, type Department } from '@/lib/planning-config'
+import {
+  DEPARTMENTS, DUTCH_MONTHS, UNASSIGNED_DEPT, normName, personKey, parsePersonKey, type Department,
+} from '@/lib/planning-config'
 import {
   addMonths, addWeeks, dateCellKey, getMonthWeeks, getWeekDates, groupWeekByMonth, weekDayCellKey, weekLabel,
   type CellData, type PlanningWeekData, type WeekDay,
@@ -192,6 +194,9 @@ export default function PlanningApp() {
   const [mySections, setMySections] = useState<string[]>([])
   const [authChecked, setAuthChecked] = useState(false)
 
+  // Een sleutel (`afdeling|naam`), niet een kale naam — zie personKey. Twee
+  // mensen met dezelfde voornaam in verschillende afdelingen zijn twee
+  // mensen, en op de naam alleen kon de tweede zichzelf niet kiezen.
   const [myIdentity, setMyIdentity] = useState<string | null>(null)
   const [showNamePicker, setShowNamePicker] = useState(false)
   const [identityLoaded, setIdentityLoaded] = useState(false)
@@ -554,11 +559,17 @@ export default function PlanningApp() {
     if (authChecked && tab === 'stats' && !canSeeStats) setTab('mijn')
   }, [authChecked, tab, canSeeStats])
 
-  const canEditCol = useCallback((emp: string): boolean => {
+  const canEditCol = useCallback((p: Person): boolean => {
     if (canEditAll) return true
     if (myColumn === '__none__') return false
     if (myColumn === null) return true
-    return myColumn === emp
+    // Nieuwe toekenningen staan als `afdeling|naam` in de permissies. Een
+    // toekenning van vóór die wijziging is een kale naam; die blijft op de
+    // naam vergelijken (en ontgrendelt dus nog beide naamgenoten) in plaats
+    // van iemand stil buiten te sluiten. Opnieuw toekennen in het beheer
+    // zet hem in de nieuwe vorm.
+    const assigned = parsePersonKey(myColumn)
+    return assigned ? assigned.dept === p.dept && assigned.emp === p.emp : myColumn === p.emp
   }, [canEditAll, myColumn])
 
   // ── Identity: "who am I in this roster" ─────────────────────────────────
@@ -634,7 +645,8 @@ export default function PlanningApp() {
     const match = wanted
       ? teamContacts.find(c => c.email && c.email.trim().toLowerCase() === wanted) ?? null
       : null
-    const matchInRoster = match && activeEveryEmployee.some(p => p.emp === match.name) ? match.name : null
+    const slot = match ? activeEveryEmployee.find(p => p.emp === match.name) ?? null : null
+    const matchInRoster = slot ? personKey(slot) : null
 
     // Een permissie-kolom komt van het account zelf, dus die kan nooit van
     // iemand anders zijn en wordt hier niet aangeraakt.
@@ -672,12 +684,14 @@ export default function PlanningApp() {
     setEmailMatchAttempted(true)
   }, [authChecked, teamContactsLoaded, configLoaded, userEmail, teamContacts, myIdentity, myColumn, activeEveryEmployee, rememberIdentity, forgetIdentity])
 
+  // Als sleutel, zodat de voorselectie in de naamkiezer bij één specifieke
+  // rij hoort. Blijft bewust alleen gokken als er precies één kandidaat is.
   const nameGuess = useMemo(() => {
     if (!myName) return null
     const myFirst = norm(myName).split(' ')[0]
     if (!myFirst) return null
-    const candidates = [...new Set(activeEveryEmployee.map(c => c.emp))].filter(emp => norm(emp).split(' ')[0] === myFirst)
-    return candidates.length === 1 ? candidates[0] : null
+    const candidates = activeEveryEmployee.filter(p => norm(p.emp).split(' ')[0] === myFirst)
+    return candidates.length === 1 ? personKey(candidates[0]) : null
   }, [myName, activeEveryEmployee])
 
   // Ask once, only after we've actually checked localStorage, attempted the
@@ -687,16 +701,21 @@ export default function PlanningApp() {
     if (identityLoaded && emailMatchAttempted && activeEveryEmployee.length > 0 && !myIdentity && !myColumn) setShowNamePicker(true)
   }, [identityLoaded, emailMatchAttempted, activeEveryEmployee, myIdentity, myColumn])
 
-  function confirmIdentity(name: string) {
-    setMyIdentity(name)
-    rememberIdentity(name, userEmail)
+  function confirmIdentity(key: string) {
+    setMyIdentity(key)
+    rememberIdentity(key, userEmail)
     setShowNamePicker(false)
   }
 
-  const myPerson = useMemo(
-    () => everyEmployee.find(p => p.emp === myIdentity) ?? null,
-    [everyEmployee, myIdentity]
-  )
+  const myPerson = useMemo(() => {
+    if (!myIdentity) return null
+    const parsed = parsePersonKey(myIdentity)
+    // Zonder scheidingsteken: een keuze van vóór deze wijziging, of een
+    // permissie-kolom in de oude vorm. Dan valt er niets beters te doen dan
+    // de eerste naamgenoot nemen — hetzelfde als voorheen.
+    if (!parsed) return everyEmployee.find(p => p.emp === myIdentity) ?? null
+    return everyEmployee.find(p => p.dept === parsed.dept && p.emp === parsed.emp) ?? null
+  }, [everyEmployee, myIdentity])
 
   // "Mijn maand" renders full calendar weeks (see getMonthWeeks), so the
   // first/last week can spill into the neighboring month — those overflow
@@ -1417,7 +1436,7 @@ export default function PlanningApp() {
                   dept={myPerson.dept}
                   emp={myPerson.emp}
                   data={data}
-                  readOnly={!canEditCol(myPerson.emp)}
+                  readOnly={!canEditCol(myPerson)}
                   presets={presets}
                   onApply={applyToTargets}
                   onClear={clearTargets}
@@ -1431,7 +1450,7 @@ export default function PlanningApp() {
                   dept={myPerson.dept}
                   emp={myPerson.emp}
                   data={data}
-                  readOnly={!canEditCol(myPerson.emp)}
+                  readOnly={!canEditCol(myPerson)}
                   presets={presets}
                   onApply={applyToTargets}
                   onClear={clearTargets}
