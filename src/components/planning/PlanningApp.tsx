@@ -612,6 +612,28 @@ export default function PlanningApp() {
   const pollForChangesRef = useRef(pollForChanges)
   useEffect(() => { pollForChangesRef.current = pollForChanges }, [pollForChanges])
 
+  // Clearing a selection deletes every cell in it separately, and each one
+  // reaches every open tab as its own event. Without coalescing, emptying
+  // forty cells with ten people watching would fire four hundred polls in a
+  // couple of seconds — each small, but it's the number of requests that the
+  // log quota counts, and that's the one we're furthest over.
+  //
+  // One poll answers all of them: it compares the row count, finds it no
+  // longer matches, and reloads the period once.
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const schedulePoll = useCallback(() => {
+    if (pollTimerRef.current) clearTimeout(pollTimerRef.current)
+    pollTimerRef.current = setTimeout(() => {
+      pollTimerRef.current = null
+      pollForChangesRef.current()
+    }, 1500)
+  }, [])
+
+  const schedulePollRef = useRef(schedulePoll)
+  useEffect(() => { schedulePollRef.current = schedulePoll }, [schedulePoll])
+
+  useEffect(() => () => { if (pollTimerRef.current) clearTimeout(pollTimerRef.current) }, [])
+
   // ── Load the visible period's data (a week, or a whole month) ───────────
   useEffect(() => {
     loadPeriodData()
@@ -719,7 +741,7 @@ export default function PlanningApp() {
               // row count, finds one missing, and reloads. One small request,
               // only when something is actually deleted.
               if (old.year === undefined || old.department === undefined || old.employee === undefined) {
-                pollForChangesRef.current()
+                schedulePollRef.current()
                 return
               }
 
