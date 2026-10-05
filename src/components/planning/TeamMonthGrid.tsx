@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Star, ChevronDown, ChevronRight } from 'lucide-react'
-import { DUTCH_MONTHS } from '@/lib/planning-config'
+import { DUTCH_MONTHS, personKey } from '@/lib/planning-config'
 import { dayInfo, emptyCell, weekDayCellKey, type CellData, type PlanningWeekData, type WeekDay } from '@/lib/planning-week'
 import type { PlanningPreset } from '@/lib/planning-presets'
 import type { Person } from './WeekGrid'
@@ -26,10 +26,6 @@ const ROW_HIGHLIGHT_CELL_BG = 'rgba(245,158,11,0.10)'
 const WEEKEND_CELL_BG = 'rgba(0,0,0,0.35)'
 const WEEKEND_HEADER_BG = '#121212'
 
-function personKey(p: Person) {
-  return `${p.dept}|${p.emp}`
-}
-
 // Same collision rule as WeekGrid's week view — first name only, unless two
 // people share it, then add the first letter of the last name for whoever
 // collides.
@@ -44,7 +40,10 @@ function shortDisplayNames(people: Person[]): Map<string, string> {
     const parts = p.emp.trim().split(/\s+/)
     const first = parts[0] ?? p.emp
     const collides = (firstNameCounts.get(first) ?? 0) > 1
-    result.set(p.emp, collides && parts[1] ? `${first} ${parts[1][0].toUpperCase()}.` : first)
+    // Op (afdeling, naam) gesleuteld, niet op de naam: twee mensen met
+    // dezelfde voornaam in verschillende afdelingen deelden anders één
+    // ingang. Welke afdeling het is blijft leesbaar uit de groepskop.
+    result.set(personKey(p), collides && parts[1] ? `${first} ${parts[1][0].toUpperCase()}.` : first)
   }
   return result
 }
@@ -66,7 +65,7 @@ export default function TeamMonthGrid({
   month: number
   people: Person[]
   data: PlanningWeekData
-  canEditCol: (emp: string) => boolean
+  canEditCol: (p: Person) => boolean
   presets: PlanningPreset[]
   onApply: (targets: Target[], value: CellData) => void
   onClear: (targets: Target[]) => void
@@ -173,7 +172,7 @@ export default function TeamMonthGrid({
     const targets: Target[] = []
     for (let r = Math.min(r0, r1); r <= Math.max(r0, r1); r++) {
       const person = renderedPeople[r]
-      if (!person || !canEditCol(person.emp)) continue
+      if (!person || !canEditCol(person)) continue
       for (let c = Math.min(c0, c1); c <= Math.max(c0, c1); c++) {
         targets.push({ wd: days[c], dept: person.dept, emp: person.emp })
       }
@@ -184,13 +183,13 @@ export default function TeamMonthGrid({
       ? (data[weekDayCellKey(targets[0].wd, targets[0].dept, targets[0].emp)] ?? emptyCell())
       : emptyCell()
     const title = single
-      ? `${dayTitle(targets[0].wd)} — ${displayNames.get(targets[0].emp) ?? targets[0].emp}`
+      ? `${dayTitle(targets[0].wd)} — ${displayNames.get(personKey(targets[0])) ?? targets[0].emp}`
       : `${targets.length} cellen geselecteerd`
     setEditing({ targets, cell: initial, title })
   }
 
   function handlePointerDown(e: React.PointerEvent, person: Person, row: number, col: number) {
-    if (!canEditCol(person.emp)) return
+    if (!canEditCol(person)) return
     // Without this, starting the drag on the status pill's text kicks off
     // the browser's native text-selection/drag-start behavior, which
     // cancels the pointer sequence mid-drag.
@@ -280,7 +279,7 @@ export default function TeamMonthGrid({
           }
 
           const { person, rowIdx } = row
-          const locked = !canEditCol(person.emp)
+          const locked = !canEditCol(person)
           const isRowHighlighted = highlightedKey === personKey(person)
 
           return (
@@ -290,7 +289,7 @@ export default function TeamMonthGrid({
                 onClick={() => setHighlightedKey(k => k === personKey(person) ? null : personKey(person))}
                 style={{ position: 'sticky', left: 0, zIndex: 10, backgroundColor: isRowHighlighted ? ROW_HIGHLIGHT_NAME_BG : '#161616' }}
                 className={`border-b border-r border-zinc-800 px-2 flex items-center text-xs font-medium truncate cursor-pointer transition-colors ${locked ? 'text-zinc-600' : 'text-zinc-300'} ${isRowHighlighted ? 'hover:brightness-110' : 'hover:bg-white/[0.03]'}`}>
-                {displayNames.get(person.emp) ?? person.emp}
+                {displayNames.get(personKey(person)) ?? person.emp}
               </div>
 
               {days.map((wd, col) => {

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MoreVertical, Copy, ClipboardPaste, Trash2, Star, ChevronDown, ChevronRight } from 'lucide-react'
-import { DUTCH_MONTHS } from '@/lib/planning-config'
+import { DUTCH_MONTHS, personKey } from '@/lib/planning-config'
 import { emptyCell, weekDayCellKey, type CellData, type PlanningWeekData, type WeekDay } from '@/lib/planning-week'
 import type { PlanningPreset } from '@/lib/planning-presets'
 import DayEditor from './DayEditor'
@@ -47,7 +47,10 @@ function shortDisplayNames(people: Person[]): Map<string, string> {
     const parts = p.emp.trim().split(/\s+/)
     const first = parts[0] ?? p.emp
     const collides = (firstNameCounts.get(first) ?? 0) > 1
-    result.set(p.emp, collides && parts[1] ? `${first} ${parts[1][0].toUpperCase()}.` : first)
+    // Op (afdeling, naam) gesleuteld, niet op de naam: twee mensen met
+    // dezelfde voornaam in verschillende afdelingen deelden anders één
+    // ingang. Welke afdeling het is blijft leesbaar uit de groepskop.
+    result.set(personKey(p), collides && parts[1] ? `${first} ${parts[1][0].toUpperCase()}.` : first)
   }
   return result
 }
@@ -65,7 +68,7 @@ export default function WeekGrid({
   week: WeekDay[]
   people: Person[]
   data: PlanningWeekData
-  canEditCol: (emp: string) => boolean
+  canEditCol: (p: Person) => boolean
   presets: PlanningPreset[]
   onApply: (targets: Target[], value: CellData) => void
   onClear: (targets: Target[]) => void
@@ -179,7 +182,7 @@ export default function WeekGrid({
 
   function openEditorFor(rowIdx: number, colStart: number, colEnd: number) {
     const person = renderedPeople[rowIdx]
-    if (!person || !canEditCol(person.emp)) return
+    if (!person || !canEditCol(person)) return
     const targets: Target[] = week.slice(colStart, colEnd + 1).map(wd => ({ wd, dept: person.dept, emp: person.emp }))
     const single = targets.length === 1
     const initial = single
@@ -192,7 +195,7 @@ export default function WeekGrid({
   }
 
   function handlePointerDown(e: React.PointerEvent, person: Person, rowIdx: number, colIdx: number) {
-    if (!canEditCol(person.emp)) return
+    if (!canEditCol(person)) return
     // Without this, starting the drag on the status pill's text kicks off the
     // browser's native text-selection/drag-start behavior, which cancels the
     // pointer sequence mid-drag (pointermove stops firing) — the range would
@@ -236,13 +239,13 @@ export default function WeekGrid({
   }
 
   function handlePaste(person: Person, colIdx: number) {
-    if (!canEditCol(person.emp) || !clipboardRef.current) { setMenuKey(null); return }
+    if (!canEditCol(person) || !clipboardRef.current) { setMenuKey(null); return }
     onApply([{ wd: week[colIdx], dept: person.dept, emp: person.emp }], clipboardRef.current)
     setMenuKey(null)
   }
 
   function handleClearCell(person: Person, colIdx: number) {
-    if (!canEditCol(person.emp)) { setMenuKey(null); return }
+    if (!canEditCol(person)) { setMenuKey(null); return }
     onClear([{ wd: week[colIdx], dept: person.dept, emp: person.emp }])
     setMenuKey(null)
   }
@@ -317,7 +320,7 @@ export default function WeekGrid({
           }
 
           const { person, rowIdx } = row
-          const locked = !canEditCol(person.emp)
+          const locked = !canEditCol(person)
 
           return (
             <div key={`row-${rowIdx}`} style={{ display: 'contents' }}>
@@ -326,7 +329,7 @@ export default function WeekGrid({
                   title={person.emp}
                   style={{ position: 'sticky', left: 0, zIndex: 10, backgroundColor: '#161616' }}
                   className={`border-b border-r border-zinc-800 px-3 flex items-center text-sm font-medium truncate ${locked ? 'text-zinc-600' : 'text-zinc-300'}`}>
-                  {displayNames.get(person.emp) ?? person.emp}
+                  {displayNames.get(personKey(person)) ?? person.emp}
                 </div>
               )}
 
@@ -356,7 +359,7 @@ export default function WeekGrid({
                       userSelect: 'none',
                       WebkitUserSelect: 'none',
                     }}
-                    className={`relative border-b border-zinc-800/60 border-r ${cellPad} ${cellMinH} flex flex-col items-center justify-center gap-0.5 ${locked ? '' : 'cursor-pointer'}`}
+                    className={`group relative border-b border-zinc-800/60 border-r ${cellPad} ${cellMinH} flex flex-col items-center justify-center gap-0.5 ${locked ? '' : 'cursor-pointer'}`}
                   >
                     {cell.value ? (
                       <>
@@ -374,6 +377,10 @@ export default function WeekGrid({
                       !locked && <span className="text-zinc-700 text-xs">+</span>
                     )}
 
+                    {/* group-hover werkt alleen met een `group` op de cel
+                        hierboven — die stond er niet, waardoor dit knopje op
+                        desktop permanent op opacity 0 bleef en Kopiëren /
+                        Plakken / Wissen in de weekweergave onvindbaar was. */}
                     {!locked && (
                       <button
                         onPointerDown={e => e.stopPropagation()}

@@ -18,6 +18,14 @@ async function requireAdmin() {
 }
 
 // GET — fetch departments config; returns null if not found
+//
+// Een leesfout gaf hier eerder ook `null` terug, met status 200. De client kon
+// "er staat nog niets opgeslagen" dus niet onderscheiden van "ik kon het niet
+// lezen", en viel in beide gevallen terug op de hardcoded DEPARTMENTS-lijst.
+// De zelfherstellende effecten in PlanningApp schrijven die lijst vervolgens
+// weg — dat wil zeggen: één mislukte GET kon het echte rooster overschrijven
+// met een verouderde kopie uit de code. Een echte fout is nu een echte fout,
+// zodat de client weet dat hij niets mag wegschrijven.
 export async function GET() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -31,10 +39,10 @@ export async function GET() {
       .eq('key', 'departments')
       .maybeSingle()
 
-    if (error) return Response.json(null)
+    if (error) return new Response(error.message, { status: 500 })
     return Response.json(data?.value ?? null)
-  } catch {
-    return Response.json(null)
+  } catch (e) {
+    return new Response(e instanceof Error ? e.message : 'Lezen mislukt', { status: 500 })
   }
 }
 
@@ -52,6 +60,13 @@ export async function PUT(req: Request) {
 
   if (!Array.isArray(departments)) {
     return new Response('Body must be an array of departments', { status: 400 })
+  }
+
+  // Een leeg rooster is geen geldige toestand, alleen het resultaat van iets
+  // dat misliep — en het zou het hele rooster wissen. Supabase staat op het
+  // gratis plan, dus zonder backup om op terug te vallen.
+  if (departments.length === 0) {
+    return new Response('Een leeg rooster wordt niet opgeslagen', { status: 400 })
   }
 
   const admin = createAdminClient()

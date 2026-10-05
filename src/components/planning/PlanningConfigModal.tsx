@@ -16,13 +16,34 @@ import {
 } from 'lucide-react'
 import { normName, UNASSIGNED_DEPT, type Department } from '@/lib/planning-config'
 import type { PlanningPreset } from '@/lib/planning-presets'
+import type { PlanningRename } from '@/lib/planning-rename'
 
 interface ArchivedEmployee { dept: string; emp: string }
 interface Staleness { dept: string; emp: string; lastEntryDate: string }
 
+// Een naam in de kladversie, met waar hij vandaan kwam. Die herkomst reist
+// mee met het object, dus slepen tussen afdelingen en hernoemen houden hem
+// automatisch bij — ook als je beide doet, of de afdeling zelf hernoemt.
+//
+// Dat is nodig omdat planning_entries op (afdeling, naam) staat: wat hier een
+// tekstwijziging lijkt, is in de database een verhuizing. `orig: null` betekent
+// nieuw toegevoegd, dus valt er niets te verhuizen.
+interface DraftEmp {
+  name: string
+  orig: { dept: string; emp: string } | null
+}
+
+interface DraftDept {
+  name: string
+  employees: DraftEmp[]
+}
+
 interface Props {
   departments: Department[]
   onSave: (d: Department[]) => Promise<void>
+  // Opslaan mét verhuizingen: gaat via /api/planning/rename zodat de
+  // bestaande cellen meegaan naar de nieuwe naam of afdeling.
+  onRename: (renames: PlanningRename[], departments: Department[]) => Promise<{ ok: true } | { ok: false; error: string }>
   archived: ArchivedEmployee[]
   onSaveArchived: (a: ArchivedEmployee[]) => Promise<void>
   // Real Team contact names (see /team) — anyone here who isn't in this
@@ -224,12 +245,16 @@ function PresetsPanel() {
   )
 }
 
-export default function PlanningConfigModal({ departments, onSave, archived, onSaveArchived, teamNames, onClose, isBeheer }: Props) {
+export default function PlanningConfigModal({ departments, onSave, onRename, archived, onSaveArchived, teamNames, onClose, isBeheer }: Props) {
   const [tab, setTab] = useState<'afdelingen' | 'presets'>('afdelingen')
-  const [depts, setDepts] = useState<Department[]>(() =>
-    departments.map(d => ({ name: d.name, employees: [...d.employees] }))
+  const [depts, setDepts] = useState<DraftDept[]>(() =>
+    departments.map(d => ({
+      name: d.name,
+      employees: d.employees.map(emp => ({ name: emp, orig: { dept: d.name, emp } })),
+    }))
   )
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
   const [collapsed, setCollapsed] = useState<Record<number, boolean>>({})
 
   const teamNameSet = useMemo(() => new Set(teamNames.map(normName)), [teamNames])
@@ -259,7 +284,7 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
   const notInTeamList = useMemo(() => {
     const out: { dept: string; deptIdx: number; emp: string }[] = []
     depts.forEach((d, di) => {
-      d.employees.forEach(emp => {
+      d.employees.forEach(({ name: emp }) => {
         const isArch = archived.some(a => a.dept === d.name && a.emp === emp)
         if (!isArch && !teamNameSet.has(normName(emp))) out.push({ dept: d.name, deptIdx: di, emp })
       })
@@ -335,7 +360,7 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
 
   function startRenameEmp(deptIdx: number, empIdx: number) {
     setRenamingEmp({ dept: deptIdx, emp: empIdx })
-    setRenameValue(depts[deptIdx].employees[empIdx])
+    setRenameValue(depts[deptIdx].employees[empIdx].name)
     setRenamingDept(null)
   }
 
@@ -346,7 +371,7 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
       setDepts(prev => prev.map((d, i) => {
         if (i !== renamingEmp.dept) return d
         const emps = [...d.employees]
-        emps[renamingEmp.emp] = trimmed
+        emps[renamingEmp.emp] = { ...emps[renamingEmp.emp], name: trimmed }
         return { ...d, employees: emps }
       }))
     }
@@ -362,7 +387,7 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
   function addEmployee(deptIdx: number) {
     setDepts(prev => prev.map((d, i) => {
       if (i !== deptIdx) return d
-      return { ...d, employees: [...d.employees, 'Nieuwe naam'] }
+      return { ...d, employees: [...d.employees, { name: 'Nieuwe naam', orig: null }] }
     }))
     // Auto-enter rename for new employee
     setTimeout(() => {
@@ -376,6 +401,19 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
   }
 
   function deleteEmployee(deptIdx: number, empIdx: number) {
+    const slot = depts[deptIdx].employees[empIdx]
+    // Alleen als er iets te verliezen is: een pas toegevoegde naam (orig null)
+    // heeft nog geen planning, dus daar valt niets over te melden.
+    if (slot.orig) {
+      const ok = confirm(
+        `"${slot.name}" definitief uit het rooster halen?\n\n` +
+        `De bestaande planning onder deze naam blijft in de database staan, maar ` +
+        `is nergens meer te zien — ook niet in Statistieken.\n\n` +
+        `Wil je iemand die er niet meer werkt gewoon uit de teamweergave halen, ` +
+        `gebruik dan archiveren: dan blijven oude weken wel kloppen.`
+      )
+      if (!ok) return
+    }
     setDepts(prev => prev.map((d, i) => {
       if (i !== deptIdx) return d
       const emps = d.employees.filter((_, ei) => ei !== empIdx)
@@ -401,7 +439,12 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
     const dept = depts[idx]
     if (dept.employees.length > 0) {
       const ok = confirm(
-        `Afdeling "${dept.name}" verwijderen?\n\nDe ${dept.employees.length} medewerker(s) hierin verdwijnen ook uit deze afdeling — een Team-lid krijgt bij de volgende synchronisatie gewoon opnieuw een plek in "${UNASSIGNED_DEPT}".`
+        `Afdeling "${dept.name}" verwijderen?\n\n` +
+        `De ${dept.employees.length} medewerker(s) hierin verdwijnen ook uit deze afdeling — ` +
+        `een Team-lid krijgt bij de volgende synchronisatie gewoon opnieuw een plek in "${UNASSIGNED_DEPT}".\n\n` +
+        `Hun bestaande planning staat op deze afdelingsnaam en blijft daarop staan: ` +
+        `die is daarna nergens meer te zien. Wil je ze behouden, sleep ze dan eerst ` +
+        `naar een andere afdeling — dan verhuist de planning mee.`
       )
       if (!ok) return
     }
@@ -505,10 +548,50 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
 
   // ─── Save ─────────────────────────────────────────────────────────────────
 
+  // Wat er aan verhuizingen in de kladversie zit: elke naam die nog bij een
+  // bestaande (afdeling, naam) hoort maar er niet meer op staat. Dat vangt
+  // hernoemen, slepen naar een andere afdeling, een hernoemde afdeling, en
+  // alle combinaties daarvan — de herkomst zit op het slot, niet op de plek.
+  const pendingRenames = useMemo<PlanningRename[]>(() => {
+    const out: PlanningRename[] = []
+    for (const d of depts) {
+      for (const e of d.employees) {
+        if (!e.orig) continue
+        const name = e.name.trim()
+        if (!name) continue
+        if (e.orig.dept !== d.name || e.orig.emp !== name) {
+          out.push({ fromDept: e.orig.dept, fromEmp: e.orig.emp, toDept: d.name, toEmp: name })
+        }
+      }
+    }
+    return out
+  }, [depts])
+
   async function handleSave() {
     setSaving(true)
+    setSaveError('')
     try {
-      await onSave(depts)
+      const plain: Department[] = depts.map(d => ({
+        name: d.name,
+        employees: d.employees.map(e => e.name),
+      }))
+
+      // Niets verhuisd: gewoon de config opslaan, zoals het altijd ging.
+      if (pendingRenames.length === 0) {
+        await onSave(plain)
+        onClose()
+        return
+      }
+
+      // Wél verhuisd: via de rename-route, zodat de bestaande cellen mee
+      // naar de nieuwe naam gaan in plaats van onder de oude achter te
+      // blijven. Mislukt dat, dan blijft de modal open met de reden — de
+      // kladversie staat er nog, dus niemand verliest zijn werk.
+      const res = await onRename(pendingRenames, plain)
+      if (!res.ok) {
+        setSaveError(res.error)
+        return
+      }
       onClose()
     } finally {
       setSaving(false)
@@ -682,7 +765,8 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
                 {/* Employee list */}
                 {!isCollapsed && (
                   <div className="border-t border-zinc-800 px-3 pb-2 pt-1 space-y-0.5">
-                    {dept.employees.map((emp, ei) => {
+                    {dept.employees.map((slot, ei) => {
+                      const emp = slot.name
                       const isRenamingThisEmp = renamingEmp?.dept === di && renamingEmp.emp === ei
                       const isEmpDragTarget = dragOverEmp?.dept === di && dragOverEmp.emp === ei
                       const isEmpDragging = dragEmpRef.current?.dept === di && dragEmpRef.current.emp === ei
@@ -691,10 +775,15 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
                       const lastEntry = stalenessMap.get(`${dept.name}|${emp}`)
                       const stale = !isArchivedEmp && lastEntry && daysAgo(lastEntry) >= STALE_AFTER_DAYS
                       const notInTeam = !isArchivedEmp && !teamNameSet.has(normName(emp))
+                      // Nog niet opgeslagen hernoemd of versleept. Archiveren
+                      // schrijft meteen weg op (afdeling, naam) en zou dan naar
+                      // een naam wijzen die in de database nog niet bestaat —
+                      // dus eerst opslaan.
+                      const slotMoved = !!slot.orig && (slot.orig.dept !== dept.name || slot.orig.emp !== emp)
 
                       return (
                         <div
-                          key={ei}
+                          key={slot.orig ? `o:${slot.orig.dept}|${slot.orig.emp}` : `n:${di}-${ei}`}
                           draggable
                           onDragStart={() => onEmpDragStart(di, ei)}
                           onDragOver={e => onEmpDragOver(e, di, ei)}
@@ -750,6 +839,14 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
                                   niet in Team
                                 </span>
                               )}
+                              {slotMoved && (
+                                <span
+                                  className="flex-shrink-0 text-[9px] uppercase tracking-wide text-sky-400 border border-sky-900 rounded px-1"
+                                  title={`Was: ${slot.orig!.dept} — ${slot.orig!.emp}. De bestaande planning verhuist mee bij opslaan.`}
+                                >
+                                  verplaatst
+                                </span>
+                              )}
                               {stale && (
                                 <span
                                   className="flex-shrink-0 flex items-center gap-1 text-[9px] text-amber-500"
@@ -766,9 +863,13 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
                           {!isRenamingThisEmp && (
                             <button
                               onClick={() => toggleArchived(dept.name, emp)}
-                              disabled={isBusy}
-                              title={isArchivedEmp ? 'Terug actief maken' : 'Archiveren (blijft zichtbaar in oude planningen)'}
-                              className={`flex-shrink-0 transition-all text-zinc-600 hover:text-amber-400 ${
+                              disabled={isBusy || slotMoved}
+                              title={
+                                slotMoved
+                                  ? 'Eerst opslaan — deze naam is nog niet verplaatst in de database'
+                                  : isArchivedEmp ? 'Terug actief maken' : 'Archiveren (blijft zichtbaar in oude planningen)'
+                              }
+                              className={`flex-shrink-0 transition-all text-zinc-600 hover:text-amber-400 disabled:cursor-not-allowed disabled:hover:text-zinc-600 ${
                                 isArchivedEmp ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
                               }`}
                             >
@@ -829,6 +930,13 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
           </div>
         ) : (
         <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-zinc-800 flex-shrink-0">
+          {saveError && <p className="mr-auto text-[11px] text-red-400">{saveError}</p>}
+          {!saveError && pendingRenames.length > 0 && (
+            <p className="mr-auto text-[11px] text-zinc-500">
+              {pendingRenames.length} naam{pendingRenames.length === 1 ? '' : 'en'} verplaatst —
+              de bestaande planning verhuist mee.
+            </p>
+          )}
           <button
             onClick={onClose}
             disabled={saving}
