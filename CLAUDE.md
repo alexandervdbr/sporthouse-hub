@@ -80,6 +80,34 @@ git push
 - Gebruik duidelijke commit messages op basis van wat er net gedaan is
 - Vraag bevestiging voor je pusht naar `main`
 
+## Verbruik in de gaten houden
+
+Dit project draait op de gratis plannen van Supabase en Vercel. In oktober
+2026 liepen drie vaten over, allemaal door hetzelfde soort oorzaak: werk dat
+zich herhaalt of per byte door onze eigen servers gaat.
+
+Wat het veroorzaakte, als waarschuwing voor volgende keer:
+
+- een pagina die elke 20 seconden de hele maand ophaalde — 217 kB per keer,
+  39 MB per uur per openstaand tabblad
+- uploads die door een eigen route liepen in plaats van rechtstreeks naar
+  Drive — elke geuploade byte telde mee
+- video die via een eigen function streamde in plaats van vanaf Google
+
+Vuistregel bij een wijziging: alles wat op een timer staat, alles wat per rij
+of per tegel een verzoek doet, en alles waar bestandsbytes doorheen gaan is
+waar het verbruik ontstaat. De rest valt in het niet.
+
+Om te zien of iets ontspoort:
+
+```bash
+npm run usage-audit
+```
+
+Dat toont elke terugkerende timer in `src/`, hoe zwaar de grote queries zijn,
+en hoe hard de tabellen groeien. De dashboards van Supabase en Vercel blijven
+de waarheid — dit script wijst de oorzaak aan, niet het gevolg.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 # This is NOT the Next.js you know
