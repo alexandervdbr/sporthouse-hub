@@ -9,6 +9,9 @@ import {
   type CellData, type PlanningWeekData, type WeekDay,
 } from '@/lib/planning-week'
 import { isAdminUser } from '@/lib/auth-permissions'
+import {
+  monthCacheKey, readCachedMonth, writeCachedMonth, SELECT_COLS, type PlanningRow,
+} from '@/lib/planning-cache'
 import type { PlanningPreset } from '@/lib/planning-presets'
 import PlanningConfigModal from './PlanningConfigModal'
 import NamePicker from './NamePicker'
@@ -25,23 +28,6 @@ const norm = normName
 type Tab = 'mijn' | 'team' | 'stats'
 type TeamViewMode = 'week' | 'month'
 
-// The shape SELECT_COLS brings back. Named so the full load and the
-// incremental poll can't drift apart on what they expect.
-interface PlanningRow {
-  year: number
-  month: number
-  day: number
-  department: string
-  employee: string
-  value: string
-  bold: boolean | null
-  text_color: string | null
-  bg_color: string | null
-  note: string | null
-  updated_by: string | null
-  updated_at: string | null
-}
-
 // Supabase geeft standaard hoogstens 1000 rijen terug. Een drukke maand zit
 // daarboven — maart 2026 heeft er 1257 — en wat eroverheen gaat verdween
 // zonder melding: cellen zagen er leeg uit terwijl er wel iets stond.
@@ -51,6 +37,17 @@ interface PlanningRow {
 // rijen per pagina anders ordenen, en dan mis je er alsnog of krijg je ze
 // dubbel. Op `id` is willekeurig maar uniek, en dat is het enige dat telt.
 const PAGE_SIZE = 1000
+
+// How recently a month must have been synced for navigating back to it to
+// cost nothing at all.
+//
+// Measured rather than assumed: Supabase gzips its responses, so a full month
+// is about 10 kB on the wire, not the 194 kB of raw JSON. A sync saves most of
+// those bytes but costs two requests where a full fetch costs one — and it is
+// the number of requests the log quota counts, the one we were furthest over.
+// So a month synced moments ago is served from the cached copy and nothing is
+// asked at all; the sixty-second poll and the live socket keep it current.
+const SYNC_MIN_INTERVAL = 30000
 
 async function fetchAllRows<T>(
   build: () => { range: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }> }
@@ -64,8 +61,6 @@ async function fetchAllRows<T>(
     if (page.length < PAGE_SIZE) return all
   }
 }
-
-const SELECT_COLS = 'year, month, day, department, employee, value, bold, text_color, bg_color, note, updated_by, updated_at'
 
 // Known, confirmed overrides for first names shared by more than one real
 // Team contact — see the reconciliation effect below for how this is used.
@@ -517,7 +512,16 @@ export default function PlanningApp() {
   // "Mijn maand" renders full calendar weeks (see getMonthWeeks), so the
   // first/last week can spill into the neighboring month — those overflow
   // days need their data loaded too, not just the target month's own days.
-  const daysToLoad = usingWeekNav ? week : getMonthWeeks(anchorYear, anchorMonth).flat()
+  //
+  // Memoized because its identity, not its contents, is what the load
+  // callback and the load effect below compare on. getMonthWeeks(...).flat()
+  // builds a new array on every render, so without this the effect saw a
+  // changed dependency each time the component rendered at all — including
+  // renders its own fetch had just caused.
+  const daysToLoad = useMemo(
+    () => (usingWeekNav ? week : getMonthWeeks(anchorYear, anchorMonth).flat()),
+    [usingWeekNav, week, anchorYear, anchorMonth]
+  )
 
   // Bumped whenever the tab regains visibility (see the realtime effect
   // below) purely to force the load effect just below to re-run — an
@@ -533,12 +537,16 @@ export default function PlanningApp() {
   // the most recent one" needs to be tracked globally, not per-effect.
   const loadCallIdRef = useRef(0)
 
-  // What the last full load of each month held: how many rows, and the newest
-  // timestamp among them. The background poll compares against this instead
-  // of fetching the period again — see pollForChanges below.
-  const periodStateRef = useRef(new Map<string, { count: number; lastSeen: string }>())
+  // What each loaded month holds: every cell key in it, and the newest
+  // timestamp among its rows. Both the background poll and the cache sync
+  // compare against this instead of fetching the month again.
+  //
+  // Keys rather than a bare count, because a count alone can't tell an
+  // insert from a swap. Emptying one cell and filling another leaves the
+  // total unchanged, and the old check read that as "nothing happened".
+  const periodStateRef = useRef(new Map<string, { keys: Set<string>; lastSeen: string }>())
 
-  const groupKey = (g: { year: number; month: number }) => `${g.year}-${g.month}`
+  const groupKey = (g: { year: number; month: number }) => monthCacheKey(g.year, g.month)
 
   function rowToCell(r: PlanningRow) {
     return {
@@ -549,88 +557,190 @@ export default function PlanningApp() {
     }
   }
 
-  const loadPeriodData = useCallback(async (opts?: { silent?: boolean }) => {
-    const callId = ++loadCallIdRef.current
-    if (!opts?.silent) setLoading(true)
-    const groups = groupWeekByMonth(daysToLoad)
-    const results = await Promise.all(groups.map(g =>
+  const rowKey = (r: PlanningRow) => dateCellKey(r.year, r.month, r.day, r.department, r.employee)
+
+  const newestOf = (rows: PlanningRow[], floor: string) =>
+    rows.reduce<string>((max, r) => (r.updated_at && r.updated_at > max ? r.updated_at : max), floor)
+
+  // Which whole months the visible period touches. Deliberately whole months
+  // and not just the visible days: a week needs roughly a quarter of a
+  // month's rows, so walking four weeks forward used to cost four fetches
+  // where one now covers all of them and every later visit is free.
+  const monthsToLoad = useMemo(() => {
+    const seen = new Map<string, { year: number; month: number }>()
+    for (const g of groupWeekByMonth(daysToLoad)) {
+      seen.set(`${g.year}-${g.month}`, { year: g.year, month: g.month })
+    }
+    return [...seen.values()]
+  }, [daysToLoad])
+
+  const fetchMonth = useCallback((g: { year: number; month: number }) =>
+    fetchAllRows<PlanningRow>(() =>
+      supabase.from('planning_entries').select(SELECT_COLS)
+        .eq('year', g.year).eq('month', g.month)
+        .order('id', { ascending: true })
+    ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [])
+
+  // Bring one already-loaded month up to date without fetching it again.
+  //
+  // Two small questions: which rows changed since we last looked, and how
+  // many rows does the month hold now. Together they are exact, which a
+  // count on its own is not.
+  //
+  // The reasoning: every insert carries a fresh updated_at (the database sets
+  // it, see migration 0050), so an insert always comes back in the changed
+  // rows. That makes the row count we *should* see computable — what we had,
+  // plus the changed rows whose cell we didn't know yet. If the real count is
+  // lower, rows were deleted, and a deletion can't be fetched because it no
+  // longer exists. Only then is a full re-fetch needed.
+  //
+  // So an edit or an addition costs a few hundred bytes. A deletion costs one
+  // re-fetch. Before this, any change in the count at all forced that
+  // re-fetch, including a plain addition.
+  // When each month was last synced in this session — see SYNC_MIN_INTERVAL.
+  const lastSyncedRef = useRef(new Map<string, number>())
+
+  const syncMonth = useCallback(async (g: { year: number; month: number }, callId: number): Promise<boolean> => {
+    const known = periodStateRef.current.get(groupKey(g))
+    if (!known) return false
+
+    const [changed, counted] = await Promise.all([
       fetchAllRows<PlanningRow>(() =>
         supabase.from('planning_entries').select(SELECT_COLS)
-          .eq('year', g.year).eq('month', g.month).in('day', g.days)
+          .eq('year', g.year).eq('month', g.month)
+          .gt('updated_at', known.lastSeen)
           .order('id', { ascending: true })
-      )
-    ))
+      ),
+      supabase.from('planning_entries').select('year', { count: 'exact', head: true })
+        .eq('year', g.year).eq('month', g.month),
+    ])
+    if (callId !== loadCallIdRef.current) return true // superseded; nothing to do
+
+    const added = changed.filter(r => !known.keys.has(rowKey(r)))
+    const expected = known.keys.size + added.length
+    if ((counted.count ?? expected) !== expected) return false // rows were deleted
+
+    lastSyncedRef.current.set(groupKey(g), Date.now())
+    if (changed.length === 0) return true
+
+    setData(prev => {
+      const next = { ...prev }
+      for (const r of changed) next[rowKey(r)] = rowToCell(r)
+      return next
+    })
+
+    const keys = new Set(known.keys)
+    for (const r of added) keys.add(rowKey(r))
+    const lastSeen = newestOf(changed, known.lastSeen)
+    periodStateRef.current.set(groupKey(g), { keys, lastSeen })
+
+    // The cached copy has to move with it, or the next page load would paint
+    // from a month that is now known to be out of date.
+    const cached = readCachedMonth(g.year, g.month)
+    if (cached) {
+      const byKey = new Map(cached.rows.map(r => [rowKey(r), r]))
+      for (const r of changed) byKey.set(rowKey(r), r)
+      writeCachedMonth(g.year, g.month, [...byKey.values()], lastSeen)
+    }
+    return true
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const syncMonthRef = useRef(syncMonth)
+  useEffect(() => { syncMonthRef.current = syncMonth }, [syncMonth])
+
+  const adoptMonth = useCallback((g: { year: number; month: number }, rows: PlanningRow[]) => {
+    periodStateRef.current.set(groupKey(g), {
+      keys: new Set(rows.map(rowKey)),
+      lastSeen: newestOf(rows, '1970-01-01T00:00:00Z'),
+    })
+  }, [])
+
+  // Live events arrive outside the load/sync path, so they have to keep the
+  // same bookkeeping in step — only for a month we actually track; anything
+  // else gets its key set built from scratch when you navigate there.
+  const rememberKey = useCallback((year: number, month: number, key: string) => {
+    const known = periodStateRef.current.get(monthCacheKey(year, month))
+    if (known) known.keys.add(key)
+  }, [])
+
+  const forgetKey = useCallback((year: number, month: number, key: string) => {
+    const known = periodStateRef.current.get(monthCacheKey(year, month))
+    if (known) known.keys.delete(key)
+  }, [])
+
+  const loadPeriodData = useCallback(async (opts?: { silent?: boolean; skipCache?: boolean }): Promise<void> => {
+    const callId = ++loadCallIdRef.current
+    const months = monthsToLoad
+
+    // Paint from the cached copy first, if every visible month has one. A
+    // partial hit isn't worth splitting the path for — it only happens on
+    // the week that straddles two months — so that falls through to the
+    // full fetch below.
+    if (!opts?.skipCache) {
+      const cached = months.map(g => readCachedMonth(g.year, g.month))
+      if (cached.every(c => c !== null)) {
+        const map: PlanningWeekData = {}
+        cached.forEach((c, i) => {
+          for (const r of c!.rows) map[rowKey(r)] = rowToCell(r)
+          periodStateRef.current.set(groupKey(months[i]), {
+            keys: new Set(c!.rows.map(rowKey)),
+            lastSeen: c!.lastSeen,
+          })
+        })
+        setData(map)
+        setLoading(false)
+
+        // Now catch up on whatever changed while this copy sat in the
+        // browser — unless it was already synced moments ago, in which case
+        // nothing leaves the browser at all. A month that can't be synced
+        // incrementally (rows were deleted) is re-fetched in full, silently;
+        // what's on screen is already a reasonable answer in the meantime.
+        const stale = months.filter(g =>
+          Date.now() - (lastSyncedRef.current.get(groupKey(g)) ?? 0) > SYNC_MIN_INTERVAL)
+        if (stale.length === 0) return
+        const synced = await Promise.all(stale.map(g => syncMonthRef.current(g, callId)))
+        if (callId !== loadCallIdRef.current) return
+        if (synced.every(Boolean)) return
+        return loadPeriodDataRef.current({ silent: true, skipCache: true })
+      }
+    }
+
+    if (!opts?.silent) setLoading(true)
+    const results = await Promise.all(months.map(fetchMonth))
     if (callId !== loadCallIdRef.current) return // superseded by a newer load
+
     const map: PlanningWeekData = {}
     results.forEach((rows, i) => {
-      for (const r of rows) {
-        map[dateCellKey(r.year, r.month, r.day, r.department, r.employee)] = rowToCell(r)
-      }
-      // Noted so the poll knows what it's comparing to: a different row count
-      // means something was added or removed, and the newest timestamp is
-      // where it should start asking from.
-      periodStateRef.current.set(groupKey(groups[i]), {
-        count: rows.length,
-        lastSeen: rows.reduce<string>((max, r) => (r.updated_at && r.updated_at > max ? r.updated_at : max), '1970-01-01T00:00:00Z'),
-      })
+      for (const r of rows) map[rowKey(r)] = rowToCell(r)
+      adoptMonth(months[i], rows)
+      lastSyncedRef.current.set(groupKey(months[i]), Date.now())
+      writeCachedMonth(months[i].year, months[i].month, rows, newestOf(rows, '1970-01-01T00:00:00Z'))
     })
     setData(map)
     if (!opts?.silent) setLoading(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [daysToLoad])
+  }, [monthsToLoad])
 
   // The cheap version of the above, for the background safety net.
   //
   // Re-fetching the visible month cost 217 kB every twenty seconds per open
   // tab — about 39 MB an hour, which is how a 5 GB monthly allowance went in
-  // a few weeks. This asks two much smaller questions instead: what changed
-  // since last time, and are there still as many rows as before.
-  //
-  // The count is what catches a deletion. A row that was removed can't come
-  // back in "what changed", because it no longer exists — so without that
-  // check a shift someone deleted would stay on screen until the period was
-  // reloaded for some other reason.
-  const pollForChanges = useCallback(async () => {
+  // a few weeks. syncMonth asks two much smaller questions instead, and only
+  // falls back to a re-fetch when rows were actually deleted.
+  const pollForChanges = useCallback(async (): Promise<void> => {
     const callId = ++loadCallIdRef.current
-    const groups = groupWeekByMonth(daysToLoad)
-
-    for (const g of groups) {
-      const known = periodStateRef.current.get(groupKey(g))
-      if (!known) return loadPeriodDataRef.current({ silent: true })
-
-      const [changedRows, counted] = await Promise.all([
-        fetchAllRows<PlanningRow>(() =>
-          supabase.from('planning_entries').select(SELECT_COLS)
-            .eq('year', g.year).eq('month', g.month).in('day', g.days)
-            .gt('updated_at', known.lastSeen)
-            .order('id', { ascending: true })
-        ),
-        supabase.from('planning_entries').select('year', { count: 'exact', head: true })
-          .eq('year', g.year).eq('month', g.month).in('day', g.days),
-      ])
-      if (callId !== loadCallIdRef.current) return // a real load started meanwhile
-
-      if ((counted.count ?? known.count) !== known.count) {
+    for (const g of monthsToLoad) {
+      if (!periodStateRef.current.get(groupKey(g))) {
         return loadPeriodDataRef.current({ silent: true })
       }
-
-      const rows = changedRows
-      if (rows.length === 0) continue
-
-      setData(prev => {
-        const next = { ...prev }
-        for (const r of rows) {
-          next[dateCellKey(r.year, r.month, r.day, r.department, r.employee)] = rowToCell(r)
-        }
-        return next
-      })
-      periodStateRef.current.set(groupKey(g), {
-        count: known.count,
-        lastSeen: rows.reduce<string>((max, r) => (r.updated_at && r.updated_at > max ? r.updated_at : max), known.lastSeen),
-      })
+      const ok = await syncMonthRef.current(g, callId)
+      if (callId !== loadCallIdRef.current) return
+      if (!ok) return loadPeriodDataRef.current({ silent: true, skipCache: true })
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [daysToLoad])
+  }, [monthsToLoad])
 
   // Kept in a ref so the polling effect below (registered once, empty deps
   // — it shouldn't tear down and recreate its interval on every render)
@@ -774,11 +884,16 @@ export default function PlanningApp() {
                 return
               }
 
+              const key = dateCellKey(old.year!, old.month!, old.day!, old.department!, old.employee!)
               setData(prev => {
                 const next = { ...prev }
-                delete next[dateCellKey(old.year!, old.month!, old.day!, old.department!, old.employee!)]
+                delete next[key]
                 return next
               })
+              // The bookkeeping syncMonth compares against has to follow,
+              // or the next sync would count a row that is gone and fall
+              // back to re-fetching the whole month for nothing.
+              forgetKey(old.year!, old.month!, key)
               return
             }
             const row = payload.new as {
@@ -786,15 +901,17 @@ export default function PlanningApp() {
               value: string; bold: boolean | null; text_color: string | null; bg_color: string | null; note: string | null
               updated_by: string | null; updated_at: string | null
             }
+            const key = dateCellKey(row.year, row.month, row.day, row.department, row.employee)
             setData(prev => ({
               ...prev,
-              [dateCellKey(row.year, row.month, row.day, row.department, row.employee)]: {
+              [key]: {
                 value: row.value, bold: row.bold ?? true,
                 textColor: row.text_color ?? '#ffffff', bgColor: row.bg_color ?? null,
                 note: row.note ?? null,
                 updatedBy: row.updated_by ?? null, updatedAt: row.updated_at ?? null,
               },
             }))
+            rememberKey(row.year, row.month, key)
           }
         )
         .subscribe((status, err) => {
@@ -878,6 +995,14 @@ export default function PlanningApp() {
       }
       return next
     })
+    // Straight away, not waiting for our own change to come back over the
+    // socket. A sync landing in that gap would see a row count that doesn't
+    // match its bookkeeping and re-fetch the whole month for nothing.
+    for (const e of entries) {
+      const key = weekDayCellKey(e.wd, e.dept, e.emp)
+      if (e.cell) rememberKey(e.wd.year, e.wd.month, key)
+      else forgetKey(e.wd.year, e.wd.month, key)
+    }
     const toUpsert = entries.filter(e => e.cell)
     const toDelete = entries.filter(e => !e.cell)
     if (toUpsert.length > 0) {

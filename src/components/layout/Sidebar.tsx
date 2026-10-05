@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils'
 import { getLogo } from '@/lib/logos'
 import { usePreview } from '@/lib/preview-context'
 import { isAdminUser } from '@/lib/auth-permissions'
+import { clearPlanningCache } from '@/lib/planning-cache'
 
 interface SidebarProps {
   clients: Client[]
@@ -183,6 +184,11 @@ export default function Sidebar({ clients }: SidebarProps) {
   }
 
   async function handleLogout() {
+    // The planning keeps a copy of the months you've looked at in
+    // localStorage, which outlives a session. On a shared laptop the next
+    // person could otherwise read last month's roster straight out of the
+    // browser without logging in.
+    clearPlanningCache()
     await supabase.auth.signOut()
     router.push('/login')
     router.refresh()
