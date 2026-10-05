@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ChevronLeft, ChevronRight, Loader2, Settings, Search, X, Users } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Loader2, Settings, Search, TriangleAlert, X, Users } from 'lucide-react'
 import { DEPARTMENTS, DUTCH_MONTHS, UNASSIGNED_DEPT, normName, type Department } from '@/lib/planning-config'
 import {
   addMonths, addWeeks, dateCellKey, getMonthWeeks, getWeekDates, groupWeekByMonth, weekDayCellKey, weekLabel,
@@ -146,6 +146,11 @@ export default function PlanningApp() {
 
   const [activeDepts, setActiveDepts] = useState<Department[]>(() => loadCachedDepts())
   const [configLoaded, setConfigLoaded] = useState(false)
+  // Kon het echte rooster niet gelezen worden, dan is wat hier op het scherm
+  // staat de lokale kopie of de hardcoded fallback — niet de waarheid. Alles
+  // wat de config zou wegschrijven staat dan stil, want anders overschrijft
+  // één mislukte GET het echte rooster met een verouderde kopie uit de code.
+  const [configFailed, setConfigFailed] = useState(false)
   const [presets, setPresets] = useState<PlanningPreset[]>([])
   const [showConfig, setShowConfig] = useState(false)
 
@@ -174,28 +179,43 @@ export default function PlanningApp() {
   const [teamSearch, setTeamSearch] = useState('')
 
   // ── Load departments config ─────────────────────────────────────────────
+  // Een lege config (status 200, body `null`) is een geldig antwoord: dan
+  // staat er echt nog niets opgeslagen en mag de fallback het vertrekpunt
+  // zijn. Een fout is dat niet, en wordt sinds deze wijziging ook als fout
+  // teruggegeven in plaats van als lege config.
   useEffect(() => {
     fetch('/api/planning/config')
-      .then(r => r.json())
+      .then(r => {
+        if (!r.ok) throw new Error(`config ${r.status}`)
+        return r.json()
+      })
       .then((cfg: Department[] | null) => {
         if (Array.isArray(cfg) && cfg.length > 0) {
           setActiveDepts(cfg)
           try { localStorage.setItem(CONFIG_CACHE_KEY, JSON.stringify(cfg)) } catch { /* private browsing */ }
         }
       })
-      .catch(() => { /* fall back to the cached or hardcoded config */ })
+      .catch(() => setConfigFailed(true))
       .finally(() => setConfigLoaded(true))
   }, [])
 
-  async function handleSaveConfig(newDepts: Department[]) {
-    await fetch('/api/planning/config', {
+  // useCallback omdat de drie zelfherstellende effecten hieronder hem in hun
+  // dependencies hebben: zonder stabiele identiteit zouden die op elke render
+  // opnieuw lopen.
+  const handleSaveConfig = useCallback(async (newDepts: Department[]) => {
+    if (configFailed) return
+    const res = await fetch('/api/planning/config', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newDepts),
     })
+    // Mislukt opslaan hoeft niet luidruchtig te zijn, maar de lokale staat mag
+    // er dan ook niet doen alsof het gelukt is — anders staat het scherm
+    // ergens anders dan de database, en schrijft de cache dat verschil vast.
+    if (!res.ok) return
     setActiveDepts(newDepts)
     try { localStorage.setItem(CONFIG_CACHE_KEY, JSON.stringify(newDepts)) } catch { /* private browsing */ }
-  }
+  }, [configFailed])
 
   // ── Team contacts — the real, actually-maintained source of "who works
   // here" (see /team). New hires land in a "Nieuw" bucket automatically so
@@ -235,7 +255,7 @@ export default function PlanningApp() {
   // insensitive) — e.g. the same name saved twice by the double-save race
   // above before this lock existed.
   useEffect(() => {
-    if (!isBeheer || activeDepts.length === 0 || configWriteRef.current) return
+    if (!isBeheer || configFailed || activeDepts.length === 0 || configWriteRef.current) return
     const seen = new Set<string>()
     let changed = false
     const next = activeDepts.map(d => {
@@ -250,7 +270,7 @@ export default function PlanningApp() {
     if (!changed) return
     configWriteRef.current = true
     handleSaveConfig(next).finally(() => { configWriteRef.current = false })
-  }, [isBeheer, activeDepts])
+  }, [isBeheer, configFailed, activeDepts, handleSaveConfig])
 
   // 2) A long-standing manual-entry convention here stores lots of people as
   // a bare first name only ("Yaro", "Tim", …) rather than a full name — this
@@ -263,7 +283,7 @@ export default function PlanningApp() {
   // team" — a genuine remaining conflict to sort out manually) rather than
   // guessing wrong.
   useEffect(() => {
-    if (!isBeheer || teamContacts.length === 0 || activeDepts.length === 0 || configWriteRef.current) return
+    if (!isBeheer || configFailed || teamContacts.length === 0 || activeDepts.length === 0 || configWriteRef.current) return
     let changed = false
     const next = activeDepts.map(d => ({ ...d, employees: [...d.employees] }))
 
@@ -309,7 +329,7 @@ export default function PlanningApp() {
     if (!changed) return
     configWriteRef.current = true
     handleSaveConfig(next).finally(() => { configWriteRef.current = false })
-  }, [isBeheer, teamContacts, activeDepts])
+  }, [isBeheer, configFailed, teamContacts, activeDepts, handleSaveConfig])
 
   // 3) New Team contacts land in a "Nieuw" bucket automatically. Someone
   // already represented by a bare first name (see above) counts as known —
@@ -318,7 +338,7 @@ export default function PlanningApp() {
   // with an existing bare entry won't be auto-added either; same as any
   // other name-only match in this feature, that's a manual add.
   useEffect(() => {
-    if (!isBeheer || teamContacts.length === 0 || activeDepts.length === 0 || configWriteRef.current) return
+    if (!isBeheer || configFailed || teamContacts.length === 0 || activeDepts.length === 0 || configWriteRef.current) return
     const known = new Set(activeDepts.flatMap(d => d.employees.map(e => normName(e))))
     const bareFirstNames = new Set(
       activeDepts.flatMap(d => d.employees)
@@ -345,7 +365,7 @@ export default function PlanningApp() {
     bucket.employees.push(...missing.map(c => c.name))
     configWriteRef.current = true
     handleSaveConfig(next).finally(() => { configWriteRef.current = false })
-  }, [isBeheer, teamContacts, activeDepts])
+  }, [isBeheer, configFailed, teamContacts, activeDepts, handleSaveConfig])
 
   // ── Load presets ─────────────────────────────────────────────────────────
   // Ook opnieuw op te vragen: de Presets-tab in de configuratiemodal schrijft
@@ -1168,15 +1188,34 @@ export default function PlanningApp() {
             </div>
           )}
 
+          {/* Uitgeschakeld zolang het echte rooster niet gelezen kon worden:
+              wat de modal dan toont is de fallback uit de code, en opslaan
+              zou het echte rooster daarmee overschrijven. */}
           {isBeheer && (
             <button onClick={() => setShowConfig(true)}
-              className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700 transition-colors"
-              title="Planning configuratie">
+              disabled={configFailed}
+              className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-zinc-400 disabled:hover:border-zinc-800"
+              title={configFailed ? 'Rooster kon niet geladen worden — configuratie tijdelijk niet beschikbaar' : 'Planning configuratie'}>
               <Settings size={15} />
             </button>
           )}
         </div>
       </div>
+
+      {/* Eerlijk zijn over waar je naar kijkt: zonder echt rooster zijn de
+          namen en afdelingen hieronder een verouderde kopie uit de code, en
+          dat is van buiten niet te zien. De planning zelf (de cellen) komt
+          wel gewoon uit de database en blijft bruikbaar. */}
+      {configFailed && (
+        <div className="flex items-start gap-2 flex-shrink-0 rounded-xl border border-amber-900/40 bg-amber-950/20 px-3 py-2">
+          <TriangleAlert size={13} className="mt-0.5 flex-shrink-0 text-amber-500" />
+          <p className="text-xs text-amber-400">
+            De namen- en afdelingenlijst kon niet geladen worden — je ziet een
+            terugvallijst, die achterhaald kan zijn. De planning zelf is wel
+            actueel. Herlaad de pagina; blijft dit staan, meld het dan even.
+          </p>
+        </div>
+      )}
 
       {/* Tabs — Statistieken alleen zichtbaar met de planning_statistieken
           permissie (of voor beheerders) — geen aparte plek onder Beheer,
