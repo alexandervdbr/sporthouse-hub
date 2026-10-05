@@ -45,6 +45,16 @@ export interface CachedMonth {
 // ignored instead of being read as if it still matched.
 const CACHE_KEY = 'planning-month-cache-v1'
 
+// Wie je bent in het rooster, en onder welk account die keuze gemaakt is.
+// Die tweede sleutel bestaat omdat de keuze zelf een bewuste handeling is
+// ("Niet jij? Wissel van naam") en dus niet zomaar overschreven mag worden —
+// maar wél moet verdwijnen zodra er iemand anders inlogt op dit toestel.
+export const IDENTITY_KEY = 'planning-my-name'
+export const IDENTITY_ACCOUNT_KEY = 'planning-my-name-account'
+
+// De laatst gelukte afdelingenconfig: het hele rooster, met alle namen erin.
+export const CONFIG_CACHE_KEY = 'planning-config-cache'
+
 // A busy month is about 200 kB of JSON and localStorage gives roughly 5 MB,
 // most of which belongs to other parts of the app. Four is enough to cover
 // moving back and forth between neighbouring months, which is what people
@@ -114,10 +124,22 @@ export function writeCachedMonth(year: number, month: number, rows: PlanningRow[
 // signing out takes the copy with it — otherwise the next person on a shared
 // laptop could read last month's roster out of the browser without ever
 // logging in. Called from the logout handler in Sidebar.
+//
+// Dat gold maar voor de maandcache. De gekozen identiteit en de afdelingen-
+// config bleven staan, en dat is precies hetzelfde probleem: wie daarna
+// inlogde zag (en bewerkte) de "Mijn maand" van de vorige persoon, en het
+// volledige rooster stond nog in de browser. Die gaan nu mee.
+//
+// Wat blijft staan: planning-active-tab, planning-team-view-mode en
+// planning-sections:<identiteit>. Dat zijn weergavevoorkeuren zonder
+// planningsgegevens, en de sectievoorkeuren hangen al aan een identiteit —
+// iemand anders leest ze dus niet, en jij verliest ze niet bij elke logout.
 export function clearPlanningCache() {
-  try {
-    localStorage.removeItem(CACHE_KEY)
-  } catch {
-    // Nothing stored, nothing to clear.
+  for (const key of [CACHE_KEY, IDENTITY_KEY, IDENTITY_ACCOUNT_KEY, CONFIG_CACHE_KEY]) {
+    try {
+      localStorage.removeItem(key)
+    } catch {
+      // Niet beschikbaar (private browsing) — dan staat er ook niets.
+    }
   }
 }

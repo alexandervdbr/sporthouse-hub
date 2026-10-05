@@ -356,7 +356,7 @@ export default function WeekGrid({
                       userSelect: 'none',
                       WebkitUserSelect: 'none',
                     }}
-                    className={`relative border-b border-zinc-800/60 border-r ${cellPad} ${cellMinH} flex flex-col items-center justify-center gap-0.5 ${locked ? '' : 'cursor-pointer'}`}
+                    className={`group relative border-b border-zinc-800/60 border-r ${cellPad} ${cellMinH} flex flex-col items-center justify-center gap-0.5 ${locked ? '' : 'cursor-pointer'}`}
                   >
                     {cell.value ? (
                       <>
@@ -374,6 +374,10 @@ export default function WeekGrid({
                       !locked && <span className="text-zinc-700 text-xs">+</span>
                     )}
 
+                    {/* group-hover werkt alleen met een `group` op de cel
+                        hierboven — die stond er niet, waardoor dit knopje op
+                        desktop permanent op opacity 0 bleef en Kopiëren /
+                        Plakken / Wissen in de weekweergave onvindbaar was. */}
                     {!locked && (
                       <button
                         onPointerDown={e => e.stopPropagation()}

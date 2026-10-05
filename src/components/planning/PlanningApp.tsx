@@ -10,7 +10,8 @@ import {
 } from '@/lib/planning-week'
 import { isAdminUser } from '@/lib/auth-permissions'
 import {
-  monthCacheKey, readCachedMonth, writeCachedMonth, SELECT_COLS, type PlanningRow,
+  monthCacheKey, readCachedMonth, writeCachedMonth, SELECT_COLS,
+  CONFIG_CACHE_KEY, IDENTITY_KEY, IDENTITY_ACCOUNT_KEY, type PlanningRow,
 } from '@/lib/planning-cache'
 import { fetchAllRows } from '@/lib/planning-paginate'
 import type { PlanningPreset } from '@/lib/planning-presets'
@@ -71,8 +72,9 @@ const AMBIGUOUS_FIRST_NAME_OVERRIDES: Record<string, { surnamePrefix: string; de
 // from the critical path entirely for anyone who's loaded this before —
 // the fresh fetch still runs and corrects anything that's genuinely
 // changed, but there's no visible gap while it's in flight.
-const CONFIG_CACHE_KEY = 'planning-config-cache'
-
+//
+// De sleutel zelf staat in planning-cache.ts, bij de andere planning-sleutels
+// die bij uitloggen gewist moeten worden.
 function loadCachedDepts(): Department[] {
   try {
     const raw = localStorage.getItem(CONFIG_CACHE_KEY)
@@ -346,9 +348,17 @@ export default function PlanningApp() {
   }, [isBeheer, teamContacts, activeDepts])
 
   // ── Load presets ─────────────────────────────────────────────────────────
-  useEffect(() => {
-    fetch('/api/planning/presets').then(r => r.json()).then(setPresets).catch(() => {})
+  // Ook opnieuw op te vragen: de Presets-tab in de configuratiemodal schrijft
+  // meteen weg en hield zijn eigen lijst bij, maar vertelde het hier nooit —
+  // een nieuwe of hernoemde status stond pas in het raster na een refresh.
+  const loadPresets = useCallback(() => {
+    fetch('/api/planning/presets')
+      .then(r => r.json())
+      .then(p => { if (Array.isArray(p)) setPresets(p) })
+      .catch(() => {})
   }, [])
+
+  useEffect(() => { loadPresets() }, [loadPresets])
 
   // ── Load archived employees ──────────────────────────────────────────────
   useEffect(() => {
@@ -433,12 +443,29 @@ export default function PlanningApp() {
     [activeDepts, isArchived]
   )
 
+  // Meteen uit localStorage, zodat "Mijn maand" niet op elke refresh kort
+  // leeg staat. Of die keuze wel bij dít account hoort, wordt hieronder
+  // nagekeken zodra de login bekend is.
   useEffect(() => {
     try {
-      const stored = localStorage.getItem('planning-my-name')
+      const stored = localStorage.getItem(IDENTITY_KEY)
       if (stored) setMyIdentity(stored)
     } catch { /* private browsing */ }
     setIdentityLoaded(true)
+  }, [])
+
+  const rememberIdentity = useCallback((name: string, account: string | undefined) => {
+    try {
+      localStorage.setItem(IDENTITY_KEY, name)
+      localStorage.setItem(IDENTITY_ACCOUNT_KEY, (account ?? '').trim().toLowerCase())
+    } catch { /* private browsing */ }
+  }, [])
+
+  const forgetIdentity = useCallback(() => {
+    try {
+      localStorage.removeItem(IDENTITY_KEY)
+      localStorage.removeItem(IDENTITY_ACCOUNT_KEY)
+    } catch { /* private browsing */ }
   }, [])
 
   useEffect(() => {
@@ -453,20 +480,57 @@ export default function PlanningApp() {
   // prematurely against incomplete data. Only ever fills in a still-empty
   // identity — never overrides a manual pick (see NamePicker below), and
   // never touches a permission-locked column.
+  //
+  // Plus: een opgeslagen keuze hoort bij het account dat hem maakte. Op een
+  // gedeelde laptop zag wie daarna inlogde de "Mijn maand" van de vorige
+  // persoon staan, en kon die ook bewerken — de keuze werd immers nooit
+  // tegen het ingelogde account gehouden. Hoort hij bij iemand anders, dan
+  // valt hij weg en begint de e-mailmatch hieronder gewoon opnieuw.
   const [emailMatchAttempted, setEmailMatchAttempted] = useState(false)
   useEffect(() => {
     if (!authChecked || !teamContactsLoaded || !configLoaded) return
-    if (myIdentity || myColumn) { setEmailMatchAttempted(true); return }
-    if (userEmail) {
-      const wanted = userEmail.trim().toLowerCase()
-      const match = teamContacts.find(c => c.email && c.email.trim().toLowerCase() === wanted)
-      if (match && activeEveryEmployee.some(p => p.emp === match.name)) {
-        setMyIdentity(match.name)
-        try { localStorage.setItem('planning-my-name', match.name) } catch { /* ignore */ }
+
+    const wanted = userEmail?.trim().toLowerCase() ?? ''
+    const match = wanted
+      ? teamContacts.find(c => c.email && c.email.trim().toLowerCase() === wanted) ?? null
+      : null
+    const matchInRoster = match && activeEveryEmployee.some(p => p.emp === match.name) ? match.name : null
+
+    // Een permissie-kolom komt van het account zelf, dus die kan nooit van
+    // iemand anders zijn en wordt hier niet aangeraakt.
+    if (!myColumn && myIdentity) {
+      let owner: string | null = null
+      try { owner = localStorage.getItem(IDENTITY_ACCOUNT_KEY) } catch { /* private browsing */ }
+
+      if (owner !== null && owner !== wanted) {
+        // Bekend, en van iemand anders.
+        setMyIdentity(null)
+        forgetIdentity()
+        setEmailMatchAttempted(true)
+        return
+      }
+      if (owner === null) {
+        // Opgeslagen vóór deze sleutel bestond: van wie weten we niet. Wijst
+        // de login naar een andere naam, dan is dat het betrouwbaardere
+        // antwoord; anders nemen we aan dat hij van dit account is.
+        if (matchInRoster && matchInRoster !== myIdentity) {
+          setMyIdentity(matchInRoster)
+          rememberIdentity(matchInRoster, userEmail)
+        } else {
+          rememberIdentity(myIdentity, userEmail)
+        }
+        setEmailMatchAttempted(true)
+        return
       }
     }
+
+    if (myIdentity || myColumn) { setEmailMatchAttempted(true); return }
+    if (matchInRoster) {
+      setMyIdentity(matchInRoster)
+      rememberIdentity(matchInRoster, userEmail)
+    }
     setEmailMatchAttempted(true)
-  }, [authChecked, teamContactsLoaded, configLoaded, userEmail, teamContacts, myIdentity, myColumn, activeEveryEmployee])
+  }, [authChecked, teamContactsLoaded, configLoaded, userEmail, teamContacts, myIdentity, myColumn, activeEveryEmployee, rememberIdentity, forgetIdentity])
 
   const nameGuess = useMemo(() => {
     if (!myName) return null
@@ -485,7 +549,7 @@ export default function PlanningApp() {
 
   function confirmIdentity(name: string) {
     setMyIdentity(name)
-    try { localStorage.setItem('planning-my-name', name) } catch { /* ignore */ }
+    rememberIdentity(name, userEmail)
     setShowNamePicker(false)
   }
 
@@ -905,7 +969,6 @@ export default function PlanningApp() {
           if (thisChannel !== current) return // superseded — ignore
           if (status === 'SUBSCRIBED') {
             backoff = 2000
-            console.log('Planning live-sync verbonden om', new Date().toLocaleTimeString())
             return
           }
           // Previously silent — a dropped/failed connection here looked
@@ -1303,7 +1366,7 @@ export default function PlanningApp() {
           archived={archived}
           onSaveArchived={handleSaveArchived}
           teamNames={teamContacts.map(c => c.name)}
-          onClose={() => setShowConfig(false)}
+          onClose={() => { setShowConfig(false); loadPresets() }}
           isBeheer={isBeheer}
         />
       )}
