@@ -50,6 +50,7 @@ function rectIndices(aIdx: number, bIdx: number): number[] {
 // 7 days and can't reach across sibling week-rows.
 export default function MyMonthWeeks({
   year, month, dept, emp, data, readOnly, presets, onApply, onClear, emailToName,
+  dimReadOnly = true,
 }: {
   year: number
   month: number
@@ -61,6 +62,11 @@ export default function MyMonthWeeks({
   onApply: (targets: Target[], value: CellData) => void
   onClear: (targets: Target[]) => void
   emailToName?: Map<string, string>
+  // Alleen-lezen cellen worden standaard gedimd, want in het teamraster
+  // betekent dat "deze kolom is niet van jou". Op een pagina waar alles
+  // alleen-lezen is valt er niets te contrasteren en ziet dat er gewoon
+  // kapot uit — zie MyPlanningLink.
+  dimReadOnly?: boolean
 }) {
   const weeks = getMonthWeeks(year, month)
   const allDays = weeks.flat()
@@ -288,7 +294,7 @@ export default function MyMonthWeeks({
                       backgroundColor: isSelected ? SEL_BG : wd.isToday ? 'rgba(58,145,63,0.06)' : undefined,
                       outline: isSelected ? SEL_BDR : undefined,
                       outlineOffset: '-1px',
-                      opacity: isOverflow ? 0.4 : readOnly ? 0.45 : 1,
+                      opacity: isOverflow ? 0.4 : (readOnly && dimReadOnly) ? 0.45 : 1,
                       touchAction: 'none',
                       userSelect: 'none',
                       WebkitUserSelect: 'none',
