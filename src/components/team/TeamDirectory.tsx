@@ -288,7 +288,7 @@ function ContactModal({
             />
             <p className="text-[10px] text-zinc-600 mt-1">
               {form.activeUntil
-                ? `Laatste werkdag. Daarna verdwijnt ${form.name || 'deze persoon'} uit de planning; zijn ingevulde dagen blijven bewaard.`
+                ? `Laatste werkdag. Daarna verdwijnt ${form.name || 'deze persoon'} uit de planning; zijn ingevulde dagen blijven bewaard. Heeft hij een login, dan vervalt die op dezelfde dag.`
                 : 'Laat leeg als er nog geen einddatum bekend is.'}
             </p>
           </div>
