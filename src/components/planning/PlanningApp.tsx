@@ -30,6 +30,18 @@ import PlanningStats from './PlanningStats'
 
 const norm = normName
 
+// Wat /api/team/members teruggeeft. `active` is daar afgeleid uit
+// employment_type en active_until — zie src/lib/employment.ts — zodat de
+// planning en de Team-pagina niet elk hun eigen definitie krijgen.
+interface TeamContact {
+  id: string
+  name: string
+  email: string | null
+  employment_type?: string | null
+  active_until?: string | null
+  active?: boolean
+}
+
 type Tab = 'mijn' | 'team' | 'stats'
 type TeamViewMode = 'week' | 'month'
 
@@ -216,12 +228,12 @@ export default function PlanningApp() {
   // admins move them into the right department afterwards. Matched by name
   // only (no shared id with planning_entries), so a rename in Team won't be
   // picked up here — only additions/removals.
-  const [teamContacts, setTeamContacts] = useState<{ id: string; name: string; email: string | null }[]>([])
+  const [teamContacts, setTeamContacts] = useState<TeamContact[]>([])
   const [teamContactsLoaded, setTeamContactsLoaded] = useState(false)
   useEffect(() => {
     fetch('/api/team/members')
       .then(r => r.json())
-      .then((d: { id: string; name: string; email: string | null }[] | null) => { if (Array.isArray(d)) setTeamContacts(d) })
+      .then((d: TeamContact[] | null) => { if (Array.isArray(d)) setTeamContacts(d) })
       .catch(() => {})
       .finally(() => setTeamContactsLoaded(true))
   }, [])
@@ -340,6 +352,11 @@ export default function PlanningApp() {
     )
     const seenTeamNames = new Set<string>()
     const uniqueTeamContacts = teamContacts.filter(c => {
+      // Wie niet meer meedraait hoort hier niet opnieuw binnengehaald te
+      // worden. Zonder dit zou een vertrokken stagiair elke keer opnieuw in
+      // "Nieuw" opduiken, en is er geen manier om hem weg te krijgen behalve
+      // hem uit Team verwijderen — precies wat we niet willen.
+      if (c.active === false) return false
       const key = normName(c.name)
       if (!c.name.trim() || seenTeamNames.has(key)) return false
       seenTeamNames.add(key)
@@ -390,9 +407,27 @@ export default function PlanningApp() {
     })
   }
 
+  // Namen van Team-contacten die niet meer meedraaien: een stagiair voorbij
+  // zijn einddatum, of een student die op non-actief staat.
+  const inactiveTeamNames = useMemo(() => {
+    const set = new Set<string>()
+    for (const c of teamContacts) if (c.active === false) set.add(normName(c.name))
+    return set
+  }, [teamContacts])
+
+  // Gearchiveerd is de handmatige lijst plus iedereen die volgens Team niet
+  // meer meedraait. Die twee naast elkaar en niet in plaats van elkaar: de
+  // handmatige lijst blijft nodig voor iemand die wél in dienst is maar niet
+  // in het rooster hoort.
+  //
+  // Archiveren en niet verwijderen, want dat is precies het verschil: zijn
+  // ingevulde dagen blijven bereikbaar, hij staat alleen niet meer tussen de
+  // actieve ploeg.
   const isArchived = useCallback(
-    (p: { dept: string; emp: string }) => archived.some(a => a.dept === p.dept && a.emp === p.emp),
-    [archived]
+    (p: { dept: string; emp: string }) =>
+      archived.some(a => a.dept === p.dept && a.emp === p.emp)
+      || inactiveTeamNames.has(normName(p.emp)),
+    [archived, inactiveTeamNames]
   )
 
   // ── Load permissions ─────────────────────────────────────────────────────
@@ -1420,7 +1455,7 @@ export default function PlanningApp() {
           onSave={handleSaveConfig}
           archived={archived}
           onSaveArchived={handleSaveArchived}
-          teamNames={teamContacts.map(c => c.name)}
+          teamContacts={teamContacts}
           onRename={applyRenames}
           onClose={() => { setShowConfig(false); loadPresets() }}
           isBeheer={isBeheer}
