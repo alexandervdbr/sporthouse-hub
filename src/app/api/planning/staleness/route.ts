@@ -5,9 +5,14 @@
 // nodig, gewoon on-demand berekend uit de bestaande rijen.
 //
 // De telling komt er gratis bij, want deze route loopt de tabel toch al af.
-// Ze wordt gebruikt om verwijderen te blokkeren voor iemand die planning
-// heeft staan: die rijen staan op (afdeling, naam) en raken dus los zodra de
-// naam uit het rooster verdwijnt.
+//
+// Let op bij het verbruik: dit leest élke rij van planning_entries, en groeit
+// dus mee. Vandaag is dat niets, met een jaar planning voor 32 mensen zo'n
+// 8.000 rijen — ruw een halve MB, ingepakt rond de 50 kB. Dat is te doen
+// omdat het beheer-only is en alleen draait wanneer iemand de
+// configuratiemodal opent, niet op een timer. Zou dat veranderen, of loopt
+// de tabel in de tienduizenden, maak er dan een aggregaat van (RPC met een
+// group by) in plaats van alles op te halen om te tellen.
 
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { isAdminUser } from '@/lib/auth-permissions'

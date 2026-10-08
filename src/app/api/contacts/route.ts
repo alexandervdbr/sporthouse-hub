@@ -140,7 +140,8 @@ export async function PATCH(request: NextRequest) {
 
   // Previously missing entirely — any authenticated user could edit any
   // contact for any client, not just the ones they have access to.
-  const { data: existing } = await supabase.from('contacts').select('client_id').eq('id', id).single()
+  const { data: existing } = await supabase
+    .from('contacts').select('client_id, active_until').eq('id', id).single()
   if (!existing) return NextResponse.json({ error: 'Niet gevonden' }, { status: 404 })
   if (!hasClientAccess(user, existing.client_id)) return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
 
@@ -157,7 +158,13 @@ export async function PATCH(request: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  if (active_until !== undefined && isAdminUser(user)) {
+  // Alleen als de datum echt verandert. Het formulier stuurt dit veld altijd
+  // mee, ook als je enkel een telefoonnummer aanpast, en syncAccountExpiry
+  // haalt de volledige gebruikerslijst op — dat is werk dat zich herhaalt
+  // zonder iets te doen. Zie de verbruiksnotitie in CLAUDE.md.
+  const endDateChanged = active_until !== undefined
+    && (existing.active_until ?? null) !== active_until
+  if (endDateChanged && isAdminUser(user)) {
     await syncAccountExpiry(data.email, active_until)
   }
 
