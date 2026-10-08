@@ -1172,12 +1172,45 @@ export default function PlanningApp() {
   function goNext() { setWeekAnchor(a => usingWeekNav ? addWeeks(a, 1) : addMonths(a, 1)) }
   const isCurrentPeriod = usingWeekNav ? isCurrentWeek : isCurrentMonth
 
+  // Wie heeft er in de zichtbare periode daadwerkelijk iets ingevuld staan?
+  // Afgeleid uit `data`, dat voor die periode toch al geladen is — dus dit
+  // kost geen enkel extra verzoek.
+  //
+  // De sleutels zijn `jaar-maand-dag|afdeling|naam`, dus alles achter de
+  // eerste pipe is de persoon. Op de eerste pipe splitsen en niet met split(),
+  // want een afdelingsnaam mag er zelf een bevatten.
+  const plannedInPeriod = useMemo(() => {
+    const set = new Set<string>()
+    const days = new Set(daysToLoad.map(wd => `${wd.year}-${wd.month}-${wd.day}`))
+    for (const key of Object.keys(data)) {
+      const i = key.indexOf('|')
+      if (i < 0) continue
+      if (!days.has(key.slice(0, i))) continue
+      set.add(key.slice(i + 1))
+    }
+    return set
+  }, [data, daysToLoad])
+
+  // Een gearchiveerde collega verschijnt vanzelf in de maanden waarin hij
+  // echt gewerkt heeft. Kijk je naar september, dan zie je september zoals het
+  // was — zonder dat je eerst aan "Toon inactieve leden" moet denken.
+  //
+  // Vooruit kijken blijft schoon: wie gestopt is heeft geen toekomstige dagen,
+  // dus die duikt daar niet op.
+  const teamPool: Person[] = useMemo(() =>
+    showArchived
+      ? everyEmployee
+      : everyEmployee.filter(p => !isArchived(p) || plannedInPeriod.has(personKey(p))),
+    [everyEmployee, showArchived, isArchived, plannedInPeriod]
+  )
+
+  // Apart van teamPool, want het mobiele scherm heeft zijn eigen zoekveld en
+  // moet dit filter dus niet erbij krijgen.
   const visibleTeam: Person[] = useMemo(() => {
-    const pool = showArchived ? everyEmployee : activeEveryEmployee
-    if (!teamSearch.trim()) return pool
+    if (!teamSearch.trim()) return teamPool
     const q = norm(teamSearch)
-    return pool.filter(p => norm(p.emp).includes(q))
-  }, [everyEmployee, activeEveryEmployee, showArchived, teamSearch])
+    return teamPool.filter(p => norm(p.emp).includes(q))
+  }, [teamPool, teamSearch])
 
   const archivedCount = everyEmployee.length - activeEveryEmployee.length
 
@@ -1421,7 +1454,7 @@ export default function PlanningApp() {
             <div className="lg:hidden h-full">
               <MobileTeamDayStepper
                 week={week}
-                people={showArchived ? everyEmployee : activeEveryEmployee}
+                people={teamPool}
                 data={data}
                 canEditCol={canEditCol}
                 presets={presets}
