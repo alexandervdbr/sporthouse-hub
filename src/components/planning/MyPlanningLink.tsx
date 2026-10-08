@@ -4,30 +4,29 @@ import { useCallback, useEffect, useState } from 'react'
 import Image from 'next/image'
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 import { DUTCH_MONTHS } from '@/lib/planning-config'
-import { dateCellKey, type CellData, type PlanningWeekData, type WeekDay } from '@/lib/planning-week'
+import { dateCellKey, type PlanningWeekData } from '@/lib/planning-week'
 import type { PlanningRow } from '@/lib/planning-cache'
-import type { PlanningPreset } from '@/lib/planning-presets'
 import MyMonthCalendar from './MyMonthCalendar'
+import MyMonthWeeks from './MyMonthWeeks'
 
-// Dezelfde maandweergave die het team op de telefoon krijgt (MyMonthCalendar),
-// maar gevoed door /api/planning/mine in plaats van door Supabase. Hergebruik
-// is hier geen luiheid: het is dezelfde planning, en twee schermen die
-// hetzelfde tonen lopen vroeg of laat uiteen.
+// De planning van één persoon, achter een link, zonder login.
 //
-// Wat anders is: schrijven gaat per dag via de server, die uit het token
-// afleidt om wiens rij het gaat. Deze component stuurt nooit een naam of
-// afdeling mee — hij zou het kunnen weten, maar dan zou de server het moeten
-// geloven.
-
-interface Target { wd: WeekDay; dept: string; emp: string }
+// Alleen lezen. Dat was eerst anders, maar bewerken brengt de statuskiezer mee
+// en die bevat de volledige lijst presets — Play Sports, FOS, RBFA, Sport
+// Vlaanderen, De Spor. Dat is de klantenlijst, en die hoort niet bij een
+// weekendstudent terecht te komen. Ook niet in de broncode van de pagina:
+// daarom worden de presets hier helemaal niet meer aangeleverd, in plaats van
+// alleen de knoppen te verbergen.
+//
+// In de praktijk vult een vaste medewerker deze rij toch in. Wil je bewerken
+// terugzetten, dan komt /api/planning/mine PUT terug en gaat readOnly om.
 
 export default function MyPlanningLink({
-  token, dept, emp, presets,
+  token, dept, emp,
 }: {
   token: string
   dept: string
   emp: string
-  presets: PlanningPreset[]
 }) {
   const [anchor, setAnchor] = useState(() => new Date())
   const year = anchor.getFullYear()
@@ -51,8 +50,6 @@ export default function MyPlanningLink({
           textColor: r.text_color ?? '#ffffff',
           bgColor: r.bg_color ?? null,
           note: r.note ?? null,
-          updatedBy: r.updated_by ?? null,
-          updatedAt: r.updated_at ?? null,
         }
       }
       setData(map)
@@ -65,54 +62,25 @@ export default function MyPlanningLink({
 
   useEffect(() => { setLoading(true); load() }, [load])
 
-  // Optimistisch bijwerken en daarna herladen: het scherm reageert meteen,
-  // en wat de server ervan maakt is alsnog het laatste woord.
-  async function write(wd: WeekDay, cell: CellData | null) {
-    const key = dateCellKey(wd.year, wd.month, wd.day, dept, emp)
-    setData(prev => {
-      const next = { ...prev }
-      if (cell) next[key] = cell
-      else delete next[key]
-      return next
-    })
-    try {
-      const res = await fetch('/api/planning/mine', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          token,
-          year: wd.year, month: wd.month, day: wd.day,
-          value: cell?.value ?? '',
-          note: cell?.note ?? null,
-          bgColor: cell?.bgColor ?? null,
-          textColor: cell?.textColor ?? '#ffffff',
-        }),
-      })
-      if (!res.ok) throw new Error(String(res.status))
-    } catch {
-      setError('Opslaan mislukt — je wijziging is niet bewaard.')
-      load()
-    }
-  }
-
-  async function handleApply(targets: Target[], cell: CellData) {
-    setError('')
-    for (const t of targets) await write(t.wd, cell)
-  }
-
-  async function handleClear(targets: Target[]) {
-    setError('')
-    for (const t of targets) await write(t.wd, null)
-  }
-
   function step(delta: number) {
     setAnchor(a => new Date(a.getFullYear(), a.getMonth() + delta, 1))
   }
 
+  // Dezelfde twee weergaven die het team krijgt: het maandraster op een breed
+  // scherm, de lijst op een telefoon. Hiervoor stond overal de lijst, ook op
+  // desktop — 31 rijen onder elkaar in een kolom van een derde van het scherm.
+  const shared = {
+    year, month, dept, emp, data,
+    readOnly: true,
+    presets: [],
+    onApply: () => {},
+    onClear: () => {},
+  }
+
   return (
-    <div className="min-h-screen" style={{ background: '#0d0d0d' }}>
+    <div className="min-h-screen flex flex-col" style={{ background: '#0d0d0d' }}>
       <header
-        className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 py-4"
+        className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 sm:px-6 py-4 flex-shrink-0"
         style={{ background: 'rgba(13,13,13,0.95)', borderBottom: '1px solid rgba(255,255,255,0.07)', backdropFilter: 'blur(12px)' }}
       >
         <div className="flex items-center gap-3 min-w-0">
@@ -123,43 +91,38 @@ export default function MyPlanningLink({
         </div>
       </header>
 
-      <main className="px-4 py-4 max-w-2xl mx-auto">
-        <div className="flex items-center gap-2 mb-4">
+      <main className="flex-1 min-h-0 flex flex-col px-4 sm:px-6 py-4 w-full max-w-5xl mx-auto">
+        <div className="flex items-center gap-2 mb-4 flex-shrink-0">
           <button onClick={() => step(-1)} aria-label="Vorige maand"
-            className="tap-target w-9 h-9 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400">
+            className="tap-target w-9 h-9 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors">
             <ChevronLeft size={16} />
           </button>
           <p className="flex-1 text-center text-sm font-semibold text-sh-grey">
             {DUTCH_MONTHS[month - 1]} {year}
           </p>
           <button onClick={() => step(1)} aria-label="Volgende maand"
-            className="tap-target w-9 h-9 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400">
+            className="tap-target w-9 h-9 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors">
             <ChevronRight size={16} />
           </button>
           {loading && <Loader2 size={14} className="animate-spin text-zinc-600" />}
         </div>
 
         {error && (
-          <p className="mb-3 rounded-lg border border-red-900/40 bg-red-950/20 px-3 py-2 text-xs text-red-400">
+          <p className="mb-3 rounded-lg border border-red-900/40 bg-red-950/20 px-3 py-2 text-xs text-red-400 flex-shrink-0">
             {error}
           </p>
         )}
 
-        <MyMonthCalendar
-          year={year}
-          month={month}
-          dept={dept}
-          emp={emp}
-          data={data}
-          readOnly={false}
-          presets={presets}
-          onApply={handleApply}
-          onClear={handleClear}
-        />
+        <div className="hidden lg:block flex-1 min-h-0">
+          <MyMonthWeeks {...shared} dimReadOnly={false} />
+        </div>
+        <div className="lg:hidden">
+          <MyMonthCalendar {...shared} />
+        </div>
 
-        <p className="mt-6 text-[10px] text-zinc-700 text-center">
+        <p className="mt-6 text-[10px] text-zinc-700 text-center flex-shrink-0">
           Dit is je persoonlijke planningslink. Hou hem voor jezelf — wie hem
-          heeft, ziet en bewerkt jouw planning.
+          heeft, ziet jouw planning. Klopt er iets niet, laat het weten.
         </p>
       </main>
     </div>
