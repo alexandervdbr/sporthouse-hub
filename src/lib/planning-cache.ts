@@ -19,8 +19,7 @@ export interface PlanningRow {
   year: number
   month: number
   day: number
-  department: string
-  employee: string
+  contact_id: string
   value: string
   bold: boolean | null
   text_color: string | null
@@ -31,7 +30,7 @@ export interface PlanningRow {
 }
 
 export const SELECT_COLS =
-  'year, month, day, department, employee, value, bold, text_color, bg_color, note, updated_by, updated_at'
+  'year, month, day, contact_id, value, bold, text_color, bg_color, note, updated_by, updated_at'
 
 export interface CachedMonth {
   rows: PlanningRow[]
@@ -43,7 +42,7 @@ export interface CachedMonth {
 
 // Bumped if PlanningRow or the key format ever changes, so an old copy is
 // ignored instead of being read as if it still matched.
-const CACHE_KEY = 'planning-month-cache-v1'
+const CACHE_KEY = 'planning-month-cache-v2'
 
 // Wie je bent in het rooster, en onder welk account die keuze gemaakt is.
 // Die tweede sleutel bestaat omdat de keuze zelf een bewuste handeling is

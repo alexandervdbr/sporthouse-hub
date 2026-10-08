@@ -2,10 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react'
-import { DUTCH_MONTHS } from '@/lib/planning-config'
-import { emptyCell, weekDayCellKey, type CellData, type PlanningWeekData, type WeekDay } from '@/lib/planning-week'
+import { DUTCH_MONTHS, type Person } from '@/lib/planning-config'
+import { emptyCell, weekDayCellKey, type CellData, type PlanningWeekData, type Target, type WeekDay } from '@/lib/planning-week'
 import type { PlanningPreset } from '@/lib/planning-presets'
-import type { Person } from './WeekGrid'
 import DayEditor from './DayEditor'
 
 // Mobile version of "Team" — deliberately its own list-based surface, not a
@@ -26,15 +25,15 @@ export default function MobileTeamDayStepper({
   data: PlanningWeekData
   canEditCol: (p: Person) => boolean
   presets: PlanningPreset[]
-  onApply: (targets: { wd: WeekDay; dept: string; emp: string }[], value: CellData) => void
-  onClear: (targets: { wd: WeekDay; dept: string; emp: string }[]) => void
+  onApply: (targets: Target[], value: CellData) => void
+  onClear: (targets: Target[]) => void
   onNeedAdjacentWeek: (direction: 1 | -1) => void
   emailToName?: Map<string, string>
 }) {
   const [dayIdx, setDayIdx] = useState(() => Math.max(0, week.findIndex(w => w.isToday)))
   const pendingEdgeRef = useRef<'start' | 'end' | null>(null)
   const [search, setSearch] = useState('')
-  const [editing, setEditing] = useState<{ wd: WeekDay; dept: string; emp: string } | null>(null)
+  const [editing, setEditing] = useState<{ wd: WeekDay; person: Person } | null>(null)
   const [drilldown, setDrilldown] = useState<Person | null>(null)
 
   useEffect(() => {
@@ -74,12 +73,12 @@ export default function MobileTeamDayStepper({
 
         <div className="space-y-1.5">
           {week.map(day => {
-            const key = weekDayCellKey(day, drilldown.dept, drilldown.emp)
+            const key = weekDayCellKey(day, drilldown.id)
             const cell = data[key] ?? emptyCell()
             return (
               <button
                 key={key}
-                onClick={() => !locked && setEditing({ wd: day, dept: drilldown.dept, emp: drilldown.emp })}
+                onClick={() => !locked && setEditing({ wd: day, person: drilldown })}
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border border-zinc-800 bg-zinc-900/60 text-left"
                 style={{ opacity: locked ? 0.6 : 1 }}
               >
@@ -105,13 +104,13 @@ export default function MobileTeamDayStepper({
         {editing && (
           <DayEditor
             title={`${editing.wd.dayName} ${editing.wd.day} ${DUTCH_MONTHS[editing.wd.month - 1]}`}
-            subtitle={`${editing.emp} — ${editing.dept}`}
-            initialCell={data[weekDayCellKey(editing.wd, editing.dept, editing.emp)] ?? emptyCell()}
+            subtitle={`${editing.person.emp} — ${editing.person.dept}`}
+            initialCell={data[weekDayCellKey(editing.wd, editing.person.id)] ?? emptyCell()}
             presets={presets}
-            readOnly={!canEditCol(editing)}
+            readOnly={!canEditCol(editing.person)}
             emailToName={emailToName}
-            onSave={cell => { onApply([editing], cell); setEditing(null) }}
-            onClear={() => { onClear([editing]); setEditing(null) }}
+            onSave={cell => { onApply([{ wd: editing.wd, contactId: editing.person.id }], cell); setEditing(null) }}
+            onClear={() => { onClear([{ wd: editing.wd, contactId: editing.person.id }]); setEditing(null) }}
             onClose={() => setEditing(null)}
           />
         )}
@@ -181,7 +180,7 @@ export default function MobileTeamDayStepper({
             <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mb-1.5 px-1">{dept}</p>
             <div className="space-y-1.5">
               {deptPeople.map(person => {
-                const key = weekDayCellKey(wd, person.dept, person.emp)
+                const key = weekDayCellKey(wd, person.id)
                 const cell = data[key] ?? emptyCell()
                 const locked = !canEditCol(person)
                 return (
@@ -191,7 +190,7 @@ export default function MobileTeamDayStepper({
                     style={{ opacity: locked ? 0.6 : 1 }}
                   >
                     <button
-                      onClick={() => setEditing({ wd, dept: person.dept, emp: person.emp })}
+                      onClick={() => setEditing({ wd, person })}
                       className="flex-1 min-w-0 flex items-center gap-3 px-3 py-2.5 text-left"
                     >
                       <span className="flex-1 text-sm font-medium text-zinc-200 truncate">{person.emp}</span>
@@ -233,13 +232,13 @@ export default function MobileTeamDayStepper({
       {editing && (
         <DayEditor
           title={`${editing.wd.dayName} ${editing.wd.day} ${DUTCH_MONTHS[editing.wd.month - 1]}`}
-          subtitle={`${editing.emp} — ${editing.dept}`}
-          initialCell={data[weekDayCellKey(editing.wd, editing.dept, editing.emp)] ?? emptyCell()}
+          subtitle={`${editing.person.emp} — ${editing.person.dept}`}
+          initialCell={data[weekDayCellKey(editing.wd, editing.person.id)] ?? emptyCell()}
           presets={presets}
-          readOnly={!canEditCol(editing)}
+          readOnly={!canEditCol(editing.person)}
           emailToName={emailToName}
-          onSave={cell => { onApply([editing], cell); setEditing(null) }}
-          onClear={() => { onClear([editing]); setEditing(null) }}
+          onSave={cell => { onApply([{ wd: editing.wd, contactId: editing.person.id }], cell); setEditing(null) }}
+          onClear={() => { onClear([{ wd: editing.wd, contactId: editing.person.id }]); setEditing(null) }}
           onClose={() => setEditing(null)}
         />
       )}

@@ -99,13 +99,16 @@ describe('groupWeekByMonth', () => {
 
 describe('dateCellKey', () => {
   it('onderscheidt dezelfde dag in verschillende jaren', () => {
-    expect(dateCellKey(2026, 3, 1, 'FOS', 'Rune Stiers'))
-      .not.toBe(dateCellKey(2027, 3, 1, 'FOS', 'Rune Stiers'))
+    expect(dateCellKey(2026, 3, 1, 'rune')).not.toBe(dateCellKey(2027, 3, 1, 'rune'))
   })
 
-  it('onderscheidt naamgenoten in verschillende afdelingen', () => {
-    expect(dateCellKey(2026, 3, 1, 'Stags PS', 'Thibault'))
-      .not.toBe(dateCellKey(2026, 3, 1, 'STAGS Projectkant', 'Thibault'))
+  it('onderscheidt twee personen op dezelfde dag', () => {
+    expect(dateCellKey(2026, 3, 1, 'thibault-1'))
+      .not.toBe(dateCellKey(2026, 3, 1, 'thibault-2'))
+  })
+
+  it('verandert niet als iemand van afdeling wisselt — er zit geen afdeling in', () => {
+    expect(dateCellKey(2026, 3, 1, 'rune')).toBe(dateCellKey(2026, 3, 1, 'rune'))
   })
 })
 

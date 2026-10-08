@@ -2,12 +2,11 @@
 
 import { useEffect, useState } from 'react'
 import { Check, X } from 'lucide-react'
-import { DUTCH_MONTHS, getDaysInMonth } from '@/lib/planning-config'
-import { dateCellKey, emptyCell, type CellData, type PlanningWeekData, type WeekDay } from '@/lib/planning-week'
+import { DUTCH_MONTHS, getDaysInMonth, type Person } from '@/lib/planning-config'
+import { dateCellKey, emptyCell, type CellData, type PlanningWeekData, type Target, type WeekDay } from '@/lib/planning-week'
 import type { PlanningPreset } from '@/lib/planning-presets'
 import DayEditor from './DayEditor'
 
-interface Target { wd: WeekDay; dept: string; emp: string }
 
 const SEL_BG = 'rgba(59,130,246,0.12)'
 const SEL_BORDER = '#3b82f6'
@@ -21,12 +20,11 @@ const SEL_BORDER = '#3b82f6'
 // all. A thin divider marks each new week purely for scanability, not as
 // a layout grid.
 export default function MyMonthCalendar({
-  year, month, dept, emp, data, readOnly, presets, onApply, onClear, emailToName,
+  year, month, person, data, readOnly, presets, onApply, onClear, emailToName,
 }: {
   year: number
   month: number
-  dept: string
-  emp: string
+  person: Person
   data: PlanningWeekData
   readOnly: boolean
   presets: PlanningPreset[]
@@ -34,6 +32,7 @@ export default function MyMonthCalendar({
   onClear: (targets: Target[]) => void
   emailToName?: Map<string, string>
 }) {
+  const contactId = person.id
   const days = getDaysInMonth(year, month)
 
   function wdFor(day: number): WeekDay {
@@ -53,9 +52,9 @@ export default function MyMonthCalendar({
   function openEditorForDays(dayNums: number[]) {
     if (readOnly || dayNums.length === 0) return
     const sorted = [...dayNums].sort((a, b) => a - b)
-    const targets: Target[] = sorted.map(d => ({ wd: wdFor(d), dept, emp }))
+    const targets: Target[] = sorted.map(d => ({ wd: wdFor(d), contactId }))
     const initial = targets.length === 1
-      ? (data[dateCellKey(year, month, sorted[0], dept, emp)] ?? emptyCell())
+      ? (data[dateCellKey(year, month, sorted[0], contactId)] ?? emptyCell())
       : emptyCell()
     setEditing({ targets, cell: initial })
   }
@@ -93,7 +92,7 @@ export default function MyMonthCalendar({
 
       <div className="space-y-1.5 pb-20">
         {days.map((d, i) => {
-          const key = dateCellKey(year, month, d.day, dept, emp)
+          const key = dateCellKey(year, month, d.day, contactId)
           const cell = data[key] ?? emptyCell()
           const isSelected = selectMode && selected.has(d.day)
           const isNewWeek = i > 0 && d.dayName === 'Maandag'
@@ -187,7 +186,7 @@ export default function MyMonthCalendar({
             onChange: next => {
               if (next.length === 0) { setEditing(null); setSelected(new Set()); setSelectMode(false); return }
               const sorted = [...next].sort((a, b) => a.day - b.day)
-              setEditing(prev => prev && { ...prev, targets: sorted.map(wd => ({ wd, dept, emp })) })
+              setEditing(prev => prev && { ...prev, targets: sorted.map(wd => ({ wd, contactId })) })
             },
           }}
           onSave={cell => { onApply(editing.targets, cell); setEditing(null); setSelected(new Set()); setSelectMode(false) }}

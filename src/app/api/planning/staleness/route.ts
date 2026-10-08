@@ -14,8 +14,7 @@ import { isAdminUser } from '@/lib/auth-permissions'
 import { fetchAllRows } from '@/lib/planning-paginate'
 
 interface StalenessRow {
-  department: string
-  employee: string
+  contact_id: string
   year: number
   month: number
   day: number
@@ -37,7 +36,7 @@ export async function GET() {
     data = await fetchAllRows<StalenessRow>(() =>
       admin
         .from('planning_entries')
-        .select('department, employee, year, month, day')
+        .select('contact_id, year, month, day')
         .order('id', { ascending: true })
     )
   } catch (e) {
@@ -47,22 +46,17 @@ export async function GET() {
   const lastSeen = new Map<string, number>()
   const counts = new Map<string, number>()
   for (const r of data) {
-    const key = `${r.department}|${r.employee}`
     const t = Date.UTC(r.year, r.month - 1, r.day)
-    const prev = lastSeen.get(key)
-    if (prev === undefined || t > prev) lastSeen.set(key, t)
-    counts.set(key, (counts.get(key) ?? 0) + 1)
+    const prev = lastSeen.get(r.contact_id)
+    if (prev === undefined || t > prev) lastSeen.set(r.contact_id, t)
+    counts.set(r.contact_id, (counts.get(r.contact_id) ?? 0) + 1)
   }
 
-  const result = Array.from(lastSeen.entries()).map(([key, t]) => {
-    const i = key.indexOf('|')
-    return {
-      dept: key.slice(0, i),
-      emp: key.slice(i + 1),
-      lastEntryDate: new Date(t).toISOString().slice(0, 10),
-      entryCount: counts.get(key) ?? 0,
-    }
-  })
+  const result = Array.from(lastSeen.entries()).map(([contactId, t]) => ({
+    contactId,
+    lastEntryDate: new Date(t).toISOString().slice(0, 10),
+    entryCount: counts.get(contactId) ?? 0,
+  }))
 
   return Response.json(result)
 }

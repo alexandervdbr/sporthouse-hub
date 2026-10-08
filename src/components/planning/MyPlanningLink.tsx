@@ -22,11 +22,11 @@ import MyMonthWeeks from './MyMonthWeeks'
 // terugzetten, dan komt /api/planning/mine PUT terug en gaat readOnly om.
 
 export default function MyPlanningLink({
-  token, dept, emp,
+  token, contactId, name,
 }: {
   token: string
-  dept: string
-  emp: string
+  contactId: string
+  name: string
 }) {
   const [anchor, setAnchor] = useState(() => new Date())
   const year = anchor.getFullYear()
@@ -44,7 +44,7 @@ export default function MyPlanningLink({
       const body = await res.json() as { rows: PlanningRow[] }
       const map: PlanningWeekData = {}
       for (const r of body.rows) {
-        map[dateCellKey(r.year, r.month, r.day, r.department, r.employee)] = {
+        map[dateCellKey(r.year, r.month, r.day, r.contact_id)] = {
           value: r.value,
           bold: r.bold ?? true,
           textColor: r.text_color ?? '#ffffff',
@@ -69,8 +69,12 @@ export default function MyPlanningLink({
   // Dezelfde twee weergaven die het team krijgt: het maandraster op een breed
   // scherm, de lijst op een telefoon. Hiervoor stond overal de lijst, ook op
   // desktop — 31 rijen onder elkaar in een kolom van een derde van het scherm.
+  // Afdeling is hier niet van belang — dit scherm toont één persoon en
+  // groepeert nergens op.
+  const person = { id: contactId, dept: '', emp: name }
+
   const shared = {
-    year, month, dept, emp, data,
+    year, month, person, data,
     readOnly: true,
     presets: [],
     onApply: () => {},
@@ -87,7 +91,7 @@ export default function MyPlanningLink({
           <Image src="/logo.png" alt="Sporthouse" width={100} height={26}
             className="object-contain flex-shrink-0" style={{ filter: 'invert(1)', opacity: 0.85 }} />
           <span className="text-zinc-700 text-sm hidden sm:inline">|</span>
-          <span className="text-sm text-zinc-400 font-medium truncate">{emp}</span>
+          <span className="text-sm text-zinc-400 font-medium truncate">{name}</span>
         </div>
       </header>
 

@@ -2,21 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MoreVertical, Copy, ClipboardPaste, Trash2, Star, ChevronDown, ChevronRight } from 'lucide-react'
-import { DUTCH_MONTHS, personKey } from '@/lib/planning-config'
-import { emptyCell, weekDayCellKey, type CellData, type PlanningWeekData, type WeekDay } from '@/lib/planning-week'
+import { DUTCH_MONTHS, personKey, type Person } from '@/lib/planning-config'
+import { emptyCell, weekDayCellKey, type CellData, type PlanningWeekData, type Target, type WeekDay } from '@/lib/planning-week'
 import type { PlanningPreset } from '@/lib/planning-presets'
 import DayEditor from './DayEditor'
-
-export interface Person {
-  dept: string
-  emp: string
-}
-
-interface Target {
-  wd: WeekDay
-  dept: string
-  emp: string
-}
 
 interface Selection {
   rowIdx: number
@@ -183,10 +172,10 @@ export default function WeekGrid({
   function openEditorFor(rowIdx: number, colStart: number, colEnd: number) {
     const person = renderedPeople[rowIdx]
     if (!person || !canEditCol(person)) return
-    const targets: Target[] = week.slice(colStart, colEnd + 1).map(wd => ({ wd, dept: person.dept, emp: person.emp }))
+    const targets: Target[] = week.slice(colStart, colEnd + 1).map(wd => ({ wd, contactId: person.id }))
     const single = targets.length === 1
     const initial = single
-      ? (data[weekDayCellKey(targets[0].wd, person.dept, person.emp)] ?? emptyCell())
+      ? (data[weekDayCellKey(targets[0].wd, person.id)] ?? emptyCell())
       : emptyCell()
     const title = single
       ? dayTitle(targets[0].wd)
@@ -232,7 +221,7 @@ export default function WeekGrid({
   }
 
   function handleCopy(person: Person, colIdx: number) {
-    const key = weekDayCellKey(week[colIdx], person.dept, person.emp)
+    const key = weekDayCellKey(week[colIdx], person.id)
     clipboardRef.current = data[key] ?? emptyCell()
     setHasClipboard(true)
     setMenuKey(null)
@@ -240,13 +229,13 @@ export default function WeekGrid({
 
   function handlePaste(person: Person, colIdx: number) {
     if (!canEditCol(person) || !clipboardRef.current) { setMenuKey(null); return }
-    onApply([{ wd: week[colIdx], dept: person.dept, emp: person.emp }], clipboardRef.current)
+    onApply([{ wd: week[colIdx], contactId: person.id }], clipboardRef.current)
     setMenuKey(null)
   }
 
   function handleClearCell(person: Person, colIdx: number) {
     if (!canEditCol(person)) { setMenuKey(null); return }
-    onClear([{ wd: week[colIdx], dept: person.dept, emp: person.emp }])
+    onClear([{ wd: week[colIdx], contactId: person.id }])
     setMenuKey(null)
   }
 
@@ -334,7 +323,7 @@ export default function WeekGrid({
               )}
 
               {week.map((wd, colIdx) => {
-                const key = weekDayCellKey(wd, person.dept, person.emp)
+                const key = weekDayCellKey(wd, person.id)
                 const cell = data[key] ?? emptyCell()
                 const isSelected = selection && selection.rowIdx === rowIdx &&
                   colIdx >= Math.min(selection.startCol, selection.endCol) &&

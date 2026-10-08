@@ -32,7 +32,7 @@ let storage: ReturnType<typeof makeStorage>
 
 function row(day: number): PlanningRow {
   return {
-    year: 2026, month: 10, day, department: 'FOS', employee: 'Rune Stiers',
+    year: 2026, month: 10, day, contact_id: 'c0ffee00-0000-4000-8000-000000000001',
     value: 'SHG', bold: true, text_color: '#fff', bg_color: null, note: null,
     updated_by: null, updated_at: '2026-10-01T09:00:00Z',
   }
@@ -69,7 +69,7 @@ describe('lezen en schrijven', () => {
   })
 
   it('geeft null als de opslag onleesbare rommel bevat', () => {
-    storage.setItem('planning-month-cache-v1', 'geen json')
+    storage.setItem('planning-month-cache-v2', 'geen json')
     expect(readCachedMonth(2026, 10)).toBeNull()
   })
 })
@@ -118,19 +118,19 @@ describe('evictie', () => {
 describe('wissen', () => {
   it('clearPlanningMonthCache laat de identiteit met rust', () => {
     writeCachedMonth(2026, 10, [row(1)], '2026-10-01T09:00:00Z')
-    storage.setItem(IDENTITY_KEY, 'FOS|Rune Stiers')
+    storage.setItem(IDENTITY_KEY, 'c0ffee00-0000-4000-8000-000000000001')
     storage.setItem(CONFIG_CACHE_KEY, '[]')
 
     clearPlanningMonthCache()
 
     expect(readCachedMonth(2026, 10)).toBeNull()
-    expect(storage.getItem(IDENTITY_KEY)).toBe('FOS|Rune Stiers')
+    expect(storage.getItem(IDENTITY_KEY)).toBe('c0ffee00-0000-4000-8000-000000000001')
     expect(storage.getItem(CONFIG_CACHE_KEY)).toBe('[]')
   })
 
   it('clearPlanningCache neemt bij uitloggen ook identiteit en rooster mee', () => {
     writeCachedMonth(2026, 10, [row(1)], '2026-10-01T09:00:00Z')
-    storage.setItem(IDENTITY_KEY, 'FOS|Rune Stiers')
+    storage.setItem(IDENTITY_KEY, 'c0ffee00-0000-4000-8000-000000000001')
     storage.setItem(IDENTITY_ACCOUNT_KEY, 'rune@sporthousegroup.com')
     storage.setItem(CONFIG_CACHE_KEY, '[]')
 

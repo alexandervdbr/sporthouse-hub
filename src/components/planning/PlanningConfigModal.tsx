@@ -16,14 +16,12 @@ import {
   Link2,
   Link2Off,
 } from 'lucide-react'
-import { normName, UNASSIGNED_DEPT, type Department } from '@/lib/planning-config'
+import { UNASSIGNED_DEPT, type Department } from '@/lib/planning-config'
 import type { PlanningPreset } from '@/lib/planning-presets'
-import type { PlanningRename } from '@/lib/planning-rename'
 import type { PlanningLinkRow } from '@/lib/planning-links'
 
-interface ArchivedEmployee { dept: string; emp: string }
-
 export interface PlanningTeamContact {
+  id: string
   name: string
   employment_type?: string | null
   active_until?: string | null
@@ -31,31 +29,24 @@ export interface PlanningTeamContact {
 }
 interface Staleness { dept: string; emp: string; lastEntryDate: string; entryCount: number }
 
-// Een naam in de kladversie, met waar hij vandaan kwam. Die herkomst reist
-// mee met het object, dus slepen tussen afdelingen en hernoemen houden hem
-// automatisch bij — ook als je beide doet, of de afdeling zelf hernoemt.
+// Een afdeling in de kladversie. `employees` zijn contact-id's.
 //
-// Dat is nodig omdat planning_entries op (afdeling, naam) staat: wat hier een
-// tekstwijziging lijkt, is in de database een verhuizing. `orig: null` betekent
-// nieuw toegevoegd, dus valt er niets te verhuizen.
-interface DraftEmp {
-  name: string
-  orig: { dept: string; emp: string } | null
-}
-
+// Hier stond tot oktober 2026 een slot-model dat per naam bijhield waar hij
+// vandaan kwam, zodat hernoemen en verslepen de planning konden meenemen. Dat
+// is overbodig geworden: een planningsdag hangt nu aan een contact-id, dus
+// verslepen verplaatst niets en hernoemen gebeurt in Team. Zie
+// supabase/migrations/0053_planning_op_contact_id.sql.
 interface DraftDept {
   name: string
-  employees: DraftEmp[]
+  employees: string[]
 }
 
 interface Props {
   departments: Department[]
   onSave: (d: Department[]) => Promise<void>
-  // Opslaan mét verhuizingen: gaat via /api/planning/rename zodat de
-  // bestaande cellen meegaan naar de nieuwe naam of afdeling.
-  onRename: (renames: PlanningRename[], departments: Department[]) => Promise<{ ok: true } | { ok: false; error: string }>
-  archived: ArchivedEmployee[]
-  onSaveArchived: (a: ArchivedEmployee[]) => Promise<void>
+  // Contact-id's van wie uit de teamweergave gehouden wordt.
+  archived: string[]
+  onSaveArchived: (a: string[]) => Promise<void>
   // De echte Team-contacten (zie /team). Wie hier niet tussen staat is ofwel
   // uit Team verdwenen, ofwel een eenmalig getypte naam — in beide gevallen
   // gemarkeerd zodat een beheerder kan beslissen wat ermee moet.
@@ -259,35 +250,40 @@ function PresetsPanel() {
   )
 }
 
-export default function PlanningConfigModal({ departments, onSave, onRename, archived, onSaveArchived, teamContacts, onClose, isBeheer }: Props) {
+export default function PlanningConfigModal({ departments, onSave, archived, onSaveArchived, teamContacts, onClose, isBeheer }: Props) {
   const [tab, setTab] = useState<'afdelingen' | 'presets'>('afdelingen')
   const [depts, setDepts] = useState<DraftDept[]>(() =>
-    departments.map(d => ({
-      name: d.name,
-      employees: d.employees.map(emp => ({ name: emp, orig: { dept: d.name, emp } })),
-    }))
+    departments.map(d => ({ name: d.name, employees: [...d.employees] }))
   )
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [collapsed, setCollapsed] = useState<Record<number, boolean>>({})
 
-  const teamByName = useMemo(() => {
+  const teamById = useMemo(() => {
     const m = new Map<string, PlanningTeamContact>()
-    for (const c of teamContacts) m.set(normName(c.name), c)
+    for (const c of teamContacts) m.set(c.id, c)
     return m
   }, [teamContacts])
+
+  // Wie wel in Team staat maar nog nergens in het rooster: de kandidaten voor
+  // "Medewerker toevoegen". Namen typen kan niet meer — iedereen in het
+  // rooster is een contact, anders valt er niets te koppelen.
+  const unplacedContacts = useMemo(() => {
+    const placed = new Set(depts.flatMap(d => d.employees))
+    return teamContacts
+      .filter(c => !placed.has(c.id))
+      .sort((a, b) => a.name.localeCompare(b.name, 'nl'))
+  }, [depts, teamContacts])
 
   // Archiveren is een losstaande, meteen-opslaande actie (zoals presets) —
   // geen aparte kladversie zoals bij afdelingen, want er is niets te
   // verwerpen: één klik = actief/inactief wisselen.
   const [busyArchive, setBusyArchive] = useState<string | null>(null)
-  const isArchivedPair = (dept: string, emp: string) => archived.some(a => a.dept === dept && a.emp === emp)
+  const isArchivedId = (id: string) => archived.includes(id)
 
-  async function toggleArchived(dept: string, emp: string) {
-    setBusyArchive(`${dept}|${emp}`)
-    const next = isArchivedPair(dept, emp)
-      ? archived.filter(a => !(a.dept === dept && a.emp === emp))
-      : [...archived, { dept, emp }]
+  async function toggleArchived(id: string) {
+    setBusyArchive(id)
+    const next = isArchivedId(id) ? archived.filter(a => a !== id) : [...archived, id]
     await onSaveArchived(next)
     setBusyArchive(null)
   }
@@ -299,16 +295,18 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
   const [flashDept, setFlashDept] = useState<number | null>(null)
   const deptRefs = useRef<Record<number, HTMLDivElement | null>>({})
 
+  // Een id in het rooster waar geen contact meer bij hoort. Dat kan bijna
+  // niet meer — de database weigert een contact te verwijderen dat planning
+  // heeft staan — maar een rooster met een dood id laat je niet staan.
   const notInTeamList = useMemo(() => {
     const out: { dept: string; deptIdx: number; emp: string }[] = []
     depts.forEach((d, di) => {
-      d.employees.forEach(({ name: emp }) => {
-        const isArch = archived.some(a => a.dept === d.name && a.emp === emp)
-        if (!isArch && !teamByName.has(normName(emp))) out.push({ dept: d.name, deptIdx: di, emp })
+      d.employees.forEach(id => {
+        if (!teamById.has(id)) out.push({ dept: d.name, deptIdx: di, emp: id })
       })
     })
     return out
-  }, [depts, teamByName, archived])
+  }, [depts, teamById])
 
   function jumpToDept(deptIdx: number) {
     setTab('afdelingen')
@@ -336,7 +334,7 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
   useEffect(() => { loadLinks() }, [loadLinks])
 
   const linkFor = useCallback(
-    (dept: string, emp: string) => links.find(l => l.department === dept && l.employee === emp) ?? null,
+    (contactId: string) => links.find(l => l.contact_id === contactId) ?? null,
     [links]
   )
 
@@ -344,13 +342,13 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
     return `${window.location.origin}/p/${token}`
   }
 
-  async function createLink(dept: string, emp: string) {
-    setBusyLink(`${dept}|${emp}`)
+  async function createLink(contactId: string) {
+    setBusyLink(contactId)
     try {
       const res = await fetch('/api/planning/links', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ department: dept, employee: emp }),
+        body: JSON.stringify({ contactId }),
       })
       if (!res.ok) throw new Error(await res.text())
       const created = await res.json() as PlanningLinkRow
@@ -370,12 +368,12 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
 
   async function revokeLink(link: PlanningLinkRow) {
     const ok = confirm(
-      `De link van ${link.employee} intrekken?\n\n` +
+      `De link van ${teamById.get(link.contact_id)?.name ?? 'deze persoon'} intrekken?\n\n` +
       `Wie hem nog heeft kan er daarna niets meer mee. Je kan altijd een ` +
       `nieuwe maken, maar dat is een andere link.`
     )
     if (!ok) return
-    setBusyLink(`${link.department}|${link.employee}`)
+    setBusyLink(link.contact_id)
     await fetch(`/api/planning/links?token=${encodeURIComponent(link.token)}`, { method: 'DELETE' })
     setLinks(prev => prev.filter(l => l.token !== link.token))
     setBusyLink(null)
@@ -444,85 +442,41 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
     setRenamingDept(null)
   }
 
-  // ─── Emp rename ───────────────────────────────────────────────────────────
-
-  function startRenameEmp(deptIdx: number, empIdx: number) {
-    setRenamingEmp({ dept: deptIdx, emp: empIdx })
-    setRenameValue(depts[deptIdx].employees[empIdx].name)
-    setRenamingDept(null)
-  }
-
-  function confirmRenameEmp() {
-    if (!renamingEmp) return
-    const trimmed = renameValue.trim()
-    if (trimmed) {
-      setDepts(prev => prev.map((d, i) => {
-        if (i !== renamingEmp.dept) return d
-        const emps = [...d.employees]
-        emps[renamingEmp.emp] = { ...emps[renamingEmp.emp], name: trimmed }
-        return { ...d, employees: emps }
-      }))
-    }
-    setRenamingEmp(null)
-  }
-
-  function cancelRenameEmp() {
-    setRenamingEmp(null)
-  }
-
   // ─── Emp actions ──────────────────────────────────────────────────────────
 
-  function addEmployee(deptIdx: number) {
-    setDepts(prev => prev.map((d, i) => {
-      if (i !== deptIdx) return d
-      return { ...d, employees: [...d.employees, { name: 'Nieuwe naam', orig: null }] }
-    }))
-    // Auto-enter rename for new employee
-    setTimeout(() => {
-      setDepts(prev => {
-        const empIdx = prev[deptIdx].employees.length - 1
-        setRenamingEmp({ dept: deptIdx, emp: empIdx })
-        setRenameValue('Nieuwe naam')
-        return prev
-      })
-    }, 0)
+  function addEmployee(deptIdx: number, contactId: string) {
+    if (!contactId) return
+    setDepts(prev => prev.map((d, i) =>
+      i === deptIdx ? { ...d, employees: [...d.employees, contactId] } : d
+    ))
   }
 
   function deleteEmployee(deptIdx: number, empIdx: number) {
-    const slot = depts[deptIdx].employees[empIdx]
-    const planned = slot.orig
-      ? entryCountMap.get(`${slot.orig.dept}|${slot.orig.emp}`) ?? 0
-      : 0
+    const id = depts[deptIdx].employees[empIdx]
+    const naam = teamById.get(id)?.name ?? id
+    const planned = entryCountMap.get(id) ?? 0
 
-    // Heeft deze persoon ingevulde dagen, dan kan verwijderen niet. Een
-    // bevestiging die je elke keer wegklikt is geen bescherming, en dit is de
-    // enige handeling in de planning die geschiedenis onbereikbaar maakt.
+    // Dit maakt niets meer kapot: zijn dagen hangen aan zijn contact, niet aan
+    // deze plek in het rooster. Ze zijn alleen niet meer zichtbaar zolang hij
+    // nergens staat, en komen terug zodra je hem weer toevoegt.
+    //
+    // Daarom een bevestiging en geen blokkade, anders dan voorheen — en voor
+    // iemand die er nog is, is archiveren nog altijd wat je bedoelt.
     if (planned > 0) {
-      alert(
-        `"${slot.name}" heeft ${planned} ingevulde dag(en) in de planning.\n\n` +
-        `Verwijderen zou die losmaken van deze persoon: ze blijven in de database ` +
-        `staan maar zijn nergens meer te zien, ook niet in Statistieken.\n\n` +
-        `Gebruik archiveren — dan verdwijnt hij uit de teamweergave en blijven ` +
-        `oude weken gewoon kloppen.`
-      )
-      return
-    }
-
-    if (slot.orig) {
       const ok = confirm(
-        `"${slot.name}" uit het rooster halen?\n\n` +
-        `Er staat nog geen planning onder deze naam, dus er gaat niets verloren.`
+        `${naam} uit het rooster halen?\n\n` +
+        `Zijn ${planned} ingevulde dag(en) blijven bewaard en komen terug zodra ` +
+        `je hem weer toevoegt — ook in een andere afdeling.\n\n` +
+        `Gaat het om iemand die er niet meer werkt, gebruik dan archiveren: dan ` +
+        `blijven oude weken gewoon zichtbaar.`
       )
       if (!ok) return
     }
+
     setDepts(prev => prev.map((d, i) => {
       if (i !== deptIdx) return d
-      const emps = d.employees.filter((_, ei) => ei !== empIdx)
-      return { ...d, employees: emps }
+      return { ...d, employees: d.employees.filter((_, ei) => ei !== empIdx) }
     }))
-    if (renamingEmp?.dept === deptIdx && renamingEmp.emp === empIdx) {
-      setRenamingEmp(null)
-    }
   }
 
   // ─── Add/delete dept ────────────────────────────────────────────────────────
@@ -649,51 +603,16 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
 
   // ─── Save ─────────────────────────────────────────────────────────────────
 
-  // Wat er aan verhuizingen in de kladversie zit: elke naam die nog bij een
-  // bestaande (afdeling, naam) hoort maar er niet meer op staat. Dat vangt
-  // hernoemen, slepen naar een andere afdeling, een hernoemde afdeling, en
-  // alle combinaties daarvan — de herkomst zit op het slot, niet op de plek.
-  const pendingRenames = useMemo<PlanningRename[]>(() => {
-    const out: PlanningRename[] = []
-    for (const d of depts) {
-      for (const e of d.employees) {
-        if (!e.orig) continue
-        const name = e.name.trim()
-        if (!name) continue
-        if (e.orig.dept !== d.name || e.orig.emp !== name) {
-          out.push({ fromDept: e.orig.dept, fromEmp: e.orig.emp, toDept: d.name, toEmp: name })
-        }
-      }
-    }
-    return out
-  }, [depts])
-
   async function handleSave() {
     setSaving(true)
     setSaveError('')
     try {
-      const plain: Department[] = depts.map(d => ({
-        name: d.name,
-        employees: d.employees.map(e => e.name),
-      }))
-
-      // Niets verhuisd: gewoon de config opslaan, zoals het altijd ging.
-      if (pendingRenames.length === 0) {
-        await onSave(plain)
-        onClose()
-        return
-      }
-
-      // Wél verhuisd: via de rename-route, zodat de bestaande cellen mee
-      // naar de nieuwe naam gaan in plaats van onder de oude achter te
-      // blijven. Mislukt dat, dan blijft de modal open met de reden — de
-      // kladversie staat er nog, dus niemand verliest zijn werk.
-      const res = await onRename(pendingRenames, plain)
-      if (!res.ok) {
-        setSaveError(res.error)
-        return
-      }
+      // Geen verhuizingen meer. Van afdeling wisselen verplaatst niets in de
+      // database: een planningsdag hangt aan een contact, niet aan een plek.
+      await onSave(depts.map(d => ({ name: d.name, employees: [...d.employees] })))
       onClose()
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Opslaan mislukt.')
     } finally {
       setSaving(false)
     }
@@ -866,17 +785,18 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
                 {/* Employee list */}
                 {!isCollapsed && (
                   <div className="border-t border-zinc-800 px-3 pb-2 pt-1 space-y-0.5">
-                    {dept.employees.map((slot, ei) => {
-                      const emp = slot.name
-                      const isRenamingThisEmp = renamingEmp?.dept === di && renamingEmp.emp === ei
+                    {dept.employees.map((id, ei) => {
+                      const contact = teamById.get(id)
+                      // Een id zonder contact hoort niet te bestaan, maar als
+                      // het gebeurt moet je het kunnen zien en weghalen.
+                      const emp = contact?.name ?? '(onbekend contact)'
                       const isEmpDragTarget = dragOverEmp?.dept === di && dragOverEmp.emp === ei
                       const isEmpDragging = dragEmpRef.current?.dept === di && dragEmpRef.current.emp === ei
-                      const isArchivedEmp = isArchivedPair(dept.name, emp)
-                      const isBusy = busyArchive === `${dept.name}|${emp}`
-                      const lastEntry = stalenessMap.get(`${dept.name}|${emp}`)
+                      const isArchivedEmp = isArchivedId(id)
+                      const isBusy = busyArchive === id
+                      const lastEntry = stalenessMap.get(id)
                       const stale = !isArchivedEmp && lastEntry && daysAgo(lastEntry) >= STALE_AFTER_DAYS
-                      const contact = teamByName.get(normName(emp))
-                      const notInTeam = !isArchivedEmp && !contact
+                      const notInTeam = !contact
                       // Stagiair of student: zeg dat, met zijn status erbij.
                       // Zonder dit zag een stagiair die netjes gestopt is er
                       // op het scherm hetzelfde uit als een fout.
@@ -887,20 +807,13 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
                             ? `${contact.employment_type} tot ${contact.active_until}`
                             : String(contact.employment_type)
                         : null
-                      // Nog niet opgeslagen hernoemd of versleept. Archiveren
-                      // schrijft meteen weg op (afdeling, naam) en zou dan naar
-                      // een naam wijzen die in de database nog niet bestaat —
-                      // dus eerst opslaan.
-                      const slotMoved = !!slot.orig && (slot.orig.dept !== dept.name || slot.orig.emp !== emp)
-                      const personLink = slot.orig ? linkFor(slot.orig.dept, slot.orig.emp) : null
-                      const linkBusy = busyLink === `${dept.name}|${emp}`
-                      const plannedDays = slot.orig
-                        ? entryCountMap.get(`${slot.orig.dept}|${slot.orig.emp}`) ?? 0
-                        : 0
+                      const personLink = linkFor(id)
+                      const linkBusy = busyLink === id
+                      const plannedDays = entryCountMap.get(id) ?? 0
 
                       return (
                         <div
-                          key={slot.orig ? `o:${slot.orig.dept}|${slot.orig.emp}` : `n:${di}-${ei}`}
+                          key={id}
                           draggable
                           onDragStart={() => onEmpDragStart(di, ei)}
                           onDragOver={e => onEmpDragOver(e, di, ei)}
@@ -918,42 +831,19 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
                             <GripVertical size={13} />
                           </span>
 
-                          {/* Emp name / rename */}
-                          {isRenamingThisEmp ? (
-                            <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                              <input
-                                autoFocus
-                                value={renameValue}
-                                onChange={e => setRenameValue(e.target.value)}
-                                onKeyDown={e => {
-                                  if (e.key === 'Enter') confirmRenameEmp()
-                                  if (e.key === 'Escape') cancelRenameEmp()
-                                }}
-                                className="flex-1 min-w-0 bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-0.5 text-xs text-zinc-200 outline-none focus:border-blue-600"
-                              />
-                              <button onClick={confirmRenameEmp} aria-label="Naam bevestigen" title="Naam bevestigen" className="flex-shrink-0 text-green-500 hover:text-green-400 transition-colors">
-                                <Check size={13} />
-                              </button>
-                              <button onClick={cancelRenameEmp} aria-label="Annuleren" title="Annuleren" className="flex-shrink-0 text-zinc-500 hover:text-zinc-300 transition-colors">
-                                <X size={13} />
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              className="flex-1 min-w-0 flex items-center gap-1.5 text-left text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
-                              onClick={() => startRenameEmp(di, ei)}
-                              title="Klik om naam aan te passen"
-                            >
-                              <span className="truncate">{emp}</span>
+                          {/* De naam komt uit Team en is hier niet te
+                              bewerken — er is maar één plek waar hij staat. */}
+                          <div className="flex-1 min-w-0 flex items-center gap-1.5 text-xs text-zinc-400">
+                              <span className="truncate" title={emp}>{emp}</span>
                               {isArchivedEmp && (
                                 <span className="flex-shrink-0 text-[9px] uppercase tracking-wide text-zinc-600">inactief</span>
                               )}
                               {notInTeam && (
                                 <span
-                                  className="flex-shrink-0 text-[9px] uppercase tracking-wide text-zinc-600 border border-zinc-700 rounded px-1"
-                                  title="Geen actieve naamsovereenkomst met Team — ofwel iemand die er niet meer werkt, ofwel een tijdelijke/eenmalige naam"
+                                  className="flex-shrink-0 text-[9px] uppercase tracking-wide text-red-400 border border-red-900/60 rounded px-1"
+                                  title="Dit id hoort bij geen enkel Team-contact meer. Haal hem uit het rooster."
                                 >
-                                  niet in Team
+                                  onbekend
                                 </span>
                               )}
                               {copiedToken && personLink?.token === copiedToken && (
@@ -969,14 +859,6 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
                                   {tempLabel}
                                 </span>
                               )}
-                              {slotMoved && (
-                                <span
-                                  className="flex-shrink-0 text-[9px] uppercase tracking-wide text-sky-400 border border-sky-900 rounded px-1"
-                                  title={`Was: ${slot.orig!.dept} — ${slot.orig!.emp}. De bestaande planning verhuist mee bij opslaan.`}
-                                >
-                                  verplaatst
-                                </span>
-                              )}
                               {stale && (
                                 <span
                                   className="flex-shrink-0 flex items-center gap-1 text-[9px] text-amber-500"
@@ -986,15 +868,13 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
                                   {daysAgo(lastEntry!)}d geleden
                                 </span>
                               )}
-                            </button>
-                          )}
+                          </div>
 
-                          {/* Persoonlijke planningslink. Alleen voor iemand die
-                              al opgeslagen is — een naam die nog in de
-                              kladversie zit bestaat voor de server nog niet. */}
-                          {!isRenamingThisEmp && slot.orig && !slotMoved && (
+                          {/* Persoonlijke planningslink, voor wie geen login
+                              heeft. */}
+                          {contact && (
                             <button
-                              onClick={() => personLink ? copyLink(personLink.token) : createLink(dept.name, emp)}
+                              onClick={() => personLink ? copyLink(personLink.token) : createLink(id)}
                               disabled={linkBusy}
                               title={personLink
                                 ? (copiedToken === personLink.token ? 'Gekopieerd' : 'Link kopiëren')
@@ -1008,7 +888,7 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
                                 : <Link2 size={13} />}
                             </button>
                           )}
-                          {!isRenamingThisEmp && personLink && (
+                          {personLink && (
                             <button
                               onClick={() => revokeLink(personLink)}
                               disabled={linkBusy}
@@ -1020,48 +900,53 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
                           )}
 
                           {/* Archive toggle (hover, or always if archived) */}
-                          {!isRenamingThisEmp && (
-                            <button
-                              onClick={() => toggleArchived(dept.name, emp)}
-                              disabled={isBusy || slotMoved}
-                              title={
-                                slotMoved
-                                  ? 'Eerst opslaan — deze naam is nog niet verplaatst in de database'
-                                  : isArchivedEmp ? 'Terug actief maken' : 'Archiveren (blijft zichtbaar in oude planningen)'
-                              }
-                              className={`flex-shrink-0 transition-all text-zinc-600 hover:text-amber-400 disabled:cursor-not-allowed disabled:hover:text-zinc-600 ${
-                                isArchivedEmp ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                              }`}
-                            >
-                              {isBusy ? <Loader2 size={13} className="animate-spin" /> : isArchivedEmp ? <ArchiveRestore size={13} /> : <Archive size={13} />}
-                            </button>
-                          )}
+                          <button
+                            onClick={() => toggleArchived(id)}
+                            disabled={isBusy}
+                            title={isArchivedEmp ? 'Terug actief maken' : 'Archiveren (blijft zichtbaar in oude planningen)'}
+                            className={`flex-shrink-0 transition-all text-zinc-600 hover:text-amber-400 disabled:cursor-not-allowed ${
+                              isArchivedEmp ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                            }`}
+                          >
+                            {isBusy ? <Loader2 size={13} className="animate-spin" /> : isArchivedEmp ? <ArchiveRestore size={13} /> : <Archive size={13} />}
+                          </button>
 
-                          {/* Delete button (hover) */}
-                          {!isRenamingThisEmp && (
-                            <button
-                              onClick={() => deleteEmployee(di, ei)}
-                              disabled={plannedDays > 0}
-                              title={plannedDays > 0
-                                ? `Kan niet: ${plannedDays} ingevulde dag(en). Archiveer in plaats daarvan.`
-                                : 'Uit het rooster halen'}
-                              className="flex-shrink-0 opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 transition-all disabled:cursor-not-allowed disabled:hover:text-zinc-700 disabled:text-zinc-800"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          )}
+                          {/* Uit het rooster halen. Mag nu gewoon: zijn dagen
+                              hangen aan zijn contact en komen terug zodra hij
+                              weer ergens staat. */}
+                          <button
+                            onClick={() => deleteEmployee(di, ei)}
+                            title={plannedDays > 0
+                              ? `Uit het rooster halen — ${plannedDays} ingevulde dag(en) blijven bewaard`
+                              : 'Uit het rooster halen'}
+                            className="flex-shrink-0 opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 transition-all"
+                          >
+                            <Trash2 size={13} />
+                          </button>
                         </div>
                       )
                     })}
 
-                    {/* Add employee */}
-                    <button
-                      onClick={() => addEmployee(di)}
-                      className="flex items-center gap-1.5 w-full px-2 py-1.5 rounded-lg text-xs text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800 transition-colors"
-                    >
-                      <Plus size={13} />
-                      Medewerker toevoegen
-                    </button>
+                    {/* Toevoegen is een contact kiezen, geen naam typen:
+                        iedereen in het rooster hoort bij een Team-contact. */}
+                    <div className="flex items-center gap-1.5 w-full px-2 py-1.5 text-xs text-zinc-600">
+                      <Plus size={13} className="flex-shrink-0" />
+                      <select
+                        value=""
+                        onChange={e => { addEmployee(di, e.target.value); e.currentTarget.value = '' }}
+                        disabled={unplacedContacts.length === 0}
+                        className="flex-1 min-w-0 bg-transparent outline-none cursor-pointer disabled:cursor-default hover:text-zinc-400 transition-colors"
+                      >
+                        <option value="">
+                          {unplacedContacts.length === 0
+                            ? 'Iedereen uit Team staat al in het rooster'
+                            : 'Medewerker toevoegen…'}
+                        </option>
+                        {unplacedContacts.map(c => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1094,12 +979,6 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
         ) : (
         <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-zinc-800 flex-shrink-0">
           {saveError && <p className="mr-auto text-[11px] text-red-400">{saveError}</p>}
-          {!saveError && pendingRenames.length > 0 && (
-            <p className="mr-auto text-[11px] text-zinc-500">
-              {pendingRenames.length} naam{pendingRenames.length === 1 ? '' : 'en'} verplaatst —
-              de bestaande planning verhuist mee.
-            </p>
-          )}
           <button
             onClick={onClose}
             disabled={saving}

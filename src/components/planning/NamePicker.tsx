@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { personKey, type Department } from '@/lib/planning-config'
+import type { Person } from '@/lib/planning-config'
 
 // "Wie ben jij in dit rooster?" — needed because a restricted user's
 // column comes from their admin-assigned permissions, but most people with
@@ -9,16 +9,17 @@ import { personKey, type Department } from '@/lib/planning-config'
 // that works for everyone, admin or not, and is what "Mijn week" defaults
 // to on first use.
 //
-// `guess` en wat eruit komt zijn sleutels (`afdeling|naam`), geen kale namen.
-// De naam alleen was niet genoeg: het rooster heeft echt dubbele voornamen
-// ("Thibault" bij twee afdelingen), en met de naam als waarde kozen beide
-// opties dezelfde persoon — de tweede kon zichzelf dus niet kiezen.
+// `guess` en wat eruit komt zijn contact-id's. Een naam was niet genoeg —
+// het rooster heeft echt naamgenoten — en een (afdeling, naam)-sleutel ook
+// niet, want die verandert zodra iemand van afdeling wisselt.
 export default function NamePicker({
   depts, guess, onPick, onCancel, canCancel = true,
 }: {
-  depts: Department[]
+  // Al opgeloste personen in plaats van het rooster met kale id's: de
+  // naamkiezer moet namen tonen, en die staan niet meer in het rooster.
+  depts: { name: string; people: Person[] }[]
   guess: string | null
-  onPick: (personKey: string) => void
+  onPick: (contactId: string) => void
   onCancel: () => void
   canCancel?: boolean
 }) {
@@ -51,10 +52,7 @@ export default function NamePicker({
           <option value="">Kies je naam…</option>
           {depts.map(d => (
             <optgroup key={d.name} label={d.name}>
-              {d.employees.map(emp => {
-                const key = personKey({ dept: d.name, emp })
-                return <option key={key} value={key}>{emp}</option>
-              })}
+              {d.people.map(p => <option key={p.id} value={p.id}>{p.emp}</option>)}
             </optgroup>
           ))}
         </select>
