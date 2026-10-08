@@ -19,7 +19,14 @@ import type { PlanningPreset } from '@/lib/planning-presets'
 import type { PlanningRename } from '@/lib/planning-rename'
 
 interface ArchivedEmployee { dept: string; emp: string }
-interface Staleness { dept: string; emp: string; lastEntryDate: string }
+
+export interface PlanningTeamContact {
+  name: string
+  employment_type?: string | null
+  active_until?: string | null
+  active?: boolean
+}
+interface Staleness { dept: string; emp: string; lastEntryDate: string; entryCount: number }
 
 // Een naam in de kladversie, met waar hij vandaan kwam. Die herkomst reist
 // mee met het object, dus slepen tussen afdelingen en hernoemen houden hem
@@ -46,10 +53,14 @@ interface Props {
   onRename: (renames: PlanningRename[], departments: Department[]) => Promise<{ ok: true } | { ok: false; error: string }>
   archived: ArchivedEmployee[]
   onSaveArchived: (a: ArchivedEmployee[]) => Promise<void>
-  // Real Team contact names (see /team) — anyone here who isn't in this
-  // list either left Team or was always a one-off manually-typed entry;
-  // either way it's flagged so a beheerder can decide what to do with it.
-  teamNames: string[]
+  // De echte Team-contacten (zie /team). Wie hier niet tussen staat is ofwel
+  // uit Team verdwenen, ofwel een eenmalig getypte naam — in beide gevallen
+  // gemarkeerd zodat een beheerder kan beslissen wat ermee moet.
+  //
+  // Met status erbij, want "staat niet in Team" en "stagiair die gestopt is"
+  // zien er voor het raster hetzelfde uit en zijn iets totaal anders: het
+  // eerste is een probleem, het tweede is het systeem dat werkt.
+  teamContacts: PlanningTeamContact[]
   onClose: () => void
   // Presets zijn beheer-only (de API weigert schrijven sowieso, maar dan moet
   // de tab er ook niet staan om een 403 uit te lokken).
@@ -245,7 +256,7 @@ function PresetsPanel() {
   )
 }
 
-export default function PlanningConfigModal({ departments, onSave, onRename, archived, onSaveArchived, teamNames, onClose, isBeheer }: Props) {
+export default function PlanningConfigModal({ departments, onSave, onRename, archived, onSaveArchived, teamContacts, onClose, isBeheer }: Props) {
   const [tab, setTab] = useState<'afdelingen' | 'presets'>('afdelingen')
   const [depts, setDepts] = useState<DraftDept[]>(() =>
     departments.map(d => ({
@@ -257,7 +268,11 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
   const [saveError, setSaveError] = useState('')
   const [collapsed, setCollapsed] = useState<Record<number, boolean>>({})
 
-  const teamNameSet = useMemo(() => new Set(teamNames.map(normName)), [teamNames])
+  const teamByName = useMemo(() => {
+    const m = new Map<string, PlanningTeamContact>()
+    for (const c of teamContacts) m.set(normName(c.name), c)
+    return m
+  }, [teamContacts])
 
   // Archiveren is een losstaande, meteen-opslaande actie (zoals presets) —
   // geen aparte kladversie zoals bij afdelingen, want er is niets te
@@ -286,11 +301,11 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
     depts.forEach((d, di) => {
       d.employees.forEach(({ name: emp }) => {
         const isArch = archived.some(a => a.dept === d.name && a.emp === emp)
-        if (!isArch && !teamNameSet.has(normName(emp))) out.push({ dept: d.name, deptIdx: di, emp })
+        if (!isArch && !teamByName.has(normName(emp))) out.push({ dept: d.name, deptIdx: di, emp })
       })
     })
     return out
-  }, [depts, teamNameSet, archived])
+  }, [depts, teamByName, archived])
 
   function jumpToDept(deptIdx: number) {
     setTab('afdelingen')
@@ -309,6 +324,15 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
   const stalenessMap = useMemo(() => {
     const m = new Map<string, string>()
     for (const s of staleness) m.set(`${s.dept}|${s.emp}`, s.lastEntryDate)
+    return m
+  }, [staleness])
+
+  // Hoeveel ingevulde dagen hangen er aan deze (afdeling, naam)? Bepaalt of
+  // verwijderen mag: die rijen staan op de tekst, dus zodra de naam uit het
+  // rooster verdwijnt zijn ze nergens meer te zien.
+  const entryCountMap = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const s of staleness) m.set(`${s.dept}|${s.emp}`, s.entryCount)
     return m
   }, [staleness])
 
@@ -402,15 +426,28 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
 
   function deleteEmployee(deptIdx: number, empIdx: number) {
     const slot = depts[deptIdx].employees[empIdx]
-    // Alleen als er iets te verliezen is: een pas toegevoegde naam (orig null)
-    // heeft nog geen planning, dus daar valt niets over te melden.
+    const planned = slot.orig
+      ? entryCountMap.get(`${slot.orig.dept}|${slot.orig.emp}`) ?? 0
+      : 0
+
+    // Heeft deze persoon ingevulde dagen, dan kan verwijderen niet. Een
+    // bevestiging die je elke keer wegklikt is geen bescherming, en dit is de
+    // enige handeling in de planning die geschiedenis onbereikbaar maakt.
+    if (planned > 0) {
+      alert(
+        `"${slot.name}" heeft ${planned} ingevulde dag(en) in de planning.\n\n` +
+        `Verwijderen zou die losmaken van deze persoon: ze blijven in de database ` +
+        `staan maar zijn nergens meer te zien, ook niet in Statistieken.\n\n` +
+        `Gebruik archiveren — dan verdwijnt hij uit de teamweergave en blijven ` +
+        `oude weken gewoon kloppen.`
+      )
+      return
+    }
+
     if (slot.orig) {
       const ok = confirm(
-        `"${slot.name}" definitief uit het rooster halen?\n\n` +
-        `De bestaande planning onder deze naam blijft in de database staan, maar ` +
-        `is nergens meer te zien — ook niet in Statistieken.\n\n` +
-        `Wil je iemand die er niet meer werkt gewoon uit de teamweergave halen, ` +
-        `gebruik dan archiveren: dan blijven oude weken wel kloppen.`
+        `"${slot.name}" uit het rooster halen?\n\n` +
+        `Er staat nog geen planning onder deze naam, dus er gaat niets verloren.`
       )
       if (!ok) return
     }
@@ -774,12 +811,26 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
                       const isBusy = busyArchive === `${dept.name}|${emp}`
                       const lastEntry = stalenessMap.get(`${dept.name}|${emp}`)
                       const stale = !isArchivedEmp && lastEntry && daysAgo(lastEntry) >= STALE_AFTER_DAYS
-                      const notInTeam = !isArchivedEmp && !teamNameSet.has(normName(emp))
+                      const contact = teamByName.get(normName(emp))
+                      const notInTeam = !isArchivedEmp && !contact
+                      // Stagiair of student: zeg dat, met zijn status erbij.
+                      // Zonder dit zag een stagiair die netjes gestopt is er
+                      // op het scherm hetzelfde uit als een fout.
+                      const tempLabel = contact && (contact.employment_type ?? 'vast') !== 'vast'
+                        ? contact.active === false
+                          ? `${contact.employment_type}, niet actief`
+                          : contact.active_until
+                            ? `${contact.employment_type} tot ${contact.active_until}`
+                            : String(contact.employment_type)
+                        : null
                       // Nog niet opgeslagen hernoemd of versleept. Archiveren
                       // schrijft meteen weg op (afdeling, naam) en zou dan naar
                       // een naam wijzen die in de database nog niet bestaat —
                       // dus eerst opslaan.
                       const slotMoved = !!slot.orig && (slot.orig.dept !== dept.name || slot.orig.emp !== emp)
+                      const plannedDays = slot.orig
+                        ? entryCountMap.get(`${slot.orig.dept}|${slot.orig.emp}`) ?? 0
+                        : 0
 
                       return (
                         <div
@@ -839,6 +890,14 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
                                   niet in Team
                                 </span>
                               )}
+                              {tempLabel && (
+                                <span
+                                  className="flex-shrink-0 text-[9px] uppercase tracking-wide text-amber-500 border border-amber-900/60 rounded px-1"
+                                  title="Contractvorm komt uit Team"
+                                >
+                                  {tempLabel}
+                                </span>
+                              )}
                               {slotMoved && (
                                 <span
                                   className="flex-shrink-0 text-[9px] uppercase tracking-wide text-sky-400 border border-sky-900 rounded px-1"
@@ -881,8 +940,11 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
                           {!isRenamingThisEmp && (
                             <button
                               onClick={() => deleteEmployee(di, ei)}
-                              title="Definitief verwijderen"
-                              className="flex-shrink-0 opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 transition-all"
+                              disabled={plannedDays > 0}
+                              title={plannedDays > 0
+                                ? `Kan niet: ${plannedDays} ingevulde dag(en). Archiveer in plaats daarvan.`
+                                : 'Uit het rooster halen'}
+                              className="flex-shrink-0 opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 transition-all disabled:cursor-not-allowed disabled:hover:text-zinc-700 disabled:text-zinc-800"
                             >
                               <Trash2 size={13} />
                             </button>

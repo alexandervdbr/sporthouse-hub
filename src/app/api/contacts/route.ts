@@ -1,6 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { hasClientAccess } from '@/lib/auth-permissions'
+import { EMPLOYMENT_TYPES, type EmploymentType } from '@/lib/employment'
+
+// Onbekende waarden stil negeren in plaats van opslaan: de check-constraint op
+// de tabel zou het toch weigeren, en een 500 uit de database is een slechter
+// antwoord dan "we hebben dat veld niet aangepast".
+function cleanType(v: unknown): EmploymentType | undefined {
+  return typeof v === 'string' && (EMPLOYMENT_TYPES as readonly string[]).includes(v)
+    ? v as EmploymentType
+    : undefined
+}
+
+// Lege string betekent "wissen" (onbepaald), een datum betekent een einde.
+// `undefined` betekent "niet meegestuurd, niet aanraken".
+function cleanDate(v: unknown): string | null | undefined {
+  if (v === null || v === '') return null
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v
+  return undefined
+}
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
@@ -27,15 +45,44 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json()
   const { clientId, name, role, email, phone, photo_url } = body
+  const employment_type = cleanType(body.employment_type)
+  const active_until = cleanDate(body.active_until)
 
   if (!clientId || !name?.trim()) {
     return NextResponse.json({ error: 'clientId en naam zijn vereist' }, { status: 400 })
   }
   if (!hasClientAccess(user, clientId)) return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
 
+  // Eén e-mailadres per klant. Twee contacten voor dezelfde persoon lopen door
+  // tot in de planning (die koppelt op naam) en in de avatars in Chat (die
+  // koppelt op e-mail), en het is achteraf handwerk om ze te ontwarren.
+  // Contacten zonder e-mailadres blijven ongemoeid: daar valt niets aan te
+  // herkennen, en meerdere naamgenoten zijn legitiem.
+  if (email?.trim()) {
+    const wanted = email.trim().toLowerCase()
+    const { data: existing } = await supabase
+      .from('contacts')
+      .select('id, name, email')
+      .eq('client_id', clientId)
+      .not('email', 'is', null)
+    const clash = (existing ?? []).find(
+      (c: { email: string | null }) => c.email?.trim().toLowerCase() === wanted
+    )
+    if (clash) {
+      return NextResponse.json(
+        { error: `${clash.name} staat al in deze lijst met dit e-mailadres.` },
+        { status: 409 }
+      )
+    }
+  }
+
   const { data, error } = await supabase
     .from('contacts')
-    .insert({ client_id: clientId, name: name.trim(), role, email, phone, photo_url })
+    .insert({
+      client_id: clientId, name: name.trim(), role, email, phone, photo_url,
+      ...(employment_type ? { employment_type } : {}),
+      ...(active_until !== undefined ? { active_until } : {}),
+    })
     .select()
     .single()
 
@@ -50,6 +97,8 @@ export async function PATCH(request: NextRequest) {
 
   const body = await request.json()
   const { id, name, role, email, phone, photo_url } = body
+  const employment_type = cleanType(body.employment_type)
+  const active_until = cleanDate(body.active_until)
 
   if (!id) return NextResponse.json({ error: 'id vereist' }, { status: 400 })
 
@@ -61,7 +110,11 @@ export async function PATCH(request: NextRequest) {
 
   const { data, error } = await supabase
     .from('contacts')
-    .update({ name, role, email, phone, photo_url })
+    .update({
+      name, role, email, phone, photo_url,
+      ...(employment_type ? { employment_type } : {}),
+      ...(active_until !== undefined ? { active_until } : {}),
+    })
     .eq('id', id)
     .select()
     .single()

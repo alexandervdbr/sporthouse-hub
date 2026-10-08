@@ -5,6 +5,9 @@ import { Plus, Pencil, Trash2, Loader2, Mail, Phone, X, Check, Users, Camera } f
 import { createClient } from '@/lib/supabase/client'
 import Image from 'next/image'
 import { isAdminUser } from '@/lib/auth-permissions'
+import {
+  EMPLOYMENT_TYPES, EMPLOYMENT_LABELS, isActiveContact, type EmploymentType,
+} from '@/lib/employment'
 
 interface Contact {
   id: string
@@ -14,6 +17,27 @@ interface Contact {
   email: string | null
   phone: string | null
   photo_url: string | null
+  employment_type: EmploymentType | null
+  active_until: string | null
+}
+
+type Tab = 'vast' | 'tijdelijk' | 'inactief'
+
+const TAB_LABELS: Record<Tab, string> = {
+  vast:      'Vast team',
+  tijdelijk: 'Tijdelijk',
+  inactief:  'Niet actief',
+}
+
+function today(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function formatDate(iso: string) {
+  return new Date(iso + 'T00:00:00').toLocaleDateString('nl-BE', {
+    day: 'numeric', month: 'short', year: 'numeric',
+  })
 }
 
 interface Client {
@@ -39,6 +63,8 @@ interface FormState {
   phone: string
   photo_url: string
   clientId: string
+  employmentType: EmploymentType
+  activeUntil: string
 }
 
 function ContactModal({
@@ -61,8 +87,13 @@ function ContactModal({
           phone: initial.phone ?? '',
           photo_url: initial.photo_url ?? '',
           clientId: initial.client_id,
+          employmentType: initial.employment_type ?? 'vast',
+          activeUntil: initial.active_until ?? '',
         }
-      : { name: '', role: '', email: '', phone: '', photo_url: '', clientId: clients[0]?.id ?? '' }
+      : {
+          name: '', role: '', email: '', phone: '', photo_url: '',
+          clientId: clients[0]?.id ?? '', employmentType: 'vast', activeUntil: '',
+        }
   )
   // clientId is always set to the first intern client — not shown to user
   const [saving, setSaving] = useState(false)
@@ -190,6 +221,79 @@ function ContactModal({
           </div>
         ))}
 
+        {/* Contractvorm. Staat los van "Functie" hierboven: dat is wat iemand
+            doet, dit is onder welke voorwaarden. Die twee stonden vroeger door
+            elkaar — "Stagiair" als functietitel — en dan kan je er niet op
+            filteren zonder op tekst te gaan raden. */}
+        <div>
+          <label className="block text-xs text-zinc-500 mb-1">Contractvorm</label>
+          <div className="flex p-0.5 rounded-lg bg-zinc-950 border border-zinc-800 w-fit">
+            {EMPLOYMENT_TYPES.map(t => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setForm(f => ({ ...f, employmentType: t }))}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  form.employmentType === t ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                {EMPLOYMENT_LABELS[t]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Eén veld, twee schermen. Een stagiair weet bij het aannemen al
+            wanneer het stopt, dus die krijgt een datum die zichzelf regelt.
+            Een student blijft meestal onbepaald beschikbaar en valt af en toe
+            weg — die krijgt een schakelaar, die achter de schermen dezelfde
+            datum zet of wist. */}
+        {form.employmentType === 'student' ? (
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1">Beschikbaarheid</label>
+            <button
+              type="button"
+              onClick={() => setForm(f => ({ ...f, activeUntil: f.activeUntil ? '' : today() }))}
+              className="flex items-center gap-2 px-3 py-2 w-full bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-left transition-colors hover:border-zinc-600"
+            >
+              <span
+                className="w-8 h-4 rounded-full flex-shrink-0 relative transition-colors"
+                style={{ backgroundColor: form.activeUntil ? '#3f3f46' : '#3A913F' }}
+              >
+                <span
+                  className="absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all"
+                  style={{ left: form.activeUntil ? '2px' : '18px' }}
+                />
+              </span>
+              <span className={form.activeUntil ? 'text-zinc-500' : 'text-sh-grey'}>
+                {form.activeUntil ? 'Niet actief' : 'Actief'}
+              </span>
+            </button>
+            <p className="text-[10px] text-zinc-600 mt-1">
+              {form.activeUntil
+                ? 'Staat niet meer in de planning. Zijn ingevulde dagen blijven bewaard en komen terug zodra je hem weer aanzet.'
+                : 'Staat in de planning. Zet uit wanneer hij voorlopig niet meer kan werken.'}
+            </p>
+          </div>
+        ) : (
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1">
+              Einddatum {form.employmentType === 'vast' ? '(optioneel)' : ''}
+            </label>
+            <input
+              type="date"
+              value={form.activeUntil}
+              onChange={e => setForm(f => ({ ...f, activeUntil: e.target.value }))}
+              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-sh-grey focus:outline-none focus:border-zinc-600 transition-colors"
+            />
+            <p className="text-[10px] text-zinc-600 mt-1">
+              {form.activeUntil
+                ? `Laatste werkdag. Daarna verdwijnt ${form.name || 'deze persoon'} uit de planning; zijn ingevulde dagen blijven bewaard.`
+                : 'Laat leeg als er nog geen einddatum bekend is.'}
+            </p>
+          </div>
+        )}
+
         </div>
 
         <div className="flex gap-2 px-6 pt-4 pb-6 flex-shrink-0">
@@ -222,6 +326,7 @@ export default function TeamDirectory({ internClients }: { internClients: Client
   const [editing, setEditing] = useState<Contact | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [tab, setTab] = useState<Tab>('vast')
   const [canToevoegen, setCanToevoegen] = useState(false)
   const [canVerwijderen, setCanVerwijderen] = useState(false)
 
@@ -250,7 +355,11 @@ export default function TeamDirectory({ internClients }: { internClients: Client
     const res = await fetch('/api/contacts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientId: form.clientId, name: form.name, role: form.role, email: form.email, phone: form.phone, photo_url: form.photo_url || null }),
+      body: JSON.stringify({
+        clientId: form.clientId, name: form.name, role: form.role, email: form.email,
+        phone: form.phone, photo_url: form.photo_url || null,
+        employment_type: form.employmentType, active_until: form.activeUntil,
+      }),
     })
     if (!res.ok) throw new Error('Toevoegen mislukt.')
     await load()
@@ -260,22 +369,55 @@ export default function TeamDirectory({ internClients }: { internClients: Client
     const res = await fetch('/api/contacts', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: editing!.id, name: form.name, role: form.role, email: form.email, phone: form.phone, photo_url: form.photo_url || null }),
+      body: JSON.stringify({
+        id: editing!.id, name: form.name, role: form.role, email: form.email,
+        phone: form.phone, photo_url: form.photo_url || null,
+        employment_type: form.employmentType, active_until: form.activeUntil,
+      }),
     })
     if (!res.ok) throw new Error('Opslaan mislukt.')
     await load()
   }
 
-  async function handleDelete(id: string) {
-    setDeletingId(id)
-    await fetch(`/api/contacts?id=${id}`, { method: 'DELETE' })
+  // Verwijderen deed het hiervoor zonder één vraag. Dat is zwaarder dan het
+  // lijkt: het rooster koppelt op naam, dus wie je hier weghaalt raakt los van
+  // zijn planning en blijft daar achter als "niet in Team". Voor iemand die
+  // vertrekt is een einddatum bijna altijd wat je bedoelt — dan blijft zijn
+  // geschiedenis leesbaar en verdwijnt hij vanzelf uit de actieve lijst.
+  async function handleDelete(contact: Contact) {
+    const ok = confirm(
+      `${contact.name} definitief uit Team verwijderen?\n\n` +
+      `Zijn ingevulde planning blijft in de database staan, maar raakt los van ` +
+      `deze persoon en is daarna nergens meer te zien.\n\n` +
+      `Gaat het om iemand die vertrekt of voorlopig niet werkt, sluit dan af ` +
+      `met een einddatum in plaats van te verwijderen.`
+    )
+    if (!ok) return
+    setDeletingId(contact.id)
+    await fetch(`/api/contacts?id=${contact.id}`, { method: 'DELETE' })
     await load()
     setDeletingId(null)
   }
 
-  const filtered = contacts.filter(c =>
+  // Drie groepen, want "tijdelijk" en "weg" zijn twee verschillende dingen en
+  // je wil ze geen van beide tussen de vaste ploeg zien staan.
+  const groupOf = (c: Contact): Tab =>
+    !isActiveContact(c) ? 'inactief'
+    : (c.employment_type ?? 'vast') === 'vast' ? 'vast'
+    : 'tijdelijk'
+
+  const matchesSearch = (c: Contact) =>
     `${c.name} ${c.role ?? ''} ${c.email ?? ''}`.toLowerCase().includes(search.toLowerCase())
-  )
+
+  const counts: Record<Tab, number> = { vast: 0, tijdelijk: 0, inactief: 0 }
+  for (const c of contacts) counts[groupOf(c)]++
+
+  // Zoeken kijkt door alle tabbladen heen. Wie een naam typt wil hem vinden,
+  // niet eerst moeten raden onder welk tabblad hij staat.
+  const searching = search.trim().length > 0
+  const filtered = contacts
+    .filter(c => searching ? matchesSearch(c) : groupOf(c) === tab)
+    .sort((a, b) => a.name.localeCompare(b.name, 'nl'))
 
   return (
     <div className="space-y-6">
@@ -300,6 +442,24 @@ export default function TeamDirectory({ internClients }: { internClients: Client
         )}
       </div>
 
+      {!searching && (
+        <div className="flex items-center gap-1 border-b border-zinc-800">
+          {(Object.keys(TAB_LABELS) as Tab[]).map(t => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                tab === t ? 'text-sh-grey' : 'text-zinc-500 hover:text-zinc-300 border-transparent'
+              }`}
+              style={tab === t ? { borderColor: '#3A913F' } : undefined}
+            >
+              {TAB_LABELS[t]}
+              <span className="ml-1.5 text-xs text-zinc-600">{counts[t]}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {loading ? (
         <div className="flex items-center justify-center py-16">
           <Loader2 size={20} className="animate-spin text-zinc-600" />
@@ -308,16 +468,22 @@ export default function TeamDirectory({ internClients }: { internClients: Client
         <div className="py-16 text-center border-2 border-dashed border-zinc-800 rounded-xl">
           <Users size={28} className="text-zinc-700 mx-auto mb-3" />
           <p className="text-sm text-zinc-500">
-            {search ? 'Geen resultaten.' : 'Nog geen teamleden toegevoegd.'}
+            {searching ? 'Geen resultaten.'
+              : tab === 'vast' ? 'Nog geen vaste teamleden toegevoegd.'
+              : tab === 'tijdelijk' ? 'Geen stagiairs of studenten actief.'
+              : 'Niemand op non-actief.'}
           </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {filtered.map(contact => {
                   const color = avatarColor(contact.name)
+                  const type = contact.employment_type ?? 'vast'
+                  const active = isActiveContact(contact)
                   return (
                     <div
                       key={contact.id}
+                      style={{ opacity: active ? 1 : 0.55 }}
                       className="group flex items-start gap-4 p-4 bg-zinc-900 border border-zinc-800 rounded-xl hover:border-zinc-700 transition-all"
                     >
                       {/* Avatar */}
@@ -340,9 +506,25 @@ export default function TeamDirectory({ internClients }: { internClients: Client
 
                       {/* Info */}
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-sh-grey truncate">{contact.name}</p>
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <p className="text-sm font-medium text-sh-grey truncate">{contact.name}</p>
+                          {type !== 'vast' && (
+                            <span className="flex-shrink-0 text-[9px] uppercase tracking-wide text-amber-500 border border-amber-900/60 rounded px-1">
+                              {EMPLOYMENT_LABELS[type]}
+                            </span>
+                          )}
+                        </div>
                         {contact.role && (
                           <p className="text-xs text-zinc-500 truncate mt-0.5">{contact.role}</p>
+                        )}
+                        {contact.active_until && (
+                          <p className={`text-[10px] mt-0.5 ${active ? 'text-zinc-600' : 'text-zinc-500'}`}>
+                            {active
+                              ? `Tot ${formatDate(contact.active_until)}`
+                              : type === 'student'
+                                ? `Niet actief sinds ${formatDate(contact.active_until)}`
+                                : `Gestopt op ${formatDate(contact.active_until)}`}
+                          </p>
                         )}
                         <div className="mt-2 space-y-1">
                           {contact.email && (
@@ -379,7 +561,7 @@ export default function TeamDirectory({ internClients }: { internClients: Client
                           )}
                           {canVerwijderen && (
                             <button
-                              onClick={() => handleDelete(contact.id)}
+                              onClick={() => handleDelete(contact)}
                               disabled={deletingId === contact.id}
                               className="tap-target p-1.5 text-zinc-600 hover:text-red-400 hover:bg-zinc-800 rounded-md transition-colors"
                             >
