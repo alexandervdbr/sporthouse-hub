@@ -178,6 +178,18 @@ export async function DELETE(request: NextRequest) {
   if (!hasClientAccess(user, existing.client_id)) return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
 
   const { error } = await supabase.from('contacts').delete().eq('id', id)
+
+  // 23503 = foreign_key_violation. Dat is planning_entries.contact_id met zijn
+  // `on delete restrict` (zie migratie 0053): deze persoon heeft ingevulde
+  // dagen, en die zijn van hem. De database weigert het, en dat is precies de
+  // bedoeling — maar een ruwe Postgres-fout is geen antwoord voor wie op een
+  // prullenbakje klikt.
+  if (error && (error as { code?: string }).code === '23503') {
+    return NextResponse.json(
+      { error: 'Deze persoon heeft ingevulde planning staan en kan niet verwijderd worden. Geef hem een einddatum of zet hem op non-actief.' },
+      { status: 409 }
+    )
+  }
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })
 }
