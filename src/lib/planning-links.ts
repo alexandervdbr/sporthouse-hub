@@ -7,8 +7,7 @@ import { createAdminClient } from '@/lib/supabase/server'
 
 export interface PlanningLink {
   token: string
-  department: string
-  employee: string
+  contact_id: string
   created_by: string | null
   created_at: string
   revoked_at: string | null
@@ -30,7 +29,7 @@ export async function resolvePlanningLink(token: unknown): Promise<PlanningLink 
   const admin = createAdminClient()
   const { data, error } = await admin
     .from('planning_links')
-    .select('token, department, employee, created_by, created_at, revoked_at, last_seen_at')
+    .select('token, contact_id, created_by, created_at, revoked_at, last_seen_at')
     .eq('token', token)
     .maybeSingle()
 

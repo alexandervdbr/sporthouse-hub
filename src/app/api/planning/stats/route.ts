@@ -25,14 +25,13 @@ export async function GET(req: Request) {
   // die Supabase standaard teruggeeft, en een drukke maand ook. Zonder dit
   // telde deze tabel een willekeurig deel van de planning en zag dat er net
   // zo geloofwaardig uit. Zie src/lib/planning-paginate.ts.
-  // Per (afdeling, medewerker), niet per naam: twee mensen met dezelfde
-  // voornaam in verschillende afdelingen ("Thibault" bij Stags PS én STAGS
-  // Projectkant) werden bij elkaar opgeteld, en beide rijen in de tabel
-  // toonden daarna diezelfde som.
-  let data: { department: string; employee: string; value: string }[]
+  // Per contact. Dat is de persoon, los van hoe hij heet en in welke afdeling
+  // hij nu staat — wisselt hij van afdeling, dan verhuist zijn telling mee in
+  // plaats van te splitsen.
+  let data: { contact_id: string; value: string }[]
   try {
-    data = await fetchAllRows<{ department: string; employee: string; value: string }>(() => {
-      let query = supabase.from('planning_entries').select('department, employee, value').eq('year', year)
+    data = await fetchAllRows<{ contact_id: string; value: string }>(() => {
+      let query = supabase.from('planning_entries').select('contact_id, value').eq('year', year)
       if (month) query = query.eq('month', month)
       return query.order('id', { ascending: true })
     })
@@ -41,21 +40,15 @@ export async function GET(req: Request) {
   }
 
   const counts = new Map<string, Map<string, number>>()
-  const people = new Map<string, { department: string; employee: string }>()
   for (const row of data) {
-    const key = `${row.department}|${row.employee}`
-    people.set(key, { department: row.department, employee: row.employee })
-    const byValue = counts.get(key) ?? new Map<string, number>()
+    const byValue = counts.get(row.contact_id) ?? new Map<string, number>()
     byValue.set(row.value, (byValue.get(row.value) ?? 0) + 1)
-    counts.set(key, byValue)
+    counts.set(row.contact_id, byValue)
   }
 
-  const result: { department: string; employee: string; value: string; count: number }[] = []
-  for (const [key, byValue] of counts) {
-    const who = people.get(key)!
-    for (const [value, count] of byValue) {
-      result.push({ department: who.department, employee: who.employee, value, count })
-    }
+  const result: { contactId: string; value: string; count: number }[] = []
+  for (const [contactId, byValue] of counts) {
+    for (const [value, count] of byValue) result.push({ contactId, value, count })
   }
 
   return Response.json(result)

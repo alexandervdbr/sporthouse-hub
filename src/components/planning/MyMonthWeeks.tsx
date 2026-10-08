@@ -3,11 +3,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { MoreVertical, Copy, ClipboardPaste, Trash2, Check, X } from 'lucide-react'
 import { DUTCH_MONTHS } from '@/lib/planning-config'
-import { emptyCell, getMonthWeeks, weekDayCellKey, type CellData, type PlanningWeekData, type WeekDay } from '@/lib/planning-week'
+import { emptyCell, getMonthWeeks, weekDayCellKey, type CellData, type PlanningWeekData, type Target, type WeekDay } from '@/lib/planning-week'
 import type { PlanningPreset } from '@/lib/planning-presets'
+import type { Person } from '@/lib/planning-config'
 import DayEditor from './DayEditor'
 
-interface Target { wd: WeekDay; dept: string; emp: string }
 interface DragState { start: number; additive: boolean; cells: Set<number> }
 
 const SEL_BG = 'rgba(59,130,246,0.15)'
@@ -49,13 +49,12 @@ function rectIndices(aIdx: number, bIdx: number): number[] {
 // WeekGrid, since WeekGrid's row/col model is bounded to one instance's own
 // 7 days and can't reach across sibling week-rows.
 export default function MyMonthWeeks({
-  year, month, dept, emp, data, readOnly, presets, onApply, onClear, emailToName,
+  year, month, person, data, readOnly, presets, onApply, onClear, emailToName,
   dimReadOnly = true,
 }: {
   year: number
   month: number
-  dept: string
-  emp: string
+  person: Person
   data: PlanningWeekData
   readOnly: boolean
   presets: PlanningPreset[]
@@ -68,6 +67,7 @@ export default function MyMonthWeeks({
   // kapot uit — zie MyPlanningLink.
   dimReadOnly?: boolean
 }) {
+  const contactId = person.id
   const weeks = getMonthWeeks(year, month)
   const allDays = weeks.flat()
   const todayRowRef = useRef<HTMLDivElement>(null)
@@ -111,9 +111,9 @@ export default function MyMonthWeeks({
   function openEditorFor(idxs: number[]) {
     if (readOnly || idxs.length === 0) return
     const sorted = [...idxs].sort((a, b) => a - b)
-    const targets: Target[] = sorted.map(i => ({ wd: allDays[i], dept, emp }))
+    const targets: Target[] = sorted.map(i => ({ wd: allDays[i], contactId }))
     const initial = targets.length === 1
-      ? (data[weekDayCellKey(targets[0].wd, dept, emp)] ?? emptyCell())
+      ? (data[weekDayCellKey(targets[0].wd, contactId)] ?? emptyCell())
       : emptyCell()
     setEditing({ targets, cell: initial })
   }
@@ -234,20 +234,20 @@ export default function MyMonthWeeks({
   }
 
   function handleCopy(wd: WeekDay) {
-    clipboardRef.current = data[weekDayCellKey(wd, dept, emp)] ?? emptyCell()
+    clipboardRef.current = data[weekDayCellKey(wd, contactId)] ?? emptyCell()
     setHasClipboard(true)
     setMenuKey(null)
   }
 
   function handlePaste(wd: WeekDay) {
     if (readOnly || !clipboardRef.current) { setMenuKey(null); return }
-    onApply([{ wd, dept, emp }], clipboardRef.current)
+    onApply([{ wd, contactId }], clipboardRef.current)
     setMenuKey(null)
   }
 
   function handleClearCell(wd: WeekDay) {
     if (readOnly) { setMenuKey(null); return }
-    onClear([{ wd, dept, emp }])
+    onClear([{ wd, contactId }])
     setMenuKey(null)
   }
 
@@ -276,7 +276,7 @@ export default function MyMonthWeeks({
               {week.map((wd, ci) => {
                 const idx = wi * 7 + ci
                 const isOverflow = wd.month !== month
-                const key = weekDayCellKey(wd, dept, emp)
+                const key = weekDayCellKey(wd, contactId)
                 const cell = data[key] ?? emptyCell()
                 const isSelected = displaySelection?.has(idx) ?? false
                 const menuOpen = menuKey === key
@@ -390,7 +390,7 @@ export default function MyMonthWeeks({
             onChange: next => {
               if (next.length === 0) { setEditing(null); setCommitted(null); return }
               const sorted = [...next].sort((a, b) => a.year - b.year || a.month - b.month || a.day - b.day)
-              setEditing(prev => prev && { ...prev, targets: sorted.map(wd => ({ wd, dept, emp })) })
+              setEditing(prev => prev && { ...prev, targets: sorted.map(wd => ({ wd, contactId })) })
             },
           }}
           onSave={cell => { onApply(editing.targets, cell); setEditing(null); setCommitted(null) }}

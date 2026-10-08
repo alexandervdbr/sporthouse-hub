@@ -2,21 +2,22 @@
 
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Loader2 } from 'lucide-react'
-import { DUTCH_MONTHS, personKey, type Department } from '@/lib/planning-config'
+import { DUTCH_MONTHS, type Person } from '@/lib/planning-config'
 import type { PlanningPreset } from '@/lib/planning-presets'
 import { mergedStatusOptions } from './DayEditor'
 
-interface StatRow { department: string; employee: string; value: string; count: number }
+interface StatRow { contactId: string; value: string; count: number }
 
 // A monthly (or yearly) tally per person, per status — "did Kenny take 15
 // Verlof days this month" at a glance, without counting cells by hand. Not
 // balance-vs-allotment (no entitlement number exists anywhere yet) — just a
 // clean count of what's actually in the planning for the chosen period.
 export default function PlanningStats({
-  departments, archived, presets,
+  people, archived, presets,
 }: {
-  departments: Department[]
-  archived: { dept: string; emp: string }[]
+  // Al opgeloste personen: het rooster houdt alleen contact-id's bij.
+  people: Person[]
+  archived: string[]
   presets: PlanningPreset[]
 }) {
   const [currentYear] = useState(() => new Date().getFullYear())
@@ -62,31 +63,29 @@ export default function PlanningStats({
   // "SHG"/"NB"/"PS" happened to look right purely by accident of already
   // being uppercase to begin with.
   //
-  // Gesleuteld op (afdeling, naam) en niet op de naam alleen: twee mensen met
-  // dezelfde voornaam in verschillende afdelingen deelden anders één ingang,
-  // en beide rijen toonden dezelfde getallen.
+  // Op contact-id, want dat is de persoon.
   const countsByEmployee = useMemo(() => {
     const m = new Map<string, Map<string, number>>()
     for (const r of rows) {
-      const key = personKey({ dept: r.department, emp: r.employee })
-      const byValue = m.get(key) ?? new Map<string, number>()
+      const byValue = m.get(r.contactId) ?? new Map<string, number>()
       byValue.set(r.value.toUpperCase(), r.count)
-      m.set(key, byValue)
+      m.set(r.contactId, byValue)
     }
     return m
   }, [rows])
 
   // Same roster shape as the rest of the app — one row per non-archived
   // person, grouped by department in the same order as the config.
-  const groups = useMemo(
-    () => departments
-      .map(d => ({
-        name: d.name,
-        employees: d.employees.filter(emp => !archived.some(a => a.dept === d.name && a.emp === emp)),
-      }))
-      .filter(d => d.employees.length > 0),
-    [departments, archived]
-  )
+  const groups = useMemo(() => {
+    const byDept = new Map<string, Person[]>()
+    for (const p of people) {
+      if (archived.includes(p.id)) continue
+      const list = byDept.get(p.dept) ?? []
+      list.push(p)
+      byDept.set(p.dept, list)
+    }
+    return [...byDept.entries()].map(([name, employees]) => ({ name, employees }))
+  }, [people, archived])
 
   const years = [currentYear - 1, currentYear, currentYear + 1]
 
@@ -151,8 +150,8 @@ export default function PlanningStats({
                     {g.name}
                   </td>
                 </tr>
-                {g.employees.map(emp => {
-                  const byValue = countsByEmployee.get(personKey({ dept: g.name, emp }))
+                {g.employees.map(person => {
+                  const byValue = countsByEmployee.get(person.id)
                   const total = byValue ? [...byValue.values()].reduce((a, b) => a + b, 0) : 0
                   // Wat niet in een van de statuskolommen past: vrij getypte
                   // waarden. Die zaten wél in Totaal maar nergens in de rij,
@@ -163,9 +162,9 @@ export default function PlanningStats({
                         .reduce((a, [, n]) => a + n, 0)
                     : 0
                   return (
-                    <tr key={emp} className="hover:bg-zinc-900/50">
+                    <tr key={person.id} className="hover:bg-zinc-900/50">
                       <td className="sticky left-0 z-10 bg-zinc-950 px-3 py-1.5 text-zinc-200 border-r border-zinc-800 whitespace-nowrap">
-                        {emp}
+                        {person.emp}
                       </td>
                       {options.map(opt => {
                         const count = byValue?.get(opt.name.toUpperCase()) ?? 0

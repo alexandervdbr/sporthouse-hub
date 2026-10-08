@@ -1,6 +1,24 @@
+// Een afdeling in het rooster. `employees` zijn contact-id's, geen namen.
+//
+// Dat is het hele punt: de naam leeft op één plek (contacts) en wordt hier
+// nooit gekopieerd. Hernoemen in Team plant zich daarmee vanzelf voort, en de
+// klasse bugs waarin het rooster en Team uit elkaar lopen bestaat niet meer.
+// Zie supabase/migrations/0053_planning_op_contact_id.sql.
 export interface Department {
   name: string
   employees: string[]
+}
+
+// Iemand in het rooster, met zijn naam er al bij opgezocht. Dit is wat de
+// rasters doorkrijgen; de losse id komt uit Department.employees.
+export interface Person {
+  // Het contact-id. Dit is waar een planningsdag aan hangt.
+  id: string
+  // Waar hij nu in het rooster staat, en hoe hij nu in Team heet. Allebei
+  // afgeleid bij het opbouwen van de lijst, niet opgeslagen — vandaar dat een
+  // hernoeming in Team vanzelf doorkomt.
+  dept: string
+  emp: string
 }
 
 export interface PlanningOption {
@@ -72,25 +90,9 @@ export function normName(s: string) {
 // admins move them into the right department via drag and drop afterwards.
 export const UNASSIGNED_DEPT = 'Nieuw'
 
-// Eén persoon in het rooster is (afdeling, naam) — niet de naam alleen. Het
-// rooster heeft namelijk echt dubbele voornamen: "Thibault" staat bij Stags PS
-// én bij STAGS Projectkant, en dat zijn twee mensen. Op de naam alleen
-// vergelijken betekende dat de tweede zichzelf niet kon kiezen in de
-// naamkiezer, dat één toegewezen permissie-kolom ze beide ontgrendelde, en dat
-// hun dagen in Statistieken bij elkaar opgeteld werden.
-//
-// Zelfde scheidingsteken als de archief- en staleness-sleutels die hier al
-// rondgingen, zodat er één vorm is in plaats van twee.
-export function personKey(p: { dept: string; emp: string }) {
-  return `${p.dept}|${p.emp}`
-}
-
-// Een opgeslagen keuze van vóór deze wijziging is een kale naam zonder
-// scheidingsteken. Die hoeft niet weggegooid te worden: `null` hier betekent
-// "los dit nog op tegen het rooster", en de keuze wordt daarna in de nieuwe
-// vorm teruggeschreven.
-export function parsePersonKey(key: string): { dept: string; emp: string } | null {
-  const i = key.indexOf('|')
-  if (i <= 0 || i === key.length - 1) return null
-  return { dept: key.slice(0, i), emp: key.slice(i + 1) }
+// Een cel hangt aan een contact-id, niet aan een naam en niet aan een
+// afdeling. Een dag is van een persoon; waar die persoon op dat moment in het
+// rooster stond is een eigenschap van het rooster, niet van die dag.
+export function personKey(p: { id: string }) {
+  return p.id
 }

@@ -4,24 +4,23 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ChevronLeft, ChevronRight, Loader2, Settings, Search, TriangleAlert, X, Users } from 'lucide-react'
 import {
-  DEPARTMENTS, DUTCH_MONTHS, UNASSIGNED_DEPT, normName, personKey, parsePersonKey, type Department,
+  DEPARTMENTS, DUTCH_MONTHS, UNASSIGNED_DEPT, normName, type Department, type Person,
 } from '@/lib/planning-config'
 import {
   addMonths, addWeeks, dateCellKey, getMonthWeeks, getWeekDates, groupWeekByMonth, weekDayCellKey, weekLabel,
-  type CellData, type PlanningWeekData, type WeekDay,
+  type CellData, type PlanningWeekData, type Target, type WeekDay,
 } from '@/lib/planning-week'
 import { isAdminUser } from '@/lib/auth-permissions'
 import {
-  monthCacheKey, readCachedMonth, writeCachedMonth, clearPlanningMonthCache, SELECT_COLS,
+  monthCacheKey, readCachedMonth, writeCachedMonth, SELECT_COLS,
   CONFIG_CACHE_KEY, IDENTITY_KEY, IDENTITY_ACCOUNT_KEY, type PlanningRow,
 } from '@/lib/planning-cache'
 import { fetchAllRows } from '@/lib/planning-paginate'
-import type { PlanningRename, RenameResponse } from '@/lib/planning-rename'
 import type { PlanningPreset } from '@/lib/planning-presets'
 import PlanningConfigModal from './PlanningConfigModal'
 import NamePicker from './NamePicker'
 import MiniCalendarPicker from './MiniCalendarPicker'
-import WeekGrid, { type Person } from './WeekGrid'
+import WeekGrid from './WeekGrid'
 import MyMonthCalendar from './MyMonthCalendar'
 import MyMonthWeeks from './MyMonthWeeks'
 import TeamMonthGrid from './TeamMonthGrid'
@@ -160,7 +159,7 @@ export default function PlanningApp() {
   // niet verwijderd — anders verdwijnen ze ook uit weken/maanden waarin ze
   // wél echt gewerkt hebben. Standaard verborgen uit Team, terug op te
   // vragen via de toggle naast de zoekbalk.
-  const [archived, setArchived] = useState<{ dept: string; emp: string }[]>([])
+  const [archived, setArchived] = useState<string[]>([])
   const [showArchived, setShowArchived] = useState(false)
 
   const [data, setData] = useState<PlanningWeekData>({})
@@ -256,28 +255,20 @@ export default function PlanningApp() {
   // produced the very duplicates the effects below now clean up).
   const configWriteRef = useRef(false)
 
-  // 1) Exact duplicate names within one department (case/accent-
-  // insensitive) — e.g. the same name saved twice by the double-save race
-  // above before this lock existed.
+  // 1) Dezelfde persoon twee keer in één afdeling. Kon ontstaan door de
+  // dubbele-schrijf-race hierboven, voordat deze lock bestond.
   //
-  // Per afdeling, niet over het hele rooster. Dat deed het eerst wél, en dat
-  // is geen ontdubbeling maar gegevensverlies: twee mensen met dezelfde
-  // voornaam in verschillende afdelingen ("Thibault" bij Stags PS én bij
-  // STAGS Projectkant) zijn twee mensen, en de tweede werd stil uit het
-  // rooster gegooid — met al zijn cellen, want die staan op (afdeling, naam)
-  // en blijven dus achter onder een afdeling die hem niet meer kent.
-  //
-  // Binnen één afdeling is het wél een echt duplicaat: dezelfde sleutel, dus
-  // dezelfde rijen. Daar valt niets te verliezen.
+  // Per afdeling en niet over het hele rooster: iemand mag bewust in twee
+  // afdelingen staan. Binnen één afdeling is het altijd een duplicaat, want
+  // het is letterlijk hetzelfde id.
   useEffect(() => {
     if (!isBeheer || configFailed || activeDepts.length === 0 || configWriteRef.current) return
     let changed = false
     const next = activeDepts.map(d => {
       const seen = new Set<string>()
-      const employees = d.employees.filter(e => {
-        const key = normName(e)
-        if (seen.has(key)) { changed = true; return false }
-        seen.add(key)
+      const employees = d.employees.filter(id => {
+        if (seen.has(id)) { changed = true; return false }
+        seen.add(id)
         return true
       })
       return { ...d, employees }
@@ -287,92 +278,26 @@ export default function PlanningApp() {
     handleSaveConfig(next).finally(() => { configWriteRef.current = false })
   }, [isBeheer, configFailed, activeDepts, handleSaveConfig])
 
-  // Bumped whenever the tab regains visibility (see the realtime effect
-  // further down) purely to force the load effect to re-run — an independent
-  // safety net so coming back to the tab always refetches, regardless of
-  // whether the realtime socket caught everything meanwhile.
+  // 2) Nieuwe Team-contacten komen vanzelf in een bakje "Nieuw" terecht, zodat
+  // een nieuwe collega een plek in de planning heeft zonder dat iemand aan een
+  // aparte stap moet denken. Een beheerder sleept hem daarna naar de juiste
+  // afdeling.
   //
-  // Staat hier, boven applyRenames, omdat die hem ook gebruikt: na een
-  // verhuizing staan de cellen onder een andere naam en moet het raster
-  // opnieuw ophalen.
-  const [refreshTick, setRefreshTick] = useState(0)
-
-  // Verhuizen: eerst de rijen, dan het rooster — allebei in één route, zodat
-  // ze niet uit elkaar kunnen lopen. Gedeeld door het voorstel hieronder en
-  // door de configuratiemodal, want die doet precies hetzelfde zodra iemand
-  // daar een naam hernoemt of naar een andere afdeling sleept.
-  const applyRenames = useCallback(async (
-    renames: PlanningRename[],
-    departments: Department[],
-  ): Promise<{ ok: true } | { ok: false; error: string }> => {
-    try {
-      const res = await fetch('/api/planning/rename', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ renames, departments }),
-      })
-      if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as RenameResponse | null
-        const blocked = body?.results?.filter(r => !r.ok) ?? []
-        return {
-          ok: false,
-          error: blocked.length > 0
-            ? blocked.map(r => `${r.fromEmp} → ${r.toEmp}: ${r.reason ?? 'mislukt'}`).join(' · ')
-            : body?.reason ?? `Verplaatsen mislukt (${res.status}).`,
-        }
-      }
-      setActiveDepts(departments)
-      try {
-        localStorage.setItem(CONFIG_CACHE_KEY, JSON.stringify(departments))
-      } catch { /* private browsing */ }
-      // De verhuisde cellen staan nu onder een andere naam, dus wat in het
-      // raster en in de maandcache zit klopt niet meer. Alleen de maandkopie:
-      // wie je bent is niet veranderd.
-      clearPlanningMonthCache()
-      setRefreshTick(t => t + 1)
-      return { ok: true }
-    } catch {
-      return { ok: false, error: 'Verplaatsen mislukt — geen verbinding?' }
-    }
-  }, [])
-
-  // 3) New Team contacts land in a "Nieuw" bucket automatically. Someone
-  // already represented by a bare first name (see above) counts as known —
-  // otherwise this would just recreate the exact duplicates effect 2 cleans
-  // up. Trade-off: a genuinely new person who happens to share a first name
-  // with an existing bare entry won't be auto-added either; same as any
-  // other name-only match in this feature, that's a manual add.
+  // Vergelijken op id, dus geen naamsvergelijking meer die ernaast kan zitten.
+  // De hele hernoemingsmachinerie die hier ooit naast stond is daarmee weg.
   useEffect(() => {
     if (!isBeheer || configFailed || teamContacts.length === 0 || activeDepts.length === 0 || configWriteRef.current) return
-    const known = new Set(activeDepts.flatMap(d => d.employees.map(e => normName(e))))
-    const bareFirstNames = new Set(
-      activeDepts.flatMap(d => d.employees)
-        .filter(e => e.trim().split(/\s+/).length === 1)
-        .map(e => normName(e))
-    )
-    const seenTeamNames = new Set<string>()
-    const uniqueTeamContacts = teamContacts.filter(c => {
+    const known = new Set(activeDepts.flatMap(d => d.employees))
+    const missing = teamContacts.filter(c =>
       // Wie niet meer meedraait hoort hier niet opnieuw binnengehaald te
-      // worden. Zonder dit zou een vertrokken stagiair elke keer opnieuw in
-      // "Nieuw" opduiken, en is er geen manier om hem weg te krijgen behalve
-      // hem uit Team verwijderen — precies wat we niet willen.
-      if (c.active === false) return false
-      const key = normName(c.name)
-      if (!c.name.trim() || seenTeamNames.has(key)) return false
-      seenTeamNames.add(key)
-      return true
-    })
-    const missing = uniqueTeamContacts.filter(c => {
-      const full = normName(c.name)
-      if (known.has(full)) return false
-      const first = normName(c.name.trim().split(/\s+/)[0])
-      return !bareFirstNames.has(first)
-    })
+      // worden; anders duikt een vertrokken stagiair elke keer weer op.
+      c.active !== false && !known.has(c.id)
+    )
     if (missing.length === 0) return
     const next = activeDepts.map(d => ({ ...d, employees: [...d.employees] }))
     let bucket = next.find(d => d.name === UNASSIGNED_DEPT)
     if (!bucket) { bucket = { name: UNASSIGNED_DEPT, employees: [] }; next.push(bucket) }
-    bucket.employees.push(...missing.map(c => c.name))
+    bucket.employees.push(...missing.map(c => c.id))
     configWriteRef.current = true
     handleSaveConfig(next).finally(() => { configWriteRef.current = false })
   }, [isBeheer, configFailed, teamContacts, activeDepts, handleSaveConfig])
@@ -394,11 +319,11 @@ export default function PlanningApp() {
   useEffect(() => {
     fetch('/api/planning/archived')
       .then(r => r.json())
-      .then((a: { dept: string; emp: string }[] | null) => { if (Array.isArray(a)) setArchived(a) })
+      .then((a: string[] | null) => { if (Array.isArray(a)) setArchived(a) })
       .catch(() => {})
   }, [])
 
-  async function handleSaveArchived(next: { dept: string; emp: string }[]) {
+  async function handleSaveArchived(next: string[]) {
     setArchived(next)
     await fetch('/api/planning/archived', {
       method: 'PUT',
@@ -409,9 +334,9 @@ export default function PlanningApp() {
 
   // Namen van Team-contacten die niet meer meedraaien: een stagiair voorbij
   // zijn einddatum, of een student die op non-actief staat.
-  const inactiveTeamNames = useMemo(() => {
+  const inactiveContactIds = useMemo(() => {
     const set = new Set<string>()
-    for (const c of teamContacts) if (c.active === false) set.add(normName(c.name))
+    for (const c of teamContacts) if (c.active === false) set.add(c.id)
     return set
   }, [teamContacts])
 
@@ -424,10 +349,8 @@ export default function PlanningApp() {
   // ingevulde dagen blijven bereikbaar, hij staat alleen niet meer tussen de
   // actieve ploeg.
   const isArchived = useCallback(
-    (p: { dept: string; emp: string }) =>
-      archived.some(a => a.dept === p.dept && a.emp === p.emp)
-      || inactiveTeamNames.has(normName(p.emp)),
-    [archived, inactiveTeamNames]
+    (p: { id: string }) => archived.includes(p.id) || inactiveContactIds.has(p.id),
+    [archived, inactiveContactIds]
   )
 
   // ── Load permissions ─────────────────────────────────────────────────────
@@ -466,19 +389,39 @@ export default function PlanningApp() {
     if (canEditAll) return true
     if (myColumn === '__none__') return false
     if (myColumn === null) return true
-    // Nieuwe toekenningen staan als `afdeling|naam` in de permissies. Een
-    // toekenning van vóór die wijziging is een kale naam; die blijft op de
-    // naam vergelijken (en ontgrendelt dus nog beide naamgenoten) in plaats
-    // van iemand stil buiten te sluiten. Opnieuw toekennen in het beheer
-    // zet hem in de nieuwe vorm.
-    const assigned = parsePersonKey(myColumn)
-    return assigned ? assigned.dept === p.dept && assigned.emp === p.emp : myColumn === p.emp
+    // De toegewezen kolom is een contact-id. Oudere toekenningen waren een
+    // naam of `afdeling|naam`; die matchen nergens meer op en zouden iemand
+    // stil buitensluiten, dus vallen ze terug op een naamvergelijking tot een
+    // beheerder hem opnieuw toekent.
+    return myColumn.includes('-')
+      ? myColumn === p.id
+      : normName(myColumn) === normName(p.emp)
   }, [canEditAll, myColumn])
 
   // ── Identity: "who am I in this roster" ─────────────────────────────────
-  const everyEmployee = useMemo(
-    () => activeDepts.flatMap(d => d.employees.map(emp => ({ dept: d.name, emp }))),
-    [activeDepts]
+  // Het rooster houdt alleen contact-id's bij; de naam komt hier pas uit
+  // Team. Dat is het hele punt van deze opzet — er bestaat geen tweede kopie
+  // van een naam die kan gaan afwijken.
+  //
+  // Een id waar geen contact (meer) bij hoort valt weg. Dat kan alleen als
+  // iemand uit Team verwijderd is, en de database weigert dat zolang hij
+  // planning heeft staan (zie migratie 0053).
+  const contactsById = useMemo(() => {
+    const m = new Map<string, TeamContact>()
+    for (const c of teamContacts) m.set(c.id, c)
+    return m
+  }, [teamContacts])
+
+  const everyEmployee = useMemo<Person[]>(
+    () => activeDepts.flatMap(d =>
+      d.employees
+        .map(id => {
+          const c = contactsById.get(id)
+          return c ? { id, dept: d.name, emp: c.name } : null
+        })
+        .filter((p): p is Person => p !== null)
+    ),
+    [activeDepts, contactsById]
   )
 
   // Archived people are excluded from anything that offers a fresh choice
@@ -492,9 +435,12 @@ export default function PlanningApp() {
 
   const pickableDepts = useMemo(
     () => activeDepts
-      .map(d => ({ name: d.name, employees: d.employees.filter(emp => !isArchived({ dept: d.name, emp })) }))
-      .filter(d => d.employees.length > 0),
-    [activeDepts, isArchived]
+      .map(d => ({
+        name: d.name,
+        people: everyEmployee.filter(p => p.dept === d.name && !isArchived(p)),
+      }))
+      .filter(d => d.people.length > 0),
+    [activeDepts, everyEmployee, isArchived]
   )
 
   // Meteen uit localStorage, zodat "Mijn maand" niet op elke refresh kort
@@ -548,8 +494,11 @@ export default function PlanningApp() {
     const match = wanted
       ? teamContacts.find(c => c.email && c.email.trim().toLowerCase() === wanted) ?? null
       : null
-    const slot = match ? activeEveryEmployee.find(p => p.emp === match.name) ?? null : null
-    const matchInRoster = slot ? personKey(slot) : null
+    // Het contact ís de identiteit: geen naamvergelijking meer nodig, alleen
+    // de vraag of hij ook in het rooster staat.
+    const matchInRoster = match && activeEveryEmployee.some(p => p.id === match.id)
+      ? match.id
+      : null
 
     // Een permissie-kolom komt van het account zelf, dus die kan nooit van
     // iemand anders zijn en wordt hier niet aangeraakt.
@@ -594,7 +543,7 @@ export default function PlanningApp() {
     const myFirst = norm(myName).split(' ')[0]
     if (!myFirst) return null
     const candidates = activeEveryEmployee.filter(p => norm(p.emp).split(' ')[0] === myFirst)
-    return candidates.length === 1 ? personKey(candidates[0]) : null
+    return candidates.length === 1 ? candidates[0].id : null
   }, [myName, activeEveryEmployee])
 
   // Ask once, only after we've actually checked localStorage, attempted the
@@ -604,20 +553,21 @@ export default function PlanningApp() {
     if (identityLoaded && emailMatchAttempted && activeEveryEmployee.length > 0 && !myIdentity && !myColumn) setShowNamePicker(true)
   }, [identityLoaded, emailMatchAttempted, activeEveryEmployee, myIdentity, myColumn])
 
-  function confirmIdentity(key: string) {
-    setMyIdentity(key)
-    rememberIdentity(key, userEmail)
+  function confirmIdentity(contactId: string) {
+    setMyIdentity(contactId)
+    rememberIdentity(contactId, userEmail)
     setShowNamePicker(false)
   }
 
   const myPerson = useMemo(() => {
     if (!myIdentity) return null
-    const parsed = parsePersonKey(myIdentity)
-    // Zonder scheidingsteken: een keuze van vóór deze wijziging, of een
-    // permissie-kolom in de oude vorm. Dan valt er niets beters te doen dan
-    // de eerste naamgenoot nemen — hetzelfde als voorheen.
-    if (!parsed) return everyEmployee.find(p => p.emp === myIdentity) ?? null
-    return everyEmployee.find(p => p.dept === parsed.dept && p.emp === parsed.emp) ?? null
+    // Een opgeslagen keuze van vóór deze wijziging is een naam of een
+    // `afdeling|naam`-sleutel. Die blijft werken tot hij één keer opnieuw
+    // gekozen wordt; daarna staat er een contact-id.
+    const byId = everyEmployee.find(p => p.id === myIdentity)
+    if (byId) return byId
+    const naam = myIdentity.includes('|') ? myIdentity.slice(myIdentity.indexOf('|') + 1) : myIdentity
+    return everyEmployee.find(p => normName(p.emp) === normName(naam)) ?? null
   }, [everyEmployee, myIdentity])
 
   // "Mijn maand" renders full calendar weeks (see getMonthWeeks), so the
@@ -633,6 +583,12 @@ export default function PlanningApp() {
     () => (usingWeekNav ? week : getMonthWeeks(anchorYear, anchorMonth).flat()),
     [usingWeekNav, week, anchorYear, anchorMonth]
   )
+
+  // Bumped whenever the tab regains visibility (see the realtime effect
+  // further down) purely to force the load effect to re-run — an independent
+  // safety net so coming back to the tab always refetches, regardless of
+  // whether the realtime socket caught everything meanwhile.
+  const [refreshTick, setRefreshTick] = useState(0)
 
   // Extracted out of the effect below so the same fetch can also be run
   // silently by the background-poll and network-restored safety nets
@@ -662,7 +618,7 @@ export default function PlanningApp() {
     }
   }
 
-  const rowKey = (r: PlanningRow) => dateCellKey(r.year, r.month, r.day, r.department, r.employee)
+  const rowKey = (r: PlanningRow) => dateCellKey(r.year, r.month, r.day, r.contact_id)
 
   const newestOf = (rows: PlanningRow[], floor: string) =>
     rows.reduce<string>((max, r) => (r.updated_at && r.updated_at > max ? r.updated_at : max), floor)
@@ -975,10 +931,10 @@ export default function PlanningApp() {
 
               // Postgres only puts the primary key in a DELETE's old row
               // unless the table is set to full replica identity — and this
-              // one's identity is the year/month/day/department/employee
-              // combination, not that id. Measured against the live database:
-              // what arrives here is `{ id: … }` and nothing else, which names
-              // no cell at all.
+              // one's identity is the year/month/day/contact_id combination,
+              // not that id. Measured against the live database: what arrives
+              // here is `{ id: … }` and nothing else, which names no cell at
+              // all.
               //
               // Migration 0045 sets that identity, but it depends on having
               // been applied — and on Realtime having picked it up. Rather
@@ -986,12 +942,12 @@ export default function PlanningApp() {
               // unusable payload falls through to a poll: that compares the
               // row count, finds one missing, and reloads. One small request,
               // only when something is actually deleted.
-              if (old.year === undefined || old.department === undefined || old.employee === undefined) {
+              if (old.year === undefined || old.contact_id === undefined) {
                 schedulePollRef.current()
                 return
               }
 
-              const key = dateCellKey(old.year!, old.month!, old.day!, old.department!, old.employee!)
+              const key = dateCellKey(old.year!, old.month!, old.day!, old.contact_id!)
               setData(prev => {
                 const next = { ...prev }
                 delete next[key]
@@ -1004,11 +960,11 @@ export default function PlanningApp() {
               return
             }
             const row = payload.new as {
-              year: number; month: number; day: number; department: string; employee: string
+              year: number; month: number; day: number; contact_id: string
               value: string; bold: boolean | null; text_color: string | null; bg_color: string | null; note: string | null
               updated_by: string | null; updated_at: string | null
             }
-            const key = dateCellKey(row.year, row.month, row.day, row.department, row.employee)
+            const key = dateCellKey(row.year, row.month, row.day, row.contact_id)
             setData(prev => ({
               ...prev,
               [key]: {
@@ -1087,15 +1043,15 @@ export default function PlanningApp() {
   // The stack lives only in this component's memory — reset on reload, never
   // shared — so undo can only ever reach changes the current user just made
   // in this session, never anyone else's edits or anything from before.
-  const undoStackRef = useRef<{ wd: WeekDay; dept: string; emp: string; before: CellData | null }[][]>([])
+  const undoStackRef = useRef<{ wd: WeekDay; contactId: string; before: CellData | null }[][]>([])
 
-  type WriteEntry = { wd: WeekDay; dept: string; emp: string; cell: CellData | null }
+  type WriteEntry = { wd: WeekDay; contactId: string; cell: CellData | null }
 
   async function writeEntries(entries: WriteEntry[]) {
     setData(prev => {
       const next = { ...prev }
       for (const e of entries) {
-        const key = weekDayCellKey(e.wd, e.dept, e.emp)
+        const key = weekDayCellKey(e.wd, e.contactId)
         if (e.cell) next[key] = e.cell
         else delete next[key]
       }
@@ -1105,7 +1061,7 @@ export default function PlanningApp() {
     // socket. A sync landing in that gap would see a row count that doesn't
     // match its bookkeeping and re-fetch the whole month for nothing.
     for (const e of entries) {
-      const key = weekDayCellKey(e.wd, e.dept, e.emp)
+      const key = weekDayCellKey(e.wd, e.contactId)
       if (e.cell) rememberKey(e.wd.year, e.wd.month, key)
       else forgetKey(e.wd.year, e.wd.month, key)
     }
@@ -1113,7 +1069,7 @@ export default function PlanningApp() {
     const toDelete = entries.filter(e => !e.cell)
     if (toUpsert.length > 0) {
       const rows = toUpsert.map(e => ({
-        year: e.wd.year, month: e.wd.month, day: e.wd.day, department: e.dept, employee: e.emp,
+        year: e.wd.year, month: e.wd.month, day: e.wd.day, contact_id: e.contactId,
         value: e.cell!.value, bold: e.cell!.bold, text_color: e.cell!.textColor, bg_color: e.cell!.bgColor, note: e.cell!.note,
         // updated_at wordt bewust niet meegestuurd: een trigger op de tabel
         // zet hem met de klok van de database. De planning zoekt op die
@@ -1121,29 +1077,29 @@ export default function PlanningApp() {
         // die achterloopt zou wijzigingen onzichtbaar maken.
         updated_by: userEmail,
       }))
-      await supabase.from('planning_entries').upsert(rows, { onConflict: 'year,month,day,department,employee' })
+      await supabase.from('planning_entries').upsert(rows, { onConflict: 'year,month,day,contact_id' })
     }
     if (toDelete.length > 0) {
       await Promise.all(toDelete.map(e =>
         supabase.from('planning_entries').delete()
           .eq('year', e.wd.year).eq('month', e.wd.month).eq('day', e.wd.day)
-          .eq('department', e.dept).eq('employee', e.emp)
+          .eq('contact_id', e.contactId)
       ))
     }
   }
 
-  function pushUndo(targets: { wd: WeekDay; dept: string; emp: string }[]) {
-    const before = targets.map(t => ({ ...t, before: data[weekDayCellKey(t.wd, t.dept, t.emp)] ?? null }))
+  function pushUndo(targets: Target[]) {
+    const before = targets.map(t => ({ ...t, before: data[weekDayCellKey(t.wd, t.contactId)] ?? null }))
     undoStackRef.current.push(before)
     if (undoStackRef.current.length > 50) undoStackRef.current.shift()
   }
 
-  async function applyToTargets(targets: { wd: WeekDay; dept: string; emp: string }[], cell: CellData) {
+  async function applyToTargets(targets: Target[], cell: CellData) {
     pushUndo(targets)
     await writeEntries(targets.map(t => ({ ...t, cell })))
   }
 
-  async function clearTargets(targets: { wd: WeekDay; dept: string; emp: string }[]) {
+  async function clearTargets(targets: Target[]) {
     pushUndo(targets)
     await writeEntries(targets.map(t => ({ ...t, cell: null })))
   }
@@ -1151,7 +1107,7 @@ export default function PlanningApp() {
   async function handleUndo() {
     const entry = undoStackRef.current.pop()
     if (!entry) return
-    await writeEntries(entry.map(e => ({ wd: e.wd, dept: e.dept, emp: e.emp, cell: e.before })))
+    await writeEntries(entry.map(e => ({ wd: e.wd, contactId: e.contactId, cell: e.before })))
   }
 
   useEffect(() => {
@@ -1200,7 +1156,7 @@ export default function PlanningApp() {
   const teamPool: Person[] = useMemo(() =>
     showArchived
       ? everyEmployee
-      : everyEmployee.filter(p => !isArchived(p) || plannedInPeriod.has(personKey(p))),
+      : everyEmployee.filter(p => !isArchived(p) || plannedInPeriod.has(p.id)),
     [everyEmployee, showArchived, isArchived, plannedInPeriod]
   )
 
@@ -1332,8 +1288,7 @@ export default function PlanningApp() {
                 <MyMonthWeeks
                   year={anchorYear}
                   month={anchorMonth}
-                  dept={myPerson.dept}
-                  emp={myPerson.emp}
+                  person={myPerson}
                   data={data}
                   readOnly={!canEditCol(myPerson)}
                   presets={presets}
@@ -1346,8 +1301,7 @@ export default function PlanningApp() {
                 <MyMonthCalendar
                   year={anchorYear}
                   month={anchorMonth}
-                  dept={myPerson.dept}
-                  emp={myPerson.emp}
+                  person={myPerson}
                   data={data}
                   readOnly={!canEditCol(myPerson)}
                   presets={presets}
@@ -1468,7 +1422,7 @@ export default function PlanningApp() {
         )}
 
         {tab === 'stats' && canSeeStats && (
-          <PlanningStats departments={activeDepts} archived={archived} presets={presets} />
+          <PlanningStats people={everyEmployee} archived={archived} presets={presets} />
         )}
       </div>
 
@@ -1489,7 +1443,6 @@ export default function PlanningApp() {
           archived={archived}
           onSaveArchived={handleSaveArchived}
           teamContacts={teamContacts}
-          onRename={applyRenames}
           onClose={() => { setShowConfig(false); loadPresets() }}
           isBeheer={isBeheer}
         />

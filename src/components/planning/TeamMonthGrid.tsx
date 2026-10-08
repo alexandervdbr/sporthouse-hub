@@ -2,13 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Star, ChevronDown, ChevronRight } from 'lucide-react'
-import { DUTCH_MONTHS, personKey } from '@/lib/planning-config'
-import { dayInfo, emptyCell, weekDayCellKey, type CellData, type PlanningWeekData, type WeekDay } from '@/lib/planning-week'
+import { DUTCH_MONTHS, personKey, type Person } from '@/lib/planning-config'
+import { dayInfo, emptyCell, weekDayCellKey, type CellData, type PlanningWeekData, type Target, type WeekDay } from '@/lib/planning-week'
 import type { PlanningPreset } from '@/lib/planning-presets'
-import type { Person } from './WeekGrid'
 import DayEditor from './DayEditor'
 
-interface Target { wd: WeekDay; dept: string; emp: string }
 interface DragState { startRow: number; startCol: number; endRow: number; endCol: number }
 interface SectionPrefs { favorites: string[]; collapsed: string[] }
 
@@ -170,20 +168,24 @@ export default function TeamMonthGrid({
 
   function openEditorFor(r0: number, r1: number, c0: number, c1: number) {
     const targets: Target[] = []
+    // Wie er bij de eerste cel hoort, voor de titel. De rest van de selectie
+    // kan meerdere mensen beslaan en krijgt een telling.
+    let first: Person | null = null
     for (let r = Math.min(r0, r1); r <= Math.max(r0, r1); r++) {
       const person = renderedPeople[r]
       if (!person || !canEditCol(person)) continue
+      if (!first) first = person
       for (let c = Math.min(c0, c1); c <= Math.max(c0, c1); c++) {
-        targets.push({ wd: days[c], dept: person.dept, emp: person.emp })
+        targets.push({ wd: days[c], contactId: person.id })
       }
     }
-    if (targets.length === 0) return
+    if (targets.length === 0 || !first) return
     const single = targets.length === 1
     const initial = single
-      ? (data[weekDayCellKey(targets[0].wd, targets[0].dept, targets[0].emp)] ?? emptyCell())
+      ? (data[weekDayCellKey(targets[0].wd, targets[0].contactId)] ?? emptyCell())
       : emptyCell()
     const title = single
-      ? `${dayTitle(targets[0].wd)} — ${displayNames.get(personKey(targets[0])) ?? targets[0].emp}`
+      ? `${dayTitle(targets[0].wd)} — ${displayNames.get(personKey(first)) ?? first.emp}`
       : `${targets.length} cellen geselecteerd`
     setEditing({ targets, cell: initial, title })
   }
@@ -293,7 +295,7 @@ export default function TeamMonthGrid({
               </div>
 
               {days.map((wd, col) => {
-                const key = weekDayCellKey(wd, person.dept, person.emp)
+                const key = weekDayCellKey(wd, person.id)
                 const cell = data[key] ?? emptyCell()
                 const isSelected = drag && rowIdx >= Math.min(drag.startRow, drag.endRow) && rowIdx <= Math.max(drag.startRow, drag.endRow) &&
                   col >= Math.min(drag.startCol, drag.endCol) && col <= Math.max(drag.startCol, drag.endCol)

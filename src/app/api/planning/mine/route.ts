@@ -39,8 +39,7 @@ export async function GET(req: Request) {
         .select(SELECT_COLS)
         .eq('year', period.year)
         .eq('month', period.month)
-        .eq('department', link.department)
-        .eq('employee', link.employee)
+        .eq('contact_id', link.contact_id)
         .order('id', { ascending: true })
     )
   } catch (e) {
@@ -49,9 +48,5 @@ export async function GET(req: Request) {
 
   touchPlanningLink(link.token)
 
-  return Response.json({
-    name: link.employee,
-    department: link.department,
-    rows,
-  })
+  return Response.json({ contactId: link.contact_id, rows })
 }

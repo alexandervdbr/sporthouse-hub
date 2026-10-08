@@ -1,40 +1,23 @@
 import { describe, it, expect } from 'vitest'
-import { personKey, parsePersonKey, normName, getDaysInMonth } from '@/lib/planning-config'
+import { personKey, normName, getDaysInMonth } from '@/lib/planning-config'
 
-// personKey is het antwoord op het probleem dat het rooster echt dubbele
-// voornamen heeft: "Thibault" bij Stags PS en bij STAGS Projectkant zijn twee
-// mensen. Op de naam alleen vergelijken betekende dat de tweede zichzelf niet
-// kon kiezen, dat één permissie-kolom ze beide ontgrendelde, en dat hun dagen
-// in Statistieken bij elkaar opgeteld werden.
+// Een planningsdag hangt aan een contact-id. Dat is wat deze sleutel is — en
+// het is precies waarom het rooster geen namen meer kopieert: twee "Thibault"
+// zijn twee id's, en een hernoeming in Team raakt de sleutel niet.
 
 describe('personKey', () => {
-  it('onderscheidt naamgenoten in verschillende afdelingen', () => {
-    expect(personKey({ dept: 'Stags PS', emp: 'Thibault' }))
-      .not.toBe(personKey({ dept: 'STAGS Projectkant', emp: 'Thibault' }))
-  })
-})
-
-describe('parsePersonKey', () => {
-  it('leest een sleutel terug', () => {
-    expect(parsePersonKey('FOS|Rune Stiers')).toEqual({ dept: 'FOS', emp: 'Rune Stiers' })
+  it('is het contact-id, los van afdeling en naam', () => {
+    expect(personKey({ id: 'abc' })).toBe('abc')
   })
 
-  it('splitst op de eerste pipe, zodat een naam er zelf een mag bevatten', () => {
-    expect(parsePersonKey('FOS|Jan|Pieter')).toEqual({ dept: 'FOS', emp: 'Jan|Pieter' })
+  it('onderscheidt naamgenoten', () => {
+    expect(personKey({ id: 'thibault-1' })).not.toBe(personKey({ id: 'thibault-2' }))
   })
 
-  it('geeft null voor een kale naam — dat is een keuze van voor deze vorm', () => {
-    expect(parsePersonKey('Thibault')).toBeNull()
-  })
-
-  it('geeft null bij een lege helft, want dat wijst niemand aan', () => {
-    expect(parsePersonKey('|Thibault')).toBeNull()
-    expect(parsePersonKey('FOS|')).toBeNull()
-  })
-
-  it('is het omgekeerde van personKey', () => {
-    const p = { dept: 'Projectkant SHG', emp: 'Nick Van Honsté' }
-    expect(parsePersonKey(personKey(p))).toEqual(p)
+  it('verandert niet als iemand van afdeling of naam wisselt', () => {
+    const voor = personKey({ id: 'abc', dept: 'FOS', emp: 'Jarne Wauters' } as { id: string })
+    const na = personKey({ id: 'abc', dept: 'Team PS', emp: 'Jarne Wouters' } as { id: string })
+    expect(voor).toBe(na)
   })
 })
 

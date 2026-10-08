@@ -13,6 +13,7 @@
 // knop ziet.
 
 import { notFound } from 'next/navigation'
+import { createAdminClient } from '@/lib/supabase/server'
 import { resolvePlanningLink } from '@/lib/planning-links'
 import MyPlanningLink from '@/components/planning/MyPlanningLink'
 
@@ -27,5 +28,19 @@ export default async function PlanningLinkPage({
   const link = await resolvePlanningLink(token)
   if (!link) notFound()
 
-  return <MyPlanningLink token={token} dept={link.department} emp={link.employee} />
+  // De naam staat niet in de link, alleen het contact-id. Hier opgezocht,
+  // zodat een hernoeming in Team ook op deze pagina meteen klopt.
+  const { data: contact } = await createAdminClient()
+    .from('contacts')
+    .select('name')
+    .eq('id', link.contact_id)
+    .maybeSingle()
+
+  return (
+    <MyPlanningLink
+      token={token}
+      contactId={link.contact_id}
+      name={contact?.name ?? 'Jouw planning'}
+    />
+  )
 }

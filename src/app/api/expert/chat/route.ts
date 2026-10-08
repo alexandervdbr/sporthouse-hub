@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import Anthropic from '@anthropic-ai/sdk'
-import { DEPARTMENTS, DUTCH_DAYS, DUTCH_MONTHS, type Department } from '@/lib/planning-config'
+import { DUTCH_DAYS, DUTCH_MONTHS } from '@/lib/planning-config'
 import { downloadFile } from '@/lib/drive-storage'
 import { formatKennisbank } from '@/lib/kennisbank-questions'
 import { fetchAllRows } from '@/lib/planning-paginate'
@@ -52,8 +52,11 @@ function nextMonth(year: number, month: number) {
 // ─── Planning formatter ───────────────────────────────────────────────────────
 
 type PlanningContextRow = {
-  day: number; year: number; month: number; department: string; employee: string; value: string
+  day: number; year: number; month: number; contact_id: string; value: string
 }
+
+// Het rooster met namen erbij: planning_config houdt alleen contact-id's bij.
+interface ResolvedDept { name: string; people: { id: string; name: string }[] }
 
 // Het echte rooster uit planning_config. Dat stond hier als DEPARTMENTS uit
 // de code — een lijst van 2024 — en die ging zowel naar het teamoverzicht in
@@ -64,18 +67,29 @@ type PlanningContextRow = {
 // gebruikersclient leest er niets. Mislukt het, dan blijft de lijst leeg en
 // zegt de prompt dat eerlijk — liever dat dan de AI laten vertellen over een
 // bezetting uit 2024.
-async function fetchRoster(): Promise<Department[]> {
+async function fetchRoster(): Promise<ResolvedDept[]> {
   try {
-    const { data, error } = await createAdminClient()
-      .from('planning_config')
-      .select('value')
-      .eq('key', 'departments')
-      .maybeSingle()
-    if (error) return DEPARTMENTS
-    const cfg = data?.value as Department[] | null
-    return Array.isArray(cfg) && cfg.length > 0 ? cfg : DEPARTMENTS
+    const admin = createAdminClient()
+    const [{ data: cfgRow }, { data: internClients }] = await Promise.all([
+      admin.from('planning_config').select('value').eq('key', 'departments').maybeSingle(),
+      admin.from('clients').select('id').eq('category', 'intern'),
+    ])
+    const cfg = cfgRow?.value as { name: string; employees: string[] }[] | null
+    const ids = (internClients ?? []).map((c: { id: string }) => c.id)
+    if (!Array.isArray(cfg) || cfg.length === 0 || ids.length === 0) return []
+
+    const { data: contacts } = await admin
+      .from('contacts').select('id, name').in('client_id', ids)
+    const byId = new Map((contacts ?? []).map((c: { id: string; name: string }) => [c.id, c.name]))
+
+    return cfg.map(d => ({
+      name: d.name,
+      people: d.employees
+        .map(id => { const name = byId.get(id); return name ? { id, name } : null })
+        .filter((x): x is { id: string; name: string } => x !== null),
+    }))
   } catch {
-    return DEPARTMENTS
+    return []
   }
 }
 
@@ -88,7 +102,7 @@ async function fetchPlanningMonth(
     return await fetchAllRows<PlanningContextRow>(() =>
       supabase
         .from('planning_entries')
-        .select('day, year, month, department, employee, value')
+        .select('day, year, month, contact_id, value')
         .eq('year', year)
         .eq('month', month)
         .order('id', { ascending: true })
@@ -103,20 +117,20 @@ function formatPlanning(
   dayProjects: { date: string; project_name: string }[],
   year: number,
   month: number,
-  roster: Department[],
+  roster: ResolvedDept[],
 ): string {
   if (entries.length === 0) return '(Geen planningsinvoeren voor deze periode.)'
 
   const projectMap: Record<string, string> = {}
   for (const dp of dayProjects) projectMap[dp.date] = dp.project_name
 
-  // Group by day
-  const byDay: Record<number, Record<string, Record<string, string>>> = {}
+  // Per dag, per contact. De afdeling staat niet meer op de regel — die komt
+  // uit het rooster, net als de naam.
+  const byDay: Record<number, Record<string, string>> = {}
   for (const e of entries) {
     if (!e.value?.trim()) continue
     if (!byDay[e.day]) byDay[e.day] = {}
-    if (!byDay[e.day][e.department]) byDay[e.day][e.department] = {}
-    byDay[e.day][e.department][e.employee] = e.value
+    byDay[e.day][e.contact_id] = e.value
   }
 
   const days = Object.keys(byDay).map(Number).sort((a, b) => a - b)
@@ -132,9 +146,10 @@ function formatPlanning(
     lines.push(header)
 
     for (const dept of roster) {
-      const deptEntries = byDay[day][dept.name]
-      if (!deptEntries) continue
-      const parts = Object.entries(deptEntries).map(([emp, val]) => `${emp}: ${val}`)
+      const parts = dept.people
+        .map(p => { const v = byDay[day][p.id]; return v ? `${p.name}: ${v}` : null })
+        .filter((x): x is string => x !== null)
+      if (parts.length === 0) continue
       lines.push(`  ${dept.name}: ${parts.join(', ')}`)
     }
   }
@@ -310,7 +325,7 @@ export async function POST(request: NextRequest) {
 
   // ── Build team overview ────────────────────────────────────────────────────
   const teamBlock = roster.length > 0
-    ? roster.map(d => `- **${d.name}**: ${d.employees.join(', ')}`).join('\n')
+    ? roster.map(d => `- **${d.name}**: ${d.people.map(p => p.name).join(', ')}`).join('\n')
     : '(Teamoverzicht niet beschikbaar.)'
 
   const systemPrompt = `Je bent de Expert AI voor ${clientName}, een klant van SporthouseGroup — een Belgisch sport marketing en media bedrijf.

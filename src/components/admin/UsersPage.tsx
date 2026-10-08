@@ -7,7 +7,7 @@ import {
   Shield, RefreshCw, ChevronRight, Check, UserCheck, Eye,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { DEPARTMENTS, personKey, parsePersonKey } from '@/lib/planning-config'
+import type { Person } from '@/lib/planning-config'
 import { usePreview } from '@/lib/preview-context'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -253,38 +253,17 @@ const ROLE_PRESETS = [
   },
 ]
 
-// Het echte rooster, niet de hardcoded DEPARTMENTS-lijst.
-//
-// Die lijst stond hier als enige bron, terwijl het rooster al lang in
-// planning_config leeft: deze dropdown bood dus namen aan die daar niet meer
-// zo heten, en iemand die later is toegevoegd stond er nooit in. Een naam
-// toewijzen die niet in het rooster voorkomt sluit die persoon buiten —
-// canEditCol vindt dan niets, en "Mijn maand" blijft leeg.
-//
-// Lukt het ophalen niet, dan blijft de lijst leeg. Dat was ooit een terugval
-// op een hardcoded rooster, maar dat stamde uit 2024 en bood dus namen aan die
-// niemand meer kent — een lege lijst is het eerlijkere antwoord.
-function usePlanningRoster() {
-  const [roster, setRoster] = useState<{ dept: string; emp: string }[]>(
-    () => DEPARTMENTS.flatMap(d => d.employees.map(emp => ({ dept: d.name, emp })))
-  )
-  useEffect(() => {
-    let cancelled = false
-    fetch('/api/planning/config')
-      .then(r => (r.ok ? r.json() : null))
-      .then((cfg: { name: string; employees: string[] }[] | null) => {
-        if (cancelled || !Array.isArray(cfg) || cfg.length === 0) return
-        setRoster(cfg.flatMap(d => d.employees.map(emp => ({ dept: d.name, emp }))))
-      })
-      .catch(() => { /* terugval blijft staan */ })
-    return () => { cancelled = true }
-  }, [])
-  return roster
+interface TeamContactRow {
+  id: string
+  name: string
+  email: string | null
+  employment_type?: string | null
+  active_until?: string | null
 }
 
 // Het Team-contact dat bij dit account hoort, op e-mailadres. Daar staat de
 // einddatum van de persoon, en die is de bron: het account volgt hem, niet
-// omgekeerd. Zie supabase/migrations/0051_contacts_employment.sql.
+// omgekeerd.
 function useTeamContact(email: string | undefined) {
   const [contact, setContact] = useState<TeamContactRow | null>(null)
   useEffect(() => {
@@ -303,20 +282,46 @@ function useTeamContact(email: string | undefined) {
   return contact
 }
 
-interface TeamContactRow {
-  id: string
-  name: string
-  email: string | null
-  employment_type?: string | null
-  active_until?: string | null
+// Het rooster, met de namen erbij opgezocht.
+//
+// planning_config houdt alleen contact-id's bij, dus de namen komen uit
+// /api/team/members. Die twee samen geven de lijst die hier in de dropdown
+// hoort — en omdat de naam nergens gekopieerd wordt, klopt hij altijd.
+function usePlanningRoster() {
+  const [roster, setRoster] = useState<Person[]>([])
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([
+      fetch('/api/planning/config').then(r => (r.ok ? r.json() : null)),
+      fetch('/api/team/members').then(r => (r.ok ? r.json() : null)),
+    ])
+      .then(([cfg, contacts]: [{ name: string; employees: string[] }[] | null, TeamContactRow[] | null]) => {
+        if (cancelled || !Array.isArray(cfg) || !Array.isArray(contacts)) return
+        const byId = new Map(contacts.map(c => [c.id, c]))
+        setRoster(cfg.flatMap(d =>
+          d.employees
+            .map(id => {
+              const c = byId.get(id)
+              return c ? { id, dept: d.name, emp: c.name } : null
+            })
+            .filter((p): p is Person => p !== null)
+        ))
+      })
+      .catch(() => { /* lege lijst is het eerlijke antwoord */ })
+    return () => { cancelled = true }
+  }, [])
+  return roster
 }
 
-// Een toekenning van vóór personKey is een kale naam. Die hoort als eigen
-// optie in de lijst te staan, anders valt de select terug op "volledige
-// planning" en zou opslaan de rechten van die persoon stil oprekken.
+// Een toekenning van vóór deze wijziging is een naam of een
+// `afdeling|naam`-sleutel. Die hoort als eigen optie in de lijst te staan,
+// anders valt de select terug op "volledige planning" en zou opslaan de
+// rechten van die persoon stil oprekken.
+//
+// Een contact-id is een uuid; alles zonder koppeltekens is dus oud.
 function legacyColumnOption(planningColumn: string) {
   if (!planningColumn || planningColumn === '__none__') return null
-  return parsePersonKey(planningColumn) ? null : planningColumn
+  return planningColumn.includes('-') ? null : planningColumn
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -516,8 +521,8 @@ function InviteModal({ clients, onClose, onInvited }: { clients: ClientOption[];
                   {legacyColumn && (
                     <option value={legacyColumn}>{legacyColumn} (oude toekenning)</option>
                   )}
-                  {roster.map(({ dept, emp }) => (
-                    <option key={`${dept}-${emp}`} value={personKey({ dept, emp })}>{emp} ({dept})</option>
+                  {roster.map(p => (
+                    <option key={p.id} value={p.id}>{p.emp} ({p.dept})</option>
                   ))}
                 </select>
               </div>
@@ -779,8 +784,8 @@ function PermissionsPanel({
             {legacyColumn && (
               <option value={legacyColumn}>{legacyColumn} (oude toekenning)</option>
             )}
-            {roster.map(({ dept, emp }) => (
-              <option key={`${dept}-${emp}`} value={personKey({ dept, emp })}>{emp} ({dept})</option>
+            {roster.map(p => (
+              <option key={p.id} value={p.id}>{p.emp} ({p.dept})</option>
             ))}
           </select>
           <p className="text-[10px] text-zinc-600 mt-1.5">Laat leeg als de gebruiker de volledige planning mag bewerken.</p>

@@ -20,6 +20,13 @@ export interface CellData {
 
 export type PlanningWeekData = Record<string, CellData>
 
+// Eén cel om te schrijven: een dag en de persoon van wie die dag is. Gedeeld
+// door alle rasters, zodat ze het niet elk net anders vormgeven.
+export interface Target {
+  wd: WeekDay
+  contactId: string
+}
+
 export function emptyCell(): CellData {
   return { value: '', bold: true, textColor: '#ffffff', bgColor: null, note: null }
 }
@@ -96,12 +103,15 @@ export function dayInfo(date: Date): WeekDay {
 
 // Cell identity includes year+month (unlike the old month-grid's cellKey)
 // because a week's 7 days aren't guaranteed to share either.
-export function dateCellKey(year: number, month: number, day: number, dept: string, emp: string) {
-  return `${year}-${month}-${day}|${dept}|${emp}`
+//
+// Op contact-id, niet op (afdeling, naam): een dag hangt aan een persoon. Zie
+// supabase/migrations/0053_planning_op_contact_id.sql.
+export function dateCellKey(year: number, month: number, day: number, contactId: string) {
+  return `${year}-${month}-${day}|${contactId}`
 }
 
-export function weekDayCellKey(wd: WeekDay, dept: string, emp: string) {
-  return dateCellKey(wd.year, wd.month, wd.day, dept, emp)
+export function weekDayCellKey(wd: WeekDay, contactId: string) {
+  return dateCellKey(wd.year, wd.month, wd.day, contactId)
 }
 
 export function weekLabel(week: WeekDay[]): string {
