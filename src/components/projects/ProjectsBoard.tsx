@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { isActiveContact } from '@/lib/employment'
 import { Plus, X, ChevronDown, Loader2, Check, Trash2, Clock, Zap, CheckCircle2, CalendarDays, User, Pencil, Search } from 'lucide-react'
 import Image from 'next/image'
 
@@ -41,6 +42,7 @@ interface ContactOption {
   name: string
   role: string | null
   photo_url: string | null
+  active_until?: string | null
 }
 
 interface Props {
@@ -116,7 +118,15 @@ function ContactPicker({ contacts, selected, onChange }: {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
 
-  const filtered = contacts.filter(c =>
+  // Wie niet meer meedraait is niet meer toe te wijzen — maar wie al aan dit
+  // project hangt blijft gewoon in de lijst staan. Een oud-stagiair eruit
+  // filteren mag niet betekenen dat je niet meer kan zien wie er vorig jaar
+  // aan gewerkt heeft.
+  const selectable = contacts.filter(
+    c => isActiveContact(c) || selected.some(s => s.id === c.id)
+  )
+
+  const filtered = selectable.filter(c =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
     (c.role ?? '').toLowerCase().includes(search.toLowerCase())
   )

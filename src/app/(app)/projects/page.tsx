@@ -15,7 +15,7 @@ export default async function ProjectsPage() {
       .order('name'),
     supabase
       .from('contacts')
-      .select('id, name, role, photo_url')
+      .select('id, name, role, photo_url, active_until')
       .order('name'),
     supabase.auth.getUser(),
   ])
