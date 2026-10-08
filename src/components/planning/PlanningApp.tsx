@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ChevronDown, ChevronLeft, ChevronRight, Loader2, Settings, Search, TriangleAlert, X, Users } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Loader2, Settings, Search, TriangleAlert, X, Users } from 'lucide-react'
 import {
   DEPARTMENTS, DUTCH_MONTHS, UNASSIGNED_DEPT, normName, personKey, parsePersonKey, type Department,
 } from '@/lib/planning-config'
@@ -50,38 +50,6 @@ type TeamViewMode = 'week' | 'month'
 // fresher. The live socket is what keeps editing feel immediate; this is the
 // ceiling on how stale things may get if that socket dies.
 const POLL_INTERVAL = 60000
-
-// Known, confirmed overrides for first names shared by more than one real
-// Team contact — see the reconciliation effect below for how this is used.
-const AMBIGUOUS_FIRST_NAME_OVERRIDES: Record<string, { surnamePrefix: string; dept: string }[]> = {
-  jelle: [
-    { surnamePrefix: 'v', dept: 'Team PS' },          // Jelle Vlemincx(...)
-    { surnamePrefix: 'd', dept: 'Sport Vl' },         // Jelle Desterbecq
-  ],
-  thijs: [
-    { surnamePrefix: 'm', dept: 'Projectkant SHG' },  // Thijs Meusen
-    { surnamePrefix: 'g', dept: 'FOS' },              // Thijs Goemand(s)
-  ],
-}
-
-// Wat effect 2 hieronder voorstelt: welke kale voornamen hun echte Team-naam
-// zouden krijgen, welke namen erbij komen, en hoe het rooster er daarna
-// uitziet. Pas als iemand het toepast gaat het naar /api/planning/rename.
-interface RosterProposal {
-  renames: PlanningRename[]
-  additions: { dept: string; emp: string }[]
-  departments: Department[]
-}
-
-function sameProposal(a: RosterProposal | null, b: RosterProposal | null): boolean {
-  if (a === b) return true
-  if (!a || !b) return false
-  const key = (p: RosterProposal) => JSON.stringify([
-    p.renames.map(r => [r.fromDept, r.fromEmp, r.toDept, r.toEmp]),
-    p.additions.map(x => [x.dept, x.emp]),
-  ])
-  return key(a) === key(b)
-}
 
 // The department config always used to start life as the hardcoded
 // DEPARTMENTS fallback and only get replaced once /api/planning/config
@@ -202,7 +170,6 @@ export default function PlanningApp() {
   const [identityLoaded, setIdentityLoaded] = useState(false)
 
   const [teamSearch, setTeamSearch] = useState('')
-  const [showProposal, setShowProposal] = useState(false)
 
   // ── Load departments config ─────────────────────────────────────────────
   // Een lege config (status 200, body `null`) is een geldig antwoord: dan
@@ -308,92 +275,6 @@ export default function PlanningApp() {
     handleSaveConfig(next).finally(() => { configWriteRef.current = false })
   }, [isBeheer, configFailed, activeDepts, handleSaveConfig])
 
-  // 2) A long-standing manual-entry convention here stores lots of people as
-  // a bare first name only ("Yaro", "Tim", …) rather than a full name — this
-  // resolves every one of those against the real Team contact it means.
-  // When a first name matches more than one Team contact (two people both
-  // named "Jelle", "Thijs", …), a per-name override (declared at module
-  // scope so its reference is stable across renders) says which surname goes
-  // to which department; anything ambiguous with no override is left
-  // untouched (still flagged "niet in team" — a genuine remaining conflict
-  // to sort out manually) rather than guessing wrong.
-  //
-  // Dit schreef de hernoemingen vroeger meteen weg, zonder dat iemand erom
-  // vroeg — bij het openen van de pagina door een beheerder. En een
-  // hernoeming is hier geen tekstwijziging: planning_entries staat op
-  // (afdeling, naam), dus alles wat onder "Yaro" stond verdween uit het
-  // raster en bleef meetellen in Statistieken onder een naam die niemand nog
-  // ziet. Onbeheerd, en niet terug te draaien.
-  //
-  // Nu berekent dit effect alleen nog een voorstel. Toepassen gaat via
-  // /api/planning/rename, die de rijen mee verhuist. Niet toepassen laat
-  // alles staan zoals het staat — dat is het veilige antwoord.
-  const [rosterProposal, setRosterProposal] = useState<RosterProposal | null>(null)
-  useEffect(() => {
-    if (!isBeheer || configFailed || teamContacts.length === 0 || activeDepts.length === 0 || configWriteRef.current) return
-    const renames: PlanningRename[] = []
-    const additions: { dept: string; emp: string }[] = []
-    let changed = false
-    const next = activeDepts.map(d => ({ ...d, employees: [...d.employees] }))
-
-    for (const dept of next) {
-      for (let i = 0; i < dept.employees.length; i++) {
-        const emp = dept.employees[i]
-        if (emp.trim().split(/\s+/).length !== 1) continue // only bare names are candidates
-        const firstNorm = normName(emp)
-        const matches = teamContacts.filter(c => normName(c.name.trim().split(/\s+/)[0] ?? '') === firstNorm)
-        if (matches.length === 0) continue // no Team contact at all — a genuine temporary/manual entry
-        if (matches.length === 1) {
-          if (matches[0].name !== emp) {
-            renames.push({ fromDept: dept.name, fromEmp: emp, toDept: dept.name, toEmp: matches[0].name })
-            dept.employees[i] = matches[0].name
-            changed = true
-          }
-          continue
-        }
-        const override = AMBIGUOUS_FIRST_NAME_OVERRIDES[firstNorm]
-        if (!override) continue // ambiguous, no known resolution — leave flagged
-        const here = override.find(o => o.dept === dept.name)
-        if (!here) continue // this slot's department isn't one of the overrides — leave it
-        const contact = matches.find(c => normName(c.name.trim().split(/\s+/)[1] ?? '').startsWith(here.surnamePrefix))
-        if (contact && contact.name !== emp) {
-          renames.push({ fromDept: dept.name, fromEmp: emp, toDept: dept.name, toEmp: contact.name })
-          dept.employees[i] = contact.name
-          changed = true
-        }
-      }
-    }
-
-    // Any override target not now present anywhere (the other side of an
-    // ambiguous pair — there's only one bare slot to rename, so whichever
-    // contact didn't get it needs a fresh entry) gets added under its dept.
-    for (const [firstNorm, entries] of Object.entries(AMBIGUOUS_FIRST_NAME_OVERRIDES)) {
-      for (const o of entries) {
-        const contact = teamContacts.find(c =>
-          normName(c.name.trim().split(/\s+/)[0] ?? '') === firstNorm &&
-          normName(c.name.trim().split(/\s+/)[1] ?? '').startsWith(o.surnamePrefix)
-        )
-        if (!contact) continue
-        const present = next.some(d => d.employees.some(e => normName(e) === normName(contact.name)))
-        if (present) continue
-        let bucket = next.find(d => d.name === o.dept)
-        if (!bucket) { bucket = { name: o.dept, employees: [] }; next.push(bucket) }
-        bucket.employees.push(contact.name)
-        additions.push({ dept: o.dept, emp: contact.name })
-        changed = true
-      }
-    }
-
-    // Zelfde voorstel niet opnieuw aanbieden: zonder deze vergelijking zou
-    // elke render die activeDepts aanraakt een nieuw object zetten en de balk
-    // laten knipperen.
-    setRosterProposal(prev => {
-      const proposal = changed ? { renames, additions, departments: next } : null
-      if (sameProposal(prev, proposal)) return prev
-      return proposal
-    })
-  }, [isBeheer, configFailed, teamContacts, activeDepts])
-
   // Bumped whenever the tab regains visibility (see the realtime effect
   // further down) purely to force the load effect to re-run — an independent
   // safety net so coming back to the tab always refetches, regardless of
@@ -442,19 +323,6 @@ export default function PlanningApp() {
       return { ok: false, error: 'Verplaatsen mislukt — geen verbinding?' }
     }
   }, [])
-
-  const [applyingProposal, setApplyingProposal] = useState(false)
-  const [proposalError, setProposalError] = useState('')
-
-  async function applyRosterProposal() {
-    if (!rosterProposal || applyingProposal) return
-    setApplyingProposal(true)
-    setProposalError('')
-    const res = await applyRenames(rosterProposal.renames, rosterProposal.departments)
-    if (res.ok) setRosterProposal(null)
-    else setProposalError(res.error)
-    setApplyingProposal(false)
-  }
 
   // 3) New Team contacts land in a "Nieuw" bucket automatically. Someone
   // already represented by a bare first name (see above) counts as known —
@@ -1343,62 +1211,25 @@ export default function PlanningApp() {
         <div className="flex items-start gap-2 flex-shrink-0 rounded-xl border border-amber-900/40 bg-amber-950/20 px-3 py-2">
           <TriangleAlert size={13} className="mt-0.5 flex-shrink-0 text-amber-500" />
           <p className="text-xs text-amber-400">
-            De namen- en afdelingenlijst kon niet geladen worden — je ziet een
-            terugvallijst, die achterhaald kan zijn. De planning zelf is wel
-            actueel. Herlaad de pagina; blijft dit staan, meld het dan even.
+            De namen- en afdelingenlijst kon niet geladen worden. De planning
+            zelf is wel actueel, maar er staat niemand in het rooster. Herlaad
+            de pagina; blijft dit staan, meld het dan even.
           </p>
         </div>
       )}
 
-      {/* Het rooster-voorstel (zie effect 2). Beheer-only, en bewust hier in
-          plaats van in de configuratiemodal: het is iets wat je wil zien
-          zonder ernaar te gaan zoeken. Niets klikken verandert niets. */}
-      {isBeheer && rosterProposal && (
-        <div className="flex-shrink-0 rounded-xl border border-sky-900/40 bg-sky-950/20 overflow-hidden">
-          <button
-            onClick={() => setShowProposal(v => !v)}
-            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-sky-300"
-          >
-            <Users size={13} className="flex-shrink-0" />
-            {rosterProposal.renames.length > 0
-              ? `${rosterProposal.renames.length} naam${rosterProposal.renames.length === 1 ? '' : 'en'} te koppelen aan Team`
-              : `${rosterProposal.additions.length} naam${rosterProposal.additions.length === 1 ? '' : 'en'} toe te voegen`}
-            <span className="ml-auto text-sky-600">
-              {showProposal ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-            </span>
-          </button>
-          {showProposal && (
-            <div className="px-3 pb-2.5 space-y-2">
-              <div className="space-y-0.5">
-                {rosterProposal.renames.map(r => (
-                  <p key={`r-${r.fromDept}|${r.fromEmp}`} className="text-xs text-zinc-300">
-                    <span className="text-zinc-500">{r.fromDept}:</span> {r.fromEmp}
-                    <span className="text-zinc-600"> → </span>{r.toEmp}
-                  </p>
-                ))}
-                {rosterProposal.additions.map(a => (
-                  <p key={`a-${a.dept}|${a.emp}`} className="text-xs text-zinc-300">
-                    <span className="text-zinc-500">{a.dept}:</span> {a.emp}
-                    <span className="text-zinc-600"> (nieuw)</span>
-                  </p>
-                ))}
-              </div>
-              <p className="text-[10px] text-zinc-500">
-                Bestaande planning verhuist mee naar de nieuwe naam. Niets doen
-                laat alles staan zoals het staat.
-              </p>
-              {proposalError && <p className="text-[10px] text-red-400">{proposalError}</p>}
-              <button
-                onClick={applyRosterProposal}
-                disabled={applyingProposal}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white transition-colors disabled:opacity-50"
-                style={{ backgroundColor: '#3A913F' }}
-              >
-                {applyingProposal && <Loader2 size={12} className="animate-spin" />}
-                Toepassen
-              </button>
-            </div>
-          )}
+      {/* Wel geladen, maar er staat niets in. Vroeger sprong hier een
+          hardcoded rooster uit 2024 voor in de plaats, wat eruitzag alsof
+          alles in orde was. Nu zegt het scherm gewoon wat er aan de hand is. */}
+      {configLoaded && !configFailed && activeDepts.length === 0 && (
+        <div className="flex items-start gap-2 flex-shrink-0 rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-2">
+          <TriangleAlert size={13} className="mt-0.5 flex-shrink-0 text-zinc-500" />
+          <p className="text-xs text-zinc-400">
+            Er staat nog geen rooster ingesteld.{' '}
+            {isBeheer
+              ? 'Voeg afdelingen en medewerkers toe via het tandwiel hierboven.'
+              : 'Vraag een beheerder om de afdelingen in te stellen.'}
+          </p>
         </div>
       )}
 

@@ -261,8 +261,9 @@ const ROLE_PRESETS = [
 // toewijzen die niet in het rooster voorkomt sluit die persoon buiten —
 // canEditCol vindt dan niets, en "Mijn maand" blijft leeg.
 //
-// Lukt het ophalen niet, dan is de hardcoded lijst nog altijd beter dan een
-// lege dropdown; vandaar de terugval.
+// Lukt het ophalen niet, dan blijft de lijst leeg. Dat was ooit een terugval
+// op een hardcoded rooster, maar dat stamde uit 2024 en bood dus namen aan die
+// niemand meer kent — een lege lijst is het eerlijkere antwoord.
 function usePlanningRoster() {
   const [roster, setRoster] = useState<{ dept: string; emp: string }[]>(
     () => DEPARTMENTS.flatMap(d => d.employees.map(emp => ({ dept: d.name, emp })))

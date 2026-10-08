@@ -21,18 +21,20 @@ export const PLANNING_OPTIONS: PlanningOption[] = [
   { label: 'RBFA',        bgColor: '#be123c', textColor: '#ffffff' },
 ]
 
-export const DEPARTMENTS: Department[] = [
-  { name: 'Studenten PS',     employees: ['Emile', 'Elias', 'Wolf'] },
-  { name: 'Stags PS',         employees: ['Mike', 'Thibault', 'Sasha'] },
-  { name: 'Team PS',          employees: ['Leroy', 'Jelle', 'Tim', 'Michiel', 'Bert', 'Benno', 'Jef'] },
-  { name: 'Projectkant SHG',  employees: ['Kenny', 'Nick', 'Luther', 'Arne', 'Thijs M', 'Bram', 'Robin Bieber', 'Alexander', 'Yaro', 'Jorn', 'Emilie', 'Torken'] },
-  { name: 'STAGS Projectkant',employees: ['Deryan', 'Robin', 'Thibault', 'Clara'] },
-  { name: 'Sport Vl',         employees: ['Arnor'] },
-  { name: 'FOS',              employees: ['Thijs', 'Rune', 'Jarne', 'Rane'] },
-  { name: 'FOS STAGS',        employees: ['Nathan', 'Noa', 'Mathieu'] },
-  { name: 'Flanders Classics', employees: ['Zias', 'Nino'] },
-  { name: 'De Spor',          employees: ['Daan', 'Max'] },
-]
+// Leeg, en dat is de bedoeling.
+//
+// Hier stond tot oktober 2026 een hardcoded rooster uit 2024 — met namen van
+// mensen die er niet meer werken, en kale voornamen waar het echte rooster
+// allang volledige namen gebruikt. Het diende als terugval wanneer
+// /api/planning/config niets teruggaf, maar dat maakte een storing onzichtbaar:
+// je kreeg een rooster te zien dat er plausibel uitzag en nergens op sloeg.
+// Erger nog, de zelfherstellende effecten in PlanningApp schreven die lijst
+// dan weg als het echte rooster.
+//
+// Een leeg rooster is het eerlijke antwoord op "ik kon het niet ophalen". De
+// melding boven de planning zegt dan wat er aan de hand is, in plaats van dat
+// iemand naar een verzonnen bezetting zit te kijken.
+export const DEPARTMENTS: Department[] = []
 
 export const DUTCH_DAYS = ['Zondag', 'Maandag', 'Dinsdag', 'Woensdag', 'Donderdag', 'Vrijdag', 'Zaterdag']
 export const DUTCH_MONTHS = ['Januari', 'Februari', 'Maart', 'April', 'Mei', 'Juni', 'Juli', 'Augustus', 'September', 'Oktober', 'November', 'December']

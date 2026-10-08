@@ -61,8 +61,9 @@ type PlanningContextRow = {
 // over mensen die er niet meer werken en liet nieuwe collega's weg.
 //
 // Via de admin-client: planning_config heeft RLS aan zonder policies, dus de
-// gebruikersclient leest er niets. Mislukt het, dan is de oude lijst nog
-// altijd beter dan geen teamoverzicht.
+// gebruikersclient leest er niets. Mislukt het, dan blijft de lijst leeg en
+// zegt de prompt dat eerlijk — liever dat dan de AI laten vertellen over een
+// bezetting uit 2024.
 async function fetchRoster(): Promise<Department[]> {
   try {
     const { data, error } = await createAdminClient()
@@ -308,7 +309,9 @@ export async function POST(request: NextRequest) {
   ].join('\n\n')
 
   // ── Build team overview ────────────────────────────────────────────────────
-  const teamBlock = roster.map(d => `- **${d.name}**: ${d.employees.join(', ')}`).join('\n')
+  const teamBlock = roster.length > 0
+    ? roster.map(d => `- **${d.name}**: ${d.employees.join(', ')}`).join('\n')
+    : '(Teamoverzicht niet beschikbaar.)'
 
   const systemPrompt = `Je bent de Expert AI voor ${clientName}, een klant van SporthouseGroup — een Belgisch sport marketing en media bedrijf.
 Je hebt live toegang tot de personeelsplanning, materiaalplanning en bestanden van het platform. Vandaag is het ${now.toLocaleDateString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}.
