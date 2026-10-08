@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { hasClientAccess } from '@/lib/auth-permissions'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { hasClientAccess, isAdminUser } from '@/lib/auth-permissions'
 import { EMPLOYMENT_TYPES, type EmploymentType } from '@/lib/employment'
 
 // Onbekende waarden stil negeren in plaats van opslaan: de check-constraint op
@@ -90,6 +90,42 @@ export async function POST(request: NextRequest) {
   return NextResponse.json(data)
 }
 
+
+// De einddatum van de persoon doortrekken naar zijn login.
+//
+// Dezelfde datum stond op twee plekken: active_until op het contact en
+// expires_at op het account. Twee keer typen betekent in de praktijk één keer
+// vergeten — en vergeet je het account, dan blijft iemand inloggen nadat hij
+// vertrokken is. Dat is de richting die ertoe doet.
+//
+// Beheer-only, want dit plant het verwijderen van een account in: de
+// nachtelijke cron ruimt alles op waarvan expires_at voorbij is.
+//
+// Stil mislukken is hier de juiste keuze. Het contact is al bijgewerkt, en dat
+// terugdraaien omdat de accountkant niet lukte zou het echte werk ongedaan
+// maken voor een bijwerking. De vervaldatum blijft zichtbaar in Beheer →
+// Gebruikers, met een knop om hem alsnog over te nemen.
+async function syncAccountExpiry(email: string | null | undefined, activeUntil: string | null) {
+  if (!email?.trim()) return
+  try {
+    const admin = createAdminClient()
+    const { data: { users } } = await admin.auth.admin.listUsers({ perPage: 1000 })
+    const wanted = email.trim().toLowerCase()
+    const account = users.find(u => u.email?.trim().toLowerCase() === wanted)
+    if (!account) return
+
+    const current = account.app_metadata?.expires_at ?? null
+    const next = activeUntil // null wist hem weer
+    if (current === next) return
+
+    await admin.auth.admin.updateUserById(account.id, {
+      app_metadata: { ...account.app_metadata, expires_at: next },
+    })
+  } catch {
+    // Zie hierboven.
+  }
+}
+
 export async function PATCH(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -120,6 +156,11 @@ export async function PATCH(request: NextRequest) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  if (active_until !== undefined && isAdminUser(user)) {
+    await syncAccountExpiry(data.email, active_until)
+  }
+
   return NextResponse.json(data)
 }
 

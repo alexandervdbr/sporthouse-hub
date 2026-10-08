@@ -282,6 +282,35 @@ function usePlanningRoster() {
   return roster
 }
 
+// Het Team-contact dat bij dit account hoort, op e-mailadres. Daar staat de
+// einddatum van de persoon, en die is de bron: het account volgt hem, niet
+// omgekeerd. Zie supabase/migrations/0051_contacts_employment.sql.
+function useTeamContact(email: string | undefined) {
+  const [contact, setContact] = useState<TeamContactRow | null>(null)
+  useEffect(() => {
+    if (!email) return
+    let cancelled = false
+    fetch('/api/team/members')
+      .then(r => (r.ok ? r.json() : null))
+      .then((rows: TeamContactRow[] | null) => {
+        if (cancelled || !Array.isArray(rows)) return
+        const wanted = email.trim().toLowerCase()
+        setContact(rows.find(c => c.email?.trim().toLowerCase() === wanted) ?? null)
+      })
+      .catch(() => { /* zonder contact werkt het veld gewoon handmatig */ })
+    return () => { cancelled = true }
+  }, [email])
+  return contact
+}
+
+interface TeamContactRow {
+  id: string
+  name: string
+  email: string | null
+  employment_type?: string | null
+  active_until?: string | null
+}
+
 // Een toekenning van vóór personKey is een kale naam. Die hoort als eigen
 // optie in de lijst te staan, anders valt de select terug op "volledige
 // planning" en zou opslaan de rechten van die persoon stil oprekken.
@@ -597,6 +626,8 @@ function PermissionsPanel({
   const [expiresAt,      setExpiresAt]      = useState<string>(
     user.expires_at ? user.expires_at.split('T')[0] : ''
   )
+  const teamContact = useTeamContact(user.email)
+  const contactEnd = teamContact?.active_until ?? ''
   const [restrictClients, setRestrictClients] = useState(
     (user.permissions?.clients?.length ?? 0) > 0
   )
@@ -812,6 +843,33 @@ function PermissionsPanel({
             onChange={e => setExpiresAt(e.target.value)}
             className="w-full px-3 py-2 bg-zinc-800/60 border border-zinc-700 rounded-lg text-sm text-zinc-200 focus:outline-none focus:border-zinc-600 transition-colors"
           />
+
+          {/* Dezelfde datum stond op twee plekken en moest twee keer getypt
+              worden: hier op het account, en op de Team-pagina als einddatum
+              van de persoon. Vergeet je er één, dan verdwijnt zijn login wel
+              en blijft hij in het rooster staan, of net omgekeerd.
+              De einddatum in Team is de bron — dat is de persoon, en die
+              overleeft zijn account. */}
+          {contactEnd && contactEnd !== expiresAt && (
+            <div className="mt-1.5 flex items-start gap-2 rounded-lg border border-sky-900/40 bg-sky-950/20 px-2.5 py-2">
+              <p className="text-[10px] text-sky-300 flex-1">
+                In Team staat {teamContact?.name} als {teamContact?.employment_type ?? 'vast'} tot{' '}
+                {new Date(contactEnd + 'T00:00:00').toLocaleDateString('nl-BE', { day: 'numeric', month: 'long', year: 'numeric' })}
+                {expiresAt ? ' — dat wijkt af van de datum hierboven.' : '.'}
+              </p>
+              <button
+                onClick={() => setExpiresAt(contactEnd)}
+                className="flex-shrink-0 text-[10px] font-medium text-sky-300 underline hover:text-sky-200"
+              >
+                Overnemen
+              </button>
+            </div>
+          )}
+          {contactEnd && contactEnd === expiresAt && (
+            <p className="mt-1.5 text-[10px] text-zinc-600">
+              Gelijk aan de einddatum van {teamContact?.name} in Team.
+            </p>
+          )}
           {expiresAt ? (
             <div className="mt-1.5 space-y-1">
               {new Date(expiresAt) <= new Date() ? (

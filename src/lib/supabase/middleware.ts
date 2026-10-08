@@ -53,9 +53,14 @@ export async function updateSession(request: NextRequest) {
   // if this page answers them. It carries one folder or file name and the
   // client it belongs to, nothing more — see src/app/share/page.tsx.
   const isSharePage = pathname.startsWith('/share') || pathname.startsWith('/s/')
+  // Persoonlijke planningslink voor weekendstudenten, die geen account hebben.
+  // Anders dan /s/ is het token hier wél de sleutel: de route controleert hem
+  // zelf en leidt eruit af om wiens rij het gaat. Zie
+  // supabase/migrations/0052_planning_links.sql.
+  const isPlanningLinkPage = pathname.startsWith('/p/') || pathname.startsWith('/api/planning/mine')
 
   // Unauthenticated → login (API routes get a 401 instead of a redirect)
-  if (!user && !isLoginPage && !isCallbackPage && !isSaveReelApiPage && !isPrivacyPage && !isSharePage) {
+  if (!user && !isLoginPage && !isCallbackPage && !isSaveReelApiPage && !isPrivacyPage && !isSharePage && !isPlanningLinkPage) {
     if (isApiPage) {
       return new NextResponse(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
@@ -73,7 +78,7 @@ export async function updateSession(request: NextRequest) {
     // Freelancers only get /api/portal/* and /api/auth/* — every other API
     // route serves staff-only business data and must never be reachable by
     // a freelancer account, regardless of what any individual route checks.
-    if (isFreelancer && isApiPage && !isPortalApiPage && !isAuthApiPage) {
+    if (isFreelancer && isApiPage && !isPortalApiPage && !isAuthApiPage && !isPlanningLinkPage) {
       return new NextResponse(JSON.stringify({ error: 'Forbidden' }), {
         status: 403,
         headers: { 'Content-Type': 'application/json' },
@@ -81,7 +86,7 @@ export async function updateSession(request: NextRequest) {
     }
 
     // Freelancer on login page or main app → portal
-    if (isFreelancer && !isPortalPage && !isApiPage && !isCallbackPage) {
+    if (isFreelancer && !isPortalPage && !isApiPage && !isCallbackPage && !isPlanningLinkPage) {
       const url = request.nextUrl.clone()
       url.pathname = '/portal'
       return NextResponse.redirect(url)

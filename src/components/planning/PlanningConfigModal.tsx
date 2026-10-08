@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import {
   X,
   Check,
@@ -13,10 +13,13 @@ import {
   Archive,
   ArchiveRestore,
   TriangleAlert,
+  Link2,
+  Link2Off,
 } from 'lucide-react'
 import { normName, UNASSIGNED_DEPT, type Department } from '@/lib/planning-config'
 import type { PlanningPreset } from '@/lib/planning-presets'
 import type { PlanningRename } from '@/lib/planning-rename'
+import type { PlanningLinkRow } from '@/lib/planning-links'
 
 interface ArchivedEmployee { dept: string; emp: string }
 
@@ -315,6 +318,67 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
     })
     setFlashDept(deptIdx)
     setTimeout(() => setFlashDept(d => (d === deptIdx ? null : d)), 1500)
+  }
+
+  // Persoonlijke planningslinks voor wie geen account heeft (weekendstudenten).
+  // Zie supabase/migrations/0052_planning_links.sql.
+  const [links, setLinks] = useState<PlanningLinkRow[]>([])
+  const [busyLink, setBusyLink] = useState<string | null>(null)
+  const [copiedToken, setCopiedToken] = useState<string | null>(null)
+
+  const loadLinks = useCallback(() => {
+    if (!isBeheer) return
+    fetch('/api/planning/links')
+      .then(r => (r.ok ? r.json() : []))
+      .then(d => { if (Array.isArray(d)) setLinks(d) })
+      .catch(() => {})
+  }, [isBeheer])
+  useEffect(() => { loadLinks() }, [loadLinks])
+
+  const linkFor = useCallback(
+    (dept: string, emp: string) => links.find(l => l.department === dept && l.employee === emp) ?? null,
+    [links]
+  )
+
+  function linkUrl(token: string) {
+    return `${window.location.origin}/p/${token}`
+  }
+
+  async function createLink(dept: string, emp: string) {
+    setBusyLink(`${dept}|${emp}`)
+    try {
+      const res = await fetch('/api/planning/links', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ department: dept, employee: emp }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      const created = await res.json() as PlanningLinkRow
+      setLinks(prev => [created, ...prev])
+      await navigator.clipboard.writeText(linkUrl(created.token)).catch(() => {})
+      setCopiedToken(created.token)
+      setTimeout(() => setCopiedToken(t => (t === created.token ? null : t)), 2000)
+    } catch { /* de knop blijft gewoon staan om opnieuw te proberen */ }
+    setBusyLink(null)
+  }
+
+  async function copyLink(token: string) {
+    await navigator.clipboard.writeText(linkUrl(token)).catch(() => {})
+    setCopiedToken(token)
+    setTimeout(() => setCopiedToken(t => (t === token ? null : t)), 2000)
+  }
+
+  async function revokeLink(link: PlanningLinkRow) {
+    const ok = confirm(
+      `De link van ${link.employee} intrekken?\n\n` +
+      `Wie hem nog heeft kan er daarna niets meer mee. Je kan altijd een ` +
+      `nieuwe maken, maar dat is een andere link.`
+    )
+    if (!ok) return
+    setBusyLink(`${link.department}|${link.employee}`)
+    await fetch(`/api/planning/links?token=${encodeURIComponent(link.token)}`, { method: 'DELETE' })
+    setLinks(prev => prev.filter(l => l.token !== link.token))
+    setBusyLink(null)
   }
 
   const [staleness, setStaleness] = useState<Staleness[]>([])
@@ -828,6 +892,8 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
                       // een naam wijzen die in de database nog niet bestaat —
                       // dus eerst opslaan.
                       const slotMoved = !!slot.orig && (slot.orig.dept !== dept.name || slot.orig.emp !== emp)
+                      const personLink = slot.orig ? linkFor(slot.orig.dept, slot.orig.emp) : null
+                      const linkBusy = busyLink === `${dept.name}|${emp}`
                       const plannedDays = slot.orig
                         ? entryCountMap.get(`${slot.orig.dept}|${slot.orig.emp}`) ?? 0
                         : 0
@@ -890,6 +956,11 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
                                   niet in Team
                                 </span>
                               )}
+                              {copiedToken && personLink?.token === copiedToken && (
+                                <span className="flex-shrink-0 text-[9px] uppercase tracking-wide text-sky-400">
+                                  gekopieerd
+                                </span>
+                              )}
                               {tempLabel && (
                                 <span
                                   className="flex-shrink-0 text-[9px] uppercase tracking-wide text-amber-500 border border-amber-900/60 rounded px-1"
@@ -915,6 +986,36 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
                                   {daysAgo(lastEntry!)}d geleden
                                 </span>
                               )}
+                            </button>
+                          )}
+
+                          {/* Persoonlijke planningslink. Alleen voor iemand die
+                              al opgeslagen is — een naam die nog in de
+                              kladversie zit bestaat voor de server nog niet. */}
+                          {!isRenamingThisEmp && slot.orig && !slotMoved && (
+                            <button
+                              onClick={() => personLink ? copyLink(personLink.token) : createLink(dept.name, emp)}
+                              disabled={linkBusy}
+                              title={personLink
+                                ? (copiedToken === personLink.token ? 'Gekopieerd' : 'Link kopiëren')
+                                : 'Persoonlijke planningslink maken (voor wie geen login heeft)'}
+                              className={`flex-shrink-0 transition-all hover:text-sky-400 ${
+                                personLink ? 'opacity-100 text-sky-500' : 'opacity-0 group-hover:opacity-100 text-zinc-600'
+                              }`}
+                            >
+                              {linkBusy
+                                ? <Loader2 size={13} className="animate-spin" />
+                                : <Link2 size={13} />}
+                            </button>
+                          )}
+                          {!isRenamingThisEmp && personLink && (
+                            <button
+                              onClick={() => revokeLink(personLink)}
+                              disabled={linkBusy}
+                              title="Link intrekken"
+                              className="flex-shrink-0 opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 transition-all"
+                            >
+                              <Link2Off size={13} />
                             </button>
                           )}
 
