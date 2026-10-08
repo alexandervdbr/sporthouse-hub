@@ -19,7 +19,7 @@ import type { PlanningPreset } from '@/lib/planning-presets'
 import type { PlanningRename } from '@/lib/planning-rename'
 
 interface ArchivedEmployee { dept: string; emp: string }
-interface Staleness { dept: string; emp: string; lastEntryDate: string }
+interface Staleness { dept: string; emp: string; lastEntryDate: string; entryCount: number }
 
 // Een naam in de kladversie, met waar hij vandaan kwam. Die herkomst reist
 // mee met het object, dus slepen tussen afdelingen en hernoemen houden hem
@@ -312,6 +312,15 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
     return m
   }, [staleness])
 
+  // Hoeveel ingevulde dagen hangen er aan deze (afdeling, naam)? Bepaalt of
+  // verwijderen mag: die rijen staan op de tekst, dus zodra de naam uit het
+  // rooster verdwijnt zijn ze nergens meer te zien.
+  const entryCountMap = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const s of staleness) m.set(`${s.dept}|${s.emp}`, s.entryCount)
+    return m
+  }, [staleness])
+
   // Inline rename state
   const [renamingDept, setRenamingDept] = useState<number | null>(null)
   const [renamingEmp, setRenamingEmp] = useState<{ dept: number; emp: number } | null>(null)
@@ -402,15 +411,28 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
 
   function deleteEmployee(deptIdx: number, empIdx: number) {
     const slot = depts[deptIdx].employees[empIdx]
-    // Alleen als er iets te verliezen is: een pas toegevoegde naam (orig null)
-    // heeft nog geen planning, dus daar valt niets over te melden.
+    const planned = slot.orig
+      ? entryCountMap.get(`${slot.orig.dept}|${slot.orig.emp}`) ?? 0
+      : 0
+
+    // Heeft deze persoon ingevulde dagen, dan kan verwijderen niet. Een
+    // bevestiging die je elke keer wegklikt is geen bescherming, en dit is de
+    // enige handeling in de planning die geschiedenis onbereikbaar maakt.
+    if (planned > 0) {
+      alert(
+        `"${slot.name}" heeft ${planned} ingevulde dag(en) in de planning.\n\n` +
+        `Verwijderen zou die losmaken van deze persoon: ze blijven in de database ` +
+        `staan maar zijn nergens meer te zien, ook niet in Statistieken.\n\n` +
+        `Gebruik archiveren — dan verdwijnt hij uit de teamweergave en blijven ` +
+        `oude weken gewoon kloppen.`
+      )
+      return
+    }
+
     if (slot.orig) {
       const ok = confirm(
-        `"${slot.name}" definitief uit het rooster halen?\n\n` +
-        `De bestaande planning onder deze naam blijft in de database staan, maar ` +
-        `is nergens meer te zien — ook niet in Statistieken.\n\n` +
-        `Wil je iemand die er niet meer werkt gewoon uit de teamweergave halen, ` +
-        `gebruik dan archiveren: dan blijven oude weken wel kloppen.`
+        `"${slot.name}" uit het rooster halen?\n\n` +
+        `Er staat nog geen planning onder deze naam, dus er gaat niets verloren.`
       )
       if (!ok) return
     }
@@ -780,6 +802,9 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
                       // een naam wijzen die in de database nog niet bestaat —
                       // dus eerst opslaan.
                       const slotMoved = !!slot.orig && (slot.orig.dept !== dept.name || slot.orig.emp !== emp)
+                      const plannedDays = slot.orig
+                        ? entryCountMap.get(`${slot.orig.dept}|${slot.orig.emp}`) ?? 0
+                        : 0
 
                       return (
                         <div
@@ -881,8 +906,11 @@ export default function PlanningConfigModal({ departments, onSave, onRename, arc
                           {!isRenamingThisEmp && (
                             <button
                               onClick={() => deleteEmployee(di, ei)}
-                              title="Definitief verwijderen"
-                              className="flex-shrink-0 opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 transition-all"
+                              disabled={plannedDays > 0}
+                              title={plannedDays > 0
+                                ? `Kan niet: ${plannedDays} ingevulde dag(en). Archiveer in plaats daarvan.`
+                                : 'Uit het rooster halen'}
+                              className="flex-shrink-0 opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 transition-all disabled:cursor-not-allowed disabled:hover:text-zinc-700 disabled:text-zinc-800"
                             >
                               <Trash2 size={13} />
                             </button>
