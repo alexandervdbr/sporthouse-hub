@@ -22,7 +22,7 @@ function getFileIcon(fileType: string) {
   const audio = ['mp3', 'wav', 'aac', 'flac', 'ogg', 'm4a', 'wma']
   const archives = ['zip', 'rar', '7z', 'tar', 'gz', 'bz2']
   const code = ['js', 'ts', 'tsx', 'jsx', 'py', 'html', 'css', 'json', 'xml', 'yaml', 'yml', 'sh', 'sql']
-  const docs = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'md', 'csv', 'rtf']
+  const docs = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'key', 'txt', 'md', 'csv', 'rtf']
   const fonts = ['ttf', 'otf', 'woff', 'woff2', 'eot']
 
   const t = fileType.toLowerCase()

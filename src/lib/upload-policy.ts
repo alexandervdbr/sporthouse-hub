@@ -8,7 +8,9 @@ const IMAGE_EXTS   = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico', 
 const VIDEO_EXTS    = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'wmv', 'm4v']
 const AUDIO_EXTS    = ['mp3', 'wav', 'aac', 'flac', 'ogg', 'm4a', 'wma']
 const ARCHIVE_EXTS  = ['zip', 'rar', '7z', 'tar', 'gz', 'bz2']
-const DOC_EXTS      = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'md', 'csv', 'rtf', 'odt', 'ods', 'odp']
+// 'key' is Keynote. Net als de Office- en OpenDocument-formaten hierboven een
+// presentatiebestand dat we alleen opslaan en teruggeven, nooit uitlezen.
+const DOC_EXTS      = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'key', 'txt', 'md', 'csv', 'rtf', 'odt', 'ods', 'odp']
 const FONT_EXTS     = ['ttf', 'otf', 'woff', 'woff2', 'eot']
 const CODE_EXTS     = ['js', 'ts', 'tsx', 'jsx', 'py', 'html', 'css', 'json', 'xml', 'yaml', 'yml', 'sql']
 // Design/creative source files (Adobe, Affinity, Figma, Sketch). Binary project
@@ -22,7 +24,7 @@ export const ALLOWED_UPLOAD_EXTS = [
 ]
 
 export const ALLOWED_UPLOAD_HINT =
-  "Afbeeldingen, video's, audio, documenten, archieven, lettertypes, ontwerpbestanden (PSD, AI, INDD, …) en code-/configbestanden"
+  "Afbeeldingen, video's, audio, documenten en presentaties (PDF, Office, Keynote, …), archieven, lettertypes, ontwerpbestanden (PSD, AI, INDD, …) en code-/configbestanden"
 
 export function fileExt(filename: string): string {
   return filename.includes('.') ? filename.split('.').pop()!.toLowerCase() : ''

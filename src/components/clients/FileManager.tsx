@@ -286,7 +286,7 @@ const VIDEO_EXTS = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'wmv', 'm4v']
 const AUDIO_EXTS = ['mp3', 'wav', 'aac', 'flac', 'ogg', 'm4a', 'wma']
 const ARCHIVE_EXTS = ['zip', 'rar', '7z', 'tar', 'gz', 'bz2']
 const CODE_EXTS = ['js', 'ts', 'tsx', 'jsx', 'py', 'html', 'css', 'json', 'xml', 'yaml', 'yml', 'sh', 'sql']
-const DOC_EXTS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'md', 'csv', 'rtf']
+const DOC_EXTS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'key', 'txt', 'md', 'csv', 'rtf']
 const FONT_EXTS = ['ttf', 'otf', 'woff', 'woff2', 'eot']
 const DESIGN_EXTS = ['psd', 'psb', 'ai', 'indd', 'idml', 'eps', 'xd', 'sketch', 'fig', 'afphoto', 'afdesign', 'afpub', 'aep', 'prproj', 'mogrt']
 // Formats that carry their own preview image, readable even when Drive won't
