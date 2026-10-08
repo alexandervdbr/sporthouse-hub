@@ -79,7 +79,7 @@ const SECTION_GROUPS = [
     title: 'Planning',
     sections: [
       { key: 'planning',         label: 'Planning bekijken' },
-      { key: 'planning_volledig', label: 'Planning bewerken' },
+      { key: 'planning_volledig', label: 'Planning bewerken (zie noot bij Planning kolom)' },
       { key: 'planning_statistieken', label: 'Statistieken bekijken (Planning)' },
     ],
   },
@@ -514,6 +514,10 @@ function InviteModal({ clients, onClose, onInvited }: { clients: ClientOption[];
               </div>
               <div>
                 <label className="block text-xs text-zinc-500 uppercase tracking-wider mb-1.5">Planning kolom</label>
+                <p className="text-[10px] text-zinc-600 mb-1.5">
+                  Bepaalt wat het scherm aanbiedt, niet wat de database toestaat.
+                  Zie de noot onderaan.
+                </p>
                 <select value={planningColumn} onChange={e => setPlanningColumn(e.target.value)}
                   className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 focus:outline-none focus:border-zinc-500 transition-colors">
                   <option value="">— Volledige planning (of via checkbox) —</option>
@@ -777,6 +781,12 @@ function PermissionsPanel({
         {/* Planning column */}
         <div>
           <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mb-2">Planning kolom</p>
+          <p className="text-[10px] text-zinc-600 mb-2">
+            Bepaalt welke cellen dit account op het scherm mag bewerken. Het is
+            een weergavebeperking, geen beveiliging: wie de browserconsole
+            opent kan elke cel schrijven, net als elke andere ingelogde
+            collega. Bewust zo gelaten — iedereen met een account werkt hier.
+          </p>
           <select value={planningColumn} onChange={e => setPlanningColumn(e.target.value)}
             className="w-full px-3 py-2 bg-zinc-800/60 border border-zinc-700 rounded-lg text-sm text-zinc-200 focus:outline-none focus:border-zinc-600 transition-colors">
             <option value="">— Volledige planning (of via checkbox) —</option>

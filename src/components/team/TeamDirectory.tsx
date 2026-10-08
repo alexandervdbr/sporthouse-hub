@@ -379,28 +379,32 @@ export default function TeamDirectory({ internClients }: { internClients: Client
     await load()
   }
 
-  // Verwijderen deed het hiervoor zonder één vraag. Dat is zwaarder dan het
-  // lijkt: het rooster koppelt op naam, dus wie je hier weghaalt raakt los van
-  // zijn planning en blijft daar achter als "niet in Team". Voor iemand die
-  // vertrekt is een einddatum bijna altijd wat je bedoelt — dan blijft zijn
-  // geschiedenis leesbaar en verdwijnt hij vanzelf uit de actieve lijst.
+  // Verwijderen kan alleen voor iemand die nog geen planning heeft staan: de
+  // database weigert de rest (planning_entries.contact_id, on delete
+  // restrict). Dat is de bedoeling — zijn dagen zijn van hem — maar de
+  // melding moet wel kloppen, en de vorige beloofde nog dat zijn planning
+  // "los zou raken". Dat kan sinds migratie 0053 niet meer.
+  const [deleteError, setDeleteError] = useState('')
+
   async function handleDelete(contact: Contact) {
     const ok = confirm(
-      `${contact.name} definitief uit Team verwijderen?\n\n` +
-      `Zijn ingevulde planning blijft in de database staan, maar raakt los van ` +
-      `deze persoon en is daarna nergens meer te zien.\n\n` +
-      `Gaat het om iemand die vertrekt of voorlopig niet werkt, sluit dan af ` +
-      `met een einddatum in plaats van te verwijderen.`
+      `${contact.name} uit Team verwijderen?\n\n` +
+      `Dit kan alleen als er nog geen planning onder hem staat. Heeft hij die ` +
+      `wel, dan weigert het systeem het — gebruik dan een einddatum of zet hem ` +
+      `op non-actief.`
     )
     if (!ok) return
+    setDeleteError('')
     setDeletingId(contact.id)
-    await fetch(`/api/contacts?id=${contact.id}`, { method: 'DELETE' })
+    const res = await fetch(`/api/contacts?id=${contact.id}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const body = await res.json().catch(() => null)
+      setDeleteError(body?.error ?? 'Verwijderen mislukt.')
+    }
     await load()
     setDeletingId(null)
   }
 
-  // Drie groepen, want "tijdelijk" en "weg" zijn twee verschillende dingen en
-  // je wil ze geen van beide tussen de vaste ploeg zien staan.
   const groupOf = (c: Contact): Tab =>
     !isActiveContact(c) ? 'inactief'
     : (c.employment_type ?? 'vast') === 'vast' ? 'vast'
@@ -441,6 +445,12 @@ export default function TeamDirectory({ internClients }: { internClients: Client
           </button>
         )}
       </div>
+
+      {deleteError && (
+        <p className="rounded-lg border border-red-900/40 bg-red-950/20 px-3 py-2 text-xs text-red-400">
+          {deleteError}
+        </p>
+      )}
 
       {!searching && (
         <div className="flex items-center gap-1 border-b border-zinc-800">
