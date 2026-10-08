@@ -33,6 +33,29 @@ export async function POST(request: NextRequest) {
   }
   if (!hasClientAccess(user, clientId)) return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
 
+  // Eén e-mailadres per klant. Twee contacten voor dezelfde persoon lopen door
+  // tot in de planning (die koppelt op naam) en in de avatars in Chat (die
+  // koppelt op e-mail), en het is achteraf handwerk om ze te ontwarren.
+  // Contacten zonder e-mailadres blijven ongemoeid: daar valt niets aan te
+  // herkennen, en meerdere naamgenoten zijn legitiem.
+  if (email?.trim()) {
+    const wanted = email.trim().toLowerCase()
+    const { data: existing } = await supabase
+      .from('contacts')
+      .select('id, name, email')
+      .eq('client_id', clientId)
+      .not('email', 'is', null)
+    const clash = (existing ?? []).find(
+      (c: { email: string | null }) => c.email?.trim().toLowerCase() === wanted
+    )
+    if (clash) {
+      return NextResponse.json(
+        { error: `${clash.name} staat al in deze lijst met dit e-mailadres.` },
+        { status: 409 }
+      )
+    }
+  }
+
   const { data, error } = await supabase
     .from('contacts')
     .insert({ client_id: clientId, name: name.trim(), role, email, phone, photo_url })
