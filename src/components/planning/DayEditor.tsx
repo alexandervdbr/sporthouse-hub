@@ -2,7 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { X, Check, Trash2 } from 'lucide-react'
-import type { PlanningPreset } from '@/lib/planning-presets'
+import {
+  presetCategory, PRESET_CATEGORIES, PRESET_CATEGORY_LABELS,
+  type PlanningPreset, type PresetCategory,
+} from '@/lib/planning-presets'
 import type { CellData, WeekDay } from '@/lib/planning-week'
 
 function sameDay(a: WeekDay, b: WeekDay) {
@@ -26,6 +29,7 @@ function rectIndices(aIdx: number, bIdx: number): number[] {
 export interface StatusOption {
   name: string
   color: string
+  category: PresetCategory
 }
 
 // De statuslijst is wat er in Beheer → Presets staat, en niets anders.
@@ -39,7 +43,7 @@ export interface StatusOption {
 // kiezer, onverwijderbaar.
 export function allStatusOptions(presets: PlanningPreset[]): StatusOption[] {
   return presets
-    .map(p => ({ name: p.name, color: p.color }))
+    .map(p => ({ name: p.name, color: p.color, category: presetCategory(p) }))
     .sort((a, b) => a.name.localeCompare(b.name, 'nl'))
 }
 
@@ -123,10 +127,6 @@ export default function DayEditor({
 
   const [statusName, setStatusName] = useState<string | null>(matched?.name ?? null)
   const [thuis, setThuis] = useState(matched?.thuis ?? false)
-  // Only meaningful once no status is picked — fully custom text, replacing
-  // the whole value (matches today's plain-typing behaviour for anything
-  // that doesn't fit a known status).
-  const [customText, setCustomText] = useState(matched ? '' : initialCell.value)
   const [note, setNote] = useState(initialCell.note ?? '')
 
   // Drag/ctrl/shift-click on the "Dagen" pool, same gestures as the main
@@ -211,22 +211,24 @@ export default function DayEditor({
 
   function handleSave() {
     const trimmedNote = note.trim() || null
-    if (selectedOption) {
-      // De opgeslagen waarde blijft "PS - THUIS": oude cellen, de
-      // statistieken en de kleuren in het raster blijven daardoor kloppen.
-      // Alleen de kiezer toont het als een schakelaar.
-      onSave({
-        value: (thuis ? selectedOption.name + ' - THUIS' : selectedOption.name).toUpperCase(),
-        bold: true,
-        textColor: '#ffffff',
-        bgColor: thuis ? thuisColor(presets, selectedOption) : selectedOption.color,
-        note: trimmedNote,
-      })
-      return
-    }
-    const value = customText.trim()
-    if (!value) { onClear(); return }
-    onSave({ value: value.toUpperCase(), bold: true, textColor: '#ffffff', bgColor: null, note: trimmedNote })
+
+    // Geen status gekozen betekent wissen. Vrije tekst bestaat niet meer:
+    // elke tikfout werd anders een eigen "status" die in Statistieken in de
+    // kolom "Overig" belandde, en wat je er eigenlijk in kwijt wilde — een
+    // klant, een uur, een reden — hoort in de notitie eronder.
+    if (!selectedOption) { onClear(); return }
+
+    // De opgeslagen waarde blijft "PS - THUIS": oude cellen, de statistieken
+    // en de kleuren in het raster blijven daardoor kloppen. Alleen de kiezer
+    // toont het als een schakelaar.
+    const thuisAan = thuis && selectedOption.category === 'werk'
+    onSave({
+      value: (thuisAan ? selectedOption.name + ' - THUIS' : selectedOption.name).toUpperCase(),
+      bold: true,
+      textColor: '#ffffff',
+      bgColor: thuisAan ? thuisColor(presets, selectedOption) : selectedOption.color,
+      note: trimmedNote,
+    })
   }
 
   return (
@@ -289,49 +291,60 @@ export default function DayEditor({
             )}
 
             <div>
-              <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mb-2">Status</p>
+              {/* Gegroepeerd op categorie: waar je werkt staat boven, afwezig
+                  eronder. Dat zijn twee verschillende vragen, en ze stonden
+                  door elkaar op alfabet — "De Spor, FOS, NB, PS, RBFA, Recup,
+                  SHG, Verlof, Ziek" leest als een willekeurige hoop.
 
-              {/* Een bolletje in de kleur, verder neutraal — en pas gevuld
-                  wanneer hij gekozen is.
-                  Hiervoor had elke knop een gekleurde rand, een gekleurde
-                  vulling én gekleurde tekst, allemaal tegelijk. Met vijftien
-                  naast elkaar vochten die om aandacht en viel de gekozen
-                  status niet meer op. De kleur doet nu werk waar ze telt: in
-                  het raster. Twee kolommen in plaats van drie, zodat een naam
-                  als "Sport Vlaanderen" past zonder afgekapt te worden. */}
-              <div className="grid grid-cols-2 gap-1.5">
-                {options.map(opt => {
-                  const active = statusName === opt.name
-                  return (
-                    <button
-                      key={opt.name}
-                      onClick={() => { setStatusName(active ? null : opt.name); setCustomText('') }}
-                      className={`flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-medium text-left transition-colors border ${
-                        active
-                          ? 'text-white border-transparent'
-                          : 'text-zinc-300 border-zinc-800 bg-zinc-800/40 hover:bg-zinc-800 hover:border-zinc-700'
-                      }`}
-                      style={active ? { backgroundColor: opt.color } : undefined}
-                    >
-                      <span
-                        className="w-2 h-2 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: active ? 'rgba(255,255,255,0.9)' : opt.color }}
-                      />
-                      <span className="truncate">{opt.name}</span>
-                    </button>
-                  )
-                })}
-              </div>
+                  Een bolletje in de kleur, verder neutraal, en pas gevuld
+                  wanneer hij gekozen is. Hiervoor had elke knop een gekleurde
+                  rand, vulling én tekst tegelijk; met vijftien naast elkaar
+                  vocht alles om aandacht en viel de gekozen status niet op.
+                  De kleur doet nu werk waar ze telt: in het raster. */}
+              {PRESET_CATEGORIES.map(cat => {
+                const inCat = options.filter(o => o.category === cat)
+                if (inCat.length === 0) return null
+                return (
+                  <div key={cat} className="mb-3 last:mb-0">
+                    <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mb-2">
+                      {PRESET_CATEGORY_LABELS[cat]}
+                    </p>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {inCat.map(opt => {
+                        const active = statusName === opt.name
+                        return (
+                          <button
+                            key={opt.name}
+                            onClick={() => setStatusName(active ? null : opt.name)}
+                            className={`flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-medium text-left transition-colors border ${
+                              active
+                                ? 'text-white border-transparent'
+                                : 'text-zinc-300 border-zinc-800 bg-zinc-800/40 hover:bg-zinc-800 hover:border-zinc-700'
+                            }`}
+                            style={active ? { backgroundColor: opt.color } : undefined}
+                          >
+                            <span
+                              className="w-2 h-2 rounded-full flex-shrink-0"
+                              style={{ backgroundColor: active ? 'rgba(255,255,255,0.9)' : opt.color }}
+                            />
+                            <span className="truncate">{opt.name}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
 
-              {/* Thuiswerk is geen status maar een eigenschap ervan. Als
-                  aparte knoppen ("PS - THUIS", "SHG - THUIS", …) verdubbelden
-                  ze de lijst en moest er voor elke klant een nieuwe preset
-                  bij. Nu werkt het voor alles, ook voor klanten waar nooit
-                  een THUIS-variant voor is aangemaakt. */}
-              {selectedOption && (
+              {/* Thuiswerk is geen status maar een eigenschap ervan, en heeft
+                  alleen zin bij werk — "thuis" bij Verlof of Ziek zegt niets.
+                  Als aparte presets ("PS - THUIS", "SHG - THUIS", …)
+                  verdubbelden ze de lijst en moest er voor elke klant een
+                  nieuwe bij; zo werkt het voor alles. */}
+              {selectedOption?.category === 'werk' && (
                 <button
                   onClick={() => setThuis(v => !v)}
-                  className={`mt-2 flex items-center gap-2 w-full px-2.5 py-2 rounded-lg text-xs text-left border transition-colors ${
+                  className={`mt-1 flex items-center gap-2 w-full px-2.5 py-2 rounded-lg text-xs text-left border transition-colors ${
                     thuis
                       ? 'border-zinc-600 bg-zinc-800 text-zinc-200'
                       : 'border-zinc-800 bg-zinc-800/40 text-zinc-500 hover:text-zinc-300'
@@ -351,20 +364,15 @@ export default function DayEditor({
               )}
             </div>
 
-            {!selectedOption && (
-              <div>
-                <label className="block text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mb-1.5">
-                  Of typ iets anders
-                </label>
-                <input
-                  type="text"
-                  value={customText}
-                  onChange={e => setCustomText(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleSave() }}
-                  placeholder="Vrije tekst…"
-                  className="w-full px-3 py-2 bg-zinc-800/60 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors"
-                />
-              </div>
+            {/* Staat er iets in deze cel dat geen preset (meer) is — van vóór
+                de presets, of een status die intussen verwijderd werd — dan
+                tonen we dat, zodat je niet blind overschrijft. Kiezen doe je
+                verder gewoon uit de lijst. */}
+            {!selectedOption && initialCell.value.trim() && (
+              <p className="text-[11px] text-zinc-500">
+                Staat nu: <span className="text-zinc-300">{initialCell.value}</span> — geen
+                bestaande status. Kies er een uit de lijst, of laat staan.
+              </p>
             )}
 
             <div>

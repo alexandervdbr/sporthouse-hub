@@ -85,7 +85,12 @@ export default function TeamMonthGrid({
   }, [year, month])
 
   const [drag, setDrag] = useState<DragState | null>(null)
-  const [editing, setEditing] = useState<{ targets: Target[]; cell: CellData; title: string } | null>(null)
+  // `contactId` is alleen gevuld wanneer de hele selectie over één persoon
+  // gaat. Alleen dan kan de dagenkiezer in de editor iets betekenen — bij een
+  // blok over meerdere mensen is "welke dagen" dubbelzinnig.
+  const [editing, setEditing] = useState<{
+    targets: Target[]; cell: CellData; title: string; contactId: string | null
+  } | null>(null)
   const [prefs, setPrefs] = useState<SectionPrefs>(EMPTY_PREFS)
   // Keyed by person, not row index, so the highlight stays on the right
   // person even if favoriting/collapsing a department reorders the rows.
@@ -187,7 +192,8 @@ export default function TeamMonthGrid({
     const title = single
       ? `${dayTitle(targets[0].wd)} — ${displayNames.get(personKey(first)) ?? first.emp}`
       : `${targets.length} cellen geselecteerd`
-    setEditing({ targets, cell: initial, title })
+    const ids = new Set(targets.map(t => t.contactId))
+    setEditing({ targets, cell: initial, title, contactId: ids.size === 1 ? first.id : null })
   }
 
   function handlePointerDown(e: React.PointerEvent, person: Person, row: number, col: number) {
@@ -355,6 +361,17 @@ export default function TeamMonthGrid({
           presets={presets}
           readOnly={false}
           emailToName={emailToName}
+          dateEditor={editing.contactId ? {
+            pool: days,
+            selected: editing.targets.map(t => t.wd),
+            onChange: next => setEditing(prev => prev && prev.contactId ? {
+              ...prev,
+              targets: next
+                .slice()
+                .sort((a, b) => a.day - b.day)
+                .map(wd => ({ wd, contactId: prev.contactId! })),
+            } : prev),
+          } : undefined}
           onSave={cell => { onApply(editing.targets, cell); setEditing(null) }}
           onClear={() => { onClear(editing.targets); setEditing(null) }}
           onClose={() => setEditing(null)}
