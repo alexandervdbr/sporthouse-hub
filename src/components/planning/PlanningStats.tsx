@@ -4,7 +4,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { DUTCH_MONTHS, type Person } from '@/lib/planning-config'
 import type { PlanningPreset } from '@/lib/planning-presets'
-import { mergedStatusOptions } from './DayEditor'
+import { allStatusOptions } from './DayEditor'
 
 interface StatRow { contactId: string; value: string; count: number }
 
@@ -49,7 +49,11 @@ export default function PlanningStats({
       .finally(() => setLoading(false))
   }, [year, month])
 
-  const options = useMemo(() => mergedStatusOptions(presets), [presets])
+  // De volledige lijst, dus mét de THUIS-varianten. In de kiezer zijn die een
+  // schakelaar geworden, maar ze worden nog steeds als eigen waarde
+  // opgeslagen — en dan horen ze hier een eigen kolom te hebben, anders
+  // vallen ze in "Overig".
+  const options = useMemo(() => allStatusOptions(presets), [presets])
   const optionNames = useMemo(
     () => new Set(options.map(o => o.name.toUpperCase())),
     [options]
