@@ -17,7 +17,10 @@ import {
   Link2Off,
 } from 'lucide-react'
 import { UNASSIGNED_DEPT, type Department } from '@/lib/planning-config'
-import type { PlanningPreset } from '@/lib/planning-presets'
+import {
+  presetCategory, PRESET_CATEGORIES, PRESET_CATEGORY_LABELS,
+  type PlanningPreset, type PresetCategory,
+} from '@/lib/planning-presets'
 import type { PlanningLinkRow } from '@/lib/planning-links'
 
 export interface PlanningTeamContact {
@@ -92,6 +95,7 @@ function PresetsPanel() {
 
   const [newName, setNewName] = useState('')
   const [newColor, setNewColor] = useState(PRESET_COLORS[0])
+  const [newCategory, setNewCategory] = useState<PresetCategory>('werk')
   const [creating, setCreating] = useState(false)
 
   useEffect(() => {
@@ -109,7 +113,7 @@ function PresetsPanel() {
       const res = await fetch('/api/planning/presets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newName.trim(), color: newColor }),
+        body: JSON.stringify({ name: newName.trim(), color: newColor, category: newCategory }),
       })
       if (!res.ok) throw new Error(await res.text())
       const created = await res.json()
@@ -179,6 +183,19 @@ function PresetsPanel() {
               style={{ backgroundColor: p.color }}
             />
             <span className="flex-1 min-w-0 text-sm text-zinc-100 truncate">{p.name}</span>
+            {/* Werk of afwezig. Bepaalt waar hij in de kiezer staat en of de
+                thuisschakelaar erbij hoort — "thuis gewerkt" zegt niets bij
+                Verlof of Ziek. */}
+            <button
+              onClick={() => patchPreset(p, {
+                category: presetCategory(p) === 'werk' ? 'afwezig' : 'werk',
+              })}
+              disabled={busyId === p.id}
+              title="Wisselen tussen werk en afwezig"
+              className="flex-shrink-0 text-[9px] uppercase tracking-wide rounded px-1.5 py-0.5 border border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 transition-colors disabled:opacity-50"
+            >
+              {PRESET_CATEGORY_LABELS[presetCategory(p)]}
+            </button>
             <button
               onClick={() => removePreset(p)}
               disabled={busyId === p.id}
@@ -226,6 +243,21 @@ function PresetsPanel() {
                 className="w-5 h-5 rounded-full"
                 style={{ backgroundColor: c, border: newColor === c ? '2px solid #fff' : '2px solid transparent' }}
               />
+            ))}
+          </div>
+          {/* Werk of afwezig, meteen bij het aanmaken — anders staat elke
+              nieuwe status standaard tussen de klanten. */}
+          <div className="flex p-0.5 rounded-lg bg-zinc-950 border border-zinc-800">
+            {PRESET_CATEGORIES.map(c => (
+              <button
+                key={c}
+                onClick={() => setNewCategory(c)}
+                className={`px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors ${
+                  newCategory === c ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'
+                }`}
+              >
+                {PRESET_CATEGORY_LABELS[c]}
+              </button>
             ))}
           </div>
           <button

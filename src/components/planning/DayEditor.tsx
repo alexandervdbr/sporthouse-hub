@@ -2,8 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { X, Check, Trash2 } from 'lucide-react'
-import type { PlanningPreset } from '@/lib/planning-presets'
-import { PLANNING_OPTIONS } from '@/lib/planning-config'
+import {
+  presetCategory, PRESET_CATEGORIES, PRESET_CATEGORY_LABELS,
+  type PlanningPreset, type PresetCategory,
+} from '@/lib/planning-presets'
 import type { CellData, WeekDay } from '@/lib/planning-week'
 
 function sameDay(a: WeekDay, b: WeekDay) {
@@ -27,41 +29,73 @@ function rectIndices(aIdx: number, bIdx: number): number[] {
 export interface StatusOption {
   name: string
   color: string
+  category: PresetCategory
 }
 
-// Admin-defined presets are the real, editable status list (see
-// PlanningConfigModal's Presets tab) — the old hardcoded PLANNING_OPTIONS
-// (Verlof/Ziek/Recup/RBFA/…) fill in anything an admin hasn't added as a
-// real preset yet, so the picker isn't empty on day one. A preset with the
-// same name always wins (admin's own color, not the hardcoded one).
-export function mergedStatusOptions(presets: PlanningPreset[]): StatusOption[] {
-  const seen = new Set<string>()
-  const result: StatusOption[] = []
-  for (const p of presets) {
-    seen.add(p.name.toUpperCase())
-    result.push({ name: p.name, color: p.color })
-  }
-  for (const o of PLANNING_OPTIONS) {
-    if (!seen.has(o.label.toUpperCase())) {
-      seen.add(o.label.toUpperCase())
-      result.push({ name: o.label, color: o.bgColor })
-    }
-  }
-  // Alphabetical, not insertion order — with ~15 statuses now, "whatever
-  // order they were added in" just reads as a random jumble.
-  return result.sort((a, b) => a.name.localeCompare(b.name, 'nl'))
+// De statuslijst is wat er in Beheer → Presets staat, en niets anders.
+//
+// Hier stond een samenvoeging met een hardcoded lijst (PLANNING_OPTIONS) als
+// terugval voor wie nog geen presets had aangemaakt. Migratie 0044 heeft die
+// lijst als echte rijen in de database gezet, waarmee de terugval overbodig
+// werd — maar hij bleef staan, en deed daarna hetzelfde als de oude
+// DEPARTMENTS-fallback: wat je in Beheer weggooide kwam terug. Zo stonden
+// "Play Sports" naast "PS" en "Sport Vl" naast "Sport Vlaanderen" in de
+// kiezer, onverwijderbaar.
+export function allStatusOptions(presets: PlanningPreset[]): StatusOption[] {
+  return presets
+    .map(p => ({ name: p.name, color: p.color, category: presetCategory(p) }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'nl'))
 }
 
-// Exact match only — status and note are genuinely separate fields now
-// (not a "STATUS - detail" string glued together), so there's no suffix
-// parsing to get wrong.
-function matchStatus(cell: CellData, options: StatusOption[]): string | null {
+// Thuiswerk is geen status maar een eigenschap van een status: "PS - THUIS"
+// is PS, ergens anders gedaan. Als aparte knoppen verdubbelden ze de lijst en
+// vertroebelden ze de keuze die je eigenlijk maakt.
+//
+// Ze blijven als preset bestaan — de opgeslagen waarde is nog steeds
+// "PS - THUIS", dus oude cellen en de statistieken kloppen gewoon door — maar
+// in de kiezer zijn ze een schakelaar geworden. Dat werkt meteen ook voor een
+// klant waar nog geen THUIS-preset voor bestaat.
+const THUIS_SUFFIX = ' - THUIS'
+
+export function splitThuis(value: string): { base: string; thuis: boolean } {
+  const upper = value.toUpperCase()
+  return upper.endsWith(THUIS_SUFFIX)
+    ? { base: value.slice(0, value.length - THUIS_SUFFIX.length), thuis: true }
+    : { base: value, thuis: false }
+}
+
+// Wat de kiezer toont: alles behalve de THUIS-varianten waarvan de basis ook
+// bestaat. Een losse "X - THUIS" zonder "X" blijft gewoon staan, anders zou
+// hij onbereikbaar worden.
+export function pickerStatusOptions(presets: PlanningPreset[]): StatusOption[] {
+  const all = allStatusOptions(presets)
+  const names = new Set(all.map(o => o.name.toUpperCase()))
+  return all.filter(o => {
+    const { base, thuis } = splitThuis(o.name)
+    return !thuis || !names.has(base.toUpperCase())
+  })
+}
+
+// De kleur die bij "deze status, thuis" hoort. Bestaat er een echte
+// THUIS-preset, dan die; anders houdt hij de kleur van de status zelf, zodat
+// het in het raster nog steeds als diezelfde klant leest.
+function thuisColor(presets: PlanningPreset[], base: StatusOption): string {
+  const wanted = (base.name + THUIS_SUFFIX).toUpperCase()
+  return presets.find(p => p.name.toUpperCase() === wanted)?.color ?? base.color
+}
+
+// Welke knop hoort bij deze cel, en stond de thuisschakelaar aan?
+//
+// Op naam en niet op kleur: een preset kan hernoemd of van kleur veranderd
+// zijn, en dan hoort de cel er nog steeds bij. Daarvoor werd ook de kleur
+// vergeleken, en dan opende een oude cel als vrije tekst — en overschreef
+// opslaan hem met bgColor null, dus verloor hij stil zijn kleur.
+function matchStatus(cell: CellData, options: StatusOption[]): { name: string; thuis: boolean } | null {
   const raw = cell.value.trim()
   if (!raw) return null
-  for (const opt of options) {
-    if (cell.bgColor === opt.color && raw.toUpperCase() === opt.name.toUpperCase()) return opt.name
-  }
-  return null
+  const { base, thuis } = splitThuis(raw)
+  const hit = options.find(o => o.name.toUpperCase() === base.toUpperCase())
+  return hit ? { name: hit.name, thuis } : null
 }
 
 export default function DayEditor({
@@ -88,14 +122,11 @@ export default function DayEditor({
   // trace reads "Robin B." instead of a raw email address.
   emailToName?: Map<string, string>
 }) {
-  const options = mergedStatusOptions(presets)
-  const matchedStatus = matchStatus(initialCell, options)
+  const options = pickerStatusOptions(presets)
+  const matched = matchStatus(initialCell, options)
 
-  const [statusName, setStatusName] = useState<string | null>(matchedStatus)
-  // Only meaningful once no status is picked — fully custom text, replacing
-  // the whole value (matches today's plain-typing behaviour for anything
-  // that doesn't fit a known status).
-  const [customText, setCustomText] = useState(matchedStatus ? '' : initialCell.value)
+  const [statusName, setStatusName] = useState<string | null>(matched?.name ?? null)
+  const [thuis, setThuis] = useState(matched?.thuis ?? false)
   const [note, setNote] = useState(initialCell.note ?? '')
 
   // Drag/ctrl/shift-click on the "Dagen" pool, same gestures as the main
@@ -180,13 +211,24 @@ export default function DayEditor({
 
   function handleSave() {
     const trimmedNote = note.trim() || null
-    if (selectedOption) {
-      onSave({ value: selectedOption.name.toUpperCase(), bold: true, textColor: '#ffffff', bgColor: selectedOption.color, note: trimmedNote })
-      return
-    }
-    const value = customText.trim()
-    if (!value) { onClear(); return }
-    onSave({ value: value.toUpperCase(), bold: true, textColor: '#ffffff', bgColor: null, note: trimmedNote })
+
+    // Geen status gekozen betekent wissen. Vrije tekst bestaat niet meer:
+    // elke tikfout werd anders een eigen "status" die in Statistieken in de
+    // kolom "Overig" belandde, en wat je er eigenlijk in kwijt wilde — een
+    // klant, een uur, een reden — hoort in de notitie eronder.
+    if (!selectedOption) { onClear(); return }
+
+    // De opgeslagen waarde blijft "PS - THUIS": oude cellen, de statistieken
+    // en de kleuren in het raster blijven daardoor kloppen. Alleen de kiezer
+    // toont het als een schakelaar.
+    const thuisAan = thuis && selectedOption.category === 'werk'
+    onSave({
+      value: (thuisAan ? selectedOption.name + ' - THUIS' : selectedOption.name).toUpperCase(),
+      bold: true,
+      textColor: '#ffffff',
+      bgColor: thuisAan ? thuisColor(presets, selectedOption) : selectedOption.color,
+      note: trimmedNote,
+    })
   }
 
   return (
@@ -249,40 +291,88 @@ export default function DayEditor({
             )}
 
             <div>
-              <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mb-2">Status</p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-                {options.map(opt => {
-                  const active = statusName === opt.name
-                  return (
-                    <button
-                      key={opt.name}
-                      onClick={() => { setStatusName(active ? null : opt.name); setCustomText('') }}
-                      className="px-2.5 py-1.5 rounded-lg text-xs font-medium truncate text-center transition-all"
-                      style={active
-                        ? { backgroundColor: opt.color, color: '#fff', border: `1px solid ${opt.color}` }
-                        : { backgroundColor: `${opt.color}18`, border: `1px solid ${opt.color}55`, color: opt.color }}
-                    >
-                      {opt.name}
-                    </button>
-                  )
-                })}
-              </div>
+              {/* Gegroepeerd op categorie: waar je werkt staat boven, afwezig
+                  eronder. Dat zijn twee verschillende vragen, en ze stonden
+                  door elkaar op alfabet — "De Spor, FOS, NB, PS, RBFA, Recup,
+                  SHG, Verlof, Ziek" leest als een willekeurige hoop.
+
+                  Een bolletje in de kleur, verder neutraal, en pas gevuld
+                  wanneer hij gekozen is. Hiervoor had elke knop een gekleurde
+                  rand, vulling én tekst tegelijk; met vijftien naast elkaar
+                  vocht alles om aandacht en viel de gekozen status niet op.
+                  De kleur doet nu werk waar ze telt: in het raster. */}
+              {PRESET_CATEGORIES.map(cat => {
+                const inCat = options.filter(o => o.category === cat)
+                if (inCat.length === 0) return null
+                return (
+                  <div key={cat} className="mb-3 last:mb-0">
+                    <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mb-2">
+                      {PRESET_CATEGORY_LABELS[cat]}
+                    </p>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {inCat.map(opt => {
+                        const active = statusName === opt.name
+                        return (
+                          <button
+                            key={opt.name}
+                            onClick={() => setStatusName(active ? null : opt.name)}
+                            className={`flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-medium text-left transition-colors border ${
+                              active
+                                ? 'text-white border-transparent'
+                                : 'text-zinc-300 border-zinc-800 bg-zinc-800/40 hover:bg-zinc-800 hover:border-zinc-700'
+                            }`}
+                            style={active ? { backgroundColor: opt.color } : undefined}
+                          >
+                            <span
+                              className="w-2 h-2 rounded-full flex-shrink-0"
+                              style={{ backgroundColor: active ? 'rgba(255,255,255,0.9)' : opt.color }}
+                            />
+                            <span className="truncate">{opt.name}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+
+              {/* Thuiswerk is geen status maar een eigenschap ervan, en heeft
+                  alleen zin bij werk — "thuis" bij Verlof of Ziek zegt niets.
+                  Als aparte presets ("PS - THUIS", "SHG - THUIS", …)
+                  verdubbelden ze de lijst en moest er voor elke klant een
+                  nieuwe bij; zo werkt het voor alles. */}
+              {selectedOption?.category === 'werk' && (
+                <button
+                  onClick={() => setThuis(v => !v)}
+                  className={`mt-1 flex items-center gap-2 w-full px-2.5 py-2 rounded-lg text-xs text-left border transition-colors ${
+                    thuis
+                      ? 'border-zinc-600 bg-zinc-800 text-zinc-200'
+                      : 'border-zinc-800 bg-zinc-800/40 text-zinc-500 hover:text-zinc-300'
+                  }`}
+                >
+                  <span
+                    className="w-8 h-4 rounded-full flex-shrink-0 relative transition-colors"
+                    style={{ backgroundColor: thuis ? '#3A913F' : '#3f3f46' }}
+                  >
+                    <span
+                      className="absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all"
+                      style={{ left: thuis ? '18px' : '2px' }}
+                    />
+                  </span>
+                  Thuis gewerkt
+                </button>
+              )}
             </div>
 
-            {!selectedOption && (
-              <div>
-                <label className="block text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mb-1.5">
-                  Of typ iets anders
-                </label>
-                <input
-                  type="text"
-                  value={customText}
-                  onChange={e => setCustomText(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleSave() }}
-                  placeholder="Vrije tekst…"
-                  className="w-full px-3 py-2 bg-zinc-800/60 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors"
-                />
-              </div>
+            {/* Staat er iets in deze cel dat geen preset (meer) is — van vóór
+                de presets, of een status die intussen verwijderd werd — dan
+                tonen we dat, zodat je niet blind overschrijft. Kiezen doe je
+                verder gewoon uit de lijst. */}
+            {!selectedOption && initialCell.value.trim() && (
+              <p className="text-[11px] text-zinc-500">
+                Staat nu: <span className="text-zinc-300">{initialCell.value}</span> — geen
+                bestaande status. Kies er een uit de lijst, of laat staan.
+              </p>
             )}
 
             <div>
