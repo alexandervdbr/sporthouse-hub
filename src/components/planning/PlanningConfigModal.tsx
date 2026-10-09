@@ -27,7 +27,6 @@ export interface PlanningTeamContact {
   active_until?: string | null
   active?: boolean
 }
-interface Staleness { dept: string; emp: string; lastEntryDate: string; entryCount: number }
 
 // Een afdeling in de kladversie. `employees` zijn contact-id's.
 //
@@ -61,12 +60,6 @@ interface Props {
   isBeheer: boolean
 }
 
-const STALE_AFTER_DAYS = 60
-
-function daysAgo(dateStr: string) {
-  const then = new Date(dateStr + 'T00:00:00Z').getTime()
-  return Math.floor((Date.now() - then) / 86_400_000)
-}
 
 const PRESET_COLORS = ['#16a34a', '#ea580c', '#2563eb', '#9333ea', '#dc2626', '#ca8a04', '#db2777', '#52525b']
 
@@ -379,25 +372,6 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
     setBusyLink(null)
   }
 
-  const [staleness, setStaleness] = useState<Staleness[]>([])
-  useEffect(() => {
-    fetch('/api/planning/staleness').then(r => r.ok ? r.json() : []).then(setStaleness).catch(() => {})
-  }, [])
-  const stalenessMap = useMemo(() => {
-    const m = new Map<string, string>()
-    for (const s of staleness) m.set(`${s.dept}|${s.emp}`, s.lastEntryDate)
-    return m
-  }, [staleness])
-
-  // Hoeveel ingevulde dagen hangen er aan deze (afdeling, naam)? Bepaalt of
-  // verwijderen mag: die rijen staan op de tekst, dus zodra de naam uit het
-  // rooster verdwijnt zijn ze nergens meer te zien.
-  const entryCountMap = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const s of staleness) m.set(`${s.dept}|${s.emp}`, s.entryCount)
-    return m
-  }, [staleness])
-
   // Inline rename state
   const [renamingDept, setRenamingDept] = useState<number | null>(null)
   const [renamingEmp, setRenamingEmp] = useState<{ dept: number; emp: number } | null>(null)
@@ -454,24 +428,18 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
   function deleteEmployee(deptIdx: number, empIdx: number) {
     const id = depts[deptIdx].employees[empIdx]
     const naam = teamById.get(id)?.name ?? id
-    const planned = entryCountMap.get(id) ?? 0
 
-    // Dit maakt niets meer kapot: zijn dagen hangen aan zijn contact, niet aan
-    // deze plek in het rooster. Ze zijn alleen niet meer zichtbaar zolang hij
-    // nergens staat, en komen terug zodra je hem weer toevoegt.
-    //
-    // Daarom een bevestiging en geen blokkade, anders dan voorheen — en voor
-    // iemand die er nog is, is archiveren nog altijd wat je bedoelt.
-    if (planned > 0) {
-      const ok = confirm(
-        `${naam} uit het rooster halen?\n\n` +
-        `Zijn ${planned} ingevulde dag(en) blijven bewaard en komen terug zodra ` +
-        `je hem weer toevoegt — ook in een andere afdeling.\n\n` +
-        `Gaat het om iemand die er niet meer werkt, gebruik dan archiveren: dan ` +
-        `blijven oude weken gewoon zichtbaar.`
-      )
-      if (!ok) return
-    }
+    // Omkeerbaar sinds de planning aan contact-id's hangt: zijn dagen blijven
+    // staan en komen terug zodra hij ergens weer in het rooster staat. Toch
+    // een vraag, want zijn rij verdwijnt wel uit beeld.
+    const ok = confirm(
+      `${naam} uit het rooster halen?\n\n` +
+      `Zijn eventuele ingevulde dagen blijven bewaard en komen terug zodra je ` +
+      `hem weer toevoegt — ook in een andere afdeling.\n\n` +
+      `Gaat het om iemand die er niet meer werkt, gebruik dan archiveren: dan ` +
+      `blijven oude weken gewoon zichtbaar.`
+    )
+    if (!ok) return
 
     setDepts(prev => prev.map((d, i) => {
       if (i !== deptIdx) return d
@@ -794,8 +762,6 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
                       const isEmpDragging = dragEmpRef.current?.dept === di && dragEmpRef.current.emp === ei
                       const isArchivedEmp = isArchivedId(id)
                       const isBusy = busyArchive === id
-                      const lastEntry = stalenessMap.get(id)
-                      const stale = !isArchivedEmp && lastEntry && daysAgo(lastEntry) >= STALE_AFTER_DAYS
                       const notInTeam = !contact
                       // Stagiair of student: zeg dat, met zijn status erbij.
                       // Zonder dit zag een stagiair die netjes gestopt is er
@@ -809,7 +775,6 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
                         : null
                       const personLink = linkFor(id)
                       const linkBusy = busyLink === id
-                      const plannedDays = entryCountMap.get(id) ?? 0
 
                       return (
                         <div
@@ -857,15 +822,6 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
                                   title="Contractvorm komt uit Team"
                                 >
                                   {tempLabel}
-                                </span>
-                              )}
-                              {stale && (
-                                <span
-                                  className="flex-shrink-0 flex items-center gap-1 text-[9px] text-amber-500"
-                                  title={`Laatste planning: ${lastEntry}`}
-                                >
-                                  <TriangleAlert size={10} />
-                                  {daysAgo(lastEntry!)}d geleden
                                 </span>
                               )}
                           </div>
@@ -916,9 +872,7 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
                               weer ergens staat. */}
                           <button
                             onClick={() => deleteEmployee(di, ei)}
-                            title={plannedDays > 0
-                              ? `Uit het rooster halen — ${plannedDays} ingevulde dag(en) blijven bewaard`
-                              : 'Uit het rooster halen'}
+                            title="Uit het rooster halen" 
                             className="flex-shrink-0 opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 transition-all"
                           >
                             <Trash2 size={13} />
