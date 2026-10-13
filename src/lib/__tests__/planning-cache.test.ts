@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
-  monthCacheKey, readCachedMonth, writeCachedMonth,
+  monthCacheKey, readCachedMonth, writeCachedMonth, patchCachedMonth,
   clearPlanningCache, clearPlanningMonthCache,
   IDENTITY_KEY, IDENTITY_ACCOUNT_KEY, CONFIG_CACHE_KEY,
   type PlanningRow,
@@ -146,5 +146,40 @@ describe('wissen', () => {
     storage.setItem('planning-active-tab', 'team')
     clearPlanningCache()
     expect(storage.getItem('planning-active-tab')).toBe('team')
+  })
+})
+
+describe('patchCachedMonth', () => {
+  // De bug waarvoor dit bestaat: een bewerking in het raster werkte het
+  // scherm, de boekhouding en de database bij, maar niet de kopie in de
+  // browser. Wie een blok wiste en van tabblad wisselde, zag het terugkomen —
+  // tot de sync merkte dat het aantal niet klopte en alles ophaalde.
+
+  it('haalt gewiste cellen uit de kopie', () => {
+    writeCachedMonth(2026, 10, [row(1), row(2), row(3)], '2026-10-01T09:00:00Z')
+    patchCachedMonth(2026, 10, {
+      upserts: [],
+      deleteKeys: ['2026-10-2|c0ffee00-0000-4000-8000-000000000001'],
+    })
+    expect(readCachedMonth(2026, 10)?.rows.map(r => r.day)).toEqual([1, 3])
+  })
+
+  it('vervangt een bestaande dag in plaats van hem te verdubbelen', () => {
+    writeCachedMonth(2026, 10, [row(1)], '2026-10-01T09:00:00Z')
+    patchCachedMonth(2026, 10, { upserts: [{ ...row(1), value: 'VERLOF' }], deleteKeys: [] })
+    const rows = readCachedMonth(2026, 10)?.rows ?? []
+    expect(rows).toHaveLength(1)
+    expect(rows[0].value).toBe('VERLOF')
+  })
+
+  it('laat lastSeen staan — de database bepaalt updated_at, wij raden hem niet', () => {
+    writeCachedMonth(2026, 10, [row(1)], '2026-10-01T09:00:00Z')
+    patchCachedMonth(2026, 10, { upserts: [{ ...row(1), value: 'ZIEK' }], deleteKeys: [] })
+    expect(readCachedMonth(2026, 10)?.lastSeen).toBe('2026-10-01T09:00:00Z')
+  })
+
+  it('doet niets voor een maand die niet in de kopie zit', () => {
+    patchCachedMonth(2026, 11, { upserts: [row(1)], deleteKeys: [] })
+    expect(readCachedMonth(2026, 11)).toBeNull()
   })
 })

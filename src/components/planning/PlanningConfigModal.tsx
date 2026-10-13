@@ -226,14 +226,18 @@ function PresetsPanel() {
 
       <div>
         <p className="text-[11px] uppercase tracking-wider text-zinc-600 mb-2">Preset toevoegen</p>
+        {/* De naam op een eigen regel. Hij stond met `flex-1 min-w-0` naast de
+            kleuren en de knop, en toen de categoriekeuze erbij kwam kreeg hij
+            niets meer: `min-w-0` laat een flex-kind tot nul krimpen, dus bleef
+            er een veld van een paar pixels over. */}
+        <input
+          value={newName}
+          onChange={e => setNewName(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') addPreset() }}
+          placeholder="Naam, bv. SHG"
+          className="w-full mb-2 px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
+        />
         <div className="flex flex-wrap items-center gap-2">
-          <input
-            value={newName}
-            onChange={e => setNewName(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') addPreset() }}
-            placeholder="Naam, bv. SHG"
-            className="flex-1 min-w-0 px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
-          />
           <div className="flex items-center gap-1">
             {PRESET_COLORS.map(c => (
               <button
