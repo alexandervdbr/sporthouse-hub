@@ -2,8 +2,8 @@ import { createClient } from '@/lib/supabase/server'
 import { hasSection } from '@/lib/auth-permissions'
 import { fetchAllRows } from '@/lib/planning-paginate'
 
-// GET — per-employee, per-status day counts for a given year (optionally
-// narrowed to one month) — the aggregation behind the Statistieken tab.
+// GET — per-contact, per-status, per-month day counts for one year: de
+// optelling achter het tabblad Statistieken.
 // Gated on the planning_statistieken permission (or beheer) at the route
 // level too, mirroring the rest of this app's convention, even though
 // planning_entries itself is already readable by any authenticated user
@@ -17,8 +17,6 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url)
   const year = Number(searchParams.get('year'))
-  const monthParam = searchParams.get('month')
-  const month = monthParam ? Number(monthParam) : null
   if (!year) return new Response('Missing year', { status: 400 })
 
   // Gepagineerd, niet in één vraag: een jaar zit ver boven de duizend rijen
@@ -28,15 +26,18 @@ export async function GET(req: Request) {
   // Per contact. Dat is de persoon, los van hoe hij heet en in welke afdeling
   // hij nu staat — wisselt hij van afdeling, dan verhuist zijn telling mee in
   // plaats van te splitsen.
-  // De maand hoort erbij, ook als er op één maand gefilterd is. Het
-  // jaaroverzicht — één status, twaalf maanden naast elkaar — bouwt daarop,
-  // en zonder zou dat een tweede route vragen die hetzelfde doet.
+  // Altijd het hele jaar, en altijd met de maand erbij: de tabel zet twaalf
+  // maanden naast elkaar. Er was hier ook een ?month= om één maand op te
+  // halen; die is weg sinds die weergave weg is. Een parameter die niemand
+  // meegeeft is een parameter die stilletjes stopt met werken.
   let data: { contact_id: string; month: number; value: string }[]
   try {
     data = await fetchAllRows<{ contact_id: string; month: number; value: string }>(() => {
-      let query = supabase.from('planning_entries').select('contact_id, month, value').eq('year', year)
-      if (month) query = query.eq('month', month)
-      return query.order('id', { ascending: true })
+      return supabase
+        .from('planning_entries')
+        .select('contact_id, month, value')
+        .eq('year', year)
+        .order('id', { ascending: true })
     })
   } catch (e) {
     return new Response(e instanceof Error ? e.message : 'Ophalen mislukt', { status: 500 })
