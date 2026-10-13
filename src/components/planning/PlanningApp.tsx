@@ -412,6 +412,14 @@ export default function PlanningApp() {
     return m
   }, [teamContacts])
 
+  // Naam bij een contact-id, ook voor wie niet (meer) in het rooster staat.
+  // De statistieken hebben die nodig: hun dagen komen wel uit de database maar
+  // hadden geen rij om in te staan.
+  const nameForContact = useCallback(
+    (id: string) => contactsById.get(id)?.name ?? null,
+    [contactsById]
+  )
+
   const everyEmployee = useMemo<Person[]>(
     () => activeDepts.flatMap(d =>
       d.employees
@@ -1449,7 +1457,12 @@ export default function PlanningApp() {
         )}
 
         {tab === 'stats' && canSeeStats && (
-          <PlanningStats people={everyEmployee} archived={archived} presets={presets} />
+          <PlanningStats
+            people={everyEmployee}
+            archived={archived}
+            presets={presets}
+            nameFor={nameForContact}
+          />
         )}
       </div>
 
