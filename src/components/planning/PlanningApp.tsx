@@ -12,7 +12,7 @@ import {
 } from '@/lib/planning-week'
 import { isAdminUser } from '@/lib/auth-permissions'
 import {
-  monthCacheKey, readCachedMonth, writeCachedMonth, SELECT_COLS,
+  monthCacheKey, readCachedMonth, writeCachedMonth, patchCachedMonth, SELECT_COLS,
   CONFIG_CACHE_KEY, IDENTITY_KEY, IDENTITY_ACCOUNT_KEY, type PlanningRow,
 } from '@/lib/planning-cache'
 import { fetchAllRows } from '@/lib/planning-paginate'
@@ -1064,6 +1064,33 @@ export default function PlanningApp() {
       const key = weekDayCellKey(e.wd, e.contactId)
       if (e.cell) rememberKey(e.wd.year, e.wd.month, key)
       else forgetKey(e.wd.year, e.wd.month, key)
+    }
+
+    // En de kopie in de browser mee. Die bleef hier achter, waardoor een
+    // gewiste cel terugkwam zodra de pagina opnieuw uit die kopie tekende —
+    // tot de sync merkte dat het aantal niet klopte en alles ophaalde. Zie
+    // patchCachedMonth voor waarom lastSeen daarbij blijft staan.
+    const perMonth = new Map<string, { year: number; month: number; upserts: PlanningRow[]; deleteKeys: string[] }>()
+    for (const e of entries) {
+      const mk = monthCacheKey(e.wd.year, e.wd.month)
+      const bucket = perMonth.get(mk)
+        ?? { year: e.wd.year, month: e.wd.month, upserts: [], deleteKeys: [] }
+      if (e.cell) {
+        bucket.upserts.push({
+          year: e.wd.year, month: e.wd.month, day: e.wd.day, contact_id: e.contactId,
+          value: e.cell.value, bold: e.cell.bold,
+          text_color: e.cell.textColor, bg_color: e.cell.bgColor, note: e.cell.note,
+          updated_by: userEmail ?? null,
+          // De database zet deze; wij kennen hem nog niet.
+          updated_at: null,
+        })
+      } else {
+        bucket.deleteKeys.push(weekDayCellKey(e.wd, e.contactId))
+      }
+      perMonth.set(mk, bucket)
+    }
+    for (const b of perMonth.values()) {
+      patchCachedMonth(b.year, b.month, { upserts: b.upserts, deleteKeys: b.deleteKeys })
     }
     const toUpsert = entries.filter(e => e.cell)
     const toDelete = entries.filter(e => !e.cell)

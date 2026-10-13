@@ -30,13 +30,17 @@ export async function GET() {
 export async function POST(req: Request) {
   if (!await requireAdmin()) return new Response('Forbidden', { status: 403 })
 
-  const { name, color } = await req.json()
+  const { name, color, category } = await req.json()
   if (!name?.trim()) return new Response('Naam is verplicht', { status: 400 })
 
   const admin = createAdminClient()
   const { data, error } = await admin
     .from('planning_presets')
-    .insert({ name: name.trim(), color: color?.trim() || '#3A913F' })
+    .insert({
+      name: name.trim(),
+      color: color?.trim() || '#3A913F',
+      category: category === 'afwezig' ? 'afwezig' : 'werk',
+    })
     .select()
     .single()
 
@@ -54,6 +58,9 @@ export async function PATCH(req: Request) {
   if (typeof fields.name === 'string' && fields.name.trim()) update.name = fields.name.trim()
   if (typeof fields.color === 'string') update.color = fields.color
   if (typeof fields.sort_order === 'number') update.sort_order = fields.sort_order
+  // Onbekende waarde stil negeren: de check-constraint zou hem toch weigeren,
+  // en een 500 uit de database is een slechter antwoord dan niets doen.
+  if (fields.category === 'werk' || fields.category === 'afwezig') update.category = fields.category
 
   const admin = createAdminClient()
   const { data, error } = await admin

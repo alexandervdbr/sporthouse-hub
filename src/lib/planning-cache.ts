@@ -119,6 +119,44 @@ export function writeCachedMonth(year: number, month: number, rows: PlanningRow[
   writeStore(Object.fromEntries(fresh))
 }
 
+// Een eigen wijziging meteen in de kopie zetten.
+//
+// writeCachedMonth hierboven schrijft een hele maand, en dat kon alleen na een
+// volledige ophaling of een sync. Een bewerking in het raster raakte de kopie
+// dus niet aan: het scherm klopte, de boekhouding klopte, de database klopte,
+// en de kopie in de browser bleef op de oude inhoud staan.
+//
+// Dat viel op bij wissen. Je wist een blok, wisselde van tabblad, en bij
+// terugkomst tekende de pagina eerst uit die kopie — alles stond er weer.
+// Daarna merkte de sync dat het aantal rijen niet klopte, haalde de maand
+// opnieuw op, en was het weer weg. Niets was kwijt of terug, maar je zat een
+// seconde naar iets te kijken dat niet bestond.
+//
+// `lastSeen` wordt bewust niet opgeschoven. De database zet updated_at (zie
+// migratie 0050) en die waarde kennen we hier niet; een gok die te hoog
+// uitvalt zou de volgende sync echte wijzigingen laten overslaan. Hooguit
+// haalt die sync deze rijen nog een keer op, en dat kost niets.
+export function patchCachedMonth(
+  year: number,
+  month: number,
+  changes: { upserts: PlanningRow[]; deleteKeys: string[] },
+) {
+  const key = monthCacheKey(year, month)
+  const store = readStore()
+  const entry = store[key]
+  if (!entry || !Array.isArray(entry.rows)) return
+
+  const rowKey = (r: PlanningRow) => `${r.year}-${r.month}-${r.day}|${r.contact_id}`
+  const removed = new Set(changes.deleteKeys)
+  const byKey = new Map(
+    entry.rows.filter(r => !removed.has(rowKey(r))).map(r => [rowKey(r), r])
+  )
+  for (const r of changes.upserts) byKey.set(rowKey(r), r)
+
+  store[key] = { ...entry, rows: [...byKey.values()] }
+  writeStore(store)
+}
+
 // Planning is internal business data and localStorage outlives a session, so
 // signing out takes the copy with it — otherwise the next person on a shared
 // laptop could read last month's roster out of the browser without ever

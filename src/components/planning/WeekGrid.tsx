@@ -75,7 +75,12 @@ export default function WeekGrid({
   const dragRef = useRef<{ rowIdx: number; startCol: number } | null>(null)
   const [selection, setSelection] = useState<Selection | null>(null)
   const [menuKey, setMenuKey] = useState<string | null>(null)
-  const [editing, setEditing] = useState<{ targets: Target[]; cell: CellData; title: string; subtitle?: string } | null>(null)
+  // `contactId` erbij, zodat de dagenkiezer in de editor weet voor wie hij
+  // dagen aan- of uitzet. In dit raster is een selectie altijd één persoon —
+  // de sleep stopt zodra je van rij wisselt.
+  const [editing, setEditing] = useState<{
+    targets: Target[]; cell: CellData; title: string; subtitle?: string; contactId: string
+  } | null>(null)
   const clipboardRef = useRef<CellData | null>(null)
   const [hasClipboard, setHasClipboard] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -180,7 +185,7 @@ export default function WeekGrid({
     const title = single
       ? dayTitle(targets[0].wd)
       : `${targets.length} dagen — ${dayTitle(targets[0].wd)} t/m ${dayTitle(targets[targets.length - 1].wd)}`
-    setEditing({ targets, cell: initial, title, subtitle: personSubtitle?.(person) })
+    setEditing({ targets, cell: initial, title, subtitle: personSubtitle?.(person), contactId: person.id })
   }
 
   function handlePointerDown(e: React.PointerEvent, person: Person, rowIdx: number, colIdx: number) {
@@ -416,6 +421,17 @@ export default function WeekGrid({
           presets={presets}
           readOnly={false}
           emailToName={emailToName}
+          dateEditor={{
+            pool: week,
+            selected: editing.targets.map(t => t.wd),
+            onChange: next => setEditing(prev => prev && {
+              ...prev,
+              targets: next
+                .slice()
+                .sort((a, b) => a.date.getTime() - b.date.getTime())
+                .map(wd => ({ wd, contactId: prev.contactId })),
+            }),
+          }}
           onSave={cell => { onApply(editing.targets, cell); setEditing(null) }}
           onClear={() => { onClear(editing.targets); setEditing(null) }}
           onClose={() => setEditing(null)}

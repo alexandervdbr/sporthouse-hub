@@ -4,7 +4,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { DUTCH_MONTHS, type Person } from '@/lib/planning-config'
 import type { PlanningPreset } from '@/lib/planning-presets'
-import { mergedStatusOptions } from './DayEditor'
+import { allStatusOptions, splitThuis } from './DayEditor'
 
 interface StatRow { contactId: string; value: string; count: number }
 
@@ -49,7 +49,16 @@ export default function PlanningStats({
       .finally(() => setLoading(false))
   }, [year, month])
 
-  const options = useMemo(() => mergedStatusOptions(presets), [presets])
+  // Zonder de THUIS-varianten, want die vallen onder hun eigen status: een
+  // dag "PS - THUIS" is een PS-dag, ergens anders gedaan. Ze apart tellen
+  // splitste het aantal PS-dagen van iemand over twee kolommen.
+  //
+  // Hoe vaak er thuis gewerkt is blijft wel zichtbaar, in één kolom aan het
+  // eind — dat is de vraag die je er echt over stelt.
+  const options = useMemo(
+    () => allStatusOptions(presets).filter(o => !splitThuis(o.name).thuis),
+    [presets]
+  )
   const optionNames = useMemo(
     () => new Set(options.map(o => o.name.toUpperCase())),
     [options]
@@ -67,9 +76,22 @@ export default function PlanningStats({
   const countsByEmployee = useMemo(() => {
     const m = new Map<string, Map<string, number>>()
     for (const r of rows) {
+      // "PS - THUIS" telt mee onder PS. Optellen en niet overschrijven, want
+      // beide varianten komen als eigen rij binnen.
+      const { base } = splitThuis(r.value)
+      const key = base.toUpperCase()
       const byValue = m.get(r.contactId) ?? new Map<string, number>()
-      byValue.set(r.value.toUpperCase(), r.count)
+      byValue.set(key, (byValue.get(key) ?? 0) + r.count)
       m.set(r.contactId, byValue)
+    }
+    return m
+  }, [rows])
+
+  const thuisByEmployee = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const r of rows) {
+      if (!splitThuis(r.value).thuis) continue
+      m.set(r.contactId, (m.get(r.contactId) ?? 0) + r.count)
     }
     return m
   }, [rows])
@@ -129,8 +151,14 @@ export default function PlanningStats({
                 </th>
               ))}
               <th
+                className="sticky top-0 z-10 bg-zinc-950 px-2 py-2 text-center font-medium text-zinc-500 border-b border-l border-zinc-800 whitespace-nowrap"
+                title="Dagen waarop thuis gewerkt is, over alle statussen heen"
+              >
+                Thuis
+              </th>
+              <th
                 className="sticky top-0 z-10 bg-zinc-950 px-2 py-2 text-center font-medium text-zinc-500 border-b border-zinc-800 whitespace-nowrap"
-                title="Vrij getypte waarden die geen eigen status zijn"
+                title="Waarden die geen bestaande status zijn — bijvoorbeeld van vóór de presets"
               >
                 Overig
               </th>
@@ -144,7 +172,7 @@ export default function PlanningStats({
               <Fragment key={g.name}>
                 <tr>
                   <td
-                    colSpan={options.length + 3}
+                    colSpan={options.length + 4}
                     className="sticky left-0 bg-zinc-900 px-3 py-1 text-[10px] uppercase tracking-wider text-zinc-500 border-b border-zinc-800"
                   >
                     {g.name}
@@ -156,6 +184,7 @@ export default function PlanningStats({
                   // Wat niet in een van de statuskolommen past: vrij getypte
                   // waarden. Die zaten wél in Totaal maar nergens in de rij,
                   // waardoor het totaal nooit gelijk was aan wat ernaast stond.
+                  const thuisDagen = thuisByEmployee.get(person.id) ?? 0
                   const other = byValue
                     ? [...byValue.entries()]
                         .filter(([v]) => !optionNames.has(v))
@@ -179,6 +208,12 @@ export default function PlanningStats({
                         )
                       })}
                       <td
+                        className="px-2 py-1.5 text-center tabular-nums border-l border-zinc-800"
+                        style={thuisDagen > 0 ? { color: '#a1a1aa', fontWeight: 600 } : { color: '#3f3f46' }}
+                      >
+                        {thuisDagen > 0 ? thuisDagen : '–'}
+                      </td>
+                      <td
                         className="px-2 py-1.5 text-center tabular-nums"
                         style={other > 0 ? { color: '#a1a1aa', fontWeight: 600 } : { color: '#3f3f46' }}
                       >
@@ -194,7 +229,7 @@ export default function PlanningStats({
             ))}
             {groups.length === 0 && (
               <tr>
-                <td colSpan={options.length + 3} className="py-8 text-center text-zinc-600">
+                <td colSpan={options.length + 4} className="py-8 text-center text-zinc-600">
                   Geen medewerkers om te tonen.
                 </td>
               </tr>
