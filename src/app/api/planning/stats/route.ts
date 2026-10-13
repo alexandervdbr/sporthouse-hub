@@ -28,10 +28,13 @@ export async function GET(req: Request) {
   // Per contact. Dat is de persoon, los van hoe hij heet en in welke afdeling
   // hij nu staat — wisselt hij van afdeling, dan verhuist zijn telling mee in
   // plaats van te splitsen.
-  let data: { contact_id: string; value: string }[]
+  // De maand hoort erbij, ook als er op één maand gefilterd is. Het
+  // jaaroverzicht — één status, twaalf maanden naast elkaar — bouwt daarop,
+  // en zonder zou dat een tweede route vragen die hetzelfde doet.
+  let data: { contact_id: string; month: number; value: string }[]
   try {
-    data = await fetchAllRows<{ contact_id: string; value: string }>(() => {
-      let query = supabase.from('planning_entries').select('contact_id, value').eq('year', year)
+    data = await fetchAllRows<{ contact_id: string; month: number; value: string }>(() => {
+      let query = supabase.from('planning_entries').select('contact_id, month, value').eq('year', year)
       if (month) query = query.eq('month', month)
       return query.order('id', { ascending: true })
     })
@@ -39,17 +42,16 @@ export async function GET(req: Request) {
     return new Response(e instanceof Error ? e.message : 'Ophalen mislukt', { status: 500 })
   }
 
-  const counts = new Map<string, Map<string, number>>()
+  const counts = new Map<string, number>()
   for (const row of data) {
-    const byValue = counts.get(row.contact_id) ?? new Map<string, number>()
-    byValue.set(row.value, (byValue.get(row.value) ?? 0) + 1)
-    counts.set(row.contact_id, byValue)
+    const key = `${row.contact_id}\u0000${row.month}\u0000${row.value}`
+    counts.set(key, (counts.get(key) ?? 0) + 1)
   }
 
-  const result: { contactId: string; value: string; count: number }[] = []
-  for (const [contactId, byValue] of counts) {
-    for (const [value, count] of byValue) result.push({ contactId, value, count })
-  }
+  const result = [...counts.entries()].map(([key, count]) => {
+    const [contactId, m, value] = key.split('\u0000')
+    return { contactId, month: Number(m), value, count }
+  })
 
   return Response.json(result)
 }
