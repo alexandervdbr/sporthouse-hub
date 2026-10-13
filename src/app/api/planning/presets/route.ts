@@ -61,6 +61,13 @@ export async function PATCH(req: Request) {
   // Onbekende waarde stil negeren: de check-constraint zou hem toch weigeren,
   // en een 500 uit de database is een slechter antwoord dan niets doen.
   if (fields.category === 'werk' || fields.category === 'afwezig') update.category = fields.category
+  // Archiveren is een tijdstip, geen vlag: zo weet je achteraf wanneer een
+  // status uit roulatie ging. De client stuurt een boolean, want dat is de
+  // knop die hij heeft.
+  if (typeof fields.archived === 'boolean') {
+    update.archived_at = fields.archived ? new Date().toISOString() : null
+  }
+  if (typeof fields.in_stats === 'boolean') update.in_stats = fields.in_stats
 
   const admin = createAdminClient()
   const { data, error } = await admin
@@ -81,7 +88,10 @@ export async function DELETE(req: Request) {
   if (!id) return new Response('ID ontbreekt', { status: 400 })
 
   // Cellen die al met deze preset gestempeld zijn houden hun tekst en kleur —
-  // die zijn losse waarden op de cel, geen verwijzing naar de preset-rij.
+  // die zijn losse waarden op de cel, geen verwijzing naar de preset-rij. Wat
+  // ze wél verliezen is herkenbaarheid: de dageditor ziet er "geen bestaande
+  // status" in en de statistieken schuiven ze naar Overig. Daarom telt de
+  // beheer-tab eerst (zie ./gebruik) en staat archiveren ernaast.
   const admin = createAdminClient()
   const { error } = await admin.from('planning_presets').delete().eq('id', id)
   if (error) return new Response(error.message, { status: 500 })

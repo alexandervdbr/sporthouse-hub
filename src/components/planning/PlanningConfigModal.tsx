@@ -18,7 +18,8 @@ import {
 } from 'lucide-react'
 import { UNASSIGNED_DEPT, type Department } from '@/lib/planning-config'
 import {
-  presetCategory, PRESET_CATEGORIES, PRESET_CATEGORY_LABELS,
+  presetCategory, isArchived, telMeeInStats,
+  PRESET_CATEGORIES, PRESET_CATEGORY_LABELS,
   type PlanningPreset, type PresetCategory,
 } from '@/lib/planning-presets'
 import type { PlanningLinkRow } from '@/lib/planning-links'
@@ -93,6 +94,9 @@ function PresetsPanel() {
     [presets]
   )
 
+  const actief = useMemo(() => sortedPresets.filter(p => !isArchived(p)), [sortedPresets])
+  const gearchiveerd = useMemo(() => sortedPresets.filter(isArchived), [sortedPresets])
+
   const [newName, setNewName] = useState('')
   const [newColor, setNewColor] = useState(PRESET_COLORS[0])
   const [newCategory, setNewCategory] = useState<PresetCategory>('werk')
@@ -125,7 +129,12 @@ function PresetsPanel() {
     setCreating(false)
   }
 
-  async function patchPreset(p: PlanningPreset, fields: Partial<PlanningPreset>) {
+  // `archived` is geen veld op de preset maar een opdracht aan de route: die
+  // zet er archived_at uit af. Vandaar los van Partial<PlanningPreset>.
+  async function patchPreset(
+    p: PlanningPreset,
+    fields: Partial<PlanningPreset> & { archived?: boolean },
+  ) {
     setBusyId(p.id); setError('')
     try {
       const res = await fetch('/api/planning/presets', {
@@ -142,9 +151,36 @@ function PresetsPanel() {
     setBusyId(null)
   }
 
+  // Verwijderen vertelt eerst wat het kost. De bevestiging zei hiervoor alleen
+  // dat de cellen hun tekst en kleur houden — dat klopt, maar het is het halve
+  // verhaal: ze zijn daarna in de dageditor niet meer te herkennen en vallen
+  // in de statistieken onder Overig. Zonder getal is dat niet te wegen.
   async function removePreset(p: PlanningPreset) {
-    if (!confirm(`Preset "${p.name}" verwijderen?\n\nCellen die er al mee gestempeld zijn behouden hun tekst en kleur.`)) return
-    setBusyId(p.id)
+    setBusyId(p.id); setError('')
+
+    let aantal: number | null = null
+    try {
+      const res = await fetch(`/api/planning/presets/gebruik?name=${encodeURIComponent(p.name)}`)
+      if (res.ok) aantal = (await res.json()).count as number
+    } catch {
+      // Telling mislukt: dan vragen we het zonder getal, in plaats van het
+      // verwijderen tegen te houden om iets wat alleen informatie was.
+    }
+
+    const gevolg =
+      'Die dagen houden hun tekst en kleur, maar zijn in de dageditor niet meer ' +
+      'te herkennen en vallen in de statistieken onder "Overig".\n\n' +
+      'Wil je hem enkel uit de kiezer halen, gebruik dan Archiveren.'
+    const uitleg =
+      aantal === null ? `Kon niet nagaan op hoeveel dagen hij staat.\n\n${gevolg}`
+      : aantal === 0 ? 'Hij staat op geen enkele dag in de planning.'
+      : `Hij staat op ${aantal} ${aantal === 1 ? 'dag' : 'dagen'} in de planning.\n\n${gevolg}`
+
+    if (!confirm(`Preset "${p.name}" verwijderen?\n\n${uitleg}`)) {
+      setBusyId(null)
+      return
+    }
+
     await fetch('/api/planning/presets', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
@@ -162,27 +198,29 @@ function PresetsPanel() {
     )
   }
 
-  return (
-    <div className="space-y-4">
-      <p className="text-xs text-zinc-500">
-        Een preset zet in één tik zowel de tekst als de achtergrondkleur van een cel — sneller dan
-        typen en dan apart een kleur kiezen, en consistent ongeacht wie de cel invult.
-      </p>
+  // Eén regel in de lijst. Een gewone functie en geen component: als
+  // component zou hij bij elke render opnieuw gemonteerd worden, en dan
+  // verliest het kleurenpopupje zijn plek.
+  function presetRij(p: PlanningPreset) {
+    const weg = isArchived(p)
+    return (
+      <div
+        key={p.id}
+        className={`relative flex items-center gap-2 p-2 rounded-xl border border-zinc-800 ${
+          weg ? 'bg-transparent opacity-60' : 'bg-zinc-950/40'
+        }`}
+      >
+        <button
+          onClick={() => setColorPickerFor(id => id === p.id ? null : p.id)}
+          disabled={weg}
+          aria-label={`Kleur wijzigen voor ${p.name}`}
+          className="w-4 h-4 rounded-full flex-shrink-0 ring-1 ring-white/10 hover:ring-white/30 transition-all disabled:hover:ring-white/10"
+          style={{ backgroundColor: p.color }}
+        />
+        <span className="flex-1 min-w-0 text-sm text-zinc-100 truncate">{p.name}</span>
 
-      {error && (
-        <p className="px-3 py-2 rounded-lg bg-red-950/40 border border-red-900/40 text-xs text-red-400">{error}</p>
-      )}
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-        {sortedPresets.map(p => (
-          <div key={p.id} className="relative flex items-center gap-2 p-2 rounded-xl border border-zinc-800 bg-zinc-950/40">
-            <button
-              onClick={() => setColorPickerFor(id => id === p.id ? null : p.id)}
-              aria-label={`Kleur wijzigen voor ${p.name}`}
-              className="w-4 h-4 rounded-full flex-shrink-0 ring-1 ring-white/10 hover:ring-white/30 transition-all"
-              style={{ backgroundColor: p.color }}
-            />
-            <span className="flex-1 min-w-0 text-sm text-zinc-100 truncate">{p.name}</span>
+        {!weg && (
+          <>
             {/* Werk of afwezig. Bepaalt waar hij in de kiezer staat en of de
                 thuisschakelaar erbij hoort — "thuis gewerkt" zegt niets bij
                 Verlof of Ziek. */}
@@ -196,33 +234,100 @@ function PresetsPanel() {
             >
               {PRESET_CATEGORY_LABELS[presetCategory(p)]}
             </button>
-            <button
-              onClick={() => removePreset(p)}
-              disabled={busyId === p.id}
-              aria-label={`${p.name} verwijderen`}
-              className="w-7 h-7 flex-shrink-0 flex items-center justify-center rounded-lg text-zinc-600 hover:text-red-400"
-            >
-              {busyId === p.id ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
-            </button>
 
-            {colorPickerFor === p.id && (
-              <div ref={colorPickerRef} onClick={e => e.stopPropagation()}
-                className="absolute left-0 top-full mt-1 z-30 flex items-center gap-1.5 p-2 rounded-lg shadow-2xl bg-zinc-800 border border-zinc-700">
-                {PRESET_COLORS.map(c => (
-                  <button
-                    key={c}
-                    onClick={() => { patchPreset(p, { color: c }); setColorPickerFor(null) }}
-                    aria-label={`Kleur ${c}`}
-                    className="w-5 h-5 rounded-full"
-                    style={{ backgroundColor: c, border: p.color === c ? '2px solid #fff' : '2px solid transparent' }}
-                  />
-                ))}
-              </div>
+            {/* Alleen bij afwezigheid: de statistieken tellen opgenomen dagen,
+                en niet elke afwezigheid is er daar een. NB staat standaard
+                uit — dat is een roosterafspraak, geen verlof- of ziektedag. */}
+            {presetCategory(p) === 'afwezig' && (
+              <button
+                onClick={() => patchPreset(p, { in_stats: !telMeeInStats(p) })}
+                disabled={busyId === p.id}
+                title={telMeeInStats(p)
+                  ? 'Telt mee in de statistieken — klik om hem eruit te laten'
+                  : 'Telt niet mee in de statistieken — klik om hem mee te tellen'}
+                className={`flex-shrink-0 text-[9px] uppercase tracking-wide rounded px-1.5 py-0.5 border transition-colors disabled:opacity-50 ${
+                  telMeeInStats(p)
+                    ? 'border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600'
+                    : 'border-zinc-800 text-zinc-600 line-through hover:text-zinc-400'
+                }`}
+              >
+                Cijfers
+              </button>
             )}
+          </>
+        )}
+
+        <button
+          onClick={() => patchPreset(p, { archived: !weg })}
+          disabled={busyId === p.id}
+          aria-label={weg ? `${p.name} terugzetten` : `${p.name} archiveren`}
+          title={weg
+            ? 'Terugzetten: weer te kiezen bij het invullen'
+            : 'Archiveren: uit de kiezer halen, zonder de geschiedenis onleesbaar te maken'}
+          className="w-7 h-7 flex-shrink-0 flex items-center justify-center rounded-lg text-zinc-600 hover:text-zinc-300 disabled:opacity-50"
+        >
+          {weg ? <ArchiveRestore size={12} /> : <Archive size={12} />}
+        </button>
+
+        <button
+          onClick={() => removePreset(p)}
+          disabled={busyId === p.id}
+          aria-label={`${p.name} verwijderen`}
+          className="w-7 h-7 flex-shrink-0 flex items-center justify-center rounded-lg text-zinc-600 hover:text-red-400 disabled:opacity-50"
+        >
+          {busyId === p.id ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+        </button>
+
+        {colorPickerFor === p.id && (
+          <div ref={colorPickerRef} onClick={e => e.stopPropagation()}
+            className="absolute left-0 top-full mt-1 z-30 flex items-center gap-1.5 p-2 rounded-lg shadow-2xl bg-zinc-800 border border-zinc-700">
+            {PRESET_COLORS.map(c => (
+              <button
+                key={c}
+                onClick={() => { patchPreset(p, { color: c }); setColorPickerFor(null) }}
+                aria-label={`Kleur ${c}`}
+                className="w-5 h-5 rounded-full"
+                style={{ backgroundColor: c, border: p.color === c ? '2px solid #fff' : '2px solid transparent' }}
+              />
+            ))}
           </div>
-        ))}
-        {sortedPresets.length === 0 && <p className="py-4 text-center text-sm text-zinc-600 col-span-full">Nog geen presets.</p>}
+        )}
       </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-zinc-500">
+        Een preset zet in één tik zowel de tekst als de achtergrondkleur van een cel — sneller dan
+        typen en dan apart een kleur kiezen, en consistent ongeacht wie de cel invult.
+      </p>
+
+      {error && (
+        <p className="px-3 py-2 rounded-lg bg-red-950/40 border border-red-900/40 text-xs text-red-400">{error}</p>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-1.5">
+        {actief.map(presetRij)}
+        {actief.length === 0 && <p className="py-4 text-center text-sm text-zinc-600 col-span-full">Nog geen presets.</p>}
+      </div>
+
+      {/* Gearchiveerd: uit de kiezer, maar niet uit de geschiedenis. Apart
+          onderaan, want dit is de lijst waar je normaal niet naar kijkt. */}
+      {gearchiveerd.length > 0 && (
+        <div>
+          <p className="text-[11px] uppercase tracking-wider text-zinc-600 mb-1">
+            Gearchiveerd ({gearchiveerd.length})
+          </p>
+          <p className="text-[11px] text-zinc-600 mb-2">
+            Niet meer te kiezen bij het invullen. Dagen die er al mee ingevuld zijn
+            blijven gewoon werken — in de dageditor en in de statistieken.
+          </p>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-1.5">
+            {gearchiveerd.map(presetRij)}
+          </div>
+        </div>
+      )}
 
       <div>
         <p className="text-[11px] uppercase tracking-wider text-zinc-600 mb-2">Preset toevoegen</p>

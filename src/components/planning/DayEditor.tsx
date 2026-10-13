@@ -3,9 +3,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { X, Check, Trash2 } from 'lucide-react'
 import {
-  presetCategory, PRESET_CATEGORIES, PRESET_CATEGORY_LABELS,
-  type PlanningPreset, type PresetCategory,
+  PRESET_CATEGORIES, PRESET_CATEGORY_LABELS, type PlanningPreset,
 } from '@/lib/planning-presets'
+import {
+  allStatusOptions, pickerStatusOptions, splitThuis, matchStatus, thuisColor,
+  THUIS_SUFFIX,
+} from '@/lib/planning-status'
 import type { CellData, WeekDay } from '@/lib/planning-week'
 
 function sameDay(a: WeekDay, b: WeekDay) {
@@ -24,78 +27,6 @@ function rectIndices(aIdx: number, bIdx: number): number[] {
   const out: number[] = []
   for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) out.push(r * 7 + c)
   return out
-}
-
-export interface StatusOption {
-  name: string
-  color: string
-  category: PresetCategory
-}
-
-// De statuslijst is wat er in Beheer → Presets staat, en niets anders.
-//
-// Hier stond een samenvoeging met een hardcoded lijst (PLANNING_OPTIONS) als
-// terugval voor wie nog geen presets had aangemaakt. Migratie 0044 heeft die
-// lijst als echte rijen in de database gezet, waarmee de terugval overbodig
-// werd — maar hij bleef staan, en deed daarna hetzelfde als de oude
-// DEPARTMENTS-fallback: wat je in Beheer weggooide kwam terug. Zo stonden
-// "Play Sports" naast "PS" en "Sport Vl" naast "Sport Vlaanderen" in de
-// kiezer, onverwijderbaar.
-export function allStatusOptions(presets: PlanningPreset[]): StatusOption[] {
-  return presets
-    .map(p => ({ name: p.name, color: p.color, category: presetCategory(p) }))
-    .sort((a, b) => a.name.localeCompare(b.name, 'nl'))
-}
-
-// Thuiswerk is geen status maar een eigenschap van een status: "PS - THUIS"
-// is PS, ergens anders gedaan. Als aparte knoppen verdubbelden ze de lijst en
-// vertroebelden ze de keuze die je eigenlijk maakt.
-//
-// Ze blijven als preset bestaan — de opgeslagen waarde is nog steeds
-// "PS - THUIS", dus oude cellen en de statistieken kloppen gewoon door — maar
-// in de kiezer zijn ze een schakelaar geworden. Dat werkt meteen ook voor een
-// klant waar nog geen THUIS-preset voor bestaat.
-const THUIS_SUFFIX = ' - THUIS'
-
-export function splitThuis(value: string): { base: string; thuis: boolean } {
-  const upper = value.toUpperCase()
-  return upper.endsWith(THUIS_SUFFIX)
-    ? { base: value.slice(0, value.length - THUIS_SUFFIX.length), thuis: true }
-    : { base: value, thuis: false }
-}
-
-// Wat de kiezer toont: alles behalve de THUIS-varianten waarvan de basis ook
-// bestaat. Een losse "X - THUIS" zonder "X" blijft gewoon staan, anders zou
-// hij onbereikbaar worden.
-export function pickerStatusOptions(presets: PlanningPreset[]): StatusOption[] {
-  const all = allStatusOptions(presets)
-  const names = new Set(all.map(o => o.name.toUpperCase()))
-  return all.filter(o => {
-    const { base, thuis } = splitThuis(o.name)
-    return !thuis || !names.has(base.toUpperCase())
-  })
-}
-
-// De kleur die bij "deze status, thuis" hoort. Bestaat er een echte
-// THUIS-preset, dan die; anders houdt hij de kleur van de status zelf, zodat
-// het in het raster nog steeds als diezelfde klant leest.
-function thuisColor(presets: PlanningPreset[], base: StatusOption): string {
-  const wanted = (base.name + THUIS_SUFFIX).toUpperCase()
-  return presets.find(p => p.name.toUpperCase() === wanted)?.color ?? base.color
-}
-
-// Welke knop hoort bij deze cel, en stond de thuisschakelaar aan?
-//
-// Op naam en niet op kleur: een preset kan hernoemd of van kleur veranderd
-// zijn, en dan hoort de cel er nog steeds bij. Daarvoor werd ook de kleur
-// vergeleken, en dan opende een oude cel als vrije tekst — en overschreef
-// opslaan hem met bgColor null, dus verloor hij stil zijn kleur.
-function matchStatus(cell: CellData, options: StatusOption[]): { name: string; thuis: boolean } | null {
-  const raw = cell.value.trim()
-  if (!raw) return null
-  const { base, thuis } = splitThuis(raw)
-  const hit = options.find(o => o.name.toUpperCase() === base.toUpperCase())
-  return hit ? { name: hit.name, thuis } : null
 }
 
 export default function DayEditor({
@@ -122,8 +53,16 @@ export default function DayEditor({
   // trace reads "Robin B." instead of a raw email address.
   emailToName?: Map<string, string>
 }) {
-  const options = pickerStatusOptions(presets)
-  const matched = matchStatus(initialCell, options)
+  // Twee lijsten, en het verschil ertussen is archiveren.
+  //
+  // `keuzes` is wat aan te klikken is. `herkenbaar` is alles, gearchiveerde
+  // statussen inbegrepen: een cel die daar al mee ingevuld is opent met zijn
+  // status geselecteerd in plaats van met "geen bestaande status", en opslaan
+  // houdt zijn kleur. Zou hier ook de kiezerlijst staan, dan deed archiveren
+  // precies wat het moest voorkomen.
+  const keuzes = pickerStatusOptions(presets)
+  const herkenbaar = allStatusOptions(presets)
+  const matched = matchStatus(initialCell, herkenbaar)
 
   const [statusName, setStatusName] = useState<string | null>(matched?.name ?? null)
   const [thuis, setThuis] = useState(matched?.thuis ?? false)
@@ -195,7 +134,11 @@ export default function DayEditor({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  const selectedOption = options.find(o => o.name === statusName) ?? null
+  const selectedOption = herkenbaar.find(o => o.name === statusName) ?? null
+  // Gekozen, maar niet (meer) aan te klikken: dan staat er geen knop op
+  // actief en zou het scherm niets zeggen over wat er nu in de cel staat.
+  const gearchiveerdeKeuze =
+    selectedOption && !keuzes.some(o => o.name === selectedOption.name) ? selectedOption : null
 
   // Only ever set on a genuinely single, previously-saved cell (see
   // CellData) — a multi-day/multi-person selection's initialCell is always
@@ -302,7 +245,7 @@ export default function DayEditor({
                   vocht alles om aandacht en viel de gekozen status niet op.
                   De kleur doet nu werk waar ze telt: in het raster. */}
               {PRESET_CATEGORIES.map(cat => {
-                const inCat = options.filter(o => o.category === cat)
+                const inCat = keuzes.filter(o => o.category === cat)
                 if (inCat.length === 0) return null
                 return (
                   <div key={cat} className="mb-3 last:mb-0">
@@ -372,6 +315,17 @@ export default function DayEditor({
               <p className="text-[11px] text-zinc-500">
                 Staat nu: <span className="text-zinc-300">{initialCell.value}</span> — geen
                 bestaande status. Kies er een uit de lijst, of laat staan.
+              </p>
+            )}
+
+            {/* Gearchiveerd: hij staat niet tussen de knoppen, maar hij staat
+                wel in de cel. Zonder deze regel lijkt die leeg. */}
+            {gearchiveerdeKeuze && (
+              <p className="text-[11px] text-zinc-500">
+                Staat nu:{' '}
+                <span style={{ color: gearchiveerdeKeuze.color }}>{gearchiveerdeKeuze.name}</span>{' '}
+                — gearchiveerd, niet meer te kiezen. Hij blijft staan zolang je
+                niets anders kiest.
               </p>
             )}
 

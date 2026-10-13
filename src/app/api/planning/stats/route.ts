@@ -49,10 +49,27 @@ export async function GET(req: Request) {
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
 
-  const result = [...counts.entries()].map(([key, count]) => {
+  const tellingen = [...counts.entries()].map(([key, count]) => {
     const [contactId, m, value] = key.split('\u0000')
     return { contactId, month: Number(m), value, count }
   })
 
-  return Response.json(result)
+  // Welke jaren er überhaupt planning hebben. Zonder dit stond er in de
+  // jaarkiezer een vast venster van vorig/dit/volgend jaar, en wie iets in
+  // 2028 inplande kon dat hier niet terugvinden — het jaar bestond niet in de
+  // lijst, zonder dat iets dat zei.
+  //
+  // Twee keer één rij, op de index die onder de unieke sleutel ligt
+  // (year, month, day, contact_id). Dat is goedkoper dan alle jaren ophalen
+  // en ontdubbelen, en het antwoord is hetzelfde.
+  const [eerste, laatste] = await Promise.all([
+    supabase.from('planning_entries').select('year').order('year', { ascending: true }).limit(1).maybeSingle(),
+    supabase.from('planning_entries').select('year').order('year', { ascending: false }).limit(1).maybeSingle(),
+  ])
+
+  return Response.json({
+    tellingen,
+    minYear: eerste.data?.year ?? null,
+    maxYear: laatste.data?.year ?? null,
+  })
 }

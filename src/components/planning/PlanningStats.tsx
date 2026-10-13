@@ -3,10 +3,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Loader2, Search, X } from 'lucide-react'
 import { DUTCH_MONTHS, normName, type Person } from '@/lib/planning-config'
-import type { PlanningPreset } from '@/lib/planning-presets'
-import { allStatusOptions, splitThuis } from './DayEditor'
+import {
+  presetCategory, isArchived, telMeeInStats, type PlanningPreset,
+} from '@/lib/planning-presets'
+import { splitThuis } from '@/lib/planning-status'
 
 interface StatRow { contactId: string; month: number; value: string; count: number }
+interface StatsAntwoord { tellingen: StatRow[]; minYear: number | null; maxYear: number | null }
 
 // Mensen met planning die nergens in het rooster staan. Komt voor wanneer
 // iemand er tijdelijk uitgehaald is — sinds de planning aan contact-id's hangt
@@ -15,42 +18,38 @@ const BUITEN_ROOSTER = 'Niet in het rooster'
 
 const MAANDEN = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
-// Deze pagina gaat over afwezigheid, en verder niets.
+// Deze pagina gaat over afwezigheid, per persoon, en verder niets.
 //
-// Er stonden hier eerder twee tabellen met drie schakelaars ertussen: per
-// maand of per jaar, en dan werk, afwezigheid of alles. Dat beantwoordde
-// twee vragen half en vroeg van je dat je eerst de goede stand koos. De
-// vraag die dit team echt heeft is "hoeveel recup- en verlofdagen nam
-// iedereen, per maand". Dus dat is wat er nu staat, zonder standen.
+// Er stonden hier eerst twee tabellen met drie schakelaars ertussen, daarna
+// een blok per status met iedereen eronder. Dat tweede was al leesbaar, maar
+// het antwoordde op de verkeerde vraag: je wil niet weten wie er allemaal
+// verlof nam, je wil weten wat één iemand opnam. Dus staat er nu een blokje
+// per persoon met zijn verlof, recup en ziekte onder elkaar, en twaalf
+// maanden ernaast.
 //
-// Wie waar zat lees je van het teamraster af. Daar zie je het per dag staan
-// in plaats van als maandtotaal, en dat is bij die vraag ook wat je wil.
+// Welke statussen dat zijn volgt uit de presets: categorie 'afwezig', en niet
+// uitgevinkt voor de statistieken (NB staat standaard uit — dat is een
+// roosterafspraak, geen opgenomen dag). Zet een beheerder er een bij, dan
+// staat die er de volgende keer in elk blokje.
 //
-// Eén blok per afwezigheidsstatus, welke dat zijn volgt uit de categorie op
-// de preset (zie migratie 0054). Zet een beheerder er een vijfde bij, dan
-// staat die er de volgende keer gewoon tussen.
+// Wie waar zat lees je van het teamraster af. Daar staat het per dag in plaats
+// van als maandtotaal, en dat is bij die vraag ook wat je wil.
 
-// Verlof en recup eerst, de rest alfabetisch. Niet omdat ze belangrijker
-// zijn, maar omdat ze het vaakst gezocht worden en bovenaan staan scheelt
-// scrollen.
+// Verlof en recup eerst, de rest alfabetisch. Niet omdat ze belangrijker zijn,
+// maar omdat ze het vaakst gezocht worden en bovenaan staan scheelt kijken.
 const EERST = ['VERLOF', 'RECUP']
 
 // Dagen met een waarde die geen enkele preset meer is. Normaal nul; staat er
-// wel iets, dan is er een preset verwijderd die nog in gebruik was. Dit blok
+// wel iets, dan is er een preset verwijderd die nog in gebruik was. Deze rij
 // verschijnt alleen dan, zodat die dagen niet stil uit de telling vallen.
 const OVERIG = 'Overig'
 const OVERIG_KLEUR = '#71717a'
 
-interface Regel { id: string; naam: string; dept: string; waarden: number[]; totaal: number }
-interface Blok {
-  label: string
-  kleur: string
-  regels: Regel[]
-  maandTotalen: number[]
-  totaal: number
-  // Rijen die weggelaten zijn omdat ze nul zijn — het aantal achter de knop.
-  verborgen: number
-}
+const IEDEREEN = '__iedereen__'
+
+interface StatusRij { label: string; kleur: string; hoort: (statusKey: string) => boolean }
+interface Cel { rij: StatusRij; waarden: number[]; totaal: number }
+interface Blok { id: string; naam: string; dept: string; cellen: Cel[]; totaal: number }
 
 export default function PlanningStats({
   people, archived, presets, nameFor,
@@ -70,13 +69,14 @@ export default function PlanningStats({
   const [toonLege, setToonLege] = useState(false)
 
   const [rows, setRows] = useState<StatRow[]>([])
+  const [bereik, setBereik] = useState<{ min: number | null; max: number | null }>({ min: null, max: null })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  // Het hele jaar in één keer. Dat is twaalf keer meer rijen dan de oude
-  // maandweergave, maar het gebeurt alleen bij het openen van dit tabblad en
-  // bij het wisselen van jaar — niet op een timer, en de route telt serverside
-  // samen zodat er geen dagen maar totalen over de lijn gaan.
+  // Het hele jaar in één keer. Dat is twaalf keer meer rijen dan één maand,
+  // maar het gebeurt alleen bij het openen van dit tabblad en bij het wisselen
+  // van jaar — niet op een timer, en de route telt serverside samen zodat er
+  // totalen over de lijn gaan en geen dagen.
   useEffect(() => {
     setLoading(true)
     setError('')
@@ -86,9 +86,12 @@ export default function PlanningStats({
           const body = await r.text().catch(() => '')
           throw new Error(`${r.status}${body ? `: ${body}` : ''}`)
         }
-        return r.json()
+        return r.json() as Promise<StatsAntwoord>
       })
-      .then(setRows)
+      .then(body => {
+        setRows(body.tellingen)
+        setBereik({ min: body.minYear, max: body.maxYear })
+      })
       .catch(e => {
         console.error('Statistieken ophalen mislukt:', e)
         setError(`Kon statistieken niet laden (${e instanceof Error ? e.message : 'onbekende fout'}).`)
@@ -96,11 +99,22 @@ export default function PlanningStats({
       .finally(() => setLoading(false))
   }, [year])
 
-  // ── Wie er in de tabel staat ──────────────────────────────────────────────
-  //
-  // Eén platte lijst op naam, geen groepen per afdeling. Met twaalf
-  // maandkolommen naast elkaar zijn tussenkoppen vooral ruis; de afdeling
-  // staat achter de naam voor wie het wil weten.
+  // Welke jaren je kan kiezen. Hier stond een vast venster van vorig, dit en
+  // volgend jaar; wie iets in 2028 inplande kon dat dan niet terugvinden,
+  // zonder dat iets dat zei. Nu komt het uit de planning zelf, met het vaste
+  // venster erbij zodat een leeg jaar vooruit ook te kiezen is.
+  const years = useMemo(() => {
+    const set = new Set([currentYear - 1, currentYear, currentYear + 1, year])
+    if (bereik.min && bereik.max) {
+      // Eén tikfout (3026) mag de lijst niet laten ontsporen.
+      const van = Math.max(bereik.min, currentYear - 10)
+      const tot = Math.min(bereik.max, currentYear + 10)
+      for (let y = van; y <= tot; y++) set.add(y)
+    }
+    return [...set].sort((a, b) => a - b)
+  }, [bereik, currentYear, year])
+
+  // ── Wie er in de lijst staat ──────────────────────────────────────────────
   //
   // Niet "de ploeg van vandaag" maar "wie er dit jaar werkte": vraag je 2025
   // op, dan hoort de stagiair die vorig jaar vertrok erbij.
@@ -110,7 +124,7 @@ export default function PlanningStats({
     const gezien = new Set<string>()
 
     for (const p of people) {
-      // Iemand mag bewust in twee afdelingen staan — hier is hij één rij.
+      // Iemand mag bewust in twee afdelingen staan — hier is hij één blokje.
       if (gezien.has(p.id)) continue
       if (archived.includes(p.id) && !metData.has(p.id)) continue
       gezien.add(p.id)
@@ -127,36 +141,6 @@ export default function PlanningStats({
 
     return lijst.sort((a, b) => a.naam.localeCompare(b.naam, 'nl'))
   }, [people, archived, rows, nameFor])
-
-  // ── Statussen ─────────────────────────────────────────────────────────────
-
-  const alleStatussen = useMemo(() => allStatusOptions(presets), [presets])
-
-  const afwezigStatussen = useMemo(() => {
-    const namen = new Set(alleStatussen.map(o => o.name.toUpperCase()))
-    return alleStatussen
-      .filter(o => o.category === 'afwezig')
-      // Een losse "X - THUIS" naast "X" zou een tweede blok worden dat
-      // dezelfde dagen telt: hieronder valt THUIS samen met zijn basis.
-      .filter(o => {
-        const { base, thuis } = splitThuis(o.name)
-        return !thuis || !namen.has(base.toUpperCase())
-      })
-      .sort((a, b) => {
-        const rang = (naam: string) => {
-          const i = EERST.indexOf(naam.toUpperCase())
-          return i < 0 ? EERST.length : i
-        }
-        return rang(a.name) - rang(b.name) || a.name.localeCompare(b.name, 'nl')
-      })
-  }, [alleStatussen])
-
-  // Alles wat een preset is, met de THUIS-variant onder zijn basis. Wat hier
-  // niet in staat belandt in het Overig-blok.
-  const bekend = useMemo(
-    () => new Set(alleStatussen.map(o => splitThuis(o.name).base.toUpperCase())),
-    [alleStatussen]
-  )
 
   // ── Tellingen ─────────────────────────────────────────────────────────────
 
@@ -176,62 +160,83 @@ export default function PlanningStats({
     return m
   }, [rows])
 
-  // ── De blokken ────────────────────────────────────────────────────────────
+  // ── De rijen binnen elk blokje ────────────────────────────────────────────
 
-  const zoekend = zoek.trim().length > 0
-  // Zoek je een naam, dan wil je die rij zien, ook als er nul staat. Anders
-  // lijkt het of je naam niet bestaat terwijl hij enkel geen verlof nam.
-  const verbergLege = !toonLege && !zoekend
+  const statusRijen = useMemo(() => {
+    const gebruikt = new Set<string>()
+    for (const r of rows) gebruikt.add(splitThuis(r.value).base.toUpperCase())
 
-  const blokken = useMemo(() => {
-    const q = normName(zoek)
+    const namen = new Set(presets.map(p => p.name.toUpperCase()))
+    const bekend = new Set(presets.map(p => splitThuis(p.name).base.toUpperCase()))
 
-    function bouw(label: string, kleur: string, hoort: (statusKey: string) => boolean): Blok {
-      const regels: Regel[] = []
-      const maandTotalen: number[] = Array(12).fill(0)
-      let totaal = 0
-      let verborgen = 0
-
-      for (const m of mensen) {
-        if (zoekend && !normName(m.naam).includes(q)) continue
-
-        const waarden: number[] = Array(12).fill(0)
-        for (const [statusKey, maanden] of tellingen.get(m.id) ?? []) {
-          if (!hoort(statusKey)) continue
-          for (let i = 0; i < 12; i++) waarden[i] += maanden[i]
+    const rijen: StatusRij[] = presets
+      .filter(p => presetCategory(p) === 'afwezig' && telMeeInStats(p))
+      // Een gearchiveerde status blijft staan zolang er nog dagen op staan;
+      // daarna verdwijnt hij vanzelf. Zo blijft de geschiedenis leesbaar
+      // zonder dat de lijst volloopt met wat niet meer gebruikt wordt.
+      .filter(p => !isArchived(p) || gebruikt.has(p.name.toUpperCase()))
+      // Een losse "X - THUIS" naast "X" zou een tweede rij worden die dezelfde
+      // dagen telt: hieronder valt THUIS samen met zijn basis.
+      .filter(p => {
+        const { base, thuis } = splitThuis(p.name)
+        return !thuis || !namen.has(base.toUpperCase())
+      })
+      .sort((a, b) => {
+        const rang = (naam: string) => {
+          const i = EERST.indexOf(naam.toUpperCase())
+          return i < 0 ? EERST.length : i
         }
+        return rang(a.name) - rang(b.name) || a.name.localeCompare(b.name, 'nl')
+      })
+      .map(p => {
+        const key = p.name.toUpperCase()
+        return { label: p.name, kleur: p.color, hoort: (k: string) => k === key }
+      })
 
-        const rijTotaal = waarden.reduce((a, b) => a + b, 0)
-        if (rijTotaal > 0) {
-          for (let i = 0; i < 12; i++) maandTotalen[i] += waarden[i]
-          totaal += rijTotaal
-        } else if (verbergLege) {
-          verborgen++
-          continue
-        }
-
-        regels.push({ ...m, waarden, totaal: rijTotaal })
-      }
-
-      return { label, kleur, regels, maandTotalen, totaal, verborgen }
+    // Alleen als er echt zulke dagen zijn — anders is dit een lege rij in elk
+    // blokje die uitlegt dat er niets aan de hand is.
+    const heeftOverig = [...gebruikt].some(k => !bekend.has(k))
+    if (heeftOverig) {
+      rijen.push({ label: OVERIG, kleur: OVERIG_KLEUR, hoort: k => !bekend.has(k) })
     }
 
-    const result = afwezigStatussen.map(o =>
-      bouw(o.name, o.color, k => k === o.name.toUpperCase())
-    )
+    return rijen
+  }, [presets, rows])
 
-    const overig = bouw(OVERIG, OVERIG_KLEUR, k => !bekend.has(k))
-    if (overig.totaal > 0) result.push(overig)
+  // ── De blokjes ────────────────────────────────────────────────────────────
 
-    return result
-  }, [afwezigStatussen, bekend, mensen, tellingen, zoek, zoekend, verbergLege])
+  const zoekend = zoek.trim().length > 0
+  // Zoek je een naam, dan wil je dat blokje zien, ook als er nul in staat.
+  // Anders lijkt het of de naam niet bestaat terwijl hij enkel geen verlof nam.
+  const verbergLege = !toonLege && !zoekend
 
-  const verborgenTotaal = useMemo(
-    () => blokken.reduce((max, b) => Math.max(max, b.verborgen), 0),
-    [blokken]
-  )
+  const { iedereen, blokken, verborgen } = useMemo(() => {
+    const q = normName(zoek)
+    const zichtbaar = mensen.filter(m => !zoekend || normName(m.naam).includes(q))
 
-  const years = [currentYear - 1, currentYear, currentYear + 1]
+    function maakBlok(id: string, naam: string, dept: string, ids: string[]): Blok {
+      const cellen = statusRijen.map(rij => {
+        const waarden: number[] = Array(12).fill(0)
+        for (const pid of ids) {
+          for (const [statusKey, maanden] of tellingen.get(pid) ?? []) {
+            if (!rij.hoort(statusKey)) continue
+            for (let i = 0; i < 12; i++) waarden[i] += maanden[i]
+          }
+        }
+        return { rij, waarden, totaal: waarden.reduce((a, b) => a + b, 0) }
+      })
+      return { id, naam, dept, cellen, totaal: cellen.reduce((a, c) => a + c.totaal, 0) }
+    }
+
+    const alle = zichtbaar.map(m => maakBlok(m.id, m.naam, m.dept, [m.id]))
+    const getoond = verbergLege ? alle.filter(b => b.totaal > 0) : alle
+
+    return {
+      iedereen: maakBlok(IEDEREEN, 'Iedereen', '', zichtbaar.map(m => m.id)),
+      blokken: getoond,
+      verborgen: alle.length - getoond.length,
+    }
+  }, [mensen, statusRijen, tellingen, zoek, zoekend, verbergLege])
 
   return (
     <div className="flex flex-col h-full gap-3">
@@ -262,12 +267,12 @@ export default function PlanningStats({
           )}
         </div>
 
-        {!zoekend && (toonLege || verborgenTotaal > 0) && (
+        {!zoekend && (toonLege || verborgen > 0) && (
           <button
             onClick={() => setToonLege(v => !v)}
             className="text-[11px] text-zinc-600 hover:text-zinc-400 underline transition-colors"
           >
-            {toonLege ? 'Verberg wie niets heeft staan' : 'Toon ook wie niets heeft staan'}
+            {toonLege ? 'Verberg wie niets opnam' : `Toon ook wie niets opnam (${verborgen})`}
           </button>
         )}
 
@@ -276,113 +281,101 @@ export default function PlanningStats({
 
       {error && <p className="text-xs text-red-400">{error}</p>}
 
-      <div className="flex-1 min-h-0 overflow-auto flex flex-col gap-4 pb-2">
-        {blokken.length === 0 && !loading && (
+      <div className="flex-1 min-h-0 overflow-auto flex flex-col gap-3 pb-2">
+        {statusRijen.length === 0 ? (
           <p className="py-12 text-center text-sm text-zinc-600">
             Er zijn nog geen afwezigheidsstatussen. Zet in Beheer → Presets een
             status op &ldquo;Afwezig&rdquo; en hij komt hier te staan.
           </p>
-        )}
+        ) : (
+          <>
+            {/* De ploeg als geheel bovenaan: "hoeveel verlof ging eruit in
+                juli" is de enige vraag die niet over één persoon gaat. */}
+            <PersoonsBlok blok={iedereen} year={year} samen />
 
-        {blokken.map(blok => <StatusBlok key={blok.label} blok={blok} year={year} zoekend={zoekend} />)}
+            {blokken.map(b => <PersoonsBlok key={b.id} blok={b} year={year} />)}
+
+            {blokken.length === 0 && (
+              <p className="py-8 text-center text-sm text-zinc-600">
+                {zoekend ? 'Geen naam gevonden.' : `Niemand nam iets op in ${year}.`}
+              </p>
+            )}
+          </>
+        )}
       </div>
     </div>
   )
 }
 
-// ── Eén status, iedereen, twaalf maanden ────────────────────────────────────
+// ── Eén persoon: zijn statussen onder elkaar, twaalf maanden ernaast ────────
 
-function StatusBlok({ blok, year, zoekend }: { blok: Blok; year: number; zoekend: boolean }) {
+function PersoonsBlok({ blok, year, samen }: { blok: Blok; year: number; samen?: boolean }) {
   return (
-    <section className="rounded-xl border border-zinc-800 overflow-hidden flex-shrink-0">
-      <header className="flex items-center gap-2 px-3 py-2 bg-zinc-950 border-b border-zinc-800">
-        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: blok.kleur }} />
-        <h3 className="text-sm font-semibold" style={{ color: blok.kleur }}>{blok.label}</h3>
-        <span className="text-[11px] text-zinc-600">{year}</span>
-        <span className="ml-auto text-[11px] text-zinc-500 tabular-nums">
+    <section
+      className={`rounded-xl border overflow-hidden flex-shrink-0 ${
+        samen ? 'border-zinc-700 bg-zinc-900/30' : 'border-zinc-800'
+      }`}
+    >
+      <header className="flex items-center gap-2 px-3 py-2 border-b border-zinc-800 bg-zinc-950">
+        <h3 className={`text-sm truncate ${samen ? 'font-semibold text-zinc-200' : 'font-medium text-zinc-100'}`}>
+          {blok.naam}
+        </h3>
+        {blok.dept && <span className="text-[11px] text-zinc-600 truncate">{blok.dept}</span>}
+        {samen && <span className="text-[11px] text-zinc-600">{year}</span>}
+        <span className="ml-auto text-[11px] text-zinc-500 tabular-nums flex-shrink-0">
           {blok.totaal} {blok.totaal === 1 ? 'dag' : 'dagen'}
         </span>
       </header>
 
-      {blok.label === OVERIG && (
-        <p className="px-3 py-2 text-[11px] text-zinc-500 bg-zinc-900/40 border-b border-zinc-800">
-          Dagen met een status die niet meer bestaat — meestal een preset die
-          verwijderd is terwijl hij nog in gebruik was.
-        </p>
-      )}
-
-      {blok.regels.length === 0 ? (
-        <p className="py-6 text-center text-xs text-zinc-600">
-          {zoekend
-            ? `Geen naam gevonden met ${blok.label}.`
-            : `Niemand heeft ${blok.label} staan in ${year}.`}
-        </p>
-      ) : (
-        <table className="min-w-full text-xs border-collapse">
-          <thead>
-            <tr>
-              <th className="sticky left-0 z-10 bg-zinc-950 px-3 py-1.5 text-left font-medium text-zinc-500 border-b border-r border-zinc-800 whitespace-nowrap">
-                Naam
+      <table className="min-w-full text-xs border-collapse">
+        <thead>
+          <tr>
+            <th className="sticky left-0 z-10 bg-zinc-950 px-3 py-1 text-left font-medium text-zinc-600 border-b border-r border-zinc-800 whitespace-nowrap w-40">
+              {/* Leeg: de rijnamen eronder zeggen het zelf. */}
+            </th>
+            {MAANDEN.map(m => (
+              <th key={m} className="px-2 py-1 text-center font-medium text-zinc-600 border-b border-zinc-800 whitespace-nowrap">
+                {DUTCH_MONTHS[m - 1].slice(0, 3)}
               </th>
-              {MAANDEN.map(m => (
-                <th
-                  key={m}
-                  className="px-2 py-1.5 text-center font-medium text-zinc-500 border-b border-zinc-800 whitespace-nowrap"
-                >
-                  {DUTCH_MONTHS[m - 1].slice(0, 3)}
-                </th>
-              ))}
-              <th className="px-3 py-1.5 text-center font-semibold text-zinc-400 border-b border-l border-zinc-800 whitespace-nowrap">
-                Totaal
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {blok.regels.map(r => (
-              <tr key={r.id} className="hover:bg-zinc-900/50">
-                <td className="sticky left-0 z-10 bg-zinc-950 px-3 py-1.5 text-zinc-200 border-r border-zinc-800 whitespace-nowrap">
-                  {r.naam}
-                  {r.dept && <span className="ml-2 text-[10px] text-zinc-600">{r.dept}</span>}
-                </td>
-                {r.waarden.map((n, i) => (
-                  <Cijfer key={MAANDEN[i]} n={n} kleur={blok.kleur} />
-                ))}
-                <Cijfer n={r.totaal} kleur={blok.kleur} sterk links />
-              </tr>
             ))}
-
-            {/* Eén regel voor de hele ploeg: "hoeveel verlof nam het team in
-                juli" is de vraag waar deze pagina het vaakst voor open gaat. */}
-            <tr className="border-t-2 border-zinc-700">
-              <td className="sticky left-0 z-10 bg-zinc-900 px-3 py-2 font-semibold text-zinc-200 border-r border-zinc-800 whitespace-nowrap">
-                Iedereen
+            <th className="px-3 py-1 text-center font-semibold text-zinc-500 border-b border-l border-zinc-800 whitespace-nowrap">
+              Totaal
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {blok.cellen.map(cel => (
+            <tr key={cel.rij.label} className="hover:bg-zinc-900/40">
+              <td
+                className="sticky left-0 z-10 bg-zinc-950 px-3 py-1.5 border-r border-zinc-800 whitespace-nowrap font-medium"
+                style={{ color: cel.totaal > 0 ? cel.rij.kleur : '#52525b' }}
+              >
+                {cel.rij.label}
               </td>
-              {blok.maandTotalen.map((n, i) => (
-                <Cijfer key={MAANDEN[i]} n={n} kleur={blok.kleur} sterk rij />
+              {cel.waarden.map((n, i) => (
+                <Cijfer key={MAANDEN[i]} n={n} kleur={cel.rij.kleur} />
               ))}
-              <Cijfer n={blok.totaal} kleur={blok.kleur} sterk links rij />
+              <Cijfer n={cel.totaal} kleur={cel.rij.kleur} sterk links />
             </tr>
-          </tbody>
-        </table>
-      )}
+          ))}
+        </tbody>
+      </table>
     </section>
   )
 }
 
-function Cijfer({ n, kleur, sterk, links, rij }: {
+function Cijfer({ n, kleur, sterk, links }: {
   n: number
   kleur: string
   sterk?: boolean
   // Scheidingslijn links, om de totaalkolom van de maanden los te maken.
   links?: boolean
-  // Staat in de totaalrij: andere achtergrond.
-  rij?: boolean
 }) {
   return (
     <td
-      className={`px-2 py-1.5 text-center tabular-nums ${links ? 'border-l border-zinc-800' : ''} ${rij ? 'bg-zinc-900 py-2' : ''}`}
+      className={`px-2 py-1.5 text-center tabular-nums ${links ? 'border-l border-zinc-800' : ''}`}
       style={n > 0
-        ? { color: kleur, fontWeight: sterk ? 700 : 600, backgroundColor: rij ? undefined : `${kleur}14` }
+        ? { color: kleur, fontWeight: sterk ? 700 : 600, backgroundColor: `${kleur}14` }
         : { color: '#3f3f46' }}
     >
       {n > 0 ? n : '–'}
