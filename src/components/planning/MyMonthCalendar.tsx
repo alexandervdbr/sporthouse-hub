@@ -8,17 +8,34 @@ import type { PlanningPreset } from '@/lib/planning-presets'
 import DayEditor from './DayEditor'
 
 
+// Maandag eerst, zoals overal in deze planning.
+const WEEKDAG_KOPJES = ['ma', 'di', 'wo', 'do', 'vr', 'za', 'zo']
+
 const SEL_BG = 'rgba(59,130,246,0.12)'
 const SEL_BORDER = '#3b82f6'
 
-// Mobile's own "Mijn maand". Went through two rounds here — a drag-select
-// grid (felt like fighting touch with a mouse gesture) and a dot-grid +
-// separate list (the dots didn't carry enough meaning, and the tiny
-// checkbox felt like a decoration, not something to trust tapping) —
-// confirmed against feedback both times. This version is a single
-// scrollable list: every day of the month, full status text, no grid at
-// all. A thin divider marks each new week purely for scanability, not as
-// a layout grid.
+// Mobile's own "Mijn maand".
+//
+// Dit is de vierde vorm, en de derde keer dat er een raster staat. De twee
+// eerdere pogingen zijn afgekeurd, en om goede redenen die hier nog steeds
+// gelden:
+//
+//   1. Een raster met slepen — dat was een muisgebaar op een touchscreen.
+//      Hier gebeurt alles met tikken. Eén tik opent de dag; wil je er meer,
+//      dan zet je eerst "Selecteren" aan en tikt ze aan. Er wordt nergens
+//      gesleept.
+//   2. Een raster met bolletjes plus een losse lijst eronder — die bolletjes
+//      zeiden te weinig, en het vinkje leek een versiering in plaats van iets
+//      om op te tikken. Hier staat de statusnaam zelf in het vakje, op zijn
+//      eigen kleur, en is het hele vakje de knop.
+//
+// Daarna stond hier een lijst van 31 rijen: wel leesbaar, maar vier dagen per
+// scherm en een maand die je alleen scrollend kon overzien. Het raster ruilt
+// volledige statusnamen in voor overzicht — lange namen worden afgekapt, en
+// één tik geeft het hele verhaal terug.
+//
+// Uitgelijnd op de weekdagen, met lege plekken vooraan, net als de dagkiezer
+// in DayEditor.
 export default function MyMonthCalendar({
   year, month, person, data, readOnly, presets, onApply, onClear, emailToName,
 }: {
@@ -39,6 +56,12 @@ export default function MyMonthCalendar({
     const d = days.find(x => x.day === day)!
     return { date: new Date(year, month - 1, day), year, month, day, dayName: d.dayName, isWeekend: d.isWeekend, isToday: d.isToday }
   }
+
+  // Maandag = 0; getDay() telt vanaf zondag. Geen useMemo: `days` wordt
+  // hierboven toch elke render opnieuw gemaakt, dus die zou niets bewaren.
+  const eersteKolom = (new Date(year, month - 1, 1).getDay() + 6) % 7
+  const raster: ((typeof days)[number] | null)[] =
+    [...Array<(typeof days)[number] | null>(eersteKolom).fill(null), ...days]
 
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState<Set<number>>(new Set())
@@ -90,61 +113,65 @@ export default function MyMonthCalendar({
         )}
       </div>
 
-      <div className="space-y-1.5 pb-20">
-        {days.map((d, i) => {
+      <div className="grid grid-cols-7 gap-1 mb-1">
+        {WEEKDAG_KOPJES.map(d => (
+          <p key={d} className="text-center text-[10px] uppercase tracking-wide text-zinc-600">{d}</p>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-7 gap-1 pb-20">
+        {raster.map((d, i) => {
+          if (!d) return <div key={`leeg-${i}`} aria-hidden />
+
           const key = dateCellKey(year, month, d.day, contactId)
           const cell = data[key] ?? emptyCell()
           const isSelected = selectMode && selected.has(d.day)
-          const isNewWeek = i > 0 && d.dayName === 'Maandag'
+
           return (
-            <div key={d.day}>
-              {isNewWeek && (
-                <p className="text-[10px] text-zinc-600 uppercase tracking-wide mt-3 mb-1.5 px-0.5">
-                  Week van {d.day} {DUTCH_MONTHS[month - 1].slice(0, 3)}
-                </p>
-              )}
-              <button
-                onClick={() => handleDayClick(d.day)}
-                className="w-full flex items-center gap-3 pl-2.5 pr-3 py-3 rounded-xl border text-left transition-colors"
-                style={{
-                  borderColor: isSelected ? SEL_BORDER : '#27272a',
-                  backgroundColor: isSelected ? SEL_BG : 'rgba(24,24,27,0.6)',
-                  borderLeftWidth: isSelected ? '4px' : '1px',
-                }}
-              >
-                {/* Whole row toggles the selection (not just this icon) —
-                    the icon is the visual confirmation, not the hit
-                    target, so this stays big and legible without needing
-                    to itself be huge. */}
-                {selectMode && (
-                  <span
-                    className="w-6 h-6 flex-shrink-0 rounded-md flex items-center justify-center transition-colors"
-                    style={{
-                      backgroundColor: isSelected ? '#3A913F' : 'rgba(255,255,255,0.06)',
-                      border: isSelected ? 'none' : '1.5px solid #52525b',
-                    }}
-                  >
-                    {isSelected && <Check size={15} className="text-white" strokeWidth={3} />}
-                  </span>
-                )}
-                <span className={`w-14 flex-shrink-0 text-xs ${d.isToday ? 'text-emerald-400 font-semibold' : d.isWeekend ? 'text-zinc-600' : 'text-zinc-500'}`}>
-                  {d.dayName.slice(0, 2).toUpperCase()} {d.day}
+            <button
+              key={d.day}
+              onClick={() => handleDayClick(d.day)}
+              className="relative flex flex-col gap-0.5 min-h-[3.4rem] p-1 rounded-lg border text-left transition-colors"
+              style={{
+                borderColor: isSelected ? SEL_BORDER : '#27272a',
+                backgroundColor: isSelected ? SEL_BG : 'rgba(24,24,27,0.6)',
+                // Een leeg weekend mag naar de achtergrond; staat er iets
+                // ingepland, dan is dat juist het vermelden waard.
+                opacity: d.isWeekend && !cell.value ? 0.45 : 1,
+              }}
+            >
+              <span className={`text-[10px] leading-none ${
+                d.isToday ? 'text-emerald-400 font-bold' : d.isWeekend ? 'text-zinc-600' : 'text-zinc-500'
+              }`}>
+                {d.day}
+              </span>
+
+              {cell.value ? (
+                <span
+                  className="flex-1 flex items-center rounded px-1 text-[9px] font-semibold leading-tight truncate"
+                  style={{
+                    backgroundColor: cell.bgColor ?? 'rgba(255,255,255,0.08)',
+                    color: cell.bgColor ? '#fff' : '#a1a1aa',
+                  }}
+                >
+                  {cell.value}
                 </span>
-                {cell.value ? (
-                  <span
-                    className="flex-1 min-w-0 truncate rounded-md px-2 py-1.5 text-xs font-semibold"
-                    style={{ backgroundColor: cell.bgColor ?? 'rgba(255,255,255,0.08)', color: cell.bgColor ? '#fff' : '#a1a1aa' }}
-                  >
-                    {cell.value}
-                  </span>
-                ) : (
-                  <span className="flex-1 text-xs text-zinc-700">—</span>
-                )}
-                {cell.note && (
-                  <span className="flex-shrink-0 max-w-[30%] truncate text-[10px] text-zinc-500">{cell.note}</span>
-                )}
-              </button>
-            </div>
+              ) : (
+                <span className="flex-1" />
+              )}
+
+              {/* Een notitie is te lang voor dit vakje, maar dat er één is
+                  moet je kunnen zien voor je tikt. */}
+              {cell.note && !isSelected && (
+                <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-zinc-500" />
+              )}
+
+              {isSelected && (
+                <span className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center" style={{ backgroundColor: '#3A913F' }}>
+                  <Check size={10} className="text-white" strokeWidth={3} />
+                </span>
+              )}
+            </button>
           )
         })}
       </div>
