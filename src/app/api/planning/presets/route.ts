@@ -19,7 +19,6 @@ export async function GET() {
   const { data, error } = await supabase
     .from('planning_presets')
     .select('*')
-    .order('sort_order')
     .order('name')
 
   // Tabel bestaat nog niet (migratie niet uitgevoerd): geen presets, geen fout.
@@ -57,7 +56,6 @@ export async function PATCH(req: Request) {
   const update: Record<string, unknown> = {}
   if (typeof fields.name === 'string' && fields.name.trim()) update.name = fields.name.trim()
   if (typeof fields.color === 'string') update.color = fields.color
-  if (typeof fields.sort_order === 'number') update.sort_order = fields.sort_order
   // Onbekende waarde stil negeren: de check-constraint zou hem toch weigeren,
   // en een 500 uit de database is een slechter antwoord dan niets doen.
   if (fields.category === 'werk' || fields.category === 'afwezig') update.category = fields.category

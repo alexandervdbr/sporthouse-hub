@@ -164,7 +164,7 @@ export default function MyMonthCalendar({
           <button
             onClick={() => setSelected(new Set())}
             aria-label="Selectie wissen"
-            className="w-6 h-6 flex items-center justify-center rounded-full text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700 transition-colors"
+            className="tap-target w-6 h-6 flex items-center justify-center rounded-full text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700 transition-colors"
           >
             <X size={12} />
           </button>

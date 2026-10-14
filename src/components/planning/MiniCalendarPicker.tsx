@@ -56,12 +56,12 @@ export default function MiniCalendarPicker({
         <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1.5 z-50 w-64 rounded-xl bg-zinc-900 border border-zinc-800 shadow-2xl p-3">
           <div className="flex items-center justify-between mb-2">
             <button onClick={prevMonth} aria-label="Vorige maand"
-              className="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors">
+              className="tap-target w-7 h-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors">
               <ChevronLeft size={14} />
             </button>
             <span className="text-sm font-semibold text-sh-grey">{DUTCH_MONTHS[viewMonth - 1]} {viewYear}</span>
             <button onClick={nextMonth} aria-label="Volgende maand"
-              className="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors">
+              className="tap-target w-7 h-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors">
               <ChevronRight size={14} />
             </button>
           </div>

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Loader2, Search, X } from 'lucide-react'
+import { Loader2, RefreshCw, Search, X } from 'lucide-react'
 import { DUTCH_MONTHS, normName, type Person } from '@/lib/planning-config'
 import {
   presetCategory, isArchived, telMeeInStats, type PlanningPreset,
@@ -68,6 +68,13 @@ export default function PlanningStats({
   const [zoek, setZoek] = useState('')
   const [toonLege, setToonLege] = useState(false)
 
+  // Ophalen gebeurt niet meer bij elke tabwissel (het component blijft
+  // gemonteerd), dus kan wat hier staat ouder zijn dan wat een collega net
+  // invulde. Het raster hangt aan een realtime-socket, deze cijfers niet —
+  // vandaar een knop in plaats van stilte.
+  const [herlaad, setHerlaad] = useState(0)
+  const [opgehaald, setOpgehaald] = useState<Date | null>(null)
+
   const [rows, setRows] = useState<StatRow[]>([])
   const [bereik, setBereik] = useState<{ min: number | null; max: number | null }>({ min: null, max: null })
   const [loading, setLoading] = useState(true)
@@ -91,13 +98,14 @@ export default function PlanningStats({
       .then(body => {
         setRows(body.tellingen)
         setBereik({ min: body.minYear, max: body.maxYear })
+        setOpgehaald(new Date())
       })
       .catch(e => {
         console.error('Statistieken ophalen mislukt:', e)
         setError(`Kon statistieken niet laden (${e instanceof Error ? e.message : 'onbekende fout'}).`)
       })
       .finally(() => setLoading(false))
-  }, [year])
+  }, [year, herlaad])
 
   // Welke jaren je kan kiezen. Hier stond een vast venster van vorig, dit en
   // volgend jaar; wie iets in 2028 inplande kon dat dan niet terugvinden,
@@ -276,12 +284,27 @@ export default function PlanningStats({
           </button>
         )}
 
-        {loading && <Loader2 size={13} className="animate-spin text-zinc-600" />}
+        <div className="flex items-center gap-2 ml-auto">
+          {opgehaald && (
+            <span className="text-[11px] text-zinc-600 tabular-nums hidden sm:inline">
+              Bijgewerkt om {opgehaald.toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
+          <button
+            onClick={() => setHerlaad(n => n + 1)}
+            disabled={loading}
+            title="Opnieuw ophalen"
+            aria-label="Opnieuw ophalen"
+            className="tap-target w-9 h-9 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-zinc-200 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
       </div>
 
       {error && <p className="text-xs text-red-400">{error}</p>}
 
-      <div className="flex-1 min-h-0 overflow-auto flex flex-col gap-3 pb-2">
+      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3 pb-2">
         {statusRijen.length === 0 ? (
           <p className="py-12 text-center text-sm text-zinc-600">
             Er zijn nog geen afwezigheidsstatussen. Zet in Beheer → Presets een
@@ -327,18 +350,22 @@ function PersoonsBlok({ blok, year, samen }: { blok: Blok; year: number; samen?:
         </span>
       </header>
 
+      {/* Dertien kolommen passen niet op een telefoon. De sectie knipt af
+          (overflow-hidden, voor de ronde hoeken), dus moet het schuiven hier
+          gebeuren — per blok, met de statusnamen die blijven staan. */}
+      <div className="scroll-x">
       <table className="min-w-full text-xs border-collapse">
         <thead>
           <tr>
-            <th className="sticky left-0 z-10 bg-zinc-950 px-3 py-1 text-left font-medium text-zinc-600 border-b border-r border-zinc-800 whitespace-nowrap w-40">
+            <th className="sticky left-0 z-10 bg-zinc-950 px-2 sm:px-3 py-1 text-left font-medium text-zinc-600 border-b border-r border-zinc-800 whitespace-nowrap w-24 sm:w-40">
               {/* Leeg: de rijnamen eronder zeggen het zelf. */}
             </th>
             {MAANDEN.map(m => (
-              <th key={m} className="px-2 py-1 text-center font-medium text-zinc-600 border-b border-zinc-800 whitespace-nowrap">
+              <th key={m} className="px-1.5 sm:px-2 py-1 text-center font-medium text-zinc-600 border-b border-zinc-800 whitespace-nowrap">
                 {DUTCH_MONTHS[m - 1].slice(0, 3)}
               </th>
             ))}
-            <th className="px-3 py-1 text-center font-semibold text-zinc-500 border-b border-l border-zinc-800 whitespace-nowrap">
+            <th className="px-2 sm:px-3 py-1 text-center font-semibold text-zinc-500 border-b border-l border-zinc-800 whitespace-nowrap">
               Totaal
             </th>
           </tr>
@@ -347,7 +374,7 @@ function PersoonsBlok({ blok, year, samen }: { blok: Blok; year: number; samen?:
           {blok.cellen.map(cel => (
             <tr key={cel.rij.label} className="hover:bg-zinc-900/40">
               <td
-                className="sticky left-0 z-10 bg-zinc-950 px-3 py-1.5 border-r border-zinc-800 whitespace-nowrap font-medium"
+                className="sticky left-0 z-10 bg-zinc-950 px-2 sm:px-3 py-1.5 border-r border-zinc-800 whitespace-nowrap font-medium truncate max-w-24 sm:max-w-none"
                 style={{ color: cel.totaal > 0 ? cel.rij.kleur : '#52525b' }}
               >
                 {cel.rij.label}
@@ -360,6 +387,7 @@ function PersoonsBlok({ blok, year, samen }: { blok: Blok; year: number; samen?:
           ))}
         </tbody>
       </table>
+      </div>
     </section>
   )
 }
@@ -373,7 +401,7 @@ function Cijfer({ n, kleur, sterk, links }: {
 }) {
   return (
     <td
-      className={`px-2 py-1.5 text-center tabular-nums ${links ? 'border-l border-zinc-800' : ''}`}
+      className={`px-1.5 sm:px-2 py-1.5 text-center tabular-nums ${links ? 'border-l border-zinc-800' : ''}`}
       style={n > 0
         ? { color: kleur, fontWeight: sterk ? 700 : 600, backgroundColor: `${kleur}14` }
         : { color: '#3f3f46' }}

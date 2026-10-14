@@ -6,7 +6,7 @@ import { isArchived, telMeeInStats, type PlanningPreset } from '../planning-pres
 import type { CellData } from '../planning-week'
 
 function preset(name: string, extra: Partial<PlanningPreset> = {}): PlanningPreset {
-  return { id: name, name, color: '#111111', sort_order: 0, ...extra }
+  return { id: name, name, color: '#111111', ...extra }
 }
 
 function cel(value: string): CellData {

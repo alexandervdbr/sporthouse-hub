@@ -87,8 +87,9 @@ function PresetsPanel() {
     return () => document.removeEventListener('mousedown', onOutside)
   }, [colorPickerFor])
 
-  // Alphabetical, not insertion/sort_order — a growing list of statuses just
-  // reads as random clutter otherwise.
+  // Alfabetisch. Een groeiende lijst statussen leest anders als een hoop.
+  // Er was ook een sort_order-kolom die dit had kunnen sturen, maar niets zette
+  // hem ooit — die is weg in migratie 0056.
   const sortedPresets = useMemo(
     () => [...presets].sort((a, b) => a.name.localeCompare(b.name, 'nl')),
     [presets]
@@ -206,19 +207,25 @@ function PresetsPanel() {
     return (
       <div
         key={p.id}
-        className={`relative flex items-center gap-2 p-2 rounded-xl border border-zinc-800 ${
+        className={`relative flex flex-wrap items-center gap-2 p-2 rounded-xl border border-zinc-800 ${
           weg ? 'bg-transparent opacity-60' : 'bg-zinc-950/40'
         }`}
       >
-        <button
-          onClick={() => setColorPickerFor(id => id === p.id ? null : p.id)}
-          disabled={weg}
-          aria-label={`Kleur wijzigen voor ${p.name}`}
-          className="w-4 h-4 rounded-full flex-shrink-0 ring-1 ring-white/10 hover:ring-white/30 transition-all disabled:hover:ring-white/10"
-          style={{ backgroundColor: p.color }}
-        />
-        <span className="flex-1 min-w-0 text-sm text-zinc-100 truncate">{p.name}</span>
+        {/* Naam en knoppen wikkelen op een smal scherm uit elkaar. Naast
+            elkaar geperst hield de naam een paar pixels over — dezelfde fout
+            als eerder in het toevoegformulier, nu met vier knoppen ernaast. */}
+        <div className="flex items-center gap-2 w-full sm:w-auto sm:flex-1 min-w-0">
+          <button
+            onClick={() => setColorPickerFor(id => id === p.id ? null : p.id)}
+            disabled={weg}
+            aria-label={`Kleur wijzigen voor ${p.name}`}
+            className="w-4 h-4 rounded-full flex-shrink-0 ring-1 ring-white/10 hover:ring-white/30 transition-all disabled:hover:ring-white/10"
+            style={{ backgroundColor: p.color }}
+          />
+          <span className="flex-1 min-w-0 text-sm text-zinc-100 truncate">{p.name}</span>
+        </div>
 
+        <div className="flex items-center gap-2 ml-auto">
         {!weg && (
           <>
             {/* Werk of afwezig. Bepaalt waar hij in de kiezer staat en of de
@@ -277,6 +284,7 @@ function PresetsPanel() {
         >
           {busyId === p.id ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
         </button>
+        </div>
 
         {colorPickerFor === p.id && (
           <div ref={colorPickerRef} onClick={e => e.stopPropagation()}
@@ -747,7 +755,7 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
             onClick={onClose}
             aria-label="Sluiten"
             title="Sluiten"
-            className="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+            className="tap-target w-7 h-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
           >
             <X size={15} />
           </button>

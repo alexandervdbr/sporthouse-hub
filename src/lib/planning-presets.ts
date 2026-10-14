@@ -4,7 +4,6 @@ export interface PlanningPreset {
   id: string
   name: string
   color: string
-  sort_order: number
   // 'werk' of 'afwezig'. Bepaalt waar hij in de kiezer staat en of de
   // thuisschakelaar zin heeft. Zie migratie 0054.
   category?: PresetCategory | null

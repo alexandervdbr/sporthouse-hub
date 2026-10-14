@@ -96,12 +96,30 @@ export default function PlanningApp() {
   const [supabase] = useState(() => createClient())
 
   const [tab, setTab] = useState<Tab>('mijn')
+
+  // Statistieken blijft gemonteerd zodra hij één keer open is geweest.
+  //
+  // Hij stond als `{tab === 'stats' && <PlanningStats/>}`, en dat betekende:
+  // elke keer heen en weer klikken tussen Team en Statistieken sloopte het
+  // component en bouwde het opnieuw op — met een volledige jaar-fetch erachter.
+  // Niet één zware query maar een goedkope die zich herhaalt, en dat is precies
+  // wat in oktober drie vaten liet overlopen (zie CLAUDE.md).
+  //
+  // Niet gewoon altijd monteren: dan haalt ook iemand die het tabblad nooit
+  // opent elke keer een jaar planning op. Vandaar deze vlag — nul verzoeken tot
+  // de eerste klik, daarna nul verzoeken bij elke volgende.
+  const [statsOoitOpen, setStatsOoitOpen] = useState(false)
+  const kiesTab = useCallback((t: Tab) => {
+    setTab(t)
+    if (t === 'stats') setStatsOoitOpen(true)
+  }, [])
+
   useEffect(() => {
     try {
       const stored = localStorage.getItem('planning-active-tab')
-      if (stored === 'mijn' || stored === 'team' || stored === 'stats') setTab(stored)
+      if (stored === 'mijn' || stored === 'team' || stored === 'stats') kiesTab(stored)
     } catch { /* private browsing */ }
-  }, [])
+  }, [kiesTab])
   useEffect(() => {
     try { localStorage.setItem('planning-active-tab', tab) } catch { /* private browsing */ }
   }, [tab])
@@ -1214,12 +1232,12 @@ export default function PlanningApp() {
         {tab !== 'stats' && (
           <>
             <button onClick={goPrev} aria-label={usingWeekNav ? 'Vorige week' : 'Vorige maand'}
-              className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-sh-grey hover:border-zinc-700 transition-colors">
+              className="tap-target w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-sh-grey hover:border-zinc-700 transition-colors">
               <ChevronLeft size={15} />
             </button>
             <MiniCalendarPicker anchor={weekAnchor} onSelect={setWeekAnchor} label={periodLabel} />
             <button onClick={goNext} aria-label={usingWeekNav ? 'Volgende week' : 'Volgende maand'}
-              className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-sh-grey hover:border-zinc-700 transition-colors">
+              className="tap-target w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-sh-grey hover:border-zinc-700 transition-colors">
               <ChevronRight size={15} />
             </button>
             {!isCurrentPeriod && (
@@ -1254,7 +1272,7 @@ export default function PlanningApp() {
           {isBeheer && (
             <button onClick={() => setShowConfig(true)}
               disabled={configFailed}
-              className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-zinc-400 disabled:hover:border-zinc-800"
+              className="tap-target w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-zinc-400 disabled:hover:border-zinc-800"
               title={configFailed ? 'Rooster kon niet geladen worden — configuratie tijdelijk niet beschikbaar' : 'Planning configuratie'}>
               <Settings size={15} />
             </button>
@@ -1299,7 +1317,7 @@ export default function PlanningApp() {
         {(canSeeStats ? (['mijn', 'team', 'stats'] as Tab[]) : (['mijn', 'team'] as Tab[])).map(t => (
           <button
             key={t}
-            onClick={() => setTab(t)}
+            onClick={() => kiesTab(t)}
             className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
               tab === t ? 'text-sh-grey' : 'text-zinc-500 hover:text-zinc-300 border-transparent'
             }`}
@@ -1456,13 +1474,16 @@ export default function PlanningApp() {
           </>
         )}
 
-        {tab === 'stats' && canSeeStats && (
-          <PlanningStats
-            people={everyEmployee}
-            archived={archived}
-            presets={presets}
-            nameFor={nameForContact}
-          />
+        {/* Verborgen in plaats van weg: zie statsOoitOpen hierboven. */}
+        {canSeeStats && statsOoitOpen && (
+          <div className={tab === 'stats' ? 'h-full' : 'hidden'}>
+            <PlanningStats
+              people={everyEmployee}
+              archived={archived}
+              presets={presets}
+              nameFor={nameForContact}
+            />
+          </div>
         )}
       </div>
 
