@@ -596,6 +596,22 @@ export default function PlanningApp() {
     return everyEmployee.find(p => normName(p.emp) === normName(naam)) ?? null
   }, [everyEmployee, myIdentity])
 
+  // Wijst het ingelogde account zelf naar deze persoon?
+  //
+  // Zo ja, dan is "Niet jij?" een vraag met een antwoord: jawel. Sinds de
+  // planning aan contact-id's hangt komt die koppeling van het e-mailadres op
+  // het Team-contact, niet meer van een naam die toevallig leek te passen —
+  // en dan is er niets meer om te verwarren. De link blijft wél staan voor wie
+  // níet via zijn account gevonden is: wie geen Team-contact heeft, wie er wel
+  // een heeft maar niet in het rooster staat, of wie ooit met de hand een naam
+  // gekozen heeft. Voor hen is het de enige weg terug.
+  const identiteitUitAccount = useMemo(() => {
+    const wanted = userEmail?.trim().toLowerCase()
+    if (!wanted || !myIdentity) return false
+    const match = teamContacts.find(c => c.email && c.email.trim().toLowerCase() === wanted)
+    return !!match && match.id === myIdentity
+  }, [userEmail, teamContacts, myIdentity])
+
   // "Mijn maand" renders full calendar weeks (see getMonthWeeks), so the
   // first/last week can spill into the neighboring month — those overflow
   // days need their data loaded too, not just the target month's own days.
@@ -1332,11 +1348,13 @@ export default function PlanningApp() {
         {tab === 'mijn' && (
           myPerson ? (
             <>
-              <div className="flex justify-end pb-1.5">
-                <button onClick={() => setShowNamePicker(true)} className="text-[11px] text-zinc-600 hover:text-zinc-300 underline">
-                  Niet jij? Wissel van naam
-                </button>
-              </div>
+              {!identiteitUitAccount && (
+                <div className="flex justify-end pb-1.5">
+                  <button onClick={() => setShowNamePicker(true)} className="text-[11px] text-zinc-600 hover:text-zinc-300 underline">
+                    Niet jij? Wissel van naam
+                  </button>
+                </div>
+              )}
               <div className="hidden lg:block h-full">
                 <MyMonthWeeks
                   year={anchorYear}

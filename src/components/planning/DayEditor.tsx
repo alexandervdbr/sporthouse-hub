@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { X, Check, Trash2 } from 'lucide-react'
 import {
   PRESET_CATEGORIES, PRESET_CATEGORY_LABELS, type PlanningPreset,
@@ -11,14 +11,17 @@ import {
 } from '@/lib/planning-status'
 import type { CellData, WeekDay } from '@/lib/planning-week'
 
+// Maandag eerst, zoals overal in deze planning.
+const WEEKDAG_KOPJES = ['ma', 'di', 'wo', 'do', 'vr', 'za', 'zo']
+
 function sameDay(a: WeekDay, b: WeekDay) {
   return a.year === b.year && a.month === b.month && a.day === b.day
 }
 
 // Same row/col rectangle math as MyMonthWeeks' main grid, applied to
-// positions within the "Dagen" pool array (always rendered 7-wide) instead
-// of the month's own flat day index — small enough to duplicate locally
-// rather than share a module for one helper.
+// positions in the "Dagen" raster (always 7 wide) — small enough to
+// duplicate locally rather than share a module for one helper. Let op: dat
+// zijn rasterposities, niet posities in de pool; zie dagRaster.
 function rectIndices(aIdx: number, bIdx: number): number[] {
   const ar = Math.floor(aIdx / 7), ac = aIdx % 7
   const br = Math.floor(bIdx / 7), bc = bIdx % 7
@@ -76,9 +79,35 @@ export default function DayEditor({
   const [dateDrag, setDateDrag] = useState<{ start: number; addMode: boolean; cells: Set<number> } | null>(null)
   const dateAnchorRef = useRef<number | null>(null)
 
+  // Het raster, uitgelijnd op de weekdagen.
+  //
+  // Hiervoor werd de pool gewoon zeven breed uitgerold: dag 1 in kolom 1, dag
+  // 8 in kolom 1, dag 12 in kolom 5. Omdat zeven ook de lengte van een week
+  // is stonden de weekends dan wel netjes onder elkaar, en zag het eruit als
+  // een kalender — maar kolom 1 was de weekdag waarop de eerste van die maand
+  // viel. In oktober 2026 een donderdag, dus stond maandag in het midden.
+  //
+  // En het hing af van wie de popup opende: "Mijn maand" op een breed scherm
+  // levert volledige maandag-zondagweken aan (met een paar dagen van de vorige
+  // maand erbij) en kwam daardoor toevallig wél goed uit; de twee maandrasters
+  // geven een kale 1 tot 31. Dezelfde kolom, twee betekenissen.
+  //
+  // Nu zet dit raster er lege plekken voor tot de eerste dag op zijn eigen
+  // weekdag staat. De kopjes erboven maken van die aanname een afspraak.
+  // Vanaf hier zijn alle indexen in dit bestand rasterposities, niet posities
+  // in de pool — een lege plek is null.
+  const dagRaster = useMemo<(WeekDay | null)[]>(() => {
+    const pool = dateEditor?.pool
+    if (!pool || pool.length === 0) return []
+    const eerste = pool[0]
+    // Maandag = 0. getDay() telt vanaf zondag.
+    const kolom = (new Date(eerste.year, eerste.month - 1, eerste.day).getDay() + 6) % 7
+    return [...Array<WeekDay | null>(kolom).fill(null), ...pool]
+  }, [dateEditor?.pool])
+
   function isPoolSelected(i: number) {
-    if (!dateEditor) return false
-    const wd = dateEditor.pool[i]
+    const wd = dagRaster[i]
+    if (!dateEditor || !wd) return false
     return dateEditor.selected.some(s => sameDay(s, wd))
   }
 
@@ -86,7 +115,9 @@ export default function DayEditor({
     if (!dateEditor) return
     let next = dateEditor.selected
     for (const i of cells) {
-      const wd = dateEditor.pool[i]
+      const wd = dagRaster[i]
+      // Een lege plek vooraan het raster hoort bij geen enkele dag.
+      if (!wd) continue
       const already = next.some(s => sameDay(s, wd))
       if (addMode && !already) next = [...next, wd]
       else if (!addMode && already) next = next.filter(s => !sameDay(s, wd))
@@ -110,9 +141,9 @@ export default function DayEditor({
   function handleDatePointerMove(e: React.PointerEvent) {
     if (!dateDrag) return
     const el = document.elementFromPoint(e.clientX, e.clientY)
-    const cellEl = el?.closest('[data-pool-idx]') as HTMLElement | null
+    const cellEl = el?.closest('[data-dag-idx]') as HTMLElement | null
     if (!cellEl) return
-    const i = Number(cellEl.dataset.poolIdx)
+    const i = Number(cellEl.dataset.dagIdx)
     setDateDrag(prev => prev && { ...prev, cells: new Set(rectIndices(prev.start, i)) })
   }
 
@@ -204,13 +235,19 @@ export default function DayEditor({
                 <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mb-2">
                   Dagen ({dateEditor.selected.length})
                 </p>
+                <div className="grid grid-cols-7 gap-1 mb-1">
+                  {WEEKDAG_KOPJES.map(d => (
+                    <p key={d} className="text-center text-[10px] uppercase tracking-wide text-zinc-600">{d}</p>
+                  ))}
+                </div>
                 <div className="grid grid-cols-7 gap-1">
-                  {dateEditor.pool.map((wd, i) => {
+                  {dagRaster.map((wd, i) => {
+                    if (!wd) return <div key={`leeg-${i}`} aria-hidden />
                     const isSel = dateCellDisplaySelected(i)
                     return (
                       <button
                         key={`${wd.year}-${wd.month}-${wd.day}`}
-                        data-pool-idx={i}
+                        data-dag-idx={i}
                         onPointerDown={e => handleDatePointerDown(e, i)}
                         onPointerMove={handleDatePointerMove}
                         onPointerUp={handleDatePointerUp}
