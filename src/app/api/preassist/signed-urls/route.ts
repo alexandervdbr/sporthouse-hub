@@ -1,10 +1,14 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest } from 'next/server'
+import { hasOpenSection } from '@/lib/auth-permissions'
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return new Response('Unauthorized', { status: 401 })
+  // Keek alleen of je ingelogd was, terwijl de download- en thumbnail-route
+  // ernaast de sectie wel controleren.
+  if (!hasOpenSection(user, 'preassist')) return new Response('Geen toegang.', { status: 403 })
 
   const { searchParams } = new URL(req.url)
   const editionId = searchParams.get('edition_id')

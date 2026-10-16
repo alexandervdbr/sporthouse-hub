@@ -1,25 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { isDriveStorageConfigured, uploadFile, trashFile, getOrCreateFolderPath, driveRootFolderId } from '@/lib/drive-storage'
-import { isAdminUser } from '@/lib/auth-permissions'
+import { hasOpenSection } from '@/lib/auth-permissions'
 
 export const maxDuration = 300
 
 const MAX_SIZE = 500 * 1024 * 1024 // 500 MB — Drive can hold far more; the practical
 // ceiling is Vercel's serverless request body limit, not this check.
 
-function permissions(user: { email?: string | null; app_metadata?: Record<string, unknown> }) {
-  const permsObj = (user.app_metadata?.permissions as { sections?: string[] } | null) ?? null
-  const sections = permsObj?.sections ?? []
-  const isAdmin = isAdminUser(user)
-  const canDeleteAll = isAdmin || permsObj === null || sections.includes('preassist_verwijderen')
-  return { isAdmin, canDeleteAll }
-}
-
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Niet ingelogd.' }, { status: 401 })
+
+  // Stond er niet: alleen de DELETE hieronder keek naar permissies. Omdat de
+  // rij via de service-role client wordt geschreven, raakt de insert-policy
+  // uit migratie 0032 nooit — dus wie "Content toevoegen" bewust uit heeft
+  // staan, zag geen knop maar kon wel posten.
+  if (!hasOpenSection(user, 'preassist_toevoegen')) {
+    return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 })
+  }
 
   if (!isDriveStorageConfigured()) {
     return NextResponse.json({ error: 'Google Drive is niet geconfigureerd.' }, { status: 503 })
@@ -136,8 +136,7 @@ export async function DELETE(request: NextRequest) {
 
   if (!submission) return NextResponse.json({ error: 'Niet gevonden.' }, { status: 404 })
 
-  const { isAdmin, canDeleteAll } = permissions(user)
-  if (!isAdmin && !canDeleteAll && submission.submitted_by_id !== user.id) {
+  if (!hasOpenSection(user, 'preassist_verwijderen') && submission.submitted_by_id !== user.id) {
     return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 })
   }
 

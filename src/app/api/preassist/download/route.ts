@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Readable } from 'stream'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { downloadFile } from '@/lib/drive-storage'
-import { hasSection } from '@/lib/auth-permissions'
+import { hasOpenSection } from '@/lib/auth-permissions'
 
 export const maxDuration = 300
 
@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Niet ingelogd.' }, { status: 401 })
-  if (!hasSection(user, 'preassist')) return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 })
+  if (!hasOpenSection(user, 'preassist')) return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 })
 
   const { searchParams } = new URL(request.url)
   const id = searchParams.get('id')
