@@ -21,31 +21,15 @@ export interface Person {
   emp: string
 }
 
-// De hardcoded statuslijst die hier stond is weg.
+// Hier stonden tot oktober 2026 twee hardcoded lijsten: het rooster
+// (DEPARTMENTS) en de statussen (PLANNING_OPTIONS), allebei als terugval voor
+// wanneer de database niets teruggaf. Allebei weg, om dezelfde reden: wat een
+// beheerder weggooide kwam vanuit de code terug, en een storing zag er dan uit
+// als een gewoon gevulde planning.
 //
-// Migratie 0044 heeft die statussen als echte rijen in planning_presets gezet,
-// waarmee deze lijst overbodig werd. Hij bleef als terugval staan en deed
-// daarna hetzelfde als de oude DEPARTMENTS-fallback hierboven: wat een
-// beheerder in Beheer → Presets weggooide of hernoemde, kwam vanuit de code
-// terug. Zo stonden "Play Sports" naast "PS" en "Sport Vl" naast
-// "Sport Vlaanderen" in de kiezer, zonder manier om ze kwijt te raken.
-//
-// De presets in de database zijn nu de enige lijst.
-
-// Leeg, en dat is de bedoeling.
-//
-// Hier stond tot oktober 2026 een hardcoded rooster uit 2024 — met namen van
-// mensen die er niet meer werken, en kale voornamen waar het echte rooster
-// allang volledige namen gebruikt. Het diende als terugval wanneer
-// /api/planning/config niets teruggaf, maar dat maakte een storing onzichtbaar:
-// je kreeg een rooster te zien dat er plausibel uitzag en nergens op sloeg.
-// Erger nog, de zelfherstellende effecten in PlanningApp schreven die lijst
-// dan weg als het echte rooster.
-//
-// Een leeg rooster is het eerlijke antwoord op "ik kon het niet ophalen". De
-// melding boven de planning zegt dan wat er aan de hand is, in plaats van dat
-// iemand naar een verzonnen bezetting zit te kijken.
-export const DEPARTMENTS: Department[] = []
+// De database is de enige lijst. Komt er niets terug, dan hoort er niets te
+// staan — zie de melding boven de planning. Zet hier dus geen voorbeeldrooster
+// en geen standaardstatussen terug.
 
 export const DUTCH_DAYS = ['Zondag', 'Maandag', 'Dinsdag', 'Woensdag', 'Donderdag', 'Vrijdag', 'Zaterdag']
 export const DUTCH_MONTHS = ['Januari', 'Februari', 'Maart', 'April', 'Mei', 'Juni', 'Juli', 'Augustus', 'September', 'Oktober', 'November', 'December']

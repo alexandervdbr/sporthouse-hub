@@ -1,3 +1,13 @@
+-- LET OP — deze tabel is later veranderd.
+--
+-- Migratie 0053 heeft `department` en `employee` hier vervangen door één
+-- `contact_id`. Alles hieronder beschrijft planning_links zoals hij in
+-- oktober 2026 gemaakt is, niet zoals hij er nu uitziet. Dat blijft bewust
+-- staan: een migratie is een aantekening van wat er toen gebeurd is, en die
+-- herschrijf je niet achteraf.
+--
+-- Wil je weten hoe de tabel er vandaag uitziet, lees dan eerst 0053.
+
 -- Persoonlijke planningslinks voor weekendstudenten.
 --
 -- Zij hebben geen account en krijgen er ook geen. Dat is een bewuste keuze:
@@ -24,6 +34,9 @@ create table if not exists planning_links (
   token        text primary key,
   -- Dezelfde sleutel als planning_entries: (afdeling, naam). Geen verwijzing
   -- naar contacts, want een weekendstudent hoeft daar niet per se in te staan.
+  -- (Achterhaald door 0053: er staat nu wél een contact_id, en deze twee
+  -- kolommen bestaan niet meer. Weekendstudenten horen sindsdien gewoon in
+  -- Team te staan.)
   department   text not null,
   employee     text not null,
   created_by   text,

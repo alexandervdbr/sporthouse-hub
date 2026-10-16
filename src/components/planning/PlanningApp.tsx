@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ChevronLeft, ChevronRight, Loader2, Settings, Search, TriangleAlert, X, Users } from 'lucide-react'
 import {
-  DEPARTMENTS, DUTCH_MONTHS, UNASSIGNED_DEPT, normName, type Department, type Person,
+  DUTCH_MONTHS, UNASSIGNED_DEPT, normName, type Department, type Person,
 } from '@/lib/planning-config'
 import {
   addMonths, addWeeks, dateCellKey, getMonthWeeks, getWeekDates, groupWeekByMonth, weekDayCellKey, weekLabel,
@@ -62,17 +62,17 @@ type TeamViewMode = 'week' | 'month'
 // ceiling on how stale things may get if that socket dies.
 const POLL_INTERVAL = 60000
 
-// The department config always used to start life as the hardcoded
-// DEPARTMENTS fallback and only get replaced once /api/planning/config
-// resolved — for a returning person whose real identity lives only in the
-// synced config (not that old hardcoded list), myPerson couldn't resolve
-// until that fetch finished, so "Mijn week" visibly flashed a loading
-// state on every single refresh even though myIdentity itself was already
-// known instantly from localStorage. Seeding straight from a cached copy
-// of the last successfully-loaded config removes that network round-trip
-// from the critical path entirely for anyone who's loaded this before —
-// the fresh fetch still runs and corrects anything that's genuinely
-// changed, but there's no visible gap while it's in flight.
+// Het rooster begint bij een kopie van wat er de vorige keer geladen is.
+//
+// Anders kan myPerson pas opgelost worden zodra /api/planning/config antwoordt,
+// en knipperde "Mijn week" bij elke refresh een laadtoestand — terwijl wie je
+// bent al meteen uit localStorage bekend was. De verse ophaling loopt gewoon
+// door en corrigeert wat echt veranderd is; er zit alleen geen gat meer in.
+//
+// Niets geladen en niets in de cache geeft een leeg rooster, en dat is het
+// eerlijke antwoord. Hier stond vroeger een hardcoded lijst als terugval, en
+// die maakte een storing onzichtbaar: je kreeg een plausibel ogend rooster uit
+// 2024 te zien. Zet hier dus niets anders dan een lege lijst neer.
 //
 // De sleutel zelf staat in planning-cache.ts, bij de andere planning-sleutels
 // die bij uitloggen gewist moeten worden.
@@ -84,7 +84,7 @@ function loadCachedDepts(): Department[] {
       if (Array.isArray(parsed) && parsed.length > 0) return parsed
     }
   } catch { /* private browsing, or never loaded before on this device */ }
-  return DEPARTMENTS
+  return []
 }
 
 export default function PlanningApp() {
