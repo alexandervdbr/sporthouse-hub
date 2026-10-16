@@ -571,24 +571,57 @@ function EditionModal({ editions, onClose, onRefresh }: {
   const supabase = createClient()
   const [newTitle,   setNewTitle]   = useState('')
   const [saving,     setSaving]     = useState(false)
+  const [busy,       setBusy]       = useState<string | null>(null)
   const [confirmDel, setConfirmDel] = useState<string | null>(null)
+  const [error,      setError]      = useState<string | null>(null)
+  const [counts,     setCounts]     = useState<Record<string, number> | null>(null)
+
+  // Hoeveel inzendingen er aan elke editie hangen, zodat de bevestiging kan
+  // zeggen wat er meegaat. De pagina zelf kent alleen de actieve editie.
+  useEffect(() => {
+    fetch('/api/preassist/editions')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => setCounts(data))
+      .catch(() => { /* zonder aantallen blijft verwijderen mogelijk, alleen minder expliciet */ })
+  }, [])
 
   async function createEdition() {
     if (!newTitle.trim()) return
-    setSaving(true)
-    await supabase.from('preassist_editions').insert({ title: newTitle.trim(), active: false })
-    setNewTitle(''); setSaving(false); onRefresh()
+    setSaving(true); setError(null)
+    const { error } = await supabase.from('preassist_editions').insert({ title: newTitle.trim(), active: false })
+    setSaving(false)
+    if (error) { setError(`Aanmaken mislukt: ${error.message}`); return }
+    setNewTitle(''); onRefresh()
   }
 
   async function setActive(id: string) {
-    await supabase.from('preassist_editions').update({ active: false }).neq('id', id)
-    await supabase.from('preassist_editions').update({ active: true }).eq('id', id)
+    setBusy(id); setError(null)
+    // Eén statement in plaats van twee losse updates — zie migratie 0057.
+    // Het waren er twee zonder foutcontrole, met een moment tussenin waarop
+    // er geen enkele actieve editie was.
+    const { error } = await supabase.rpc('preassist_set_active_edition', { target: id })
+    setBusy(null)
+    if (error) { setError(`Activeren mislukt: ${error.message}`); return }
     onRefresh()
   }
 
   async function deleteEdition(id: string) {
-    await supabase.from('preassist_editions').delete().eq('id', id)
-    setConfirmDel(null); onRefresh()
+    setBusy(id); setError(null)
+    // Via de server, want de bestanden moeten eerst in Drive's prullenbak en
+    // daar heeft de browser geen credentials voor.
+    try {
+      const res = await fetch(`/api/preassist/editions?id=${id}`, { method: 'DELETE' })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(body?.error ?? `Verwijderen mislukt (${res.status}).`)
+      if (body?.warning) setError(body.warning)
+      setConfirmDel(null)
+      onRefresh()
+    } catch (err) {
+      // Dit faalde eerder altijd stil: de foreign key hield het tegen, de
+      // error werd niet bekeken en onRefresh() zette de editie gewoon terug.
+      setError(err instanceof Error ? err.message : 'Verwijderen mislukt.')
+    }
+    setBusy(null)
   }
 
   useEffect(() => {
@@ -610,18 +643,29 @@ function EditionModal({ editions, onClose, onRefresh }: {
           {editions.map(e => (
             <div key={e.id} className="flex items-center gap-2 px-3 py-2 rounded-lg"
               style={{ background: 'rgba(255,255,255,0.05)', border: e.active ? '1px solid rgba(58,145,63,0.4)' : '1px solid transparent' }}>
-              <span className="text-sm text-zinc-200 truncate flex-1">{e.title}</span>
+              <div className="min-w-0 flex-1">
+                <span className="block text-sm text-zinc-200 truncate">{e.title}</span>
+                {confirmDel === e.id && (
+                  <span className="block text-[10px] text-red-400">
+                    {counts?.[e.id]
+                      ? `${counts[e.id]} inzending${counts[e.id] !== 1 ? 'en' : ''} gaan mee naar de prullenbak`
+                      : 'Deze editie verwijderen?'}
+                  </span>
+                )}
+              </div>
               {e.active ? (
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
                   style={{ color: '#3A913F', background: 'rgba(58,145,63,0.15)' }}>Actief</span>
               ) : (
-                <button onClick={() => setActive(e.id)}
-                  className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors flex-shrink-0">Activeren</button>
+                <button onClick={() => setActive(e.id)} disabled={busy === e.id}
+                  className="text-[10px] text-zinc-500 hover:text-zinc-300 disabled:opacity-50 transition-colors flex-shrink-0">Activeren</button>
               )}
               {confirmDel === e.id ? (
                 <div className="flex items-center gap-1 flex-shrink-0">
-                  <button onClick={() => deleteEdition(e.id)}
-                    className="text-[10px] font-medium text-red-400 hover:text-red-300 transition-colors">Zeker?</button>
+                  <button onClick={() => deleteEdition(e.id)} disabled={busy === e.id}
+                    className="text-[10px] font-medium text-red-400 hover:text-red-300 disabled:opacity-50 transition-colors">
+                    {busy === e.id ? 'Bezig…' : 'Zeker?'}
+                  </button>
                   <button onClick={() => setConfirmDel(null)} className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors">Nee</button>
                 </div>
               ) : (
@@ -634,6 +678,9 @@ function EditionModal({ editions, onClose, onRefresh }: {
             </div>
           ))}
         </div>
+        {error && (
+          <p className="mb-3 text-xs text-red-400">{error}</p>
+        )}
         <div className="flex gap-2">
           <input type="text" placeholder="bv. Q1 2026" value={newTitle}
             onChange={e => setNewTitle(e.target.value)} onKeyDown={e => e.key === 'Enter' && createEdition()}
