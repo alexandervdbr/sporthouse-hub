@@ -62,6 +62,13 @@ function formatSize(bytes: number | null) {
 
 function isVideo(type: string) { return type.startsWith('video/') }
 
+// Namen van afgekeurde bestanden, afgekapt zodat een map van veertig foto's
+// geen melding van tien regels oplevert.
+function namesOf(files: File[], max = 3) {
+  const names = files.slice(0, max).map(f => f.name).join(', ')
+  return files.length > max ? `${names} en ${files.length - max} andere` : names
+}
+
 // ─── Submission card ──────────────────────────────────────────────────────────
 
 function SubmissionCard({ sub, canDelete, onDelete }: {
@@ -201,13 +208,21 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
     // Op extensie, niet op het MIME-type dat de browser erbij verzint — zelfde
     // allowlist als de server aanhoudt, zodat een bestand hier wordt
     // tegengehouden en niet pas na een upload van een halve gigabyte.
-    const wrongType = all.some(f => !isAllowedPreassistExt(f.name))
-    const tooBig    = all.some(f => f.size > MAX_UPLOAD_BYTES)
+    const wrongType = all.filter(f => !isAllowedPreassistExt(f.name))
+    const tooBig    = all.filter(f => isAllowedPreassistExt(f.name) && f.size > MAX_UPLOAD_BYTES)
+
+    // Mét de namen erbij, en beide redenen tegelijk. Het was een ternary die
+    // alleen de grootte meldde, dus wie één te grote video en één pdf sleepte
+    // hoorde niets over die pdf — en in geen van beide gevallen welk bestand.
+    const reasons = [
+      tooBig.length    ? `groter dan ${MAX_UPLOAD_LABEL}: ${namesOf(tooBig)}` : null,
+      wrongType.length ? `verkeerd type: ${namesOf(wrongType)}` : null,
+    ].filter(Boolean)
 
     setRejected(
-      tooBig ? `Eén of meer bestanden zijn groter dan ${MAX_UPLOAD_LABEL} en werden overgeslagen.`
-      : wrongType ? `Toegestaan: ${ALLOWED_PREASSIST_HINT} — andere bestanden werden overgeslagen.`
-      : null
+      reasons.length
+        ? `Overgeslagen — ${reasons.join('; ')}. Toegestaan: ${ALLOWED_PREASSIST_HINT}.`
+        : null
     )
 
     const newEntries: FileEntry[] = all
@@ -230,22 +245,28 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
     setEntries(prev => prev.filter((_, i) => i !== index))
   }
 
-  async function handleUpload() {
+  async function handleUpload(retryOnly = false) {
     if (!entries.length || entries.some(e => !e.clientId)) return
     setUploading(true)
+    setDone(false)
+    // Bij opnieuw proberen alleen de mislukte bestanden. De File-objecten
+    // zitten nog in entries, dus niemand hoeft ze opnieuw aan te wijzen.
+    const todo = entries
+      .map((e, i) => ({ e, i }))
+      .filter(({ e }) => retryOnly ? e.status === 'error' : e.status !== 'done')
 
     // Drie tegelijk in plaats van allemaal. Het waren Promise.all-uploads van
     // het hele bestand; nu gaat elk bestand in blokken naar Google en helpt
     // vijftien tegelijk niemand.
     const CONCURRENCY = 3
     let cursor = 0
-    const queue = entries
+    let errorCount = 0
+    const queue = todo
 
     async function worker() {
       while (cursor < queue.length) {
-        const i = cursor++
-        const entry = queue[i]
-        setEntries(prev => prev.map((e, j) => j === i ? { ...e, status: 'uploading', progress: 0 } : e))
+        const { e: entry, i } = queue[cursor++]
+        setEntries(prev => prev.map((e, j) => j === i ? { ...e, status: 'uploading', progress: 0, error: undefined } : e))
         try {
           // 1. Een Drive-sessie openen. Klein en snel: hier gaat geen byte
           // van het bestand door.
@@ -316,14 +337,22 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
             ? 'Geen verbinding — upload afgebroken.'
             : raw
           setEntries(prev => prev.map((e, j) => j === i ? { ...e, status: 'error', error: msg } : e))
+          errorCount++
         }
       }
     }
 
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker))
 
+    setUploading(false)
     setDone(true)
-    setTimeout(() => { onUploaded(); onClose() }, 800)
+
+    // Alleen wegklappen als er niets mislukt is. Hij sloot altijd na 800 ms,
+    // dus wie drie bestanden zag falen kreeg "3 mislukt" een halve seconde te
+    // zien en daarna een leeg scherm — niet te onderscheiden van een upload
+    // die gewoon gelukt was.
+    onUploaded()
+    if (errorCount === 0) setTimeout(onClose, 800)
   }
 
   const allAssigned  = entries.length > 0 && entries.every(e => e.clientId)
@@ -423,8 +452,11 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
                       </select>
                     </div>
 
-                    {/* Status / remove */}
-                    {uploading ? (
+                    {/* Status / remove — het resultaat blijft staan nadat het
+                        uploaden klaar is, anders verdwijnt het ✗ van een
+                        mislukt bestand precies op het moment dat je het nodig
+                        hebt. */}
+                    {uploading || entry.status === 'done' || entry.status === 'error' ? (
                       <span className="flex-shrink-0 w-4 text-center" style={{
                         color: entry.status === 'done'  ? '#4ade80' :
                                entry.status === 'error' ? '#f87171' : '#a1a1aa',
@@ -452,6 +484,13 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
                         style={{ width: `${entry.progress}%`, backgroundColor: '#3A913F' }} />
                     </div>
                   )}
+
+                  {/* De reden waarom dit bestand niet aankwam. Werd wel
+                      opgeslagen maar nergens getoond, dus zag je alleen
+                      "1 bestand mislukt" zonder te weten waarom. */}
+                  {entry.status === 'error' && entry.error && (
+                    <p className="px-3 pb-2 text-[10px] text-red-400 break-words">{entry.error}</p>
+                  )}
                 </div>
               ))}
             </div>
@@ -463,11 +502,13 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
           )}
 
           {/* Progress bar when uploading */}
-          {uploading && (
+          {(uploading || done) && (
             <div className="mb-4">
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-xs text-zinc-500">
-                  {done ? 'Klaar' : `${doneCount} / ${entries.length} geüpload…`}
+                  {uploading ? `${doneCount} / ${entries.length} geüpload…`
+                    : errorCount > 0 ? `${doneCount} van de ${entries.length} geüpload`
+                    : 'Klaar'}
                 </span>
               </div>
               <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.1)' }}>
@@ -490,16 +531,28 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
           <div className="flex gap-2">
             <button onClick={onClose}
               className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors">
-              Annuleren
+              {done && errorCount > 0 ? 'Sluiten' : 'Annuleren'}
             </button>
-            <button onClick={handleUpload} disabled={uploading || !allAssigned}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-40 transition-all"
-              style={{ background: '#3A913F' }}>
-              {uploading ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
-              {uploading
-                ? `${doneCount}/${entries.length} klaar`
-                : `${entries.length || 0} bestand${entries.length !== 1 ? 'en' : ''} uploaden`}
-            </button>
+            {/* Na een mislukking opnieuw proberen met alleen de bestanden die
+                het niet haalden — de File-objecten staan er nog, dus niemand
+                hoeft ze opnieuw te gaan zoeken. */}
+            {done && errorCount > 0 ? (
+              <button onClick={() => handleUpload(true)} disabled={uploading}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-40 transition-all"
+                style={{ background: '#3A913F' }}>
+                <Upload size={13} />
+                {errorCount} bestand{errorCount !== 1 ? 'en' : ''} opnieuw proberen
+              </button>
+            ) : (
+              <button onClick={() => handleUpload()} disabled={uploading || !allAssigned}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-40 transition-all"
+                style={{ background: '#3A913F' }}>
+                {uploading ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+                {uploading
+                  ? `${doneCount}/${entries.length} klaar`
+                  : `${entries.length || 0} bestand${entries.length !== 1 ? 'en' : ''} uploaden`}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -648,6 +701,7 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
   const [showEditions,  setShowEditions]  = useState(false)
   const [showUpload,    setShowUpload]    = useState(false)
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false)
+  const [deleteError,   setDeleteError]   = useState<string | null>(null)
 
   const submitters = Array.from(
     new Map(submissions.map(s => [s.submitted_by_id, s.submitted_by_name])).entries()
@@ -683,13 +737,33 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
   }, [loadEditions, loadSubmissions])
 
   async function handleDelete(id: string, filePath: string, provider?: string) {
-    if (provider === 'drive') {
-      await fetch(`/api/preassist/upload?id=${id}`, { method: 'DELETE' })
-    } else {
-      await supabase.storage.from('preassist').remove([filePath])
-      await supabase.from('preassist_submissions').delete().eq('id', id)
-    }
+    const removed = submissions.find(s => s.id === id)
+    setDeleteError(null)
+
+    // Direct uit de lijst; het wegzetten in Drive is waar het wachten zat.
     setSubmissions(prev => prev.filter(s => s.id !== id))
+
+    try {
+      if (provider === 'drive') {
+        const res = await fetch(`/api/preassist/upload?id=${id}`, { method: 'DELETE' })
+        if (!res.ok) {
+          const body = await res.json().catch(() => null)
+          throw new Error(body?.error ?? `Verwijderen mislukt (${res.status}).`)
+        }
+      } else {
+        // Oude inzendingen van vóór Drive, nog in Supabase Storage.
+        const { error: storageError } = await supabase.storage.from('preassist').remove([filePath])
+        if (storageError) throw new Error(storageError.message)
+        const { error } = await supabase.from('preassist_submissions').delete().eq('id', id)
+        if (error) throw new Error(error.message)
+      }
+    } catch (err) {
+      // Zette de kaart weg en keek nooit of het gelukt was: bij een 403 of
+      // een 500 verdween hij uit de lijst en stond hij na een refresh weer
+      // terug, zonder dat iemand iets gezien had.
+      if (removed) setSubmissions(prev => prev.some(s => s.id === id) ? prev : [...prev, removed])
+      setDeleteError(err instanceof Error ? err.message : 'Verwijderen mislukt.')
+    }
   }
 
   async function downloadZip(userId?: string) {
@@ -810,6 +884,17 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
           )}
         </div>
       </div>
+
+      {deleteError && (
+        <div className="mb-5 flex items-start gap-2 px-4 py-3 rounded-xl"
+          style={{ background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)' }}>
+          <p className="text-sm text-red-300 flex-1">{deleteError}</p>
+          <button onClick={() => setDeleteError(null)} aria-label="Melding sluiten"
+            className="text-red-400 hover:text-red-200 transition-colors flex-shrink-0">
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {!activeEdition ? (
         <div className="flex flex-col items-center justify-center py-24 text-center">
