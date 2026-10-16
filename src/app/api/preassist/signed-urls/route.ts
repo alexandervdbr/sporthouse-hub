@@ -1,10 +1,13 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest } from 'next/server'
 import { hasOpenSection } from '@/lib/auth-permissions'
+import { getSessionUser } from '@/lib/supabase/claims'
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  // Leespad, net als de download-route ernaast: het token lokaal nagerekend
+  // in plaats van per aanroep bij de Auth-server bevestigd.
+  const user = await getSessionUser(supabase)
   if (!user) return new Response('Unauthorized', { status: 401 })
   // Keek alleen of je ingelogd was, terwijl de download- en thumbnail-route
   // ernaast de sectie wel controleren.
