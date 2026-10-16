@@ -171,6 +171,10 @@ interface FileEntry {
   file: File
   clientId: string
   clientName: string
+  // Waarom je dit instuurt. De kolom (title) en de weergave op het kaartje
+  // bestonden al, maar de upload zette hem hard op null — bij een tab die
+  // "Inspiratie" heet is dat juist het stuk dat ontbrak.
+  title: string
   status: 'pending' | 'uploading' | 'done' | 'error'
   progress: number
   error?: string
@@ -232,6 +236,7 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
         file,
         clientId:   defaultClient?.id   ?? '',
         clientName: defaultClient?.name ?? '',
+        title: '',
         status: 'pending' as const,
         progress: 0,
       }))
@@ -240,6 +245,10 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
 
   function updateEntry(index: number, clientId: string, clientName: string) {
     setEntries(prev => prev.map((e, i) => i === index ? { ...e, clientId, clientName } : e))
+  }
+
+  function updateTitle(index: number, title: string) {
+    setEntries(prev => prev.map((e, i) => i === index ? { ...e, title } : e))
   }
 
   function removeEntry(index: number) {
@@ -321,6 +330,7 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
               uploadUrl,
               fileName: entry.file.name,
               fileSize: entry.file.size,
+              title: entry.title.trim() || null,
             }),
           })
           if (!finalizeRes.ok) {
@@ -479,6 +489,13 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
                   {/* Echte bytes, niet "bestand 2 van 5". Bij één video van
                       600 MB is dat het verschil tussen iets zien gebeuren en
                       een balk die minuten op 0% staat. */}
+                  {!uploading && entry.status !== 'done' && (
+                    <input type="text" value={entry.title} maxLength={200}
+                      onChange={e => updateTitle(i, e.target.value)}
+                      placeholder="Toelichting (optioneel) — waarom stuur je dit in?"
+                      className="w-full px-3 pb-2 bg-transparent text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none" />
+                  )}
+
                   {entry.status === 'uploading' && (
                     <div className="h-0.5" style={{ background: 'rgba(255,255,255,0.08)' }}>
                       <div className="h-full transition-all duration-200"
@@ -742,6 +759,11 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
 
   const [editions,      setEditions]      = useState<Edition[]>([])
   const [activeEdition, setActiveEdition] = useState<Edition | null>(null)
+  // Wat je bekijkt, los van welke editie actief is. Voorheen was dat
+  // hetzelfde, en verdween een afgeronde editie dus volledig uit de app op
+  // het moment dat de volgende werd geactiveerd — inhoud incluis, want ook
+  // downloaden kon alleen van de actieve.
+  const [viewedEdition, setViewedEdition] = useState<Edition | null>(null)
   const [submissions,   setSubmissions]   = useState<Submission[]>([])
   const [section,       setSection]       = useState<Section>('content')
   const [loading,       setLoading]       = useState(true)
@@ -756,13 +778,17 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
     new Map(submissions.map(s => [s.submitted_by_id, s.submitted_by_name])).entries()
   ).map(([id, name]) => ({ id, name }))
 
-  const loadEditions = useCallback(async () => {
+  const loadEditions = useCallback(async (keepViewedId?: string) => {
     const { data } = await supabase.from('preassist_editions').select('*').order('created_at', { ascending: false })
     const all = (data ?? []) as Edition[]
     setEditions(all)
     const active = all.find(e => e.active) ?? null
     setActiveEdition(active)
-    return active
+    // Blijf staan waar je stond zolang die editie nog bestaat; anders de
+    // actieve, en als er geen actieve is de nieuwste.
+    const viewed = (keepViewedId ? all.find(e => e.id === keepViewedId) : null) ?? active ?? all[0] ?? null
+    setViewedEdition(viewed)
+    return viewed
   }, [])
 
   const loadSubmissions = useCallback(async (edition: Edition) => {
@@ -782,8 +808,16 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
   }, [])
 
   useEffect(() => {
-    loadEditions().then(active => { if (active) loadSubmissions(active); else setLoading(false) })
+    loadEditions().then(viewed => { if (viewed) loadSubmissions(viewed); else setLoading(false) })
   }, [loadEditions, loadSubmissions])
+
+  function selectEdition(id: string) {
+    const next = editions.find(e => e.id === id)
+    if (!next) return
+    setViewedEdition(next)
+    setSubmissions([])
+    loadSubmissions(next)
+  }
 
   async function handleDelete(id: string, filePath: string, provider?: string) {
     const removed = submissions.find(s => s.id === id)
@@ -816,7 +850,7 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
   }
 
   async function downloadZip(userId?: string) {
-    if (!activeEdition) return
+    if (!viewedEdition) return
     setDownloading(true)
     setZipError(null)
 
@@ -838,7 +872,7 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
         return
       }
 
-      const params = new URLSearchParams({ edition_id: activeEdition.id, section: 'all' })
+      const params = new URLSearchParams({ edition_id: viewedEdition.id, section: 'all' })
       if (userId) params.set('user_id', userId)
 
       const res = await fetch(`/api/preassist/signed-urls?${params}`)
@@ -861,7 +895,7 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
         })
       )
 
-      await saveZip(zip, `${activeEdition.title}${userId ? ` — ${files[0]?.person ?? ''}` : ''}.zip`)
+      await saveZip(zip, `${viewedEdition.title}${userId ? ` — ${files[0]?.person ?? ''}` : ''}.zip`)
     } catch {
       // Stond er niet, en de knop bleef daardoor na één mislukte fetch
       // permanent uitgeschakeld tot iemand de pagina verversde.
@@ -895,14 +929,32 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
             <h1 className="text-2xl font-bold tracking-tight text-white" style={{ fontFamily: 'var(--font-kurdis)' }}>
               Pré-assist
             </h1>
-            {activeEdition && (
+            {/* Eén editie: een badge zoals voorheen. Meer: een kiezer, zodat
+                een afgeronde editie terug te vinden is in plaats van alleen
+                nog in Drive te staan. */}
+            {editions.length > 1 ? (
+              <select value={viewedEdition?.id ?? ''} onChange={e => selectEdition(e.target.value)}
+                aria-label="Editie kiezen"
+                className="text-sm font-medium px-2.5 py-1 rounded-full flex-shrink-0 focus:outline-none cursor-pointer"
+                style={{ background: 'rgba(58,145,63,0.15)', color: '#3A913F', border: '1px solid rgba(58,145,63,0.3)' }}>
+                {editions.map(e => (
+                  <option key={e.id} value={e.id} style={{ background: '#1e1e1e', color: '#d4d4d8' }}>
+                    {e.title}{e.active ? ' — actief' : ''}
+                  </option>
+                ))}
+              </select>
+            ) : viewedEdition && (
               <span className="text-sm font-medium px-2.5 py-0.5 rounded-full flex-shrink-0"
                 style={{ background: 'rgba(58,145,63,0.15)', color: '#3A913F', border: '1px solid rgba(58,145,63,0.3)' }}>
-                {activeEdition.title}
+                {viewedEdition.title}
               </span>
             )}
           </div>
-          <p className="text-sm text-zinc-500">Dien content en inspiratie in voor de volgende sessie</p>
+          <p className="text-sm text-zinc-500">
+            {viewedEdition && activeEdition && viewedEdition.id !== activeEdition.id
+              ? 'Een afgeronde editie — bekijken en downloaden kan, toevoegen gebeurt in de actieve editie'
+              : 'Dien content en inspiratie in voor de volgende sessie'}
+          </p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
@@ -914,7 +966,7 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
             </button>
           )}
 
-          {activeEdition && submissions.length > 0 && (
+          {viewedEdition && submissions.length > 0 && (
             <div className="relative group">
               <button disabled={downloading}
                 onClick={() => setDownloadMenuOpen(v => !v)}
@@ -948,7 +1000,10 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
             </div>
           )}
 
-          {activeEdition && canAdd && (
+          {/* Alleen in de actieve editie: in een afgeronde sessie iets
+              bijzetten is nooit de bedoeling, en met een kiezer erbij is dat
+              anders één verkeerde keuze. */}
+          {viewedEdition && activeEdition && viewedEdition.id === activeEdition.id && canAdd && (
             <button onClick={() => setShowUpload(true)}
               className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white transition-all"
               style={{ background: '#3A913F' }}>
@@ -969,10 +1024,10 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
         </div>
       )}
 
-      {!activeEdition ? (
+      {!viewedEdition ? (
         <div className="flex flex-col items-center justify-center py-24 text-center">
           <Layers size={32} className="text-zinc-700 mb-4" />
-          <p className="text-zinc-400 font-medium mb-1">Geen actieve editie</p>
+          <p className="text-zinc-400 font-medium mb-1">Nog geen editie</p>
           {canManageEditions ? (
             <p className="text-sm text-zinc-600">Maak een editie aan via{' '}
               <button onClick={() => setShowEditions(true)} className="underline hover:text-zinc-400">Edities</button>.
@@ -1012,9 +1067,11 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
             <div className="flex flex-col items-center justify-center py-20 text-center">
               {section === 'content' ? <ImageIcon size={28} className="text-zinc-700 mb-3" /> : <Layers size={28} className="text-zinc-700 mb-3" />}
               <p className="text-sm text-zinc-500 mb-1">Nog niets ingediend onder {section === 'content' ? 'Content' : 'Inspiratie'}.</p>
-              <button onClick={() => setShowUpload(true)} className="mt-2 text-sm font-medium" style={{ color: '#3A913F' }}>
-                + Eerste inzending toevoegen
-              </button>
+              {activeEdition && viewedEdition.id === activeEdition.id && canAdd && (
+                <button onClick={() => setShowUpload(true)} className="mt-2 text-sm font-medium" style={{ color: '#3A913F' }}>
+                  + Eerste inzending toevoegen
+                </button>
+              )}
             </div>
           ) : (
             Object.entries(grouped).map(([clientName, subs]) => (
@@ -1032,7 +1089,7 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
 
       {showEditions && (
         <EditionModal editions={editions} onClose={() => setShowEditions(false)}
-          onRefresh={() => loadEditions().then(a => { if (a) loadSubmissions(a) })} />
+          onRefresh={() => loadEditions(viewedEdition?.id).then(v => { if (v) loadSubmissions(v) })} />
       )}
     </div>
   )
