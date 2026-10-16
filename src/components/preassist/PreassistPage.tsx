@@ -15,6 +15,7 @@ import { rememberUpload, forgetUpload } from '@/lib/pending-uploads'
 import {
   isAllowedPreassistExt, ALLOWED_PREASSIST_HINT, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL,
 } from '@/lib/upload-policy'
+import { MAX_ZIP_BYTES, MAX_ZIP_LABEL, saveZip, uniqueZipPath } from '@/lib/zip-download'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -702,6 +703,7 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
   const [showUpload,    setShowUpload]    = useState(false)
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false)
   const [deleteError,   setDeleteError]   = useState<string | null>(null)
+  const [zipError,      setZipError]      = useState<string | null>(null)
 
   const submitters = Array.from(
     new Map(submissions.map(s => [s.submitted_by_id, s.submitted_by_name])).entries()
@@ -769,31 +771,55 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
   async function downloadZip(userId?: string) {
     if (!activeEdition) return
     setDownloading(true)
+    setZipError(null)
 
-    const params = new URLSearchParams({ edition_id: activeEdition.id, section: 'all' })
-    if (userId) params.set('user_id', userId)
+    try {
+      // Eerst wegen, en wel op de kolom die we al hebben — dit kost geen
+      // enkel verzoek. Zonder dit begon de download gewoon, en liep een
+      // editie met een paar video's de tab uit het geheugen.
+      const weighed = submissions.filter(s => !userId || s.submitted_by_id === userId)
+      const totalBytes = weighed.reduce((sum, s) => sum + (s.file_size ?? 0), 0)
 
-    const res   = await fetch(`/api/preassist/signed-urls?${params}`)
-    const files = await res.json() as { signedUrl: string | null; fileName: string; section: string; person: string; clientName: string | null }[]
+      if (totalBytes > MAX_ZIP_BYTES) {
+        setZipError(
+          `Deze download is ${formatSize(totalBytes)} en wordt hier in het geheugen ingepakt, wat boven ${MAX_ZIP_LABEL} vastloopt. ` +
+          (userId
+            ? 'Download losse bestanden via de kaartjes.'
+            : 'Download per persoon via hetzelfde menu, of losse bestanden via de kaartjes.')
+        )
+        setDownloading(false)
+        return
+      }
 
-    const zip = new JSZip()
+      const params = new URLSearchParams({ edition_id: activeEdition.id, section: 'all' })
+      if (userId) params.set('user_id', userId)
 
-    await Promise.all(
-      files.filter(f => f.signedUrl).map(async f => {
-        const blob        = await fetch(f.signedUrl!).then(r => r.blob())
-        const sectionName = f.section === 'content' ? 'Content' : 'Inspiratie'
-        const clientDir   = f.clientName ?? 'Algemeen'
-        zip.folder(sectionName)!.folder(clientDir)!.file(`${f.person} — ${f.fileName}`, blob)
-      })
-    )
+      const res = await fetch(`/api/preassist/signed-urls?${params}`)
+      if (!res.ok) throw new Error('Kon de bestandslijst niet ophalen.')
+      const files = await res.json() as { signedUrl: string | null; fileName: string; section: string; person: string; clientName: string | null }[]
 
-    const blob = await zip.generateAsync({ type: 'blob' })
-    const url  = URL.createObjectURL(blob)
-    const a    = document.createElement('a')
-    a.href = url
-    a.download = `${activeEdition.title}${userId ? ` — ${files[0]?.person ?? ''}` : ''}.zip`
-    a.click()
-    URL.revokeObjectURL(url)
+      const zip = new JSZip()
+      // JSZip overschrijft een pad dat al bestaat, en deze paden worden hier
+      // samengesteld — dezelfde persoon met twee keer dezelfde bestandsnaam
+      // onder dezelfde klant leverde één bestand in plaats van twee.
+      const taken = new Set<string>()
+
+      await Promise.all(
+        files.filter(f => f.signedUrl).map(async f => {
+          const blob        = await fetch(f.signedUrl!).then(r => r.blob())
+          const sectionName = f.section === 'content' ? 'Content' : 'Inspiratie'
+          const clientDir   = f.clientName ?? 'Algemeen'
+          const path = uniqueZipPath(taken, `${sectionName}/${clientDir}/${f.person} — ${f.fileName}`)
+          zip.file(path, blob)
+        })
+      )
+
+      await saveZip(zip, `${activeEdition.title}${userId ? ` — ${files[0]?.person ?? ''}` : ''}.zip`)
+    } catch {
+      // Stond er niet, en de knop bleef daardoor na één mislukte fetch
+      // permanent uitgeschakeld tot iemand de pagina verversde.
+      setZipError('Kon de download niet voltooien.')
+    }
     setDownloading(false)
   }
 
@@ -885,11 +911,11 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
         </div>
       </div>
 
-      {deleteError && (
+      {(deleteError || zipError) && (
         <div className="mb-5 flex items-start gap-2 px-4 py-3 rounded-xl"
           style={{ background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)' }}>
-          <p className="text-sm text-red-300 flex-1">{deleteError}</p>
-          <button onClick={() => setDeleteError(null)} aria-label="Melding sluiten"
+          <p className="text-sm text-red-300 flex-1">{deleteError ?? zipError}</p>
+          <button onClick={() => { setDeleteError(null); setZipError(null) }} aria-label="Melding sluiten"
             className="text-red-400 hover:text-red-200 transition-colors flex-shrink-0">
             <X size={14} />
           </button>
