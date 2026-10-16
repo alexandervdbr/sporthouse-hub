@@ -10,6 +10,11 @@ import {
 import JSZip from 'jszip'
 import { Client } from '@/types/database'
 import { DriveThumbnail, DrivePreviewModal } from '@/components/shared/DrivePreview'
+import { putFileToDrive } from '@/lib/drive-upload-client'
+import { rememberUpload, forgetUpload } from '@/lib/pending-uploads'
+import {
+  isAllowedPreassistExt, ALLOWED_PREASSIST_HINT, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL,
+} from '@/lib/upload-policy'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -56,8 +61,6 @@ function formatSize(bytes: number | null) {
 }
 
 function isVideo(type: string) { return type.startsWith('video/') }
-
-const MAX_UPLOAD_SIZE = 500 * 1024 * 1024 // 500 MB, matches server-side cap
 
 // ─── Submission card ──────────────────────────────────────────────────────────
 
@@ -195,17 +198,20 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
     if (!incoming) return
     const defaultClient = clients[0]
     const all = Array.from(incoming)
-    const wrongType = all.some(f => !f.type.startsWith('image/') && !f.type.startsWith('video/'))
-    const tooBig    = all.some(f => f.size > MAX_UPLOAD_SIZE)
+    // Op extensie, niet op het MIME-type dat de browser erbij verzint — zelfde
+    // allowlist als de server aanhoudt, zodat een bestand hier wordt
+    // tegengehouden en niet pas na een upload van een halve gigabyte.
+    const wrongType = all.some(f => !isAllowedPreassistExt(f.name))
+    const tooBig    = all.some(f => f.size > MAX_UPLOAD_BYTES)
 
     setRejected(
-      tooBig ? `Eén of meer bestanden zijn groter dan ${MAX_UPLOAD_SIZE / 1024 / 1024} MB en werden overgeslagen.`
-      : wrongType ? 'Enkel afbeeldingen en video\'s zijn toegelaten — andere bestanden werden overgeslagen.'
+      tooBig ? `Eén of meer bestanden zijn groter dan ${MAX_UPLOAD_LABEL} en werden overgeslagen.`
+      : wrongType ? `Toegestaan: ${ALLOWED_PREASSIST_HINT} — andere bestanden werden overgeslagen.`
       : null
     )
 
     const newEntries: FileEntry[] = all
-      .filter(f => (f.type.startsWith('image/') || f.type.startsWith('video/')) && f.size <= MAX_UPLOAD_SIZE)
+      .filter(f => isAllowedPreassistExt(f.name) && f.size <= MAX_UPLOAD_BYTES)
       .map(file => ({
         file,
         clientId:   defaultClient?.id   ?? '',
@@ -228,30 +234,93 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
     if (!entries.length || entries.some(e => !e.clientId)) return
     setUploading(true)
 
-    await Promise.all(
-      entries.map(async (entry, i) => {
-        setEntries(prev => prev.map((e, j) => j === i ? { ...e, status: 'uploading' } : e))
-        try {
-          const body = new FormData()
-          body.set('file', entry.file)
-          body.set('editionId', editionId)
-          body.set('section', section)
-          body.set('clientId', entry.clientId)
-          body.set('clientName', entry.clientName)
+    // Drie tegelijk in plaats van allemaal. Het waren Promise.all-uploads van
+    // het hele bestand; nu gaat elk bestand in blokken naar Google en helpt
+    // vijftien tegelijk niemand.
+    const CONCURRENCY = 3
+    let cursor = 0
+    const queue = entries
 
-          const res = await fetch('/api/preassist/upload', { method: 'POST', body })
-          if (!res.ok) {
-            const { error } = await res.json().catch(() => ({ error: `Upload mislukt (${res.status}).` }))
+    async function worker() {
+      while (cursor < queue.length) {
+        const i = cursor++
+        const entry = queue[i]
+        setEntries(prev => prev.map((e, j) => j === i ? { ...e, status: 'uploading', progress: 0 } : e))
+        try {
+          // 1. Een Drive-sessie openen. Klein en snel: hier gaat geen byte
+          // van het bestand door.
+          const sessionRes = await fetch('/api/preassist/upload-session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              editionId,
+              section,
+              clientId: entry.clientId,
+              filename: entry.file.name,
+              mimeType: entry.file.type || 'application/octet-stream',
+              fileSize: entry.file.size,
+            }),
+          })
+          if (!sessionRes.ok) {
+            const { error } = await sessionRes.json().catch(() => ({ error: `Upload mislukt (${sessionRes.status}).` }))
             throw new Error(error ?? 'Upload mislukt.')
           }
+          const { uploadUrl } = await sessionRes.json()
 
+          // Onthouden vóór de eerste byte vertrekt, zodat een tabblad dat
+          // halverwege sluit iets achterlaat om op terug te komen: Drive houdt
+          // de sessie ongeveer een week vast en weet hoeveel er al binnen is.
+          rememberUpload({
+            uploadUrl,
+            filename: entry.file.name,
+            fileSize: entry.file.size,
+            folderId: null,
+            scope: 'preassist',
+            startedAt: Date.now(),
+          })
+
+          // 2. De bytes rechtstreeks naar Drive. Ze raken onze server niet
+          // aan — dat is wat een video van 500 MB weer mogelijk maakt, en
+          // tegelijk van de transferrekening haalt.
+          await putFileToDrive(entry.file, uploadUrl, (pct) => {
+            setEntries(prev => prev.map((e, j) => j === i ? { ...e, progress: pct } : e))
+          })
+
+          // 3. De sessie aan onze server geven, die bij Drive navraagt wat
+          // het geworden is en de rij wegschrijft. Het id moet daarvandaan
+          // komen: het antwoord op het laatste blok is hier onleesbaar.
+          const finalizeRes = await fetch('/api/preassist/finalize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              editionId,
+              section,
+              clientId: entry.clientId,
+              uploadUrl,
+              fileName: entry.file.name,
+              fileSize: entry.file.size,
+            }),
+          })
+          if (!finalizeRes.ok) {
+            const { error } = await finalizeRes.json().catch(() => ({ error: `Opslaan mislukt (${finalizeRes.status}).` }))
+            throw new Error(error ?? 'Opslaan mislukt.')
+          }
+
+          forgetUpload(uploadUrl)
           setEntries(prev => prev.map((e, j) => j === i ? { ...e, status: 'done', progress: 100 } : e))
         } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err)
+          const raw = err instanceof Error ? err.message : String(err)
+          // "Failed to fetch" is wat een browser zegt als een verzoek de
+          // machine niet eens uit kwam. Correct en nutteloos; noem de oorzaak.
+          const msg = raw === 'Failed to fetch' || raw === 'NETWORK_ERROR'
+            ? 'Geen verbinding — upload afgebroken.'
+            : raw
           setEntries(prev => prev.map((e, j) => j === i ? { ...e, status: 'error', error: msg } : e))
         }
-      })
-    )
+      }
+    }
+
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker))
 
     setDone(true)
     setTimeout(() => { onUploaded(); onClose() }, 800)
@@ -260,6 +329,11 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
   const allAssigned  = entries.length > 0 && entries.every(e => e.clientId)
   const doneCount    = entries.filter(e => e.status === 'done').length
   const errorCount   = entries.filter(e => e.status === 'error').length
+  // Gemiddelde van de echte voortgang per bestand in plaats van het aantal
+  // afgeronde bestanden: bij één groot bestand sprong die balk van 0 naar 100.
+  const totalProgress = entries.length
+    ? Math.round(entries.reduce((sum, e) => sum + (e.status === 'done' ? 100 : e.progress), 0) / entries.length)
+    : 0
 
   const selectStyle = {
     background: 'rgba(255,255,255,0.06)',
@@ -368,6 +442,16 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
                       </button>
                     )}
                   </div>
+
+                  {/* Echte bytes, niet "bestand 2 van 5". Bij één video van
+                      600 MB is dat het verschil tussen iets zien gebeuren en
+                      een balk die minuten op 0% staat. */}
+                  {entry.status === 'uploading' && (
+                    <div className="h-0.5" style={{ background: 'rgba(255,255,255,0.08)' }}>
+                      <div className="h-full transition-all duration-200"
+                        style={{ width: `${entry.progress}%`, backgroundColor: '#3A913F' }} />
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -388,7 +472,7 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
               </div>
               <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.1)' }}>
                 <div className="h-full rounded-full transition-all duration-300"
-                  style={{ width: `${entries.length ? Math.round((doneCount / entries.length) * 100) : 0}%`, backgroundColor: '#3A913F' }} />
+                  style={{ width: `${totalProgress}%`, backgroundColor: '#3A913F' }} />
               </div>
             </div>
           )}
