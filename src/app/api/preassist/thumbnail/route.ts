@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { hasSection } from '@/lib/auth-permissions'
+import { hasOpenSection } from '@/lib/auth-permissions'
 import { driveThumbnailResponse, thumbnailSizeFromRequest } from '@/lib/thumbnail-response'
 import { getSessionUser } from '@/lib/supabase/claims'
 
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   // file still use getUser().
   const user = await getSessionUser(supabase)
   if (!user) return NextResponse.json({ error: 'Niet ingelogd.' }, { status: 401 })
-  if (!hasSection(user, 'preassist')) {
+  if (!hasOpenSection(user, 'preassist')) {
     return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 })
   }
 

@@ -36,6 +36,25 @@ export function hasSection(user: PermissionUser, section: string): boolean {
   return isAdminUser(user) || getSections(user).includes(section)
 }
 
+// Dezelfde vraag als hasSection, maar met de losse uitkomst voor een account
+// waarvoor nooit permissies zijn ingesteld: dat mag alles. De TS-tegenhanger
+// van user_has_open_section() uit migratie 0032, letterlijk dezelfde drie
+// takken in dezelfde volgorde.
+//
+// Twee varianten naast elkaar is geen slordigheid. hasSection weigert bij
+// twijfel, wat klopt voor Wachtwoorden — daar is "we hebben het nog niet
+// ingesteld" geen reden om iemand binnen te laten. Pré-assist is het
+// omgekeerde geval: een interne inzamelbak waar de pagina, de RLS en het
+// admin-paneel alle drie al "niets ingesteld = geen beperking" aanhouden.
+// Dezelfde functie voor beide zou de ene feature openzetten of de andere
+// dichtgooien, dus staat het verschil hier benoemd in plaats van per
+// aanroep opnieuw bedacht.
+export function hasOpenSection(user: PermissionUser, section: string): boolean {
+  if (isAdminUser(user)) return true
+  if (!user?.app_metadata?.permissions) return true
+  return getSections(user).includes(section)
+}
+
 // Single source of truth for "can this user touch this specific client's
 // data" — same semantics as the DB-level user_has_client_access() (see
 // supabase/migrations/0023_client_access_rls_foundation.sql), for the many
