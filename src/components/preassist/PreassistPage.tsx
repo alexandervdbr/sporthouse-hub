@@ -1,11 +1,10 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import {
   Upload, Download, Trash2, X, Plus, Loader2,
-  ImageIcon, Film, Layers, Settings, ChevronDown, ArrowLeft, User,
+  ImageIcon, Film, Layers, Settings, ChevronDown, User,
 } from 'lucide-react'
 import JSZip from 'jszip'
 import { Client } from '@/types/database'
@@ -762,7 +761,6 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
   canAdd: boolean
   canDeleteAll: boolean
 }) {
-  const router = useRouter()
   const supabase = createClient()
 
   const [editions,      setEditions]      = useState<Edition[]>([])
@@ -922,12 +920,6 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
 
   return (
     <div className="p-4 sm:p-8 max-w-6xl mx-auto">
-
-      {/* Back */}
-      <button onClick={() => router.back()}
-        className="flex items-center gap-1.5 mb-6 text-sm text-zinc-500 hover:text-zinc-200 transition-colors">
-        <ArrowLeft size={14} /> Terug
-      </button>
 
       {/* Header */}
       <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
