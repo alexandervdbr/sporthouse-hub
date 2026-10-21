@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  normalizeSubmittedUrl, parseSubmittedUrls, isInstagramUrl, hostnameOf, groupLabelFor,
+  normalizeSubmittedUrl, parseSubmittedUrls, isInstagramUrl, hostnameOf, groupLabelFor, linksAsText,
 } from '@/lib/preassist-links'
 
 // Hierop staat de unieke index die dezelfde link twee keer in één editie
@@ -97,5 +97,36 @@ describe('groupLabelFor', () => {
   it('ziet hetzelfde onderwerp met losse spaties als één groep', () => {
     expect(groupLabelFor({ section: 'inspiratie', title: ' Refs Genk ', client_name: null }))
       .toBe(groupLabelFor({ section: 'inspiratie', title: 'Refs Genk', client_name: null }))
+  })
+})
+
+// De links van een editie in één keer meenemen naar waar je de sessie
+// voorbereidt. Zat alleen in de zip per persoon, terwijl de vraag bijna
+// altijd "geef mij alles" is.
+describe('linksAsText', () => {
+  const links = [
+    { url: 'https://a.be/1', title: 'Refs Genk', note: 'mooie overgang', link_author: 'ilovedust', submitted_by_name: 'Arne' },
+    { url: 'https://b.be/2', title: 'Refs Genk', note: null, link_author: null, submitted_by_name: 'Thijs' },
+    { url: 'https://c.be/3', title: null, note: null, link_author: 'tiktok.com', submitted_by_name: 'Arne' },
+  ]
+
+  it('groepeert per onderwerp, met Algemeen voor wat er geen heeft', () => {
+    const out = linksAsText('Editie 6 November 2026', links)
+    expect(out).toContain('Inspiratie — Editie 6 November 2026')
+    expect(out).toContain('## Refs Genk')
+    expect(out).toContain('## Algemeen')
+  })
+
+  it('zet elke link erin, met auteur, inzender en notitie waar die er zijn', () => {
+    const out = linksAsText('Q1', links)
+    for (const l of links) expect(out).toContain(l.url)
+    expect(out).toContain('ilovedust · Arne')
+    expect(out).toContain('"mooie overgang"')
+    // Zonder auteur blijft alleen de inzender staan, zonder losse scheiding.
+    expect(out).toContain('\n  Thijs')
+  })
+
+  it('kan overweg met een editie zonder links', () => {
+    expect(linksAsText('Leeg', [])).toContain('Inspiratie — Leeg')
   })
 })
