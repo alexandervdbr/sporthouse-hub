@@ -16,10 +16,42 @@ export interface LinkMetadata {
 }
 
 export function isInstagramUrl(url: string): boolean {
+  return hostMatches(url, /(^|\.)instagram\.com$/i)
+}
+
+export function isTikTokUrl(url: string): boolean {
+  return hostMatches(url, /(^|\.)tiktok\.com$/i)
+}
+
+// Op de hostnaam van een geparste URL, niet op de tekst: anders telt
+// "instagram.com.iets-anders.be" ook mee.
+function hostMatches(url: string, pattern: RegExp): boolean {
   try {
-    return /(^|\.)instagram\.com$/i.test(new URL(url).hostname)
+    return pattern.test(new URL(url).hostname)
   } catch {
     return false
+  }
+}
+
+// TikTok geeft niets bruikbaars via og:-tags — geen titel, geen afbeelding.
+// Hun eigen oEmbed-endpoint wel, en dat is openbaar (geen sleutel nodig).
+// Het is wel streng met rate limits per IP, dus dit is een poging en geen
+// garantie: lukt het niet, dan valt fetchLinkMetadata terug op de og-tags en
+// uiteindelijk op alleen de hostnaam.
+async function fetchTikTokOembed(url: string): Promise<LinkMetadata | null> {
+  try {
+    const res = await fetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`, {
+      signal: AbortSignal.timeout(6000),
+    })
+    if (!res.ok) return null
+    const data = await res.json() as Record<string, unknown>
+    const thumb = typeof data.thumbnail_url === 'string' ? data.thumbnail_url : null
+    const title = typeof data.title === 'string' ? data.title : null
+    const author = typeof data.author_name === 'string' ? data.author_name : null
+    if (!thumb && !title && !author) return null
+    return { author: author ?? 'TikTok', caption: title, thumbnailUrl: thumb }
+  } catch {
+    return null
   }
 }
 
@@ -85,6 +117,11 @@ export async function fetchLinkMetadata(url: string): Promise<LinkMetadata> {
       if (!(err instanceof InstagramOembedError)) console.error('Instagram-metadata mislukt:', err)
       return { author: null, caption: null, thumbnailUrl: null }
     }
+  }
+
+  if (isTikTokUrl(url)) {
+    const tiktok = await fetchTikTokOembed(url)
+    if (tiktok) return tiktok
   }
 
   const og = await fetchOgMeta(url)

@@ -946,6 +946,7 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false)
   const [deleteError,   setDeleteError]   = useState<string | null>(null)
   const [zipError,      setZipError]      = useState<string | null>(null)
+  const pollsRef = useRef(0)
 
   const submitters = Array.from(
     new Map(submissions.map(s => [s.submitted_by_id, s.submitted_by_name])).entries()
@@ -964,8 +965,10 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
     return viewed
   }, [])
 
-  const loadSubmissions = useCallback(async (edition: Edition) => {
-    setLoading(true)
+  // quiet: opnieuw ophalen zonder de spinner, voor de poll hieronder — anders
+  // knippert de hele lijst elke paar seconden weg.
+  const loadSubmissions = useCallback(async (edition: Edition, quiet = false) => {
+    if (!quiet) setLoading(true)
     const { data } = await supabase
       .from('preassist_submissions').select('*')
       .eq('edition_id', edition.id).order('client_name').order('created_at', { ascending: false })
@@ -977,18 +980,42 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
       return { ...s, signedUrl: signed?.signedUrl }
     }))
     setSubmissions(withUrls)
-    setLoading(false)
+    if (!quiet) setLoading(false)
   }, [])
 
   useEffect(() => {
     loadEditions().then(viewed => { if (viewed) loadSubmissions(viewed); else setLoading(false) })
   }, [loadEditions, loadSubmissions])
 
+  // Een geplakte link verschijnt meteen, maar auteur, onderschrift en
+  // voorbeeld komen er pas achteraan — dat ophalen duurt seconden. Zonder dit
+  // bleef "Voorbeeld ophalen…" staan tot iemand de pagina verversde, en dat
+  // leest als kapot terwijl het gewoon klaar is.
+  //
+  // Begrensd en zelfstoppend: alleen zolang er iets op 'pending' staat, met
+  // een harde bovengrens. CLAUDE.md wijst terecht naar timers als bron van
+  // verbruik — dit is er geen die blijft lopen.
+  useEffect(() => {
+    if (!viewedEdition) return
+    if (!submissions.some(s => s.link_status === 'pending')) {
+      pollsRef.current = 0
+      return
+    }
+    if (pollsRef.current >= 10) return
+
+    const timer = setTimeout(() => {
+      pollsRef.current += 1
+      loadSubmissions(viewedEdition, true)
+    }, 3000)
+    return () => clearTimeout(timer)
+  }, [submissions, viewedEdition, loadSubmissions])
+
   function selectEdition(id: string) {
     const next = editions.find(e => e.id === id)
     if (!next) return
     setViewedEdition(next)
     setSubmissions([])
+    pollsRef.current = 0
     loadSubmissions(next)
   }
 
@@ -1257,7 +1284,7 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
               editie, net als uploaden. */}
           {section === 'inspiratie' && activeEdition && viewedEdition.id === activeEdition.id && canAdd && (
             <LinkPaste editionId={activeEdition.id} section={section}
-              onAdded={() => loadSubmissions(viewedEdition)} />
+              onAdded={() => { pollsRef.current = 0; loadSubmissions(viewedEdition) }} />
           )}
 
           {loading ? (
