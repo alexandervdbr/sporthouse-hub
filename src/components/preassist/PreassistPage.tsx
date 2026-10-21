@@ -420,7 +420,14 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
             style={{ border: '2px dashed rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.02)' }}>
             <Upload size={18} className="text-zinc-500" />
             <p className="text-sm text-zinc-400">Klik of sleep bestanden hier</p>
-            <p className="text-xs text-zinc-600">Afbeeldingen &amp; video&apos;s — meerdere tegelijk mogelijk</p>
+            {/* De limieten staan er vanaf het begin bij, uit dezelfde
+                constanten als de server aanhoudt. Ze stonden alleen in de
+                afkeurmelding achteraf, dus je kwam er pas achter nadat je een
+                bestand had uitgekozen. */}
+            <p className="text-xs text-zinc-600">
+              Meerdere bestanden tegelijk mogelijk — max {MAX_UPLOAD_LABEL} per bestand
+            </p>
+            <p className="text-[11px] text-zinc-700">{ALLOWED_PREASSIST_HINT}</p>
             <input ref={inputRef} type="file" multiple accept="image/*,video/*" className="hidden"
               onChange={e => { addFiles(e.target.files); e.target.value = '' }} />
           </div>
