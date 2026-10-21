@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import {
   Upload, Download, Trash2, X, Plus, Loader2,
   ImageIcon, Film, Layers, Settings, ChevronDown, User,
-  Link as LinkIcon, ExternalLink,
+  Link as LinkIcon, ExternalLink, Copy, Check,
 } from 'lucide-react'
 import JSZip from 'jszip'
 import { Client } from '@/types/database'
@@ -17,7 +17,7 @@ import {
 } from '@/lib/upload-policy'
 import { MAX_ZIP_BYTES, MAX_ZIP_LABEL, saveZip, uniqueZipPath } from '@/lib/zip-download'
 import { preassistRequiresClient } from '@/lib/preassist-upload'
-import { parseSubmittedUrls, groupLabelFor } from '@/lib/preassist-links'
+import { parseSubmittedUrls, groupLabelFor, linksAsText } from '@/lib/preassist-links'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1110,6 +1110,7 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false)
   const [deleteError,   setDeleteError]   = useState<string | null>(null)
   const [zipError,      setZipError]      = useState<string | null>(null)
+  const [copied,        setCopied]        = useState(false)
   const pollsRef = useRef(0)
 
   const submitters = Array.from(
@@ -1212,6 +1213,34 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
       // terug, zonder dat iemand iets gezien had.
       if (removed) setSubmissions(prev => prev.some(s => s.id === id) ? prev : [...prev, removed])
       setDeleteError(err instanceof Error ? err.message : 'Verwijderen mislukt.')
+    }
+  }
+
+  // Alle links van wat je nu bekijkt, als platte tekst op het klembord.
+  // Het staat al in de browser, dus dit kost geen enkel verzoek — en het is
+  // wat je nodig hebt om een sessie voor te bereiden.
+  async function copyLinks() {
+    if (!viewedEdition) return
+    const links = filtered.filter(s => s.kind === 'link' && s.url)
+    if (!links.length) return
+
+    const text = linksAsText(viewedEdition.title, links.map(s => ({
+      url: s.url ?? null,
+      title: s.title,
+      note: s.note ?? null,
+      link_author: s.link_author ?? null,
+      submitted_by_name: s.submitted_by_name,
+    })))
+
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Het klembord kan geweigerd worden (een browser die een directere
+      // handeling wil, of een onveilige herkomst). Dat zeggen is beter dan
+      // een knop die doet alsof het gelukt is.
+      setZipError('Kon niet naar het klembord kopiëren. Selecteer de links handmatig.')
     }
   }
 
@@ -1477,7 +1506,8 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
       ) : (
         <>
           {/* Tabs */}
-          <div className="flex gap-1 mb-7 p-1 rounded-xl w-full sm:w-fit overflow-x-auto"
+          <div className="flex flex-wrap items-center gap-3 mb-7">
+          <div className="flex gap-1 p-1 rounded-xl w-full sm:w-fit overflow-x-auto"
             style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
             {(['content', 'inspiratie'] as Section[]).map(s => {
               const count = submissions.filter(sub => sub.section === s).length
@@ -1495,6 +1525,23 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
                 </button>
               )
             })}
+          </div>
+
+          {/* Geen download en geen permissie voor nodig: deze links staan al
+              op het scherm. Wat ontbrak was een manier om ze in één keer mee
+              te nemen naar waar je de sessie voorbereidt. */}
+          {section === 'inspiratie' && filtered.some(s => s.kind === 'link') && (
+            <button onClick={copyLinks}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors"
+              style={copied
+                ? { background: 'rgba(58,145,63,0.15)', color: '#4ade80', border: '1px solid rgba(58,145,63,0.35)' }
+                : { background: 'rgba(255,255,255,0.05)', color: '#a1a1aa', border: '1px solid rgba(255,255,255,0.09)' }}>
+              {copied ? <Check size={12} /> : <Copy size={12} />}
+              {copied
+                ? 'Gekopieerd'
+                : `${filtered.filter(s => s.kind === 'link').length} links kopiëren`}
+            </button>
+          )}
           </div>
 
           {/* Links zijn bij Inspiratie het gewone geval, dus staat dit vóór
