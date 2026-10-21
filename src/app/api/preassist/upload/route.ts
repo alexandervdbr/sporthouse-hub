@@ -22,7 +22,7 @@ export async function DELETE(request: NextRequest) {
   const admin = createAdminClient()
   const { data: submission } = await admin
     .from('preassist_submissions')
-    .select('drive_file_id, submitted_by_id')
+    .select('drive_file_id, thumbnail_drive_id, submitted_by_id')
     .eq('id', id)
     .single()
 
@@ -34,6 +34,11 @@ export async function DELETE(request: NextRequest) {
 
   if (submission.drive_file_id) {
     try { await trashFile(submission.drive_file_id) } catch { /* may already be gone */ }
+  }
+  // Een link heeft geen bestand, maar wel een thumbnail die wij op Drive
+  // hebben gezet. Die laten staan zou een map vol wezen opleveren.
+  if (submission.thumbnail_drive_id) {
+    try { await trashFile(submission.thumbnail_drive_id) } catch { /* idem */ }
   }
 
   const { error } = await admin.from('preassist_submissions').delete().eq('id', id)

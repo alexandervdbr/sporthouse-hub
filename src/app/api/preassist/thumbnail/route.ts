@@ -25,13 +25,17 @@ export async function GET(request: NextRequest) {
   const admin = createAdminClient()
   const { data: submission } = await admin
     .from('preassist_submissions')
-    .select('drive_file_id')
+    .select('drive_file_id, thumbnail_drive_id')
     .eq('id', id)
     .single()
 
-  if (!submission?.drive_file_id) {
+  // Een link heeft geen bestand in Drive, maar wel een thumbnail die we daar
+  // zelf hebben neergezet — die van Instagram verloopt na een paar dagen.
+  // Verder is het dezelfde weg: Drive rendert het voorbeeld, wij geven het door.
+  const driveId = submission?.thumbnail_drive_id ?? submission?.drive_file_id
+  if (!driveId) {
     return NextResponse.json({ error: 'Geen voorbeeld beschikbaar.' }, { status: 404 })
   }
 
-  return driveThumbnailResponse(submission.drive_file_id, thumbnailSizeFromRequest(request))
+  return driveThumbnailResponse(driveId, thumbnailSizeFromRequest(request))
 }

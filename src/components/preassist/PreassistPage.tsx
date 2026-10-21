@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import {
   Upload, Download, Trash2, X, Plus, Loader2,
   ImageIcon, Film, Layers, Settings, ChevronDown, User,
+  Link as LinkIcon, ExternalLink,
 } from 'lucide-react'
 import JSZip from 'jszip'
 import { Client } from '@/types/database'
@@ -16,6 +17,7 @@ import {
 } from '@/lib/upload-policy'
 import { MAX_ZIP_BYTES, MAX_ZIP_LABEL, saveZip, uniqueZipPath } from '@/lib/zip-download'
 import { preassistRequiresClient } from '@/lib/preassist-upload'
+import { parseSubmittedUrls } from '@/lib/preassist-links'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -34,6 +36,13 @@ interface Submission {
   file_url: string
   file_name: string
   file_type: string
+  // Een inzending is een bestand of een link — zie migratie 0059.
+  kind?: 'file' | 'link'
+  url?: string | null
+  link_author?: string | null
+  link_caption?: string | null
+  link_status?: 'pending' | 'done' | null
+  thumbnail_drive_id?: string | null
   file_size: number | null
   submitted_by_id: string
   submitted_by_name: string
@@ -71,6 +80,73 @@ function namesOf(files: File[], max = 3) {
 }
 
 // ─── Submission card ──────────────────────────────────────────────────────────
+
+// Een ingestuurde link. Zelfde vorm als een bestandskaartje — zodat een
+// editie één wand met inzendingen blijft en niet twee lijstjes — maar de
+// acties verschillen: openen in plaats van downloaden, en geen voorbeeld in
+// een modal, want de post hoort op Instagram zelf bekeken te worden.
+function LinkCard({ sub, canDelete, onDelete }: {
+  sub: Submission
+  canDelete: boolean
+  onDelete: (id: string, filePath: string, provider?: string) => void
+}) {
+  const pending = sub.link_status === 'pending'
+  const previewSrc = sub.thumbnail_drive_id ? `/api/preassist/thumbnail?id=${sub.id}&size=small` : undefined
+
+  return (
+    <div className="group relative rounded-xl overflow-hidden"
+      style={{ background: 'rgba(22,22,22,0.98)', border: '1px solid rgba(255,255,255,0.09)' }}>
+      <a href={sub.url ?? '#'} target="_blank" rel="noopener noreferrer"
+        className="block relative aspect-video bg-zinc-900 overflow-hidden">
+        {previewSrc ? (
+          <DriveThumbnail src={previewSrc} alt={sub.link_caption ?? sub.url ?? 'Link'} video={false} />
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-zinc-700 px-3">
+            {pending
+              ? <Loader2 size={20} className="animate-spin" />
+              : <LinkIcon size={24} />}
+            <p className="text-[10px] text-zinc-600 text-center break-all line-clamp-2">
+              {pending ? 'Voorbeeld ophalen…' : sub.link_author ?? sub.url}
+            </p>
+          </div>
+        )}
+        <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-black/60 text-zinc-300 flex items-center gap-1">
+          <LinkIcon size={10} /> {sub.link_author ?? 'Link'}
+        </div>
+      </a>
+
+      <div className="absolute top-2 right-2 flex gap-1.5 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+        {canDelete && (
+          <button onClick={() => onDelete(sub.id, '', 'link')}
+            aria-label="Verwijderen"
+            className="tap-target p-2 rounded-lg bg-red-600/80 hover:bg-red-500 text-white transition-colors">
+            <Trash2 size={15} />
+          </button>
+        )}
+      </div>
+
+      <div className="px-3 py-2.5">
+        {/* De toelichting van de inzender staat vóór het onderschrift van de
+            post: waarom iemand dit deelt zegt meer dan wat er toevallig bij
+            stond. */}
+        {sub.title && <p className="text-sm text-zinc-200 font-medium mb-1 line-clamp-2">{sub.title}</p>}
+        {sub.link_caption && !sub.title && (
+          <p className="text-xs text-zinc-400 mb-1.5 line-clamp-2">{sub.link_caption}</p>
+        )}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <User size={11} className="text-zinc-500 flex-shrink-0" />
+            <p className="text-xs text-zinc-300 font-medium truncate">{sub.submitted_by_name}</p>
+          </div>
+          <a href={sub.url ?? '#'} target="_blank" rel="noopener noreferrer"
+            className="text-xs text-zinc-600 hover:text-zinc-300 flex-shrink-0 flex items-center gap-1 transition-colors">
+            Openen <ExternalLink size={10} />
+          </a>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function SubmissionCard({ sub, canDelete, onDelete }: {
   sub: Submission
@@ -728,6 +804,89 @@ function EditionModal({ editions, onClose, onRefresh }: {
   )
 }
 
+
+// ─── Linkveld ─────────────────────────────────────────────────────────────────
+
+// Wat mensen als inspiratie delen is bijna altijd een Instagram-post. Dat via
+// een bestandsupload laten lopen — screenshot, terugvinden, uploaden — is drie
+// stappen voor iets wat één geplakte link is, en dan wordt het niet gebruikt.
+// Vandaar dat dit bovenaan staat en niet achter een knop: plakken en klaar.
+function LinkPaste({ editionId, section, onAdded }: {
+  editionId: string
+  section: Section
+  onAdded: () => void
+}) {
+  const [value,  setValue]  = useState('')
+  const [note,   setNote]   = useState('')
+  const [busy,   setBusy]   = useState(false)
+  const [error,  setError]  = useState<string | null>(null)
+  const [result, setResult] = useState<string | null>(null)
+
+  const urls = parseSubmittedUrls(value)
+
+  async function submit() {
+    if (!urls.length || busy) return
+    setBusy(true); setError(null); setResult(null)
+    try {
+      const res = await fetch('/api/preassist/links', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ editionId, section, urls, note: note.trim() || null }),
+      })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(body?.error ?? `Toevoegen mislukt (${res.status}).`)
+
+      setValue(''); setNote('')
+      // Stond hij er al, dan is dat geen fout maar ook geen stilte waard.
+      setResult(body?.skipped
+        ? `${body.added} toegevoegd, ${body.skipped} stond${body.skipped !== 1 ? 'en' : ''} er al.`
+        : null)
+      onAdded()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Toevoegen mislukt.')
+    }
+    setBusy(false)
+  }
+
+  return (
+    <div className="mb-7 rounded-xl p-4"
+      style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+      <div className="flex items-center gap-2 mb-3">
+        <LinkIcon size={14} className="text-zinc-500" />
+        <p className="text-sm text-zinc-300 font-medium">Plak een link</p>
+        <span className="text-xs text-zinc-600">Instagram, TikTok, YouTube of een website</span>
+      </div>
+
+      <textarea
+        value={value}
+        onChange={e => setValue(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit() }}
+        rows={2}
+        placeholder="https://www.instagram.com/p/…&#10;Meerdere tegelijk mag — één per regel"
+        className="w-full px-3 py-2 rounded-lg text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none resize-y"
+        style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }} />
+
+      <div className="flex flex-wrap items-center gap-2 mt-2">
+        <input type="text" value={note} maxLength={200}
+          onChange={e => setNote(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') submit() }}
+          placeholder="Toelichting (optioneel) — waarom stuur je dit in?"
+          className="flex-1 min-w-[12rem] px-3 py-2 rounded-lg text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none"
+          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }} />
+        <button onClick={submit} disabled={busy || !urls.length}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-40 transition-all"
+          style={{ background: '#3A913F' }}>
+          {busy ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
+          {urls.length > 1 ? `${urls.length} links toevoegen` : 'Toevoegen'}
+        </button>
+      </div>
+
+      {error  && <p className="mt-2 text-xs text-red-400">{error}</p>}
+      {result && <p className="mt-2 text-xs text-amber-400">{result}</p>}
+    </div>
+  )
+}
+
 // ─── Client group ─────────────────────────────────────────────────────────────
 
 function ClientGroup({ clientName, submissions, currentUserId, isAdmin, canDeleteAll, onDelete }: {
@@ -749,11 +908,12 @@ function ClientGroup({ clientName, submissions, currentUserId, isAdmin, canDelet
         </span>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-        {submissions.map(sub => (
-          <SubmissionCard key={sub.id} sub={sub}
-            canDelete={isAdmin || canDeleteAll || sub.submitted_by_id === currentUserId}
-            onDelete={onDelete} />
-        ))}
+        {submissions.map(sub => {
+          const canDelete = isAdmin || canDeleteAll || sub.submitted_by_id === currentUserId
+          return sub.kind === 'link'
+            ? <LinkCard key={sub.id} sub={sub} canDelete={canDelete} onDelete={onDelete} />
+            : <SubmissionCard key={sub.id} sub={sub} canDelete={canDelete} onDelete={onDelete} />
+        })}
       </div>
     </div>
   )
@@ -840,7 +1000,9 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
     setSubmissions(prev => prev.filter(s => s.id !== id))
 
     try {
-      if (provider === 'drive') {
+      // Alles behalve de oude Supabase Storage-rijen gaat via de server:
+      // bestanden in Drive én links, waarvan de thumbnail daar ook staat.
+      if (provider !== 'supabase') {
         const res = await fetch(`/api/preassist/upload?id=${id}`, { method: 'DELETE' })
         if (!res.ok) {
           const body = await res.json().catch(() => null)
@@ -871,7 +1033,9 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
       // Eerst wegen, en wel op de kolom die we al hebben — dit kost geen
       // enkel verzoek. Zonder dit begon de download gewoon, en liep een
       // editie met een paar video's de tab uit het geheugen.
-      const weighed = submissions.filter(s => !userId || s.submitted_by_id === userId)
+      // Links wegen niets — ze gaan als tekstbestand mee, niet als download.
+      const weighed = submissions.filter(s =>
+        (!userId || s.submitted_by_id === userId) && s.kind !== 'link')
       const totalBytes = weighed.reduce((sum, s) => sum + (s.file_size ?? 0), 0)
 
       if (totalBytes > MAX_ZIP_BYTES) {
@@ -890,13 +1054,35 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
 
       const res = await fetch(`/api/preassist/signed-urls?${params}`)
       if (!res.ok) throw new Error('Kon de bestandslijst niet ophalen.')
-      const files = await res.json() as { signedUrl: string | null; fileName: string; section: string; person: string; clientName: string | null }[]
+      const files = await res.json() as {
+        signedUrl: string | null; fileName: string; section: string; person: string
+        clientName: string | null; kind?: 'file' | 'link'; url?: string | null
+        title?: string | null; linkAuthor?: string | null
+      }[]
 
       const zip = new JSZip()
       // JSZip overschrijft een pad dat al bestaat, en deze paden worden hier
       // samengesteld — dezelfde persoon met twee keer dezelfde bestandsnaam
       // onder dezelfde klant leverde één bestand in plaats van twee.
       const taken = new Set<string>()
+
+      // Links horen ook in de download thuis. Zonder dit mist er de helft van
+      // een editie zodra Inspiratie vooral uit links bestaat, en zegt niets
+      // dat er iets ontbreekt.
+      const links = files.filter(f => f.kind === 'link' && f.url)
+      if (links.length) {
+        const bySection = links.reduce<Record<string, typeof links>>((acc, f) => {
+          const name = f.section === 'content' ? 'Content' : 'Inspiratie'
+          ;(acc[name] ??= []).push(f)
+          return acc
+        }, {})
+        for (const [sectionName, rows] of Object.entries(bySection)) {
+          const lines = rows.map(f =>
+            `- ${f.url}\n  ${f.person}${f.linkAuthor ? ` · ${f.linkAuthor}` : ''}${f.title ? `\n  "${f.title}"` : ''}`
+          )
+          zip.file(`${sectionName}/links.md`, `# ${sectionName} — links\n\n${lines.join('\n\n')}\n`)
+        }
+      }
 
       await Promise.all(
         files.filter(f => f.signedUrl).map(async f => {
@@ -1065,6 +1251,14 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
               )
             })}
           </div>
+
+          {/* Links zijn bij Inspiratie het gewone geval, dus staat dit vóór
+              de lijst en niet achter de Toevoegen-knop. Alleen in de actieve
+              editie, net als uploaden. */}
+          {section === 'inspiratie' && activeEdition && viewedEdition.id === activeEdition.id && canAdd && (
+            <LinkPaste editionId={activeEdition.id} section={section}
+              onAdded={() => loadSubmissions(viewedEdition)} />
+          )}
 
           {loading ? (
             <div className="flex items-center justify-center py-20 gap-2 text-zinc-600">

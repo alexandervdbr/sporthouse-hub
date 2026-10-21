@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
 
   let query = supabase
     .from('preassist_submissions')
-    .select('id, file_url, file_name, file_type, submitted_by_name, section, title, client_name, storage_provider')
+    .select('id, file_url, file_name, file_type, submitted_by_name, section, title, client_name, storage_provider, kind, url, link_author')
     .eq('edition_id', editionId)
     .order('created_at', { ascending: true })
 
@@ -39,7 +39,11 @@ export async function GET(req: NextRequest) {
   const results = await Promise.all(
     (submissions ?? []).map(async (s) => {
       let signedUrl: string | null = null
-      if (s.storage_provider === 'drive') {
+      // Een link heeft geen bestand om te downloaden; de zip zet hem in een
+      // tekstbestand, zie downloadZip in PreassistPage.
+      if (s.kind === 'link') {
+        signedUrl = null
+      } else if (s.storage_provider === 'drive') {
         signedUrl = `${origin}/api/preassist/download?id=${s.id}`
       } else {
         const { data } = await supabase.storage
@@ -56,6 +60,9 @@ export async function GET(req: NextRequest) {
         person:     s.submitted_by_name,
         title:      s.title,
         clientName: s.client_name,
+        kind:       s.kind ?? 'file',
+        url:        s.url,
+        linkAuthor: s.link_author,
       }
     })
   )
