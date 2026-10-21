@@ -15,12 +15,22 @@ export function preassistSectionLabel(section: PreassistSection): string {
 // Inspiratie hangt niet aan een klant: het is materiaal dat iemand opvalt,
 // geen werk dat ergens bij hoort. Zonder klant vervalt die maplaag, zodat er
 // in Drive geen map "Algemeen" ontstaat die niets betekent.
+// De map van een editie: één niveau boven Content en Inspiratie, dus alles
+// van die sessie in één keer.
+export function preassistEditionFolderSegments(editionTitle: string): string[] {
+  return ['Pré-Assist', editionTitle]
+}
+
+export function driveFolderUrl(driveFolderId: string): string {
+  return `https://drive.google.com/drive/folders/${driveFolderId}`
+}
+
 export function preassistFolderSegments(
   editionTitle: string,
   section: PreassistSection,
   clientName: string | null
 ): string[] {
-  const base = ['Pré-Assist', editionTitle, preassistSectionLabel(section)]
+  const base = [...preassistEditionFolderSegments(editionTitle), preassistSectionLabel(section)]
   return clientName ? [...base, clientName] : base
 }
 

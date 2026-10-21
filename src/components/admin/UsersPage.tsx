@@ -125,6 +125,7 @@ const SECTION_GROUPS = [
       { key: 'preassist_beheer',     label: 'Edities toevoegen / verwijderen' },
       { key: 'preassist_toevoegen',  label: 'Content toevoegen' },
       { key: 'preassist_verwijderen', label: 'Content verwijderen' },
+      { key: 'preassist_downloaden', label: 'Inzendingen downloaden' },
     ],
   },
   {

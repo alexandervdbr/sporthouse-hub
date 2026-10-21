@@ -23,6 +23,7 @@ export default async function Page() {
       canManageEditions={hasOpenSection(user, 'preassist_beheer')}
       canAdd={hasOpenSection(user, 'preassist_toevoegen')}
       canDeleteAll={hasOpenSection(user, 'preassist_verwijderen')}
+      canDownload={hasOpenSection(user, 'preassist_downloaden')}
     />
   )
 }

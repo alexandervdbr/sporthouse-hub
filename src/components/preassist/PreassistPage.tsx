@@ -998,12 +998,16 @@ function SubmissionGroup({ label, submissions, currentUserId, isAdmin, canDelete
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-export default function PreassistPage({ currentUserId, isAdmin, canManageEditions, canAdd, canDeleteAll }: {
+export default function PreassistPage({ currentUserId, isAdmin, canManageEditions, canAdd, canDeleteAll, canDownload }: {
   currentUserId: string
   isAdmin: boolean
   canManageEditions: boolean
   canAdd: boolean
   canDeleteAll: boolean
+  // Een hele editie ophalen is iets anders dan meedoen: het haalt al het
+  // werk van iedereen in één keer naar buiten, en het is de enige actie hier
+  // die noemenswaardig verbruik kost.
+  canDownload: boolean
 }) {
   const supabase = createClient()
 
@@ -1126,6 +1130,23 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
       if (removed) setSubmissions(prev => prev.some(s => s.id === id) ? prev : [...prev, removed])
       setDeleteError(err instanceof Error ? err.message : 'Verwijderen mislukt.')
     }
+  }
+
+  // Google pakt de map zelf in en levert hem uit — geen byte langs ons, en
+  // geen zip in het geheugen van een tabblad, dus ook geen plafond.
+  async function openInDrive() {
+    if (!viewedEdition) return
+    setDownloading(true)
+    setZipError(null)
+    try {
+      const res = await fetch(`/api/preassist/editions/drive?id=${viewedEdition.id}`)
+      const body = await res.json().catch(() => null)
+      if (!res.ok || !body?.url) throw new Error(body?.error ?? 'Kon de map in Drive niet openen.')
+      window.open(body.url, '_blank', 'noopener')
+    } catch (err) {
+      setZipError(err instanceof Error ? err.message : 'Kon de map in Drive niet openen.')
+    }
+    setDownloading(false)
   }
 
   async function downloadZip(userId?: string) {
@@ -1286,7 +1307,7 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
             </button>
           )}
 
-          {viewedEdition && submissions.length > 0 && (
+          {viewedEdition && canDownload && (
             <div className="relative group">
               <button disabled={downloading}
                 onClick={() => setDownloadMenuOpen(v => !v)}
@@ -1294,20 +1315,27 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
                 className="tap-target flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-zinc-300 hover:text-white transition-all"
                 style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)' }}>
                 {downloading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-                Downloaden <ChevronDown size={12} />
+                Ophalen <ChevronDown size={12} />
               </button>
               <div className={`absolute right-0 top-full mt-1 w-52 rounded-xl overflow-hidden shadow-2xl transition-all z-20 group-hover:opacity-100 group-hover:visible ${
                 downloadMenuOpen ? 'opacity-100 visible' : 'opacity-0 invisible'
               }`}
                 style={{ background: '#1e1e1e', border: '1px solid rgba(255,255,255,0.12)' }}>
-                <button onClick={() => { downloadZip(); setDownloadMenuOpen(false) }}
-                  className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition-colors text-left">
-                  <Download size={13} /> Alles downloaden
+                {/* De gewone weg: bij Google ophalen in plaats van alles door
+                    onze functies te trekken. Werkt ook als de editie
+                    gigabytes groot is. */}
+                <button onClick={() => { openInDrive(); setDownloadMenuOpen(false) }}
+                  className="w-full flex items-start gap-2.5 px-4 py-3 text-sm text-zinc-200 hover:bg-white/5 hover:text-white transition-colors text-left">
+                  <ExternalLink size={13} className="mt-0.5 flex-shrink-0" />
+                  <span>
+                    Map openen in Drive
+                    <span className="block text-[11px] text-zinc-500">Alles van deze editie, zonder limiet</span>
+                  </span>
                 </button>
                 {submitters.length > 0 && (
                   <>
                     <div className="mx-3 my-1" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }} />
-                    <p className="px-4 py-1.5 text-[10px] text-zinc-600 uppercase tracking-widest">Per persoon</p>
+                    <p className="px-4 py-1.5 text-[10px] text-zinc-600 uppercase tracking-widest">Als zip, per persoon</p>
                     {submitters.map(s => (
                       <button key={s.id} onClick={() => { downloadZip(s.id); setDownloadMenuOpen(false) }}
                         className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-zinc-400 hover:bg-white/5 hover:text-white transition-colors text-left">
