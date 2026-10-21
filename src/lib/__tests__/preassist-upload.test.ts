@@ -46,3 +46,31 @@ describe('preassistUploadName', () => {
     expect(preassistUploadName('Arne Smets', 'reel.mp4')).toBe('Arne Smets — reel.mp4')
   })
 })
+
+// Content hangt onder een klant én een project; Inspiratie onder geen van
+// beide. upload-session maakt dit pad en finalize rekent het opnieuw uit om
+// te controleren of het bestand erin beland is, dus het moet vastliggen.
+describe('preassistFolderSegments met project', () => {
+  it('zet het project onder de klant', () => {
+    expect(preassistFolderSegments('Q1 2026', 'content', 'Club Brugge', 'Shoot 12 nov'))
+      .toEqual(['Pré-Assist', 'Q1 2026', 'Content', 'Club Brugge', 'Shoot 12 nov'])
+  })
+
+  it('laat het project weg als er geen is', () => {
+    expect(preassistFolderSegments('Q1 2026', 'content', 'Club Brugge', null))
+      .toEqual(['Pré-Assist', 'Q1 2026', 'Content', 'Club Brugge'])
+    expect(preassistFolderSegments('Q1 2026', 'content', 'Club Brugge', '  '))
+      .toEqual(['Pré-Assist', 'Q1 2026', 'Content', 'Club Brugge'])
+  })
+
+  it('negeert het project zonder klant, want dan is er niets om onder te hangen', () => {
+    expect(preassistFolderSegments('Q1 2026', 'inspiratie', null, 'Refs Genk'))
+      .toEqual(['Pré-Assist', 'Q1 2026', 'Inspiratie'])
+  })
+
+  it('maakt van een schuine streep geen extra map', () => {
+    // Drive zou "A/B" anders als twee mappen lezen.
+    expect(preassistFolderSegments('Q1 2026', 'content', 'KRC Genk', 'Shoot 12/11'))
+      .toEqual(['Pré-Assist', 'Q1 2026', 'Content', 'KRC Genk', 'Shoot 12-11'])
+  })
+})
