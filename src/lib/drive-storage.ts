@@ -78,6 +78,60 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 2): Promise<T> {
   throw lastErr
 }
 
+// Drive valt soms even om. Op 21 oktober 2026 gaf de API een halve dag lang
+// "Internal Error" (HTTP 500) op het aanmaken van een map, en omdat hier
+// nergens opnieuw geprobeerd werd, zag de inzender meteen "Kon upload niet
+// starten: Internal Error" — terwijl een seconde later alles weer werkte.
+//
+// Google's eigen richtlijn voor 5xx en 429 is opnieuw proberen met oplopende
+// wachttijd. Dat deed de browser al voor de bytes zelf (zie
+// lib/drive-upload-client); dit is dezelfde gedachte voor de aanroepen die de
+// server doet: map opzoeken, map aanmaken, sessie openen, metadata ophalen.
+//
+// Alleen voor fouten die vanzelf overgaan. Een 404 of een rechtenfout is geen
+// hapering maar een echt probleem, en die hoort meteen terug te komen in
+// plaats van vier keer zo traag.
+function isTransientDriveError(err: unknown): boolean {
+  const e = err as { code?: number | string; status?: number; message?: string }
+  const code = Number(e?.code ?? e?.status)
+  if (code === 429 || (code >= 500 && code <= 599)) return true
+  const msg = (e?.message ?? '').toLowerCase()
+  return msg.includes('internal error')
+    || msg.includes('backenderror')
+    || msg.includes('econnreset')
+    || msg.includes('etimedout')
+    || msg.includes('socket hang up')
+}
+
+// Wat een inzender te zien krijgt als Drive het ook na vier pogingen niet
+// doet. "Internal Error" is Google's taal, geen antwoord op de vraag of je
+// het nog eens moet proberen.
+export function driveErrorMessage(err: unknown): string {
+  if (isTransientDriveError(err)) {
+    return 'Google Drive is even niet bereikbaar. Probeer het zo opnieuw — er is niets misgegaan met je bestand.'
+  }
+  const msg = (err as Error)?.message
+  return msg ? msg : 'Onbekende fout bij Drive.'
+}
+
+export async function withDriveRetry<T>(label: string, fn: () => Promise<T>, attempts = 4): Promise<T> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await fn()
+    } catch (err) {
+      lastError = err
+      if (!isTransientDriveError(err) || attempt === attempts) throw err
+      // 0,5s — 1s — 2s, met wat ruis erdoor zodat tien gelijktijdige uploads
+      // niet allemaal op hetzelfde moment terugkomen.
+      const wait = 500 * 2 ** (attempt - 1) + Math.random() * 250
+      console.warn(`Drive ${label}: poging ${attempt} mislukte (${(err as Error)?.message}); opnieuw over ${Math.round(wait)}ms`)
+      await new Promise(r => setTimeout(r, wait))
+    }
+  }
+  throw lastError
+}
+
 async function sharePublicly(fileId: string) {
   try {
     const drive = getClient()
@@ -147,21 +201,28 @@ export async function createResumableUploadSession(
   const { token } = await auth.getAccessToken()
   if (!token) throw new Error('Kon geen Drive-toegangstoken ophalen.')
 
-  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json; charset=UTF-8',
-      'X-Upload-Content-Type': mimeType,
-      'X-Upload-Content-Length': String(fileSize),
-    },
-    body: JSON.stringify({ name: filename, parents: [folderId] }),
+  // De controle op de statuscode hoort binnen de herpoging: fetch gooit geen
+  // fout bij een 500, die geeft gewoon een antwoord terug. Zonder dit zou een
+  // hapering van Drive nooit opnieuw geprobeerd worden.
+  const res = await withDriveRetry('sessie openen', async () => {
+    const r = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json; charset=UTF-8',
+        'X-Upload-Content-Type': mimeType,
+        'X-Upload-Content-Length': String(fileSize),
+      },
+      body: JSON.stringify({ name: filename, parents: [folderId] }),
+    })
+    if (!r.ok) {
+      const text = await r.text().catch(() => '')
+      const err = new Error(`Kon upload-sessie niet starten: ${r.status} ${text}`) as Error & { code?: number }
+      err.code = r.status
+      throw err
+    }
+    return r
   })
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new Error(`Kon upload-sessie niet starten: ${res.status} ${text}`)
-  }
 
   const location = res.headers.get('Location')
   if (!location) throw new Error('Geen upload-sessie-URL ontvangen van Drive.')
@@ -596,22 +657,22 @@ export async function getOrCreateFolder(name: string, parentId: string): Promise
   try {
     const drive = getClient()
     const escaped = name.replace(/'/g, "\\'")
-    const { data } = await drive.files.list({
+    const { data } = await withDriveRetry('map opzoeken', () => drive.files.list({
       q: `name='${escaped}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`,
       fields: 'files(id)',
       spaces: 'drive',
       supportsAllDrives: true,
       includeItemsFromAllDrives: true,
       corpora: 'allDrives',
-    })
+    }))
 
     let folderId = data.files?.[0]?.id
     if (!folderId) {
-      const folder = await drive.files.create({
+      const folder = await withDriveRetry('map aanmaken', () => drive.files.create({
         requestBody: { name, mimeType: 'application/vnd.google-apps.folder', parents: [parentId] },
         fields: 'id',
         supportsAllDrives: true,
-      })
+      }))
       folderId = folder.data.id!
     }
 

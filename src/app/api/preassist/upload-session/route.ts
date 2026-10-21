@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { isDriveStorageConfigured, createResumableUploadSession, getOrCreateFolderPath, driveRootFolderId } from '@/lib/drive-storage'
+import { isDriveStorageConfigured, createResumableUploadSession, getOrCreateFolderPath, driveRootFolderId, driveErrorMessage } from '@/lib/drive-storage'
 import { hasOpenSection, hasClientAccess } from '@/lib/auth-permissions'
 import { isAllowedPreassistExt, ALLOWED_PREASSIST_HINT, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/lib/upload-policy'
 import { preassistFolderSegments, preassistUploadName, preassistRequiresClient } from '@/lib/preassist-upload'
@@ -98,7 +98,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ uploadUrl })
   } catch (err) {
     console.error('Pré-assist upload-sessie starten mislukt:', err)
-    const msg = err instanceof Error ? err.message : String(err)
-    return NextResponse.json({ error: `Kon upload niet starten: ${msg}` }, { status: 500 })
+    return NextResponse.json({ error: driveErrorMessage(err) }, { status: 503 })
   }
 }
