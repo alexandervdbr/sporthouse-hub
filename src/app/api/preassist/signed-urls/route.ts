@@ -9,9 +9,12 @@ export async function GET(req: NextRequest) {
   // in plaats van per aanroep bij de Auth-server bevestigd.
   const user = await getSessionUser(supabase)
   if (!user) return new Response('Unauthorized', { status: 401 })
-  // Keek alleen of je ingelogd was, terwijl de download- en thumbnail-route
-  // ernaast de sectie wel controleren.
-  if (!hasOpenSection(user, 'preassist')) return new Response('Geen toegang.', { status: 403 })
+  // Dit is de lijst waarmee een hele editie wordt ingepakt, dus hij valt
+  // onder dezelfde beperking als de knop: een knop weghalen zonder de route
+  // te sluiten is geen beperking.
+  if (!hasOpenSection(user, 'preassist_downloaden')) {
+    return new Response('Geen toegang.', { status: 403 })
+  }
 
   const { searchParams } = new URL(req.url)
   const editionId = searchParams.get('edition_id')
