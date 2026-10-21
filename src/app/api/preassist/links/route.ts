@@ -30,6 +30,7 @@ export async function POST(request: NextRequest) {
   const editionId = body?.editionId as string | undefined
   const section   = body?.section as string | undefined
   const clientId  = (body?.clientId as string | null | undefined) ?? null
+  const topic     = (body?.topic as string | null | undefined) ?? null
   const note      = (body?.note as string | null | undefined) ?? null
   const rawUrls   = body?.urls
 
@@ -41,6 +42,12 @@ export async function POST(request: NextRequest) {
   }
   if (preassistRequiresClient(section) && !clientId) {
     return NextResponse.json({ error: 'Kies een klant.' }, { status: 400 })
+  }
+  // Het onderwerp is de kop waaronder deze links komen te staan, en zonder
+  // kop valt alles terug op één hoop "Algemeen" — precies wat het groeperen
+  // moest oplossen. Vandaar verplicht, hier en in het formulier.
+  if (!topic || !topic.trim()) {
+    return NextResponse.json({ error: 'Een onderwerp is verplicht.' }, { status: 400 })
   }
   if (clientId && !hasClientAccess(user, clientId)) {
     return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
@@ -74,7 +81,8 @@ export async function POST(request: NextRequest) {
   }
 
   const userName = (user.user_metadata?.full_name as string | undefined) ?? user.email ?? 'Onbekend'
-  const title = typeof note === 'string' && note.trim() ? note.trim().slice(0, 200) : null
+  const title = topic.trim().slice(0, 200)
+  const noteText = typeof note === 'string' && note.trim() ? note.trim().slice(0, 1000) : null
 
   // Dezelfde link twee keer in dezelfde editie is geen tweede kaartje — dat
   // bewaakt de unieke index uit 0059. ignoreDuplicates laat de insert dan
@@ -89,6 +97,7 @@ export async function POST(request: NextRequest) {
         kind: 'link',
         url,
         title,
+        note: noteText,
         link_status: 'pending',
         link_author: hostnameOf(url),
         submitted_by_id: user.id,

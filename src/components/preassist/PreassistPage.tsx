@@ -38,6 +38,9 @@ interface Submission {
   file_type: string
   // Een inzending is een bestand of een link — zie migratie 0059.
   kind?: 'file' | 'link'
+  // title is bij Inspiratie het onderwerp (de kop van de groep); note is wat
+  // de inzender erover te zeggen had.
+  note?: string | null
   url?: string | null
   link_author?: string | null
   link_caption?: string | null
@@ -133,9 +136,13 @@ function LinkCard({ sub, canDelete, onDelete, hideTitle }: {
         {!hideTitle && sub.title && (
           <p className="text-sm text-zinc-200 font-medium mb-1 line-clamp-2">{sub.title}</p>
         )}
-        {sub.link_caption && (hideTitle || !sub.title) && (
-          <p className="text-xs text-zinc-400 mb-1.5 line-clamp-2">{sub.link_caption}</p>
-        )}
+        {/* Wat de inzender zelf zei gaat vóór het onderschrift van de post:
+            waarom iemand dit deelt zegt meer dan wat er toevallig bij stond. */}
+        {sub.note
+          ? <p className="text-xs text-zinc-300 mb-1.5 line-clamp-3">{sub.note}</p>
+          : sub.link_caption && (hideTitle || !sub.title) && (
+              <p className="text-xs text-zinc-400 mb-1.5 line-clamp-2">{sub.link_caption}</p>
+            )}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 min-w-0">
             <User size={11} className="text-zinc-500 flex-shrink-0" />
@@ -827,6 +834,7 @@ function LinkPaste({ editionId, section, onAdded, topics }: {
   topics: string[]
 }) {
   const [value,  setValue]  = useState('')
+  const [topic,  setTopic]  = useState('')
   const [note,   setNote]   = useState('')
   const [busy,   setBusy]   = useState(false)
   const [error,  setError]  = useState<string | null>(null)
@@ -834,18 +842,27 @@ function LinkPaste({ editionId, section, onAdded, topics }: {
 
   const urls = parseSubmittedUrls(value)
 
+  const ready = urls.length > 0 && !!topic.trim()
+
   async function submit() {
-    if (!urls.length || busy) return
+    if (!ready || busy) return
     setBusy(true); setError(null); setResult(null)
     try {
       const res = await fetch('/api/preassist/links', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ editionId, section, urls, note: note.trim() || null }),
+        body: JSON.stringify({
+          editionId, section, urls,
+          topic: topic.trim(),
+          note: note.trim() || null,
+        }),
       })
       const body = await res.json().catch(() => null)
       if (!res.ok) throw new Error(body?.error ?? `Toevoegen mislukt (${res.status}).`)
 
+      // Het onderwerp blijft staan: wie drie links plakt, plakt er zo nog
+      // twee onder dezelfde noemer. De notitie hoort bij wat je net
+      // instuurde, dus die gaat wel leeg.
       setValue(''); setNote('')
       // Stond hij er al, dan is dat geen fout maar ook geen stilte waard.
       setResult(body?.skipped
@@ -876,20 +893,29 @@ function LinkPaste({ editionId, section, onAdded, topics }: {
         className="w-full px-3 py-2 rounded-lg text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none resize-y"
         style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }} />
 
-      <div className="flex flex-wrap items-center gap-2 mt-2">
-        {/* Dit veld doet twee dingen tegelijk, en dat is met opzet: het is de
-            kop waaronder deze links komen te staan. Eén veld, want twee
-            (onderwerp én toelichting) is er één te veel op een plakveld. */}
-        <input type="text" value={note} maxLength={200} list="preassist-onderwerpen"
-          onChange={e => setNote(e.target.value)}
+      {/* Het onderwerp is de kop waaronder deze links komen te staan — zonder
+          valt alles op één hoop, dus verplicht. De notitie is wat je erover
+          wil zeggen, en dat heeft niet iedereen altijd. */}
+      <div className="mt-2">
+        <input type="text" value={topic} maxLength={200} list="preassist-onderwerpen"
+          onChange={e => setTopic(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') submit() }}
-          placeholder="Onderwerp (optioneel) — bv. Refs Genk-campagne"
-          className="flex-1 min-w-[12rem] px-3 py-2 rounded-lg text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none"
+          placeholder="Onderwerp — bv. Refs Genk-campagne"
+          className="w-full px-3 py-2 rounded-lg text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none"
           style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }} />
         <datalist id="preassist-onderwerpen">
           {topics.map(t => <option key={t} value={t} />)}
         </datalist>
-        <button onClick={submit} disabled={busy || !urls.length}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 mt-2">
+        <input type="text" value={note} maxLength={500}
+          onChange={e => setNote(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') submit() }}
+          placeholder="Notitie (optioneel) — waarom stuur je dit in?"
+          className="flex-1 min-w-[12rem] px-3 py-2 rounded-lg text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none"
+          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }} />
+        <button onClick={submit} disabled={busy || !ready}
           className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-40 transition-all"
           style={{ background: '#3A913F' }}>
           {busy ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
@@ -897,13 +923,19 @@ function LinkPaste({ editionId, section, onAdded, topics }: {
         </button>
       </div>
 
+      {/* Zegt wat er nog ontbreekt, in plaats van een knop die zonder uitleg
+          uit staat. */}
+      {urls.length > 0 && !topic.trim() && (
+        <p className="mt-2 text-xs text-zinc-500">Geef nog een onderwerp op.</p>
+      )}
+
       {topics.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 mt-2">
           <span className="text-[10px] text-zinc-600 uppercase tracking-widest mr-1">Bestaand</span>
           {topics.slice(0, 8).map(t => (
-            <button key={t} onClick={() => setNote(t)}
+            <button key={t} onClick={() => setTopic(t)}
               className="px-2 py-1 rounded-full text-[11px] transition-colors"
-              style={note === t
+              style={topic === t
                 ? { background: 'rgba(58,145,63,0.2)', color: '#4ade80', border: '1px solid rgba(58,145,63,0.4)' }
                 : { background: 'rgba(255,255,255,0.05)', color: '#a1a1aa', border: '1px solid rgba(255,255,255,0.08)' }}>
               {t}
@@ -1118,7 +1150,7 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
       const files = await res.json() as {
         signedUrl: string | null; fileName: string; section: string; person: string
         clientName: string | null; kind?: 'file' | 'link'; url?: string | null
-        title?: string | null; linkAuthor?: string | null
+        title?: string | null; note?: string | null; linkAuthor?: string | null
       }[]
 
       const zip = new JSZip()
@@ -1148,7 +1180,9 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
 
           const blocks = Object.entries(byTopic).map(([topic, items]) => {
             const lines = items.map(f =>
-              `- ${f.url}${f.linkAuthor ? `\n  ${f.linkAuthor}` : ''}\n  ingestuurd door ${f.person}`
+              `- ${f.url}${f.linkAuthor ? `\n  ${f.linkAuthor}` : ''}` +
+              `${f.note ? `\n  "${f.note}"` : ''}` +
+              `\n  ingestuurd door ${f.person}`
             )
             return `## ${topic}\n\n${lines.join('\n\n')}`
           })

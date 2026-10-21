@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
 
   let query = supabase
     .from('preassist_submissions')
-    .select('id, file_url, file_name, file_type, submitted_by_name, section, title, client_name, storage_provider, kind, url, link_author')
+    .select('id, file_url, file_name, file_type, submitted_by_name, section, title, client_name, storage_provider, kind, url, link_author, note')
     .eq('edition_id', editionId)
     .order('created_at', { ascending: true })
 
@@ -61,6 +61,7 @@ export async function GET(req: NextRequest) {
         title:      s.title,
         clientName: s.client_name,
         kind:       s.kind ?? 'file',
+        note:       s.note,
         url:        s.url,
         linkAuthor: s.link_author,
       }
