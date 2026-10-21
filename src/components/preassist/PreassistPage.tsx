@@ -265,6 +265,17 @@ function SubmissionCard({ sub, canDelete, onDelete, hideTitle }: {
 
 // ─── Upload Modal ─────────────────────────────────────────────────────────────
 
+// Wat er van een lopende upload te zien valt, los van de modal waarin hij
+// gestart is. De upload leeft in een achtergrondlus die blijft draaien als de
+// pop-up dichtgaat — zonder dit zag je daar niets meer van terwijl de
+// bestanden gewoon doorliepen.
+export interface UploadProgress {
+  name: string
+  progress: number
+  status: 'pending' | 'uploading' | 'done' | 'error'
+  error?: string
+}
+
 interface FileEntry {
   file: File
   status: 'pending' | 'uploading' | 'done' | 'error'
@@ -276,7 +287,7 @@ interface FileEntry {
 // onderscheidt van een echte: die laatste heeft een id, deze alleen een naam.
 const PROPOSED_PREFIX = 'voorgesteld:'
 
-function UploadModal({ section, editionId, onClose, onUploaded, groups, proposedClients }: {
+function UploadModal({ section, editionId, onClose, onUploaded, groups, proposedClients, onProgress }: {
   section: Section
   editionId: string
   onClose: () => void
@@ -290,6 +301,9 @@ function UploadModal({ section, editionId, onClose, onUploaded, groups, proposed
   // Zonder deze moet je de naam exact overtypen om bij dezelfde klant uit te
   // komen, en één typefout levert een tweede klant op.
   proposedClients: string[]
+  // Elke voortgangswijziging gaat ook naar de pagina, zodat die hem kan
+  // blijven tonen als deze modal al gesloten is.
+  onProgress: (items: UploadProgress[]) => void
 }) {
   const supabase = createClient()
   const [entries,   setEntries]   = useState<FileEntry[]>([])
@@ -307,6 +321,20 @@ function UploadModal({ section, editionId, onClose, onUploaded, groups, proposed
   const [done,      setDone]      = useState(false)
   const [rejected,  setRejected]  = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // De lus die uploadt blijft draaien nadat de modal is weggeklikt. setEntries
+  // doet dan niets meer (de component bestaat niet), maar deze ref en de
+  // callback naar de pagina wel — vandaar dat alles hier langs gaat in plaats
+  // van rechtstreeks via setEntries.
+  const entriesRef = useRef<FileEntry[]>([])
+  function updateEntries(fn: (prev: FileEntry[]) => FileEntry[]) {
+    const next = fn(entriesRef.current)
+    entriesRef.current = next
+    setEntries(next)
+    onProgress(next.map(e => ({
+      name: e.file.name, progress: e.progress, status: e.status, error: e.error,
+    })))
+  }
 
   // Inspiratie hangt niet aan een klant: wat iemand opvalt hoort niet per se
   // bij werk voor iemand. De toelichting is daar wat het verhaal vertelt.
@@ -355,11 +383,11 @@ function UploadModal({ section, editionId, onClose, onUploaded, groups, proposed
         status: 'pending' as const,
         progress: 0,
       }))
-    setEntries(prev => [...prev, ...newEntries])
+    updateEntries(prev => [...prev, ...newEntries])
   }
 
   function removeEntry(index: number) {
-    setEntries(prev => prev.filter((_, i) => i !== index))
+    updateEntries(prev => prev.filter((_, i) => i !== index))
   }
 
   async function handleUpload(retryOnly = false) {
@@ -383,7 +411,7 @@ function UploadModal({ section, editionId, onClose, onUploaded, groups, proposed
     async function worker() {
       while (cursor < queue.length) {
         const { e: entry, i } = queue[cursor++]
-        setEntries(prev => prev.map((e, j) => j === i ? { ...e, status: 'uploading', progress: 0, error: undefined } : e))
+        updateEntries(prev => prev.map((e, j) => j === i ? { ...e, status: 'uploading', progress: 0, error: undefined } : e))
         try {
           // 1. Een Drive-sessie openen. Klein en snel: hier gaat geen byte
           // van het bestand door.
@@ -423,7 +451,7 @@ function UploadModal({ section, editionId, onClose, onUploaded, groups, proposed
           // aan — dat is wat een video van 500 MB weer mogelijk maakt, en
           // tegelijk van de transferrekening haalt.
           await putFileToDrive(entry.file, uploadUrl, (pct) => {
-            setEntries(prev => prev.map((e, j) => j === i ? { ...e, progress: pct } : e))
+            updateEntries(prev => prev.map((e, j) => j === i ? { ...e, progress: pct } : e))
           })
 
           // 3. De sessie aan onze server geven, die bij Drive navraagt wat
@@ -450,7 +478,7 @@ function UploadModal({ section, editionId, onClose, onUploaded, groups, proposed
           }
 
           forgetUpload(uploadUrl)
-          setEntries(prev => prev.map((e, j) => j === i ? { ...e, status: 'done', progress: 100 } : e))
+          updateEntries(prev => prev.map((e, j) => j === i ? { ...e, status: 'done', progress: 100 } : e))
         } catch (err) {
           const raw = err instanceof Error ? err.message : String(err)
           // "Failed to fetch" is wat een browser zegt als een verzoek de
@@ -458,7 +486,7 @@ function UploadModal({ section, editionId, onClose, onUploaded, groups, proposed
           const msg = raw === 'Failed to fetch' || raw === 'NETWORK_ERROR'
             ? 'Geen verbinding — upload afgebroken.'
             : raw
-          setEntries(prev => prev.map((e, j) => j === i ? { ...e, status: 'error', error: msg } : e))
+          updateEntries(prev => prev.map((e, j) => j === i ? { ...e, status: 'error', error: msg } : e))
           errorCount++
         }
       }
@@ -1149,6 +1177,7 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
   const [deleteError,   setDeleteError]   = useState<string | null>(null)
   const [zipError,      setZipError]      = useState<string | null>(null)
   const [copied,        setCopied]        = useState(false)
+  const [uploads,       setUploads]       = useState<UploadProgress[]>([])
   const pollsRef = useRef(0)
 
   const submitters = Array.from(
@@ -1413,6 +1442,20 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
       .filter((t): t is string => !!t)
   )).sort((a, b) => a.localeCompare(b, 'nl'))
 
+  const uploadsRunning = uploads.some(u => u.status === 'pending' || u.status === 'uploading')
+  const uploadErrors   = uploads.filter(u => u.status === 'error').length
+  const uploadPercent  = uploads.length
+    ? Math.round(uploads.reduce((sum, u) => sum + (u.status === 'done' ? 100 : u.progress), 0) / uploads.length)
+    : 0
+
+  // Gelukt en klaar verdwijnt vanzelf; mislukt blijft staan tot je hem
+  // wegklikt, want dat is precies wat je wil zien.
+  useEffect(() => {
+    if (!uploads.length || uploadsRunning || uploadErrors > 0) return
+    const timer = setTimeout(() => setUploads([]), 4000)
+    return () => clearTimeout(timer)
+  }, [uploads, uploadsRunning, uploadErrors])
+
   const existingTopics = groupsIn('inspiratie')
 
   // Projecten mét hun klant, zodat de modal alleen die van de gekozen klant
@@ -1527,10 +1570,12 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
               bijzetten is nooit de bedoeling, en met een kiezer erbij is dat
               anders één verkeerde keuze. */}
           {viewedEdition && activeEdition && viewedEdition.id === activeEdition.id && canAdd && (
-            <button onClick={() => setShowUpload(true)}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white transition-all"
+            <button onClick={() => setShowUpload(true)} disabled={uploadsRunning}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-50 transition-all"
               style={{ background: '#3A913F' }}>
-              <Plus size={15} /> Toevoegen
+              {uploadsRunning
+                ? <><Loader2 size={15} className="animate-spin" /> Bezig…</>
+                : <><Plus size={15} /> Toevoegen</>}
             </button>
           )}
         </div>
@@ -1635,7 +1680,52 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
       {showUpload && activeEdition && (
         <UploadModal section={section} editionId={activeEdition.id}
           groups={existingGroups} proposedClients={proposedClients}
+          onProgress={setUploads}
           onClose={() => setShowUpload(false)} onUploaded={() => loadSubmissions(activeEdition)} />
+      )}
+
+      {/* De uploadlus draait door als je de pop-up wegklikt. Zonder dit zag je
+          daar niets meer van en leek er niets te gebeuren, terwijl de
+          bestanden gewoon doorliepen. */}
+      {!showUpload && uploads.length > 0 && (
+        <div className="fixed bottom-4 right-4 z-40 w-72 rounded-xl shadow-2xl overflow-hidden"
+          style={{ background: '#1e1e1e', border: '1px solid rgba(255,255,255,0.12)' }}>
+          <div className="px-4 py-3">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <p className="text-xs font-medium text-zinc-200 flex items-center gap-2">
+                {uploadsRunning
+                  ? <><Loader2 size={12} className="animate-spin" /> Bezig met uploaden…</>
+                  : uploadErrors > 0
+                    ? <>{uploadErrors} van de {uploads.length} mislukt</>
+                    : <>Alles geüpload</>}
+              </p>
+              {!uploadsRunning && (
+                <button onClick={() => setUploads([])} aria-label="Melding sluiten"
+                  className="text-zinc-600 hover:text-zinc-300 transition-colors flex-shrink-0">
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+
+            <div className="h-1 rounded-full overflow-hidden mb-1.5" style={{ background: 'rgba(255,255,255,0.1)' }}>
+              <div className="h-full rounded-full transition-all duration-300"
+                style={{ width: `${uploadPercent}%`, backgroundColor: uploadErrors > 0 && !uploadsRunning ? '#f87171' : '#3A913F' }} />
+            </div>
+
+            <p className="text-[10px] text-zinc-500">
+              {uploads.filter(u => u.status === 'done').length} van de {uploads.length} klaar
+              {uploadsRunning && ` · ${uploadPercent}%`}
+            </p>
+
+            {/* Welk bestand het niet haalde, want de pop-up met die uitleg is
+                dicht. */}
+            {!uploadsRunning && uploadErrors > 0 && (
+              <p className="mt-1.5 text-[10px] text-red-400 break-words">
+                {uploads.filter(u => u.status === 'error').map(u => u.name).join(', ')}
+              </p>
+            )}
+          </div>
+        </div>
       )}
 
       {showEditions && (
