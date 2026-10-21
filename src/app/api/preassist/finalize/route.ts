@@ -22,9 +22,20 @@ export async function POST(request: NextRequest) {
   const editionId  = body?.editionId as string | undefined
   const section    = body?.section as string | undefined
   const clientId   = body?.clientId as string | undefined
+  // "Staat er niet bij": een naam zonder id. Die gaat niet de clients-tabel
+  // in — daar hangen bestanden, kalenders en klantentoegang aan — maar blijft
+  // tekst bij de inzending, zodat een admin hem later echt kan aanmaken.
+  const proposedClient = (body?.clientName as string | null | undefined)?.trim() || null
+  // Waar deze inzending onder hangt: bij Content het project, bij Inspiratie
+  // het onderwerp. Eén veld, want het is één begrip.
+  const titleInput = (body?.title as string | null | undefined)?.trim() || null
+  // Wat de inzender erover zegt.
+  const noteInput  = (body?.note as string | null | undefined)?.trim() || null
+
+  const title = titleInput ? titleInput.slice(0, 200) : null
+  const note  = noteInput ? noteInput.slice(0, 1000) : null
   const uploadUrl  = body?.uploadUrl as string | undefined
   const fileName   = body?.fileName as string | undefined
-  const titleInput = (body?.title as string | null | undefined) ?? null
   const fileSize   = Number(body?.fileSize)
 
   if (!editionId || !section || !uploadUrl || !fileName || !Number.isFinite(fileSize) || fileSize <= 0) {
@@ -35,7 +46,7 @@ export async function POST(request: NextRequest) {
   }
   // Inspiratie hoort niet bij een klant; content wel. Dezelfde vraag als in
   // upload-session, via dezelfde functie.
-  if (preassistRequiresClient(section) && !clientId) {
+  if (preassistRequiresClient(section) && !clientId && !proposedClient) {
     return NextResponse.json({ error: 'Kies een klant.' }, { status: 400 })
   }
   // De sessie-URL komt van de browser terug, dus wordt hij gecontroleerd zoals
@@ -57,7 +68,7 @@ export async function POST(request: NextRequest) {
     .single()
   if (!edition) return NextResponse.json({ error: 'Editie niet gevonden.' }, { status: 404 })
 
-  let clientName: string | null = null
+  let clientName: string | null = proposedClient ? proposedClient.slice(0, 120) : null
   if (clientId) {
     const { data: client } = await admin
       .from('clients')
@@ -101,7 +112,7 @@ export async function POST(request: NextRequest) {
   // komen te staan die naar een bestand van een andere klant wijst.
   try {
     const expectedParent = await getOrCreateFolderPath(
-      preassistFolderSegments(edition.title, section, clientName),
+      preassistFolderSegments(edition.title, section, clientName, title),
       driveRootFolderId()!
     )
     if (!driveFile.parents?.includes(expectedParent)) {
@@ -118,7 +129,8 @@ export async function POST(request: NextRequest) {
   }
 
   const userName = (user.user_metadata?.full_name as string | undefined) ?? user.email ?? 'Onbekend'
-  const title = typeof titleInput === 'string' && titleInput.trim() ? titleInput.trim().slice(0, 200) : null
+  // title is waar de inzending onder hangt: bij Content het project, bij
+  // Inspiratie het onderwerp. note is wat de inzender erover zegt.
 
   const { data: record, error: dbError } = await admin
     .from('preassist_submissions')
@@ -126,6 +138,7 @@ export async function POST(request: NextRequest) {
       edition_id: editionId,
       section,
       title,
+      note,
       // De originele bestandsnaam, zonder de inzender ervoor — die staat in
       // submitted_by_name, en de zip zet hem er zelf weer voor.
       file_name: fileName,
@@ -134,6 +147,8 @@ export async function POST(request: NextRequest) {
       submitted_by_id: user.id,
       submitted_by_name: userName,
       client_id: clientId ?? null,
+      // Bij een voorgestelde klant staat hier wel een naam en geen id.
+      // De pagina groepeert op de naam, dus dat werkt zoals het hoort.
       client_name: clientName,
       storage_provider: 'drive',
       drive_file_id: driveFile.id,

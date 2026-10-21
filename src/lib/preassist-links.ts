@@ -156,3 +156,35 @@ export function groupLabelFor(sub: {
   if (sub.section === 'inspiratie') return sub.title?.trim() || 'Algemeen'
   return sub.client_name ?? 'Algemeen'
 }
+
+export interface LinkForExport {
+  url: string | null
+  title: string | null
+  note: string | null
+  link_author: string | null
+  submitted_by_name: string
+}
+
+// Alle links van een editie als platte tekst, ingedeeld zoals het scherm:
+// per onderwerp, met wie hem instuurde en waarom.
+//
+// Dit bestond alleen in de zip, en die ging per persoon — terwijl de vraag
+// bijna altijd "geef mij alles" is, als voorbereiding op de sessie zelf. Het
+// staat al in de browser, dus dit kost geen enkel verzoek.
+export function linksAsText(editionTitle: string, links: LinkForExport[]): string {
+  const byTopic = links.reduce<Record<string, LinkForExport[]>>((acc, l) => {
+    const topic = l.title?.trim() || 'Algemeen'
+    ;(acc[topic] ??= []).push(l)
+    return acc
+  }, {})
+
+  const blocks = Object.entries(byTopic).map(([topic, items]) => {
+    const lines = items.map(l => {
+      const onder = [l.link_author, l.submitted_by_name].filter(Boolean).join(' · ')
+      return `- ${l.url}` + (onder ? `\n  ${onder}` : '') + (l.note ? `\n  "${l.note}"` : '')
+    })
+    return `## ${topic}\n\n${lines.join('\n')}`
+  })
+
+  return `Inspiratie — ${editionTitle}\n\n${blocks.join('\n\n')}\n`
+}

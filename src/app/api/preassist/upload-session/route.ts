@@ -30,6 +30,13 @@ export async function POST(request: NextRequest) {
   const editionId = body?.editionId as string | undefined
   const section   = body?.section as string | undefined
   const clientId  = body?.clientId as string | undefined
+  // "Staat er niet bij": een naam zonder id. Die gaat niet de clients-tabel
+  // in — daar hangen bestanden, kalenders en klantentoegang aan — maar blijft
+  // tekst bij de inzending, zodat een admin hem later echt kan aanmaken.
+  const proposedClient = (body?.clientName as string | null | undefined)?.trim() || null
+  // Waar deze upload onder hangt: bij Content het project, bij Inspiratie
+  // het onderwerp. Eén veld, want het is één begrip.
+  const title     = (body?.title as string | null | undefined)?.trim() || null
   const filename  = body?.filename as string | undefined
   const mimeType  = (body?.mimeType as string | undefined) || 'application/octet-stream'
   const fileSize  = body?.fileSize as number | undefined
@@ -41,7 +48,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Ongeldige sectie.' }, { status: 400 })
   }
   // Inspiratie hoort niet bij een klant; content wel.
-  if (preassistRequiresClient(section) && !clientId) {
+  if (preassistRequiresClient(section) && !clientId && !proposedClient) {
     return NextResponse.json({ error: 'Kies een klant.' }, { status: 400 })
   }
   if (!isAllowedPreassistExt(filename)) {
@@ -67,7 +74,7 @@ export async function POST(request: NextRequest) {
     .single()
   if (!edition) return NextResponse.json({ error: 'Editie niet gevonden.' }, { status: 404 })
 
-  let clientName: string | null = null
+  let clientName: string | null = proposedClient ? proposedClient.slice(0, 120) : null
   if (clientId) {
     const { data: client } = await admin
       .from('clients')
@@ -82,7 +89,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const folderId = await getOrCreateFolderPath(
-      preassistFolderSegments(edition.title, section, clientName),
+      preassistFolderSegments(edition.title, section, clientName, title),
       driveRootFolderId()!
     )
     const uploadUrl = await createResumableUploadSession(

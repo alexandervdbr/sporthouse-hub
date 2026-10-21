@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import {
   Upload, Download, Trash2, X, Plus, Loader2,
   ImageIcon, Film, Layers, Settings, ChevronDown, User,
-  Link as LinkIcon, ExternalLink,
+  Link as LinkIcon, ExternalLink, Copy, Check,
 } from 'lucide-react'
 import JSZip from 'jszip'
 import { Client } from '@/types/database'
@@ -17,7 +17,7 @@ import {
 } from '@/lib/upload-policy'
 import { MAX_ZIP_BYTES, MAX_ZIP_LABEL, saveZip, uniqueZipPath } from '@/lib/zip-download'
 import { preassistRequiresClient } from '@/lib/preassist-upload'
-import { parseSubmittedUrls, groupLabelFor } from '@/lib/preassist-links'
+import { parseSubmittedUrls, groupLabelFor, linksAsText } from '@/lib/preassist-links'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -246,6 +246,9 @@ function SubmissionCard({ sub, canDelete, onDelete, hideTitle }: {
         {!hideTitle && sub.title && (
           <p className="text-sm text-zinc-200 font-medium truncate mb-1.5">{sub.title}</p>
         )}
+        {/* Wat dit specifieke bestand is. De klant en het project staan al in
+            de koppen erboven. */}
+        {sub.note && <p className="text-xs text-zinc-400 mb-1.5 line-clamp-2">{sub.note}</p>}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 min-w-0">
             <User size={11} className="text-zinc-500 flex-shrink-0" />
@@ -267,26 +270,34 @@ function SubmissionCard({ sub, canDelete, onDelete, hideTitle }: {
 
 interface FileEntry {
   file: File
-  clientId: string
-  clientName: string
-  // Waarom je dit instuurt. De kolom (title) en de weergave op het kaartje
-  // bestonden al, maar de upload zette hem hard op null — bij een tab die
-  // "Inspiratie" heet is dat juist het stuk dat ontbrak.
-  title: string
+  // Wat dit specifieke bestand is. Klant en project staan bovenaan de modal
+  // en gelden voor alles wat je in één keer uploadt — je stuurt zelden twee
+  // klanten tegelijk in, en per regel drie velden maakt die rij onleesbaar.
+  note: string
   status: 'pending' | 'uploading' | 'done' | 'error'
   progress: number
   error?: string
 }
 
-function UploadModal({ section, editionId, onClose, onUploaded }: {
+function UploadModal({ section, editionId, onClose, onUploaded, groups }: {
   section: Section
   editionId: string
   onClose: () => void
   onUploaded: () => void
+  // Bestaande projecten (Content) of onderwerpen (Inspiratie) in deze editie,
+  // als suggestie — zelfde reden als bij het plakveld: dezelfde naam opnieuw
+  // kiezen moet één klik zijn, niet foutloos overtypen.
+  groups: string[]
 }) {
   const supabase = createClient()
   const [entries,   setEntries]   = useState<FileEntry[]>([])
   const [clients,   setClients]   = useState<Client[]>([])
+  const [clientId,  setClientId]  = useState('')
+  // Leeg betekent "kies uit de lijst"; staat hier iets, dan is het een
+  // voorgestelde klant die nog niet bestaat.
+  const [newClient, setNewClient] = useState('')
+  const [proposing, setProposing] = useState(false)
+  const [groupName, setGroupName] = useState('')
   const [uploading, setUploading] = useState(false)
   const [done,      setDone]      = useState(false)
   const [rejected,  setRejected]  = useState<string | null>(null)
@@ -336,26 +347,15 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
       .filter(f => isAllowedPreassistExt(f.name) && f.size <= MAX_UPLOAD_BYTES)
       .map(file => ({
         file,
-        // Leeg, en niet alvast de eerste klant uit de lijst. Dat scheelde
-        // één klik en kostte een stille fout: wie vijftien bestanden sleept
-        // kreeg ze allemaal toegewezen aan wie toevallig bovenaan stond, met
-        // een uploadknop die gewoon aan ging. Dat merkt niemand tot de
-        // editie wordt uitgepakt. De knop blokkeert al op een lege keuze.
-        clientId:   '',
-        clientName: '',
-        title: '',
+        note: '',
         status: 'pending' as const,
         progress: 0,
       }))
     setEntries(prev => [...prev, ...newEntries])
   }
 
-  function updateEntry(index: number, clientId: string, clientName: string) {
-    setEntries(prev => prev.map((e, i) => i === index ? { ...e, clientId, clientName } : e))
-  }
-
-  function updateTitle(index: number, title: string) {
-    setEntries(prev => prev.map((e, i) => i === index ? { ...e, title } : e))
+  function updateNote(index: number, note: string) {
+    setEntries(prev => prev.map((e, i) => i === index ? { ...e, note } : e))
   }
 
   function removeEntry(index: number) {
@@ -363,7 +363,7 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
   }
 
   async function handleUpload(retryOnly = false) {
-    if (!entries.length || (needsClient && entries.some(e => !e.clientId))) return
+    if (!allAssigned) return
     setUploading(true)
     setDone(false)
     // Bij opnieuw proberen alleen de mislukte bestanden. De File-objecten
@@ -393,7 +393,9 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
             body: JSON.stringify({
               editionId,
               section,
-              clientId: entry.clientId || null,
+              clientId: proposing ? null : clientId || null,
+              clientName: proposing ? newClient.trim() : null,
+              title: groupName.trim(),
               filename: entry.file.name,
               mimeType: entry.file.type || 'application/octet-stream',
               fileSize: entry.file.size,
@@ -433,11 +435,13 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
             body: JSON.stringify({
               editionId,
               section,
-              clientId: entry.clientId || null,
+              clientId: proposing ? null : clientId || null,
+              clientName: proposing ? newClient.trim() : null,
+              title: groupName.trim(),
               uploadUrl,
               fileName: entry.file.name,
               fileSize: entry.file.size,
-              title: entry.title.trim() || null,
+              note: entry.note.trim() || null,
             }),
           })
           if (!finalizeRes.ok) {
@@ -473,7 +477,10 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
     if (errorCount === 0) setTimeout(onClose, 800)
   }
 
-  const allAssigned  = entries.length > 0 && (!needsClient || entries.every(e => e.clientId))
+  const chosenClient = clients.find(c => c.id === clientId)
+  const clientLabel  = proposing ? newClient.trim() : chosenClient?.name ?? ''
+  const hasClient    = !needsClient || !!clientLabel
+  const allAssigned  = entries.length > 0 && hasClient && !!groupName.trim()
   const doneCount    = entries.filter(e => e.status === 'done').length
   const errorCount   = entries.filter(e => e.status === 'error').length
   // Gemiddelde van de echte voortgang per bestand in plaats van het aantal
@@ -534,12 +541,81 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
               onChange={e => { addFiles(e.target.files); e.target.value = '' }} />
           </div>
 
+          {/* Klant en project gelden voor alles wat je in één keer uploadt.
+              Per bestand drie velden maakt die regel onleesbaar, en je stuurt
+              zelden twee klanten tegelijk in — dan upload je twee keer. */}
+          <div className="mb-5 space-y-2">
+            {needsClient && (
+              proposing ? (
+                <div className="flex gap-2">
+                  <input type="text" value={newClient} maxLength={120} autoFocus
+                    onChange={e => setNewClient(e.target.value)}
+                    placeholder="Naam van de klant"
+                    className="flex-1 min-w-0 px-3 py-2 rounded-lg text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none"
+                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }} />
+                  <button onClick={() => { setProposing(false); setNewClient('') }}
+                    className="px-3 py-2 text-xs text-zinc-500 hover:text-zinc-300 transition-colors whitespace-nowrap">
+                    Uit de lijst kiezen
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <select value={clientId} disabled={uploading}
+                    onChange={e => setClientId(e.target.value)}
+                    style={{ ...selectStyle, fontSize: 14, padding: '8px 10px' }}>
+                    <option value="">— Kies een klant —</option>
+                    {groupedClients.map(([cat, items]) => (
+                      <optgroup key={cat} label={cat}>
+                        {items.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </optgroup>
+                    ))}
+                  </select>
+                  {/* Een voorgestelde klant wordt geen rij in de clients-tabel
+                      — daar hangen bestanden, kalenders en klantentoegang aan.
+                      Hij blijft tekst bij de inzending; aanmaken doet een
+                      admin in het beheerpaneel. */}
+                  <button onClick={() => { setProposing(true); setClientId('') }}
+                    className="px-3 py-2 text-xs text-zinc-500 hover:text-zinc-300 transition-colors whitespace-nowrap">
+                    Staat er niet bij
+                  </button>
+                </div>
+              )
+            )}
+
+            <input type="text" value={groupName} maxLength={200} list="preassist-upload-groepen"
+              onChange={e => setGroupName(e.target.value)}
+              placeholder={needsClient
+                ? 'Project — bv. Shoot Genk, 12 november'
+                : 'Onderwerp — bv. Refs Genk-campagne'}
+              className="w-full px-3 py-2 rounded-lg text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none"
+              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }} />
+            <datalist id="preassist-upload-groepen">
+              {groups.map(g => <option key={g} value={g} />)}
+            </datalist>
+
+            {groups.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                <span className="text-[10px] text-zinc-600 uppercase tracking-widest mr-1">Bestaand</span>
+                {groups.slice(0, 8).map(g => (
+                  <button key={g} onClick={() => setGroupName(g)}
+                    className="px-2 py-1 rounded-full text-[11px] transition-colors"
+                    style={groupName === g
+                      ? { background: 'rgba(58,145,63,0.2)', color: '#4ade80', border: '1px solid rgba(58,145,63,0.4)' }
+                      : { background: 'rgba(255,255,255,0.05)', color: '#a1a1aa', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    {g}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           {rejected && <p className="text-xs text-amber-400 mb-3">{rejected}</p>}
 
-          {needsClient && entries.length > 0 && entries.some(e => !e.clientId) && !uploading && (
+          {entries.length > 0 && !allAssigned && !uploading && (
             <p className="text-xs text-zinc-500 mb-3">
-              Kies nog een klant bij {entries.filter(e => !e.clientId).length} van de {entries.length} bestand
-              {entries.length !== 1 ? 'en' : ''}.
+              {!hasClient
+                ? 'Kies nog een klant.'
+                : `Geef nog een ${needsClient ? 'project' : 'onderwerp'} op.`}
             </p>
           )}
 
@@ -563,28 +639,6 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
                     <span className="text-[10px] text-zinc-600 flex-shrink-0 hidden sm:block">
                       {formatSize(entry.file.size)}
                     </span>
-
-                    {/* Client selector — alleen bij Content */}
-                    {needsClient && (
-                      <div className="flex-shrink-0 w-40">
-                        <select
-                          value={entry.clientId}
-                          disabled={uploading}
-                          onChange={e => {
-                            const opt = clients.find(c => c.id === e.target.value)
-                            if (opt) updateEntry(i, opt.id, opt.name)
-                          }}
-                          style={selectStyle}
-                        >
-                          <option value="">— Klant —</option>
-                          {groupedClients.map(([cat, items]) => (
-                            <optgroup key={cat} label={cat}>
-                              {items.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                            </optgroup>
-                          ))}
-                        </select>
-                      </div>
-                    )}
 
                     {/* Status / remove — het resultaat blijft staan nadat het
                         uploaden klaar is, anders verdwijnt het ✗ van een
@@ -613,11 +667,9 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
                       600 MB is dat het verschil tussen iets zien gebeuren en
                       een balk die minuten op 0% staat. */}
                   {!uploading && entry.status !== 'done' && (
-                    <input type="text" value={entry.title} maxLength={200}
-                      onChange={e => updateTitle(i, e.target.value)}
-                      placeholder={needsClient
-                        ? 'Toelichting (optioneel) — waarom stuur je dit in?'
-                        : 'Onderwerp (optioneel) — bv. Refs Genk-campagne'}
+                    <input type="text" value={entry.note} maxLength={500}
+                      onChange={e => updateNote(i, e.target.value)}
+                      placeholder="Omschrijving (optioneel) — wat is dit?"
                       className="w-full px-3 pb-2 bg-transparent text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none" />
                   )}
 
@@ -881,7 +933,7 @@ function LinkPaste({ editionId, section, onAdded, topics }: {
       if (!res.ok) throw new Error(body?.error ?? `Toevoegen mislukt (${res.status}).`)
 
       // Het onderwerp blijft staan: wie drie links plakt, plakt er zo nog
-      // twee onder dezelfde noemer. De notitie hoort bij wat je net
+      // twee onder dezelfde noemer. De omschrijving hoort bij wat je net
       // instuurde, dus die gaat wel leeg.
       setValue(''); setNote('')
       // Stond hij er al, dan is dat geen fout maar ook geen stilte waard.
@@ -914,8 +966,8 @@ function LinkPaste({ editionId, section, onAdded, topics }: {
         style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }} />
 
       {/* Het onderwerp is de kop waaronder deze links komen te staan — zonder
-          valt alles op één hoop, dus verplicht. De notitie is wat je erover
-          wil zeggen, en dat heeft niet iedereen altijd. */}
+          valt alles op één hoop, dus verplicht. De omschrijving is wat je
+          erover wil zeggen, en dat heeft niet iedereen altijd. */}
       <div className="mt-2">
         <input type="text" value={topic} maxLength={200} list="preassist-onderwerpen"
           onChange={e => setTopic(e.target.value)}
@@ -932,7 +984,7 @@ function LinkPaste({ editionId, section, onAdded, topics }: {
         <input type="text" value={note} maxLength={500}
           onChange={e => setNote(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') submit() }}
-          placeholder="Notitie (optioneel) — waarom stuur je dit in?"
+          placeholder="Omschrijving (optioneel) — waarom stuur je dit in?"
           className="flex-1 min-w-[12rem] px-3 py-2 rounded-lg text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none"
           style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }} />
         <button onClick={submit} disabled={busy || !ready}
@@ -972,17 +1024,36 @@ function LinkPaste({ editionId, section, onAdded, topics }: {
 
 // ─── Groep ────────────────────────────────────────────────────────────────────
 
-function SubmissionGroup({ label, submissions, currentUserId, isAdmin, canDeleteAll, onDelete, hideTitles }: {
+function SubmissionGroup({ label, submissions, currentUserId, isAdmin, canDeleteAll, onDelete, subGroup }: {
   label: string
   submissions: Submission[]
   currentUserId: string
   isAdmin: boolean
   canDeleteAll: boolean
   onDelete: (id: string, filePath: string, provider?: string) => void
-  // Bij Inspiratie staat het onderwerp al in de kop; op elk kaartje eronder
-  // herhalen maakt er ruis van.
-  hideTitles: boolean
+  // Content hangt onder een klant én daarbinnen onder een project, dus daar
+  // komt een tweede kop. Inspiratie heeft het onderwerp al als bovenste kop.
+  subGroup: boolean
 }) {
+  const cards = (rows: Submission[]) => (
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+      {rows.map(sub => {
+        const canDelete = isAdmin || canDeleteAll || sub.submitted_by_id === currentUserId
+        return sub.kind === 'link'
+          ? <LinkCard key={sub.id} sub={sub} canDelete={canDelete} onDelete={onDelete} hideTitle />
+          : <SubmissionCard key={sub.id} sub={sub} canDelete={canDelete} onDelete={onDelete} hideTitle />
+      })}
+    </div>
+  )
+
+  const byProject = subGroup
+    ? submissions.reduce<Record<string, Submission[]>>((acc, s) => {
+        const key = s.title?.trim() || 'Zonder project'
+        ;(acc[key] ??= []).push(s)
+        return acc
+      }, {})
+    : null
+
   return (
     <div className="mb-8">
       <div className="flex items-center gap-3 mb-3">
@@ -993,14 +1064,17 @@ function SubmissionGroup({ label, submissions, currentUserId, isAdmin, canDelete
           {submissions.length}
         </span>
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-        {submissions.map(sub => {
-          const canDelete = isAdmin || canDeleteAll || sub.submitted_by_id === currentUserId
-          return sub.kind === 'link'
-            ? <LinkCard key={sub.id} sub={sub} canDelete={canDelete} onDelete={onDelete} hideTitle={hideTitles} />
-            : <SubmissionCard key={sub.id} sub={sub} canDelete={canDelete} onDelete={onDelete} hideTitle={hideTitles} />
-        })}
-      </div>
+      {byProject
+        ? Object.entries(byProject).map(([project, rows]) => (
+            <div key={project} className="mb-5 last:mb-0 pl-3" style={{ borderLeft: '1px solid rgba(255,255,255,0.07)' }}>
+              <div className="flex items-center gap-2 mb-2">
+                <h4 className="text-xs font-medium text-zinc-400">{project}</h4>
+                <span className="text-[10px] text-zinc-600">{rows.length}</span>
+              </div>
+              {cards(rows)}
+            </div>
+          ))
+        : cards(submissions)}
     </div>
   )
 }
@@ -1036,6 +1110,7 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false)
   const [deleteError,   setDeleteError]   = useState<string | null>(null)
   const [zipError,      setZipError]      = useState<string | null>(null)
+  const [copied,        setCopied]        = useState(false)
   const pollsRef = useRef(0)
 
   const submitters = Array.from(
@@ -1141,6 +1216,34 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
     }
   }
 
+  // Alle links van wat je nu bekijkt, als platte tekst op het klembord.
+  // Het staat al in de browser, dus dit kost geen enkel verzoek — en het is
+  // wat je nodig hebt om een sessie voor te bereiden.
+  async function copyLinks() {
+    if (!viewedEdition) return
+    const links = filtered.filter(s => s.kind === 'link' && s.url)
+    if (!links.length) return
+
+    const text = linksAsText(viewedEdition.title, links.map(s => ({
+      url: s.url ?? null,
+      title: s.title,
+      note: s.note ?? null,
+      link_author: s.link_author ?? null,
+      submitted_by_name: s.submitted_by_name,
+    })))
+
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Het klembord kan geweigerd worden (een browser die een directere
+      // handeling wil, of een onveilige herkomst). Dat zeggen is beter dan
+      // een knop die doet alsof het gelukt is.
+      setZipError('Kon niet naar het klembord kopiëren. Selecteer de links handmatig.')
+    }
+  }
+
   // Google pakt de map zelf in en levert hem uit — geen byte langs ons, en
   // geen zip in het geheugen van een tabblad, dus ook geen plafond.
   async function openInDrive() {
@@ -1236,8 +1339,11 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
         files.filter(f => f.signedUrl).map(async f => {
           const blob        = await fetch(f.signedUrl!).then(r => r.blob())
           const sectionName = f.section === 'content' ? 'Content' : 'Inspiratie'
-          const clientDir   = f.clientName ?? 'Algemeen'
-          const path = uniqueZipPath(taken, `${sectionName}/${clientDir}/${f.person} — ${f.fileName}`)
+          // Zelfde indeling als in Drive en op het scherm: klant, dan project.
+          const dirs = [sectionName, f.clientName, f.clientName ? f.title : null]
+            .filter((d): d is string => !!d && !!d.trim())
+            .map(d => d.trim().replace(/[/\\]/g, '-'))
+          const path = uniqueZipPath(taken, `${dirs.join('/') || sectionName}/${f.person} — ${f.fileName}`)
           zip.file(path, blob)
         })
       )
@@ -1258,15 +1364,19 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
     return acc
   }, {})
 
-  // Onderwerpen die in deze editie al bestaan, als suggestie onder het
-  // plakveld. Dat is wat het groeperen-op-tekst draaglijk maakt: dezelfde
-  // naam opnieuw kiezen is één klik in plaats van foutloos overtypen.
-  const existingTopics = Array.from(new Set(
+  // Projecten (Content) of onderwerpen (Inspiratie) die in deze editie al
+  // bestaan, als suggestie. Dat is wat het groeperen-op-tekst draaglijk
+  // maakt: dezelfde naam opnieuw kiezen is één klik in plaats van foutloos
+  // overtypen.
+  const groupsIn = (sec: Section) => Array.from(new Set(
     submissions
-      .filter(s => s.section === 'inspiratie')
+      .filter(s => s.section === sec)
       .map(s => s.title?.trim())
       .filter((t): t is string => !!t)
   )).sort((a, b) => a.localeCompare(b, 'nl'))
+
+  const existingTopics = groupsIn('inspiratie')
+  const existingGroups = groupsIn(section)
 
   return (
     <div className="p-4 sm:p-8 max-w-6xl mx-auto">
@@ -1396,7 +1506,8 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
       ) : (
         <>
           {/* Tabs */}
-          <div className="flex gap-1 mb-7 p-1 rounded-xl w-full sm:w-fit overflow-x-auto"
+          <div className="flex flex-wrap items-center gap-3 mb-7">
+          <div className="flex gap-1 p-1 rounded-xl w-full sm:w-fit overflow-x-auto"
             style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
             {(['content', 'inspiratie'] as Section[]).map(s => {
               const count = submissions.filter(sub => sub.section === s).length
@@ -1414,6 +1525,23 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
                 </button>
               )
             })}
+          </div>
+
+          {/* Geen download en geen permissie voor nodig: deze links staan al
+              op het scherm. Wat ontbrak was een manier om ze in één keer mee
+              te nemen naar waar je de sessie voorbereidt. */}
+          {section === 'inspiratie' && filtered.some(s => s.kind === 'link') && (
+            <button onClick={copyLinks}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors"
+              style={copied
+                ? { background: 'rgba(58,145,63,0.15)', color: '#4ade80', border: '1px solid rgba(58,145,63,0.35)' }
+                : { background: 'rgba(255,255,255,0.05)', color: '#a1a1aa', border: '1px solid rgba(255,255,255,0.09)' }}>
+              {copied ? <Check size={12} /> : <Copy size={12} />}
+              {copied
+                ? 'Gekopieerd'
+                : `${filtered.filter(s => s.kind === 'link').length} links kopiëren`}
+            </button>
+          )}
           </div>
 
           {/* Links zijn bij Inspiratie het gewone geval, dus staat dit vóór
@@ -1442,14 +1570,14 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
             Object.entries(grouped).map(([label, subs]) => (
               <SubmissionGroup key={label} label={label} submissions={subs}
                 currentUserId={currentUserId} isAdmin={isAdmin} canDeleteAll={canDeleteAll}
-                onDelete={handleDelete} hideTitles={section === 'inspiratie'} />
+                onDelete={handleDelete} subGroup={section === 'content'} />
             ))
           )}
         </>
       )}
 
       {showUpload && activeEdition && (
-        <UploadModal section={section} editionId={activeEdition.id}
+        <UploadModal section={section} editionId={activeEdition.id} groups={existingGroups}
           onClose={() => setShowUpload(false)} onUploaded={() => loadSubmissions(activeEdition)} />
       )}
 
