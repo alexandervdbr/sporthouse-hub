@@ -136,13 +136,12 @@ function LinkCard({ sub, canDelete, onDelete, hideTitle }: {
         {!hideTitle && sub.title && (
           <p className="text-sm text-zinc-200 font-medium mb-1 line-clamp-2">{sub.title}</p>
         )}
-        {/* Wat de inzender zelf zei gaat vóór het onderschrift van de post:
-            waarom iemand dit deelt zegt meer dan wat er toevallig bij stond. */}
-        {sub.note
-          ? <p className="text-xs text-zinc-300 mb-1.5 line-clamp-3">{sub.note}</p>
-          : sub.link_caption && (hideTitle || !sub.title) && (
-              <p className="text-xs text-zinc-400 mb-1.5 line-clamp-2">{sub.link_caption}</p>
-            )}
+        {/* De omschrijving staat onder de kop van het onderwerp, niet hier —
+            hij geldt voor alles eronder. Op het kaartje blijft wat eigen is
+            aan deze post. */}
+        {sub.link_caption && (
+          <p className="text-xs text-zinc-400 mb-1.5 line-clamp-2">{sub.link_caption}</p>
+        )}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 min-w-0">
             <User size={11} className="text-zinc-500 flex-shrink-0" />
@@ -246,9 +245,7 @@ function SubmissionCard({ sub, canDelete, onDelete, hideTitle }: {
         {!hideTitle && sub.title && (
           <p className="text-sm text-zinc-200 font-medium truncate mb-1.5">{sub.title}</p>
         )}
-        {/* Wat dit specifieke bestand is. De klant en het project staan al in
-            de koppen erboven. */}
-        {sub.note && <p className="text-xs text-zinc-400 mb-1.5 line-clamp-2">{sub.note}</p>}
+
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 min-w-0">
             <User size={11} className="text-zinc-500 flex-shrink-0" />
@@ -270,24 +267,29 @@ function SubmissionCard({ sub, canDelete, onDelete, hideTitle }: {
 
 interface FileEntry {
   file: File
-  // Wat dit specifieke bestand is. Klant en project staan bovenaan de modal
-  // en gelden voor alles wat je in één keer uploadt — je stuurt zelden twee
-  // klanten tegelijk in, en per regel drie velden maakt die rij onleesbaar.
-  note: string
   status: 'pending' | 'uploading' | 'done' | 'error'
   progress: number
   error?: string
 }
 
-function UploadModal({ section, editionId, onClose, onUploaded, groups }: {
+// Voorvoegsel waarmee een eerder voorgestelde klant zich in de kiezer
+// onderscheidt van een echte: die laatste heeft een id, deze alleen een naam.
+const PROPOSED_PREFIX = 'voorgesteld:'
+
+function UploadModal({ section, editionId, onClose, onUploaded, groups, proposedClients }: {
   section: Section
   editionId: string
   onClose: () => void
   onUploaded: () => void
   // Bestaande projecten (Content) of onderwerpen (Inspiratie) in deze editie,
-  // als suggestie — zelfde reden als bij het plakveld: dezelfde naam opnieuw
-  // kiezen moet één klik zijn, niet foutloos overtypen.
-  groups: string[]
+  // mét de klant waar ze bij horen — zelfde reden als bij het plakveld:
+  // dezelfde naam opnieuw kiezen moet één klik zijn, niet foutloos
+  // overtypen.
+  groups: { client: string | null; name: string }[]
+  // Klanten die eerder zijn voorgesteld en dus niet in de klantenlijst staan.
+  // Zonder deze moet je de naam exact overtypen om bij dezelfde klant uit te
+  // komen, en één typefout levert een tweede klant op.
+  proposedClients: string[]
 }) {
   const supabase = createClient()
   const [entries,   setEntries]   = useState<FileEntry[]>([])
@@ -298,6 +300,9 @@ function UploadModal({ section, editionId, onClose, onUploaded, groups }: {
   const [newClient, setNewClient] = useState('')
   const [proposing, setProposing] = useState(false)
   const [groupName, setGroupName] = useState('')
+  // Hoort bij het project, niet bij een los bestand: je beschrijft wat deze
+  // shoot is, niet wat elk van de veertig foto's erin is.
+  const [note,      setNote]      = useState('')
   const [uploading, setUploading] = useState(false)
   const [done,      setDone]      = useState(false)
   const [rejected,  setRejected]  = useState<string | null>(null)
@@ -347,15 +352,10 @@ function UploadModal({ section, editionId, onClose, onUploaded, groups }: {
       .filter(f => isAllowedPreassistExt(f.name) && f.size <= MAX_UPLOAD_BYTES)
       .map(file => ({
         file,
-        note: '',
         status: 'pending' as const,
         progress: 0,
       }))
     setEntries(prev => [...prev, ...newEntries])
-  }
-
-  function updateNote(index: number, note: string) {
-    setEntries(prev => prev.map((e, i) => i === index ? { ...e, note } : e))
   }
 
   function removeEntry(index: number) {
@@ -441,7 +441,7 @@ function UploadModal({ section, editionId, onClose, onUploaded, groups }: {
               uploadUrl,
               fileName: entry.file.name,
               fileSize: entry.file.size,
-              note: entry.note.trim() || null,
+              note: note.trim() || null,
             }),
           })
           if (!finalizeRes.ok) {
@@ -479,6 +479,11 @@ function UploadModal({ section, editionId, onClose, onUploaded, groups }: {
 
   const chosenClient = clients.find(c => c.id === clientId)
   const clientLabel  = proposing ? newClient.trim() : chosenClient?.name ?? ''
+  // Alleen de projecten van de gekozen klant: die van een andere klant
+  // voorstellen is ruis, en bij een verkeerde klik ook een fout.
+  const visibleGroups = Array.from(new Set(
+    groups.filter(g => !clientLabel || g.client === clientLabel).map(g => g.name)
+  ))
   const hasClient    = !needsClient || !!clientLabel
   const allAssigned  = entries.length > 0 && hasClient && !!groupName.trim()
   const doneCount    = entries.filter(e => e.status === 'done').length
@@ -561,9 +566,27 @@ function UploadModal({ section, editionId, onClose, onUploaded, groups }: {
               ) : (
                 <div className="flex gap-2">
                   <select value={clientId} disabled={uploading}
-                    onChange={e => setClientId(e.target.value)}
+                    onChange={e => {
+                      const v = e.target.value
+                      // Een eerder voorgestelde klant heeft geen id, dus die
+                      // komt terug als tekst en zet de kiezer in voorstelstand.
+                      if (v.startsWith(PROPOSED_PREFIX)) {
+                        setProposing(true)
+                        setNewClient(v.slice(PROPOSED_PREFIX.length))
+                        setClientId('')
+                      } else {
+                        setClientId(v)
+                      }
+                    }}
                     style={{ ...selectStyle, fontSize: 14, padding: '8px 10px' }}>
                     <option value="">— Kies een klant —</option>
+                    {proposedClients.length > 0 && (
+                      <optgroup label="Voorgesteld (nog niet aangemaakt)">
+                        {proposedClients.map(n => (
+                          <option key={n} value={`${PROPOSED_PREFIX}${n}`}>{n}</option>
+                        ))}
+                      </optgroup>
+                    )}
                     {groupedClients.map(([cat, items]) => (
                       <optgroup key={cat} label={cat}>
                         {items.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -590,13 +613,21 @@ function UploadModal({ section, editionId, onClose, onUploaded, groups }: {
               className="w-full px-3 py-2 rounded-lg text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none"
               style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }} />
             <datalist id="preassist-upload-groepen">
-              {groups.map(g => <option key={g} value={g} />)}
+              {visibleGroups.map(g => <option key={g} value={g} />)}
             </datalist>
 
-            {groups.length > 0 && (
+            <input type="text" value={note} maxLength={500}
+              onChange={e => setNote(e.target.value)}
+              placeholder={needsClient
+                ? 'Omschrijving (optioneel) — wat is dit project?'
+                : 'Omschrijving (optioneel) — waarom stuur je dit in?'}
+              className="w-full px-3 py-2 rounded-lg text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none"
+              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }} />
+
+            {visibleGroups.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
                 <span className="text-[10px] text-zinc-600 uppercase tracking-widest mr-1">Bestaand</span>
-                {groups.slice(0, 8).map(g => (
+                {visibleGroups.slice(0, 8).map(g => (
                   <button key={g} onClick={() => setGroupName(g)}
                     className="px-2 py-1 rounded-full text-[11px] transition-colors"
                     style={groupName === g
@@ -666,13 +697,6 @@ function UploadModal({ section, editionId, onClose, onUploaded, groups }: {
                   {/* Echte bytes, niet "bestand 2 van 5". Bij één video van
                       600 MB is dat het verschil tussen iets zien gebeuren en
                       een balk die minuten op 0% staat. */}
-                  {!uploading && entry.status !== 'done' && (
-                    <input type="text" value={entry.note} maxLength={500}
-                      onChange={e => updateNote(i, e.target.value)}
-                      placeholder="Omschrijving (optioneel) — wat is dit?"
-                      className="w-full px-3 pb-2 bg-transparent text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none" />
-                  )}
-
                   {entry.status === 'uploading' && (
                     <div className="h-0.5" style={{ background: 'rgba(255,255,255,0.08)' }}>
                       <div className="h-full transition-all duration-200"
@@ -1046,6 +1070,12 @@ function SubmissionGroup({ label, submissions, currentUserId, isAdmin, canDelete
     </div>
   )
 
+  // De omschrijving hoort bij de groep, niet bij een los bestand — dus staat
+  // hij één keer onder de kop in plaats van onder elk kaartje. Rijen komen
+  // nieuwste eerst binnen, dus beschrijft een latere upload het project
+  // opnieuw, dan wint die.
+  const noteOf = (rows: Submission[]) => rows.find(r => r.note?.trim())?.note?.trim() ?? null
+
   const byProject = subGroup
     ? submissions.reduce<Record<string, Submission[]>>((acc, s) => {
         const key = s.title?.trim() || 'Zonder project'
@@ -1056,20 +1086,28 @@ function SubmissionGroup({ label, submissions, currentUserId, isAdmin, canDelete
 
   return (
     <div className="mb-8">
-      <div className="flex items-center gap-3 mb-3">
-        <div className="w-0.5 h-4 rounded-full" style={{ backgroundColor: '#3A913F' }} />
-        <h3 className="text-sm font-semibold text-zinc-200">{label}</h3>
-        <span className="text-[11px] px-2 py-0.5 rounded-full text-zinc-500"
-          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
-          {submissions.length}
-        </span>
+      <div className="mb-3">
+        <div className="flex items-center gap-3">
+          <div className="w-0.5 h-4 rounded-full" style={{ backgroundColor: '#3A913F' }} />
+          <h3 className="text-sm font-semibold text-zinc-200">{label}</h3>
+          <span className="text-[11px] px-2 py-0.5 rounded-full text-zinc-500"
+            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+            {submissions.length}
+          </span>
+        </div>
+        {!subGroup && noteOf(submissions) && (
+          <p className="text-[11px] text-zinc-500 mt-1 ml-3.5">{noteOf(submissions)}</p>
+        )}
       </div>
       {byProject
         ? Object.entries(byProject).map(([project, rows]) => (
             <div key={project} className="mb-5 last:mb-0 pl-3" style={{ borderLeft: '1px solid rgba(255,255,255,0.07)' }}>
-              <div className="flex items-center gap-2 mb-2">
-                <h4 className="text-xs font-medium text-zinc-400">{project}</h4>
-                <span className="text-[10px] text-zinc-600">{rows.length}</span>
+              <div className="mb-2">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-xs font-medium text-zinc-400">{project}</h4>
+                  <span className="text-[10px] text-zinc-600">{rows.length}</span>
+                </div>
+                {noteOf(rows) && <p className="text-[11px] text-zinc-500 mt-0.5">{noteOf(rows)}</p>}
               </div>
               {cards(rows)}
             </div>
@@ -1376,7 +1414,25 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
   )).sort((a, b) => a.localeCompare(b, 'nl'))
 
   const existingTopics = groupsIn('inspiratie')
-  const existingGroups = groupsIn(section)
+
+  // Projecten mét hun klant, zodat de modal alleen die van de gekozen klant
+  // voorstelt.
+  const existingGroups = Array.from(
+    new Map(
+      submissions
+        .filter(s => s.section === section && s.title?.trim())
+        .map(s => [`${s.client_name ?? ''}::${s.title!.trim()}`,
+                   { client: s.client_name, name: s.title!.trim() }])
+    ).values()
+  ).sort((a, b) => a.name.localeCompare(b.name, 'nl'))
+
+  // Klanten die eerder zijn voorgesteld: een naam zonder id. Zonder deze in
+  // de kiezer moet je hem exact overtypen om bij dezelfde klant uit te komen.
+  const proposedClients = Array.from(new Set(
+    submissions
+      .filter(s => !s.client_id && s.client_name?.trim())
+      .map(s => s.client_name!.trim())
+  )).sort((a, b) => a.localeCompare(b, 'nl'))
 
   return (
     <div className="p-4 sm:p-8 max-w-6xl mx-auto">
@@ -1577,7 +1633,8 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
       )}
 
       {showUpload && activeEdition && (
-        <UploadModal section={section} editionId={activeEdition.id} groups={existingGroups}
+        <UploadModal section={section} editionId={activeEdition.id}
+          groups={existingGroups} proposedClients={proposedClients}
           onClose={() => setShowUpload(false)} onUploaded={() => loadSubmissions(activeEdition)} />
       )}
 
