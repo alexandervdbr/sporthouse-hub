@@ -19,6 +19,7 @@ import { ALLOWED_UPLOAD_HINT, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/lib/u
 import { rememberUpload, forgetUpload, pendingUploadsFor, type PendingUpload } from '@/lib/pending-uploads'
 import { putFileToDrive } from '@/lib/drive-upload-client'
 import { shortenUuid } from '@/lib/short-id'
+import { MAX_ZIP_BYTES, MAX_ZIP_LABEL, saveZip } from '@/lib/zip-download'
 
 function escapeHtml(s: string) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -117,9 +118,6 @@ async function collectDroppedEntries(dataTransfer: DataTransfer): Promise<Pendin
 }
 
 const FOLDER_CACHE_LIMIT = 50
-
-const MAX_ZIP_BYTES = 500 * 1024 * 1024
-const MAX_ZIP_LABEL = '500 MB'
 
 function driveFolderUrl(driveFolderId: string) {
   return `https://drive.google.com/drive/folders/${driveFolderId}`
@@ -1595,15 +1593,6 @@ export default function FileManager({ backend, currentUserEmail, isAdmin, canDel
         : `Deze selectie is ${size} en wordt hier in het geheugen ingepakt, wat boven ${MAX_ZIP_LABEL} vastloopt. Selecteer minder bestanden tegelijk.`
     )
     setZipDriveUrl(driveFolderId ? driveFolderUrl(driveFolderId) : null)
-  }
-
-  async function saveZip(zip: JSZip, filename: string) {
-    const blob = await zip.generateAsync({ type: 'blob' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = filename
-    document.body.appendChild(a); a.click()
-    document.body.removeChild(a); URL.revokeObjectURL(url)
   }
 
   async function handleDownloadSelection() {

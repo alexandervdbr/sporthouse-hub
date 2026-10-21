@@ -7,15 +7,14 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // Everything except static assets, and except three routes that must not
+    // Everything except static assets, and except four routes that must not
     // pass through here at all.
     //
-    // The two download routes stream whole files, and a response that passes
+    // The three download routes stream whole files, and a response that passes
     // through the proxy on its way out can be billed twice for the same
     // bytes — on a 1 GB download, the difference between one gigabyte of
-    // transfer and two. Both do their own authentication, their own
-    // per-client access check and their own freelancer lockout; see the
-    // comment in each.
+    // transfer and two. All three do their own authentication, their own
+    // access check and their own freelancer lockout; see the comment in each.
     //
     // manifest.webmanifest is excluded because the browser fetches a manifest
     // without cookies unless the link tag says otherwise. This middleware
@@ -23,6 +22,6 @@ export const config = {
     // the browser tried to parse that HTML as JSON — "Manifest: Line: 1,
     // column: 1, Syntax error" in the console. It carries the app name, the
     // theme colour and the icon, so there is nothing in it to protect.
-    '/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|api/files/download|api/sporthouse/documents/download|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|api/files/download|api/sporthouse/documents/download|api/preassist/download|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }

@@ -18,7 +18,10 @@ export function driveThumbnailProxyUrl(driveId: string): string {
 // Instagram URL rather than failing the whole classification pass over it.
 export async function hostThumbnailOnDrive(
   sourceUrl: string,
-  reelId: string
+  reelId: string,
+  // Waar de thumbnail terechtkomt. Pré-assist bewaart die van zijn
+  // inspiratielinks apart, zodat de map van Mijn gedacht blijft wat hij is.
+  folderName = 'Mijn gedacht — thumbnails'
 ): Promise<{ thumbnailUrl: string; driveId: string } | null> {
   if (!isDriveStorageConfigured()) return null
 
@@ -29,7 +32,7 @@ export async function hostThumbnailOnDrive(
     const contentType = res.headers.get('content-type') ?? 'image/jpeg'
     const buffer = Buffer.from(await res.arrayBuffer())
 
-    const folderId = await getOrCreateFolderPath(['Mijn gedacht — thumbnails'], driveRootFolderId()!)
+    const folderId = await getOrCreateFolderPath([folderName], driveRootFolderId()!)
     const uploaded = await uploadFile(buffer, `${reelId}.jpg`, contentType, folderId)
 
     return { thumbnailUrl: driveThumbnailProxyUrl(uploaded.id), driveId: uploaded.id }

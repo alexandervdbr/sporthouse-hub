@@ -1,3 +1,5 @@
+import { decodeHtmlEntities, extractMeta } from '@/lib/og-meta'
+
 export interface InstagramOembed {
   title: string | null
   authorName: string | null
@@ -43,23 +45,6 @@ interface ScrapedMeta {
   caption: string | null
   authorName: string | null
   thumbnailUrl: string | null
-}
-
-function decodeHtmlEntities(text: string): string {
-  return text
-    .replace(/&quot;/g, '"')
-    .replace(/&#0?39;/g, "'")
-    .replace(/&apos;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
-    .replace(/&amp;/g, '&')
-}
-
-function extractMeta(html: string, property: string): string | null {
-  const match = html.match(new RegExp(`<meta[^>]+property=["']${property}["'][^>]+content=["']([^"']*)["']`, 'i'))
-  return match ? decodeHtmlEntities(match[1]) : null
 }
 
 // Instagram appends a tracking parameter (?igsh=...) that's different per

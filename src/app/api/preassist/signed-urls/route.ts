@@ -1,10 +1,17 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest } from 'next/server'
+import { hasOpenSection } from '@/lib/auth-permissions'
+import { getSessionUser } from '@/lib/supabase/claims'
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  // Leespad, net als de download-route ernaast: het token lokaal nagerekend
+  // in plaats van per aanroep bij de Auth-server bevestigd.
+  const user = await getSessionUser(supabase)
   if (!user) return new Response('Unauthorized', { status: 401 })
+  // Keek alleen of je ingelogd was, terwijl de download- en thumbnail-route
+  // ernaast de sectie wel controleren.
+  if (!hasOpenSection(user, 'preassist')) return new Response('Geen toegang.', { status: 403 })
 
   const { searchParams } = new URL(req.url)
   const editionId = searchParams.get('edition_id')
@@ -15,7 +22,7 @@ export async function GET(req: NextRequest) {
 
   let query = supabase
     .from('preassist_submissions')
-    .select('id, file_url, file_name, file_type, submitted_by_name, section, title, client_name, storage_provider')
+    .select('id, file_url, file_name, file_type, submitted_by_name, section, title, client_name, storage_provider, kind, url, link_author, note')
     .eq('edition_id', editionId)
     .order('created_at', { ascending: true })
 
@@ -32,7 +39,11 @@ export async function GET(req: NextRequest) {
   const results = await Promise.all(
     (submissions ?? []).map(async (s) => {
       let signedUrl: string | null = null
-      if (s.storage_provider === 'drive') {
+      // Een link heeft geen bestand om te downloaden; de zip zet hem in een
+      // tekstbestand, zie downloadZip in PreassistPage.
+      if (s.kind === 'link') {
+        signedUrl = null
+      } else if (s.storage_provider === 'drive') {
         signedUrl = `${origin}/api/preassist/download?id=${s.id}`
       } else {
         const { data } = await supabase.storage
@@ -49,6 +60,10 @@ export async function GET(req: NextRequest) {
         person:     s.submitted_by_name,
         title:      s.title,
         clientName: s.client_name,
+        kind:       s.kind ?? 'file',
+        note:       s.note,
+        url:        s.url,
+        linkAuthor: s.link_author,
       }
     })
   )

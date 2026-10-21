@@ -1,15 +1,23 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import {
   Upload, Download, Trash2, X, Plus, Loader2,
-  ImageIcon, Film, Layers, Settings, ChevronDown, ArrowLeft, User,
+  ImageIcon, Film, Layers, Settings, ChevronDown, User,
+  Link as LinkIcon, ExternalLink,
 } from 'lucide-react'
 import JSZip from 'jszip'
 import { Client } from '@/types/database'
 import { DriveThumbnail, DrivePreviewModal } from '@/components/shared/DrivePreview'
+import { putFileToDrive } from '@/lib/drive-upload-client'
+import { rememberUpload, forgetUpload } from '@/lib/pending-uploads'
+import {
+  isAllowedPreassistExt, ALLOWED_PREASSIST_HINT, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL,
+} from '@/lib/upload-policy'
+import { MAX_ZIP_BYTES, MAX_ZIP_LABEL, saveZip, uniqueZipPath } from '@/lib/zip-download'
+import { preassistRequiresClient } from '@/lib/preassist-upload'
+import { parseSubmittedUrls, groupLabelFor } from '@/lib/preassist-links'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -28,6 +36,16 @@ interface Submission {
   file_url: string
   file_name: string
   file_type: string
+  // Een inzending is een bestand of een link — zie migratie 0059.
+  kind?: 'file' | 'link'
+  // title is bij Inspiratie het onderwerp (de kop van de groep); note is wat
+  // de inzender erover te zeggen had.
+  note?: string | null
+  url?: string | null
+  link_author?: string | null
+  link_caption?: string | null
+  link_status?: 'pending' | 'done' | null
+  thumbnail_drive_id?: string | null
   file_size: number | null
   submitted_by_id: string
   submitted_by_name: string
@@ -57,14 +75,94 @@ function formatSize(bytes: number | null) {
 
 function isVideo(type: string) { return type.startsWith('video/') }
 
-const MAX_UPLOAD_SIZE = 500 * 1024 * 1024 // 500 MB, matches server-side cap
+// Namen van afgekeurde bestanden, afgekapt zodat een map van veertig foto's
+// geen melding van tien regels oplevert.
+function namesOf(files: File[], max = 3) {
+  const names = files.slice(0, max).map(f => f.name).join(', ')
+  return files.length > max ? `${names} en ${files.length - max} andere` : names
+}
 
 // ─── Submission card ──────────────────────────────────────────────────────────
 
-function SubmissionCard({ sub, canDelete, onDelete }: {
+// Een ingestuurde link. Zelfde vorm als een bestandskaartje — zodat een
+// editie één wand met inzendingen blijft en niet twee lijstjes — maar de
+// acties verschillen: openen in plaats van downloaden, en geen voorbeeld in
+// een modal, want de post hoort op Instagram zelf bekeken te worden.
+function LinkCard({ sub, canDelete, onDelete, hideTitle }: {
   sub: Submission
   canDelete: boolean
   onDelete: (id: string, filePath: string, provider?: string) => void
+  hideTitle?: boolean
+}) {
+  const pending = sub.link_status === 'pending'
+  const previewSrc = sub.thumbnail_drive_id ? `/api/preassist/thumbnail?id=${sub.id}&size=small` : undefined
+
+  return (
+    <div className="group relative rounded-xl overflow-hidden"
+      style={{ background: 'rgba(22,22,22,0.98)', border: '1px solid rgba(255,255,255,0.09)' }}>
+      <a href={sub.url ?? '#'} target="_blank" rel="noopener noreferrer"
+        className="block relative aspect-video bg-zinc-900 overflow-hidden">
+        {previewSrc ? (
+          <DriveThumbnail src={previewSrc} alt={sub.link_caption ?? sub.url ?? 'Link'} video={false} />
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-zinc-700 px-3">
+            {pending
+              ? <Loader2 size={20} className="animate-spin" />
+              : <LinkIcon size={24} />}
+            <p className="text-[10px] text-zinc-600 text-center break-all line-clamp-2">
+              {pending ? 'Voorbeeld ophalen…' : sub.link_author ?? sub.url}
+            </p>
+          </div>
+        )}
+        <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-black/60 text-zinc-300 flex items-center gap-1">
+          <LinkIcon size={10} /> {sub.link_author ?? 'Link'}
+        </div>
+      </a>
+
+      <div className="absolute top-2 right-2 flex gap-1.5 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+        {canDelete && (
+          <button onClick={() => onDelete(sub.id, '', 'link')}
+            aria-label="Verwijderen"
+            className="tap-target p-2 rounded-lg bg-red-600/80 hover:bg-red-500 text-white transition-colors">
+            <Trash2 size={15} />
+          </button>
+        )}
+      </div>
+
+      <div className="px-3 py-2.5">
+        {/* De toelichting van de inzender staat vóór het onderschrift van de
+            post: waarom iemand dit deelt zegt meer dan wat er toevallig bij
+            stond. */}
+        {!hideTitle && sub.title && (
+          <p className="text-sm text-zinc-200 font-medium mb-1 line-clamp-2">{sub.title}</p>
+        )}
+        {/* Wat de inzender zelf zei gaat vóór het onderschrift van de post:
+            waarom iemand dit deelt zegt meer dan wat er toevallig bij stond. */}
+        {sub.note
+          ? <p className="text-xs text-zinc-300 mb-1.5 line-clamp-3">{sub.note}</p>
+          : sub.link_caption && (hideTitle || !sub.title) && (
+              <p className="text-xs text-zinc-400 mb-1.5 line-clamp-2">{sub.link_caption}</p>
+            )}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <User size={11} className="text-zinc-500 flex-shrink-0" />
+            <p className="text-xs text-zinc-300 font-medium truncate">{sub.submitted_by_name}</p>
+          </div>
+          <a href={sub.url ?? '#'} target="_blank" rel="noopener noreferrer"
+            className="text-xs text-zinc-600 hover:text-zinc-300 flex-shrink-0 flex items-center gap-1 transition-colors">
+            Openen <ExternalLink size={10} />
+          </a>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SubmissionCard({ sub, canDelete, onDelete, hideTitle }: {
+  sub: Submission
+  canDelete: boolean
+  onDelete: (id: string, filePath: string, provider?: string) => void
+  hideTitle?: boolean
 }) {
   const video = isVideo(sub.file_type)
   const isDrive = sub.storage_provider === 'drive'
@@ -136,7 +234,9 @@ function SubmissionCard({ sub, canDelete, onDelete }: {
         </div>
       </div>
       <div className="px-3 py-2.5">
-        {sub.title && <p className="text-sm text-zinc-200 font-medium truncate mb-1.5">{sub.title}</p>}
+        {!hideTitle && sub.title && (
+          <p className="text-sm text-zinc-200 font-medium truncate mb-1.5">{sub.title}</p>
+        )}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 min-w-0">
             <User size={11} className="text-zinc-500 flex-shrink-0" />
@@ -160,6 +260,10 @@ interface FileEntry {
   file: File
   clientId: string
   clientName: string
+  // Waarom je dit instuurt. De kolom (title) en de weergave op het kaartje
+  // bestonden al, maar de upload zette hem hard op null — bij een tab die
+  // "Inspiratie" heet is dat juist het stuk dat ontbrak.
+  title: string
   status: 'pending' | 'uploading' | 'done' | 'error'
   progress: number
   error?: string
@@ -179,9 +283,14 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
   const [rejected,  setRejected]  = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  // Inspiratie hangt niet aan een klant: wat iemand opvalt hoort niet per se
+  // bij werk voor iemand. De toelichting is daar wat het verhaal vertelt.
+  const needsClient = preassistRequiresClient(section)
+
   useEffect(() => {
+    if (!needsClient) return
     supabase.from('clients').select('*').order('name').then(({ data }) => setClients((data ?? []) as Client[]))
-  }, [])
+  }, [needsClient])
 
   const groupedClients = Object.entries(
     clients.reduce<Record<string, Client[]>>((acc, c) => {
@@ -193,23 +302,39 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
 
   function addFiles(incoming: FileList | null) {
     if (!incoming) return
-    const defaultClient = clients[0]
     const all = Array.from(incoming)
-    const wrongType = all.some(f => !f.type.startsWith('image/') && !f.type.startsWith('video/'))
-    const tooBig    = all.some(f => f.size > MAX_UPLOAD_SIZE)
+    // Op extensie, niet op het MIME-type dat de browser erbij verzint — zelfde
+    // allowlist als de server aanhoudt, zodat een bestand hier wordt
+    // tegengehouden en niet pas na een upload van een halve gigabyte.
+    const wrongType = all.filter(f => !isAllowedPreassistExt(f.name))
+    const tooBig    = all.filter(f => isAllowedPreassistExt(f.name) && f.size > MAX_UPLOAD_BYTES)
+
+    // Mét de namen erbij, en beide redenen tegelijk. Het was een ternary die
+    // alleen de grootte meldde, dus wie één te grote video en één pdf sleepte
+    // hoorde niets over die pdf — en in geen van beide gevallen welk bestand.
+    const reasons = [
+      tooBig.length    ? `groter dan ${MAX_UPLOAD_LABEL}: ${namesOf(tooBig)}` : null,
+      wrongType.length ? `verkeerd type: ${namesOf(wrongType)}` : null,
+    ].filter(Boolean)
 
     setRejected(
-      tooBig ? `Eén of meer bestanden zijn groter dan ${MAX_UPLOAD_SIZE / 1024 / 1024} MB en werden overgeslagen.`
-      : wrongType ? 'Enkel afbeeldingen en video\'s zijn toegelaten — andere bestanden werden overgeslagen.'
-      : null
+      reasons.length
+        ? `Overgeslagen — ${reasons.join('; ')}. Toegestaan: ${ALLOWED_PREASSIST_HINT}.`
+        : null
     )
 
     const newEntries: FileEntry[] = all
-      .filter(f => (f.type.startsWith('image/') || f.type.startsWith('video/')) && f.size <= MAX_UPLOAD_SIZE)
+      .filter(f => isAllowedPreassistExt(f.name) && f.size <= MAX_UPLOAD_BYTES)
       .map(file => ({
         file,
-        clientId:   defaultClient?.id   ?? '',
-        clientName: defaultClient?.name ?? '',
+        // Leeg, en niet alvast de eerste klant uit de lijst. Dat scheelde
+        // één klik en kostte een stille fout: wie vijftien bestanden sleept
+        // kreeg ze allemaal toegewezen aan wie toevallig bovenaan stond, met
+        // een uploadknop die gewoon aan ging. Dat merkt niemand tot de
+        // editie wordt uitgepakt. De knop blokkeert al op een lege keuze.
+        clientId:   '',
+        clientName: '',
+        title: '',
         status: 'pending' as const,
         progress: 0,
       }))
@@ -220,46 +345,133 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
     setEntries(prev => prev.map((e, i) => i === index ? { ...e, clientId, clientName } : e))
   }
 
+  function updateTitle(index: number, title: string) {
+    setEntries(prev => prev.map((e, i) => i === index ? { ...e, title } : e))
+  }
+
   function removeEntry(index: number) {
     setEntries(prev => prev.filter((_, i) => i !== index))
   }
 
-  async function handleUpload() {
-    if (!entries.length || entries.some(e => !e.clientId)) return
+  async function handleUpload(retryOnly = false) {
+    if (!entries.length || (needsClient && entries.some(e => !e.clientId))) return
     setUploading(true)
+    setDone(false)
+    // Bij opnieuw proberen alleen de mislukte bestanden. De File-objecten
+    // zitten nog in entries, dus niemand hoeft ze opnieuw aan te wijzen.
+    const todo = entries
+      .map((e, i) => ({ e, i }))
+      .filter(({ e }) => retryOnly ? e.status === 'error' : e.status !== 'done')
 
-    await Promise.all(
-      entries.map(async (entry, i) => {
-        setEntries(prev => prev.map((e, j) => j === i ? { ...e, status: 'uploading' } : e))
+    // Drie tegelijk in plaats van allemaal. Het waren Promise.all-uploads van
+    // het hele bestand; nu gaat elk bestand in blokken naar Google en helpt
+    // vijftien tegelijk niemand.
+    const CONCURRENCY = 3
+    let cursor = 0
+    let errorCount = 0
+    const queue = todo
+
+    async function worker() {
+      while (cursor < queue.length) {
+        const { e: entry, i } = queue[cursor++]
+        setEntries(prev => prev.map((e, j) => j === i ? { ...e, status: 'uploading', progress: 0, error: undefined } : e))
         try {
-          const body = new FormData()
-          body.set('file', entry.file)
-          body.set('editionId', editionId)
-          body.set('section', section)
-          body.set('clientId', entry.clientId)
-          body.set('clientName', entry.clientName)
-
-          const res = await fetch('/api/preassist/upload', { method: 'POST', body })
-          if (!res.ok) {
-            const { error } = await res.json().catch(() => ({ error: `Upload mislukt (${res.status}).` }))
+          // 1. Een Drive-sessie openen. Klein en snel: hier gaat geen byte
+          // van het bestand door.
+          const sessionRes = await fetch('/api/preassist/upload-session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              editionId,
+              section,
+              clientId: entry.clientId || null,
+              filename: entry.file.name,
+              mimeType: entry.file.type || 'application/octet-stream',
+              fileSize: entry.file.size,
+            }),
+          })
+          if (!sessionRes.ok) {
+            const { error } = await sessionRes.json().catch(() => ({ error: `Upload mislukt (${sessionRes.status}).` }))
             throw new Error(error ?? 'Upload mislukt.')
           }
+          const { uploadUrl } = await sessionRes.json()
 
+          // Onthouden vóór de eerste byte vertrekt, zodat een tabblad dat
+          // halverwege sluit iets achterlaat om op terug te komen: Drive houdt
+          // de sessie ongeveer een week vast en weet hoeveel er al binnen is.
+          rememberUpload({
+            uploadUrl,
+            filename: entry.file.name,
+            fileSize: entry.file.size,
+            folderId: null,
+            scope: 'preassist',
+            startedAt: Date.now(),
+          })
+
+          // 2. De bytes rechtstreeks naar Drive. Ze raken onze server niet
+          // aan — dat is wat een video van 500 MB weer mogelijk maakt, en
+          // tegelijk van de transferrekening haalt.
+          await putFileToDrive(entry.file, uploadUrl, (pct) => {
+            setEntries(prev => prev.map((e, j) => j === i ? { ...e, progress: pct } : e))
+          })
+
+          // 3. De sessie aan onze server geven, die bij Drive navraagt wat
+          // het geworden is en de rij wegschrijft. Het id moet daarvandaan
+          // komen: het antwoord op het laatste blok is hier onleesbaar.
+          const finalizeRes = await fetch('/api/preassist/finalize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              editionId,
+              section,
+              clientId: entry.clientId || null,
+              uploadUrl,
+              fileName: entry.file.name,
+              fileSize: entry.file.size,
+              title: entry.title.trim() || null,
+            }),
+          })
+          if (!finalizeRes.ok) {
+            const { error } = await finalizeRes.json().catch(() => ({ error: `Opslaan mislukt (${finalizeRes.status}).` }))
+            throw new Error(error ?? 'Opslaan mislukt.')
+          }
+
+          forgetUpload(uploadUrl)
           setEntries(prev => prev.map((e, j) => j === i ? { ...e, status: 'done', progress: 100 } : e))
         } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err)
+          const raw = err instanceof Error ? err.message : String(err)
+          // "Failed to fetch" is wat een browser zegt als een verzoek de
+          // machine niet eens uit kwam. Correct en nutteloos; noem de oorzaak.
+          const msg = raw === 'Failed to fetch' || raw === 'NETWORK_ERROR'
+            ? 'Geen verbinding — upload afgebroken.'
+            : raw
           setEntries(prev => prev.map((e, j) => j === i ? { ...e, status: 'error', error: msg } : e))
+          errorCount++
         }
-      })
-    )
+      }
+    }
 
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker))
+
+    setUploading(false)
     setDone(true)
-    setTimeout(() => { onUploaded(); onClose() }, 800)
+
+    // Alleen wegklappen als er niets mislukt is. Hij sloot altijd na 800 ms,
+    // dus wie drie bestanden zag falen kreeg "3 mislukt" een halve seconde te
+    // zien en daarna een leeg scherm — niet te onderscheiden van een upload
+    // die gewoon gelukt was.
+    onUploaded()
+    if (errorCount === 0) setTimeout(onClose, 800)
   }
 
-  const allAssigned  = entries.length > 0 && entries.every(e => e.clientId)
+  const allAssigned  = entries.length > 0 && (!needsClient || entries.every(e => e.clientId))
   const doneCount    = entries.filter(e => e.status === 'done').length
   const errorCount   = entries.filter(e => e.status === 'error').length
+  // Gemiddelde van de echte voortgang per bestand in plaats van het aantal
+  // afgeronde bestanden: bij één groot bestand sprong die balk van 0 naar 100.
+  const totalProgress = entries.length
+    ? Math.round(entries.reduce((sum, e) => sum + (e.status === 'done' ? 100 : e.progress), 0) / entries.length)
+    : 0
 
   const selectStyle = {
     background: 'rgba(255,255,255,0.06)',
@@ -301,12 +513,26 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
             style={{ border: '2px dashed rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.02)' }}>
             <Upload size={18} className="text-zinc-500" />
             <p className="text-sm text-zinc-400">Klik of sleep bestanden hier</p>
-            <p className="text-xs text-zinc-600">Afbeeldingen &amp; video&apos;s — meerdere tegelijk mogelijk</p>
+            {/* De limieten staan er vanaf het begin bij, uit dezelfde
+                constanten als de server aanhoudt. Ze stonden alleen in de
+                afkeurmelding achteraf, dus je kwam er pas achter nadat je een
+                bestand had uitgekozen. */}
+            <p className="text-xs text-zinc-600">
+              Meerdere bestanden tegelijk mogelijk — max {MAX_UPLOAD_LABEL} per bestand
+            </p>
+            <p className="text-[11px] text-zinc-700">{ALLOWED_PREASSIST_HINT}</p>
             <input ref={inputRef} type="file" multiple accept="image/*,video/*" className="hidden"
               onChange={e => { addFiles(e.target.files); e.target.value = '' }} />
           </div>
 
           {rejected && <p className="text-xs text-amber-400 mb-3">{rejected}</p>}
+
+          {needsClient && entries.length > 0 && entries.some(e => !e.clientId) && !uploading && (
+            <p className="text-xs text-zinc-500 mb-3">
+              Kies nog een klant bij {entries.filter(e => !e.clientId).length} van de {entries.length} bestand
+              {entries.length !== 1 ? 'en' : ''}.
+            </p>
+          )}
 
           {/* File rows */}
           {entries.length > 0 && (
@@ -329,28 +555,33 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
                       {formatSize(entry.file.size)}
                     </span>
 
-                    {/* Client selector */}
-                    <div className="flex-shrink-0 w-40">
-                      <select
-                        value={entry.clientId}
-                        disabled={uploading}
-                        onChange={e => {
-                          const opt = clients.find(c => c.id === e.target.value)
-                          if (opt) updateEntry(i, opt.id, opt.name)
-                        }}
-                        style={selectStyle}
-                      >
-                        <option value="">— Klant —</option>
-                        {groupedClients.map(([cat, items]) => (
-                          <optgroup key={cat} label={cat}>
-                            {items.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                          </optgroup>
-                        ))}
-                      </select>
-                    </div>
+                    {/* Client selector — alleen bij Content */}
+                    {needsClient && (
+                      <div className="flex-shrink-0 w-40">
+                        <select
+                          value={entry.clientId}
+                          disabled={uploading}
+                          onChange={e => {
+                            const opt = clients.find(c => c.id === e.target.value)
+                            if (opt) updateEntry(i, opt.id, opt.name)
+                          }}
+                          style={selectStyle}
+                        >
+                          <option value="">— Klant —</option>
+                          {groupedClients.map(([cat, items]) => (
+                            <optgroup key={cat} label={cat}>
+                              {items.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            </optgroup>
+                          ))}
+                        </select>
+                      </div>
+                    )}
 
-                    {/* Status / remove */}
-                    {uploading ? (
+                    {/* Status / remove — het resultaat blijft staan nadat het
+                        uploaden klaar is, anders verdwijnt het ✗ van een
+                        mislukt bestand precies op het moment dat je het nodig
+                        hebt. */}
+                    {uploading || entry.status === 'done' || entry.status === 'error' ? (
                       <span className="flex-shrink-0 w-4 text-center" style={{
                         color: entry.status === 'done'  ? '#4ade80' :
                                entry.status === 'error' ? '#f87171' : '#a1a1aa',
@@ -368,6 +599,32 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
                       </button>
                     )}
                   </div>
+
+                  {/* Echte bytes, niet "bestand 2 van 5". Bij één video van
+                      600 MB is dat het verschil tussen iets zien gebeuren en
+                      een balk die minuten op 0% staat. */}
+                  {!uploading && entry.status !== 'done' && (
+                    <input type="text" value={entry.title} maxLength={200}
+                      onChange={e => updateTitle(i, e.target.value)}
+                      placeholder={needsClient
+                        ? 'Toelichting (optioneel) — waarom stuur je dit in?'
+                        : 'Onderwerp (optioneel) — bv. Refs Genk-campagne'}
+                      className="w-full px-3 pb-2 bg-transparent text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none" />
+                  )}
+
+                  {entry.status === 'uploading' && (
+                    <div className="h-0.5" style={{ background: 'rgba(255,255,255,0.08)' }}>
+                      <div className="h-full transition-all duration-200"
+                        style={{ width: `${entry.progress}%`, backgroundColor: '#3A913F' }} />
+                    </div>
+                  )}
+
+                  {/* De reden waarom dit bestand niet aankwam. Werd wel
+                      opgeslagen maar nergens getoond, dus zag je alleen
+                      "1 bestand mislukt" zonder te weten waarom. */}
+                  {entry.status === 'error' && entry.error && (
+                    <p className="px-3 pb-2 text-[10px] text-red-400 break-words">{entry.error}</p>
+                  )}
                 </div>
               ))}
             </div>
@@ -379,16 +636,18 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
           )}
 
           {/* Progress bar when uploading */}
-          {uploading && (
+          {(uploading || done) && (
             <div className="mb-4">
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-xs text-zinc-500">
-                  {done ? 'Klaar' : `${doneCount} / ${entries.length} geüpload…`}
+                  {uploading ? `${doneCount} / ${entries.length} geüpload…`
+                    : errorCount > 0 ? `${doneCount} van de ${entries.length} geüpload`
+                    : 'Klaar'}
                 </span>
               </div>
               <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.1)' }}>
                 <div className="h-full rounded-full transition-all duration-300"
-                  style={{ width: `${entries.length ? Math.round((doneCount / entries.length) * 100) : 0}%`, backgroundColor: '#3A913F' }} />
+                  style={{ width: `${totalProgress}%`, backgroundColor: '#3A913F' }} />
               </div>
             </div>
           )}
@@ -406,16 +665,28 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
           <div className="flex gap-2">
             <button onClick={onClose}
               className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors">
-              Annuleren
+              {done && errorCount > 0 ? 'Sluiten' : 'Annuleren'}
             </button>
-            <button onClick={handleUpload} disabled={uploading || !allAssigned}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-40 transition-all"
-              style={{ background: '#3A913F' }}>
-              {uploading ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
-              {uploading
-                ? `${doneCount}/${entries.length} klaar`
-                : `${entries.length || 0} bestand${entries.length !== 1 ? 'en' : ''} uploaden`}
-            </button>
+            {/* Na een mislukking opnieuw proberen met alleen de bestanden die
+                het niet haalden — de File-objecten staan er nog, dus niemand
+                hoeft ze opnieuw te gaan zoeken. */}
+            {done && errorCount > 0 ? (
+              <button onClick={() => handleUpload(true)} disabled={uploading}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-40 transition-all"
+                style={{ background: '#3A913F' }}>
+                <Upload size={13} />
+                {errorCount} bestand{errorCount !== 1 ? 'en' : ''} opnieuw proberen
+              </button>
+            ) : (
+              <button onClick={() => handleUpload()} disabled={uploading || !allAssigned}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-40 transition-all"
+                style={{ background: '#3A913F' }}>
+                {uploading ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+                {uploading
+                  ? `${doneCount}/${entries.length} klaar`
+                  : `${entries.length || 0} bestand${entries.length !== 1 ? 'en' : ''} uploaden`}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -433,24 +704,57 @@ function EditionModal({ editions, onClose, onRefresh }: {
   const supabase = createClient()
   const [newTitle,   setNewTitle]   = useState('')
   const [saving,     setSaving]     = useState(false)
+  const [busy,       setBusy]       = useState<string | null>(null)
   const [confirmDel, setConfirmDel] = useState<string | null>(null)
+  const [error,      setError]      = useState<string | null>(null)
+  const [counts,     setCounts]     = useState<Record<string, number> | null>(null)
+
+  // Hoeveel inzendingen er aan elke editie hangen, zodat de bevestiging kan
+  // zeggen wat er meegaat. De pagina zelf kent alleen de actieve editie.
+  useEffect(() => {
+    fetch('/api/preassist/editions')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => setCounts(data))
+      .catch(() => { /* zonder aantallen blijft verwijderen mogelijk, alleen minder expliciet */ })
+  }, [])
 
   async function createEdition() {
     if (!newTitle.trim()) return
-    setSaving(true)
-    await supabase.from('preassist_editions').insert({ title: newTitle.trim(), active: false })
-    setNewTitle(''); setSaving(false); onRefresh()
+    setSaving(true); setError(null)
+    const { error } = await supabase.from('preassist_editions').insert({ title: newTitle.trim(), active: false })
+    setSaving(false)
+    if (error) { setError(`Aanmaken mislukt: ${error.message}`); return }
+    setNewTitle(''); onRefresh()
   }
 
   async function setActive(id: string) {
-    await supabase.from('preassist_editions').update({ active: false }).neq('id', id)
-    await supabase.from('preassist_editions').update({ active: true }).eq('id', id)
+    setBusy(id); setError(null)
+    // Eén statement in plaats van twee losse updates — zie migratie 0057.
+    // Het waren er twee zonder foutcontrole, met een moment tussenin waarop
+    // er geen enkele actieve editie was.
+    const { error } = await supabase.rpc('preassist_set_active_edition', { target: id })
+    setBusy(null)
+    if (error) { setError(`Activeren mislukt: ${error.message}`); return }
     onRefresh()
   }
 
   async function deleteEdition(id: string) {
-    await supabase.from('preassist_editions').delete().eq('id', id)
-    setConfirmDel(null); onRefresh()
+    setBusy(id); setError(null)
+    // Via de server, want de bestanden moeten eerst in Drive's prullenbak en
+    // daar heeft de browser geen credentials voor.
+    try {
+      const res = await fetch(`/api/preassist/editions?id=${id}`, { method: 'DELETE' })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(body?.error ?? `Verwijderen mislukt (${res.status}).`)
+      if (body?.warning) setError(body.warning)
+      setConfirmDel(null)
+      onRefresh()
+    } catch (err) {
+      // Dit faalde eerder altijd stil: de foreign key hield het tegen, de
+      // error werd niet bekeken en onRefresh() zette de editie gewoon terug.
+      setError(err instanceof Error ? err.message : 'Verwijderen mislukt.')
+    }
+    setBusy(null)
   }
 
   useEffect(() => {
@@ -472,18 +776,29 @@ function EditionModal({ editions, onClose, onRefresh }: {
           {editions.map(e => (
             <div key={e.id} className="flex items-center gap-2 px-3 py-2 rounded-lg"
               style={{ background: 'rgba(255,255,255,0.05)', border: e.active ? '1px solid rgba(58,145,63,0.4)' : '1px solid transparent' }}>
-              <span className="text-sm text-zinc-200 truncate flex-1">{e.title}</span>
+              <div className="min-w-0 flex-1">
+                <span className="block text-sm text-zinc-200 truncate">{e.title}</span>
+                {confirmDel === e.id && (
+                  <span className="block text-[10px] text-red-400">
+                    {counts?.[e.id]
+                      ? `${counts[e.id]} inzending${counts[e.id] !== 1 ? 'en' : ''} gaan mee naar de prullenbak`
+                      : 'Deze editie verwijderen?'}
+                  </span>
+                )}
+              </div>
               {e.active ? (
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
                   style={{ color: '#3A913F', background: 'rgba(58,145,63,0.15)' }}>Actief</span>
               ) : (
-                <button onClick={() => setActive(e.id)}
-                  className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors flex-shrink-0">Activeren</button>
+                <button onClick={() => setActive(e.id)} disabled={busy === e.id}
+                  className="text-[10px] text-zinc-500 hover:text-zinc-300 disabled:opacity-50 transition-colors flex-shrink-0">Activeren</button>
               )}
               {confirmDel === e.id ? (
                 <div className="flex items-center gap-1 flex-shrink-0">
-                  <button onClick={() => deleteEdition(e.id)}
-                    className="text-[10px] font-medium text-red-400 hover:text-red-300 transition-colors">Zeker?</button>
+                  <button onClick={() => deleteEdition(e.id)} disabled={busy === e.id}
+                    className="text-[10px] font-medium text-red-400 hover:text-red-300 disabled:opacity-50 transition-colors">
+                    {busy === e.id ? 'Bezig…' : 'Zeker?'}
+                  </button>
                   <button onClick={() => setConfirmDel(null)} className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors">Nee</button>
                 </div>
               ) : (
@@ -496,6 +811,9 @@ function EditionModal({ editions, onClose, onRefresh }: {
             </div>
           ))}
         </div>
+        {error && (
+          <p className="mb-3 text-xs text-red-400">{error}</p>
+        )}
         <div className="flex gap-2">
           <input type="text" placeholder="bv. Q1 2026" value={newTitle}
             onChange={e => setNewTitle(e.target.value)} onKeyDown={e => e.key === 'Enter' && createEdition()}
@@ -512,32 +830,167 @@ function EditionModal({ editions, onClose, onRefresh }: {
   )
 }
 
-// ─── Client group ─────────────────────────────────────────────────────────────
 
-function ClientGroup({ clientName, submissions, currentUserId, isAdmin, canDeleteAll, onDelete }: {
-  clientName: string
+// ─── Linkveld ─────────────────────────────────────────────────────────────────
+
+// Wat mensen als inspiratie delen is bijna altijd een Instagram-post. Dat via
+// een bestandsupload laten lopen — screenshot, terugvinden, uploaden — is drie
+// stappen voor iets wat één geplakte link is, en dan wordt het niet gebruikt.
+// Vandaar dat dit bovenaan staat en niet achter een knop: plakken en klaar.
+function LinkPaste({ editionId, section, onAdded, topics }: {
+  editionId: string
+  section: Section
+  onAdded: () => void
+  // Onderwerpen die in deze editie al bestaan.
+  topics: string[]
+}) {
+  const [value,  setValue]  = useState('')
+  const [topic,  setTopic]  = useState('')
+  const [note,   setNote]   = useState('')
+  const [busy,   setBusy]   = useState(false)
+  const [error,  setError]  = useState<string | null>(null)
+  const [result, setResult] = useState<string | null>(null)
+
+  const urls = parseSubmittedUrls(value)
+
+  const ready = urls.length > 0 && !!topic.trim()
+
+  async function submit() {
+    if (!ready || busy) return
+    setBusy(true); setError(null); setResult(null)
+    try {
+      const res = await fetch('/api/preassist/links', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          editionId, section, urls,
+          topic: topic.trim(),
+          note: note.trim() || null,
+        }),
+      })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(body?.error ?? `Toevoegen mislukt (${res.status}).`)
+
+      // Het onderwerp blijft staan: wie drie links plakt, plakt er zo nog
+      // twee onder dezelfde noemer. De notitie hoort bij wat je net
+      // instuurde, dus die gaat wel leeg.
+      setValue(''); setNote('')
+      // Stond hij er al, dan is dat geen fout maar ook geen stilte waard.
+      setResult(body?.skipped
+        ? `${body.added} toegevoegd, ${body.skipped} stond${body.skipped !== 1 ? 'en' : ''} er al.`
+        : null)
+      onAdded()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Toevoegen mislukt.')
+    }
+    setBusy(false)
+  }
+
+  return (
+    <div className="mb-7 rounded-xl p-4"
+      style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+      <div className="flex items-center gap-2 mb-3">
+        <LinkIcon size={14} className="text-zinc-500" />
+        <p className="text-sm text-zinc-300 font-medium">Plak een link</p>
+        <span className="text-xs text-zinc-600">Instagram, TikTok, YouTube of een website</span>
+      </div>
+
+      <textarea
+        value={value}
+        onChange={e => setValue(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit() }}
+        rows={2}
+        placeholder="https://www.instagram.com/p/…&#10;Meerdere tegelijk mag — één per regel"
+        className="w-full px-3 py-2 rounded-lg text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none resize-y"
+        style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }} />
+
+      {/* Het onderwerp is de kop waaronder deze links komen te staan — zonder
+          valt alles op één hoop, dus verplicht. De notitie is wat je erover
+          wil zeggen, en dat heeft niet iedereen altijd. */}
+      <div className="mt-2">
+        <input type="text" value={topic} maxLength={200} list="preassist-onderwerpen"
+          onChange={e => setTopic(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') submit() }}
+          placeholder="Onderwerp — bv. Refs Genk-campagne"
+          className="w-full px-3 py-2 rounded-lg text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none"
+          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }} />
+        <datalist id="preassist-onderwerpen">
+          {topics.map(t => <option key={t} value={t} />)}
+        </datalist>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 mt-2">
+        <input type="text" value={note} maxLength={500}
+          onChange={e => setNote(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') submit() }}
+          placeholder="Notitie (optioneel) — waarom stuur je dit in?"
+          className="flex-1 min-w-[12rem] px-3 py-2 rounded-lg text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none"
+          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }} />
+        <button onClick={submit} disabled={busy || !ready}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-40 transition-all"
+          style={{ background: '#3A913F' }}>
+          {busy ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
+          {urls.length > 1 ? `${urls.length} links toevoegen` : 'Toevoegen'}
+        </button>
+      </div>
+
+      {/* Zegt wat er nog ontbreekt, in plaats van een knop die zonder uitleg
+          uit staat. */}
+      {urls.length > 0 && !topic.trim() && (
+        <p className="mt-2 text-xs text-zinc-500">Geef nog een onderwerp op.</p>
+      )}
+
+      {topics.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 mt-2">
+          <span className="text-[10px] text-zinc-600 uppercase tracking-widest mr-1">Bestaand</span>
+          {topics.slice(0, 8).map(t => (
+            <button key={t} onClick={() => setTopic(t)}
+              className="px-2 py-1 rounded-full text-[11px] transition-colors"
+              style={topic === t
+                ? { background: 'rgba(58,145,63,0.2)', color: '#4ade80', border: '1px solid rgba(58,145,63,0.4)' }
+                : { background: 'rgba(255,255,255,0.05)', color: '#a1a1aa', border: '1px solid rgba(255,255,255,0.08)' }}>
+              {t}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {error  && <p className="mt-2 text-xs text-red-400">{error}</p>}
+      {result && <p className="mt-2 text-xs text-amber-400">{result}</p>}
+    </div>
+  )
+}
+
+// ─── Groep ────────────────────────────────────────────────────────────────────
+
+function SubmissionGroup({ label, submissions, currentUserId, isAdmin, canDeleteAll, onDelete, hideTitles }: {
+  label: string
   submissions: Submission[]
   currentUserId: string
   isAdmin: boolean
   canDeleteAll: boolean
   onDelete: (id: string, filePath: string, provider?: string) => void
+  // Bij Inspiratie staat het onderwerp al in de kop; op elk kaartje eronder
+  // herhalen maakt er ruis van.
+  hideTitles: boolean
 }) {
   return (
     <div className="mb-8">
       <div className="flex items-center gap-3 mb-3">
         <div className="w-0.5 h-4 rounded-full" style={{ backgroundColor: '#3A913F' }} />
-        <h3 className="text-sm font-semibold text-zinc-200">{clientName}</h3>
+        <h3 className="text-sm font-semibold text-zinc-200">{label}</h3>
         <span className="text-[11px] px-2 py-0.5 rounded-full text-zinc-500"
           style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
           {submissions.length}
         </span>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-        {submissions.map(sub => (
-          <SubmissionCard key={sub.id} sub={sub}
-            canDelete={isAdmin || canDeleteAll || sub.submitted_by_id === currentUserId}
-            onDelete={onDelete} />
-        ))}
+        {submissions.map(sub => {
+          const canDelete = isAdmin || canDeleteAll || sub.submitted_by_id === currentUserId
+          return sub.kind === 'link'
+            ? <LinkCard key={sub.id} sub={sub} canDelete={canDelete} onDelete={onDelete} hideTitle={hideTitles} />
+            : <SubmissionCard key={sub.id} sub={sub} canDelete={canDelete} onDelete={onDelete} hideTitle={hideTitles} />
+        })}
       </div>
     </div>
   )
@@ -552,11 +1005,15 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
   canAdd: boolean
   canDeleteAll: boolean
 }) {
-  const router = useRouter()
   const supabase = createClient()
 
   const [editions,      setEditions]      = useState<Edition[]>([])
   const [activeEdition, setActiveEdition] = useState<Edition | null>(null)
+  // Wat je bekijkt, los van welke editie actief is. Voorheen was dat
+  // hetzelfde, en verdween een afgeronde editie dus volledig uit de app op
+  // het moment dat de volgende werd geactiveerd — inhoud incluis, want ook
+  // downloaden kon alleen van de actieve.
+  const [viewedEdition, setViewedEdition] = useState<Edition | null>(null)
   const [submissions,   setSubmissions]   = useState<Submission[]>([])
   const [section,       setSection]       = useState<Section>('content')
   const [loading,       setLoading]       = useState(true)
@@ -564,22 +1021,31 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
   const [showEditions,  setShowEditions]  = useState(false)
   const [showUpload,    setShowUpload]    = useState(false)
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false)
+  const [deleteError,   setDeleteError]   = useState<string | null>(null)
+  const [zipError,      setZipError]      = useState<string | null>(null)
+  const pollsRef = useRef(0)
 
   const submitters = Array.from(
     new Map(submissions.map(s => [s.submitted_by_id, s.submitted_by_name])).entries()
   ).map(([id, name]) => ({ id, name }))
 
-  const loadEditions = useCallback(async () => {
+  const loadEditions = useCallback(async (keepViewedId?: string) => {
     const { data } = await supabase.from('preassist_editions').select('*').order('created_at', { ascending: false })
     const all = (data ?? []) as Edition[]
     setEditions(all)
     const active = all.find(e => e.active) ?? null
     setActiveEdition(active)
-    return active
+    // Blijf staan waar je stond zolang die editie nog bestaat; anders de
+    // actieve, en als er geen actieve is de nieuwste.
+    const viewed = (keepViewedId ? all.find(e => e.id === keepViewedId) : null) ?? active ?? all[0] ?? null
+    setViewedEdition(viewed)
+    return viewed
   }, [])
 
-  const loadSubmissions = useCallback(async (edition: Edition) => {
-    setLoading(true)
+  // quiet: opnieuw ophalen zonder de spinner, voor de poll hieronder — anders
+  // knippert de hele lijst elke paar seconden weg.
+  const loadSubmissions = useCallback(async (edition: Edition, quiet = false) => {
+    if (!quiet) setLoading(true)
     const { data } = await supabase
       .from('preassist_submissions').select('*')
       .eq('edition_id', edition.id).order('client_name').order('created_at', { ascending: false })
@@ -591,70 +1057,189 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
       return { ...s, signedUrl: signed?.signedUrl }
     }))
     setSubmissions(withUrls)
-    setLoading(false)
+    if (!quiet) setLoading(false)
   }, [])
 
   useEffect(() => {
-    loadEditions().then(active => { if (active) loadSubmissions(active); else setLoading(false) })
+    loadEditions().then(viewed => { if (viewed) loadSubmissions(viewed); else setLoading(false) })
   }, [loadEditions, loadSubmissions])
 
-  async function handleDelete(id: string, filePath: string, provider?: string) {
-    if (provider === 'drive') {
-      await fetch(`/api/preassist/upload?id=${id}`, { method: 'DELETE' })
-    } else {
-      await supabase.storage.from('preassist').remove([filePath])
-      await supabase.from('preassist_submissions').delete().eq('id', id)
+  // Een geplakte link verschijnt meteen, maar auteur, onderschrift en
+  // voorbeeld komen er pas achteraan — dat ophalen duurt seconden. Zonder dit
+  // bleef "Voorbeeld ophalen…" staan tot iemand de pagina verversde, en dat
+  // leest als kapot terwijl het gewoon klaar is.
+  //
+  // Begrensd en zelfstoppend: alleen zolang er iets op 'pending' staat, met
+  // een harde bovengrens. CLAUDE.md wijst terecht naar timers als bron van
+  // verbruik — dit is er geen die blijft lopen.
+  useEffect(() => {
+    if (!viewedEdition) return
+    if (!submissions.some(s => s.link_status === 'pending')) {
+      pollsRef.current = 0
+      return
     }
+    if (pollsRef.current >= 10) return
+
+    const timer = setTimeout(() => {
+      pollsRef.current += 1
+      loadSubmissions(viewedEdition, true)
+    }, 3000)
+    return () => clearTimeout(timer)
+  }, [submissions, viewedEdition, loadSubmissions])
+
+  function selectEdition(id: string) {
+    const next = editions.find(e => e.id === id)
+    if (!next) return
+    setViewedEdition(next)
+    setSubmissions([])
+    pollsRef.current = 0
+    loadSubmissions(next)
+  }
+
+  async function handleDelete(id: string, filePath: string, provider?: string) {
+    const removed = submissions.find(s => s.id === id)
+    setDeleteError(null)
+
+    // Direct uit de lijst; het wegzetten in Drive is waar het wachten zat.
     setSubmissions(prev => prev.filter(s => s.id !== id))
+
+    try {
+      // Alles behalve de oude Supabase Storage-rijen gaat via de server:
+      // bestanden in Drive én links, waarvan de thumbnail daar ook staat.
+      if (provider !== 'supabase') {
+        const res = await fetch(`/api/preassist/upload?id=${id}`, { method: 'DELETE' })
+        if (!res.ok) {
+          const body = await res.json().catch(() => null)
+          throw new Error(body?.error ?? `Verwijderen mislukt (${res.status}).`)
+        }
+      } else {
+        // Oude inzendingen van vóór Drive, nog in Supabase Storage.
+        const { error: storageError } = await supabase.storage.from('preassist').remove([filePath])
+        if (storageError) throw new Error(storageError.message)
+        const { error } = await supabase.from('preassist_submissions').delete().eq('id', id)
+        if (error) throw new Error(error.message)
+      }
+    } catch (err) {
+      // Zette de kaart weg en keek nooit of het gelukt was: bij een 403 of
+      // een 500 verdween hij uit de lijst en stond hij na een refresh weer
+      // terug, zonder dat iemand iets gezien had.
+      if (removed) setSubmissions(prev => prev.some(s => s.id === id) ? prev : [...prev, removed])
+      setDeleteError(err instanceof Error ? err.message : 'Verwijderen mislukt.')
+    }
   }
 
   async function downloadZip(userId?: string) {
-    if (!activeEdition) return
+    if (!viewedEdition) return
     setDownloading(true)
+    setZipError(null)
 
-    const params = new URLSearchParams({ edition_id: activeEdition.id, section: 'all' })
-    if (userId) params.set('user_id', userId)
+    try {
+      // Eerst wegen, en wel op de kolom die we al hebben — dit kost geen
+      // enkel verzoek. Zonder dit begon de download gewoon, en liep een
+      // editie met een paar video's de tab uit het geheugen.
+      // Links wegen niets — ze gaan als tekstbestand mee, niet als download.
+      const weighed = submissions.filter(s =>
+        (!userId || s.submitted_by_id === userId) && s.kind !== 'link')
+      const totalBytes = weighed.reduce((sum, s) => sum + (s.file_size ?? 0), 0)
 
-    const res   = await fetch(`/api/preassist/signed-urls?${params}`)
-    const files = await res.json() as { signedUrl: string | null; fileName: string; section: string; person: string; clientName: string | null }[]
+      if (totalBytes > MAX_ZIP_BYTES) {
+        setZipError(
+          `Deze download is ${formatSize(totalBytes)} en wordt hier in het geheugen ingepakt, wat boven ${MAX_ZIP_LABEL} vastloopt. ` +
+          (userId
+            ? 'Download losse bestanden via de kaartjes.'
+            : 'Download per persoon via hetzelfde menu, of losse bestanden via de kaartjes.')
+        )
+        setDownloading(false)
+        return
+      }
 
-    const zip = new JSZip()
+      const params = new URLSearchParams({ edition_id: viewedEdition.id, section: 'all' })
+      if (userId) params.set('user_id', userId)
 
-    await Promise.all(
-      files.filter(f => f.signedUrl).map(async f => {
-        const blob        = await fetch(f.signedUrl!).then(r => r.blob())
-        const sectionName = f.section === 'content' ? 'Content' : 'Inspiratie'
-        const clientDir   = f.clientName ?? 'Algemeen'
-        zip.folder(sectionName)!.folder(clientDir)!.file(`${f.person} — ${f.fileName}`, blob)
-      })
-    )
+      const res = await fetch(`/api/preassist/signed-urls?${params}`)
+      if (!res.ok) throw new Error('Kon de bestandslijst niet ophalen.')
+      const files = await res.json() as {
+        signedUrl: string | null; fileName: string; section: string; person: string
+        clientName: string | null; kind?: 'file' | 'link'; url?: string | null
+        title?: string | null; note?: string | null; linkAuthor?: string | null
+      }[]
 
-    const blob = await zip.generateAsync({ type: 'blob' })
-    const url  = URL.createObjectURL(blob)
-    const a    = document.createElement('a')
-    a.href = url
-    a.download = `${activeEdition.title}${userId ? ` — ${files[0]?.person ?? ''}` : ''}.zip`
-    a.click()
-    URL.revokeObjectURL(url)
+      const zip = new JSZip()
+      // JSZip overschrijft een pad dat al bestaat, en deze paden worden hier
+      // samengesteld — dezelfde persoon met twee keer dezelfde bestandsnaam
+      // onder dezelfde klant leverde één bestand in plaats van twee.
+      const taken = new Set<string>()
+
+      // Links horen ook in de download thuis. Zonder dit mist er de helft van
+      // een editie zodra Inspiratie vooral uit links bestaat, en zegt niets
+      // dat er iets ontbreekt.
+      const links = files.filter(f => f.kind === 'link' && f.url)
+      if (links.length) {
+        const bySection = links.reduce<Record<string, typeof links>>((acc, f) => {
+          const name = f.section === 'content' ? 'Content' : 'Inspiratie'
+          ;(acc[name] ??= []).push(f)
+          return acc
+        }, {})
+        for (const [sectionName, rows] of Object.entries(bySection)) {
+          // Zelfde indeling als op het scherm: per onderwerp, zodat de
+          // download leesbaar is zonder de app ernaast.
+          const byTopic = rows.reduce<Record<string, typeof rows>>((acc, f) => {
+            const topic = f.title?.trim() || 'Algemeen'
+            ;(acc[topic] ??= []).push(f)
+            return acc
+          }, {})
+
+          const blocks = Object.entries(byTopic).map(([topic, items]) => {
+            const lines = items.map(f =>
+              `- ${f.url}${f.linkAuthor ? `\n  ${f.linkAuthor}` : ''}` +
+              `${f.note ? `\n  "${f.note}"` : ''}` +
+              `\n  ingestuurd door ${f.person}`
+            )
+            return `## ${topic}\n\n${lines.join('\n\n')}`
+          })
+
+          zip.file(`${sectionName}/links.md`, `# ${sectionName} — links\n\n${blocks.join('\n\n')}\n`)
+        }
+      }
+
+      await Promise.all(
+        files.filter(f => f.signedUrl).map(async f => {
+          const blob        = await fetch(f.signedUrl!).then(r => r.blob())
+          const sectionName = f.section === 'content' ? 'Content' : 'Inspiratie'
+          const clientDir   = f.clientName ?? 'Algemeen'
+          const path = uniqueZipPath(taken, `${sectionName}/${clientDir}/${f.person} — ${f.fileName}`)
+          zip.file(path, blob)
+        })
+      )
+
+      await saveZip(zip, `${viewedEdition.title}${userId ? ` — ${files[0]?.person ?? ''}` : ''}.zip`)
+    } catch {
+      // Stond er niet, en de knop bleef daardoor na één mislukte fetch
+      // permanent uitgeschakeld tot iemand de pagina verversde.
+      setZipError('Kon de download niet voltooien.')
+    }
     setDownloading(false)
   }
 
-  // Group filtered submissions by client
   const filtered = submissions.filter(s => s.section === section)
   const grouped  = filtered.reduce<Record<string, Submission[]>>((acc, s) => {
-    const key = s.client_name ?? 'Algemeen'
+    const key = groupLabelFor(s)
     ;(acc[key] ??= []).push(s)
     return acc
   }, {})
 
+  // Onderwerpen die in deze editie al bestaan, als suggestie onder het
+  // plakveld. Dat is wat het groeperen-op-tekst draaglijk maakt: dezelfde
+  // naam opnieuw kiezen is één klik in plaats van foutloos overtypen.
+  const existingTopics = Array.from(new Set(
+    submissions
+      .filter(s => s.section === 'inspiratie')
+      .map(s => s.title?.trim())
+      .filter((t): t is string => !!t)
+  )).sort((a, b) => a.localeCompare(b, 'nl'))
+
   return (
     <div className="p-4 sm:p-8 max-w-6xl mx-auto">
-
-      {/* Back */}
-      <button onClick={() => router.back()}
-        className="flex items-center gap-1.5 mb-6 text-sm text-zinc-500 hover:text-zinc-200 transition-colors">
-        <ArrowLeft size={14} /> Terug
-      </button>
 
       {/* Header */}
       <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
@@ -664,14 +1249,32 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
             <h1 className="text-2xl font-bold tracking-tight text-white" style={{ fontFamily: 'var(--font-kurdis)' }}>
               Pré-assist
             </h1>
-            {activeEdition && (
+            {/* Eén editie: een badge zoals voorheen. Meer: een kiezer, zodat
+                een afgeronde editie terug te vinden is in plaats van alleen
+                nog in Drive te staan. */}
+            {editions.length > 1 ? (
+              <select value={viewedEdition?.id ?? ''} onChange={e => selectEdition(e.target.value)}
+                aria-label="Editie kiezen"
+                className="text-sm font-medium px-2.5 py-1 rounded-full flex-shrink-0 focus:outline-none cursor-pointer"
+                style={{ background: 'rgba(58,145,63,0.15)', color: '#3A913F', border: '1px solid rgba(58,145,63,0.3)' }}>
+                {editions.map(e => (
+                  <option key={e.id} value={e.id} style={{ background: '#1e1e1e', color: '#d4d4d8' }}>
+                    {e.title}{e.active ? ' — actief' : ''}
+                  </option>
+                ))}
+              </select>
+            ) : viewedEdition && (
               <span className="text-sm font-medium px-2.5 py-0.5 rounded-full flex-shrink-0"
                 style={{ background: 'rgba(58,145,63,0.15)', color: '#3A913F', border: '1px solid rgba(58,145,63,0.3)' }}>
-                {activeEdition.title}
+                {viewedEdition.title}
               </span>
             )}
           </div>
-          <p className="text-sm text-zinc-500">Dien content en inspiratie in voor de volgende sessie</p>
+          <p className="text-sm text-zinc-500">
+            {viewedEdition && activeEdition && viewedEdition.id !== activeEdition.id
+              ? 'Een afgeronde editie — bekijken en downloaden kan, toevoegen gebeurt in de actieve editie'
+              : 'Dien content en inspiratie in voor de volgende sessie'}
+          </p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
@@ -683,7 +1286,7 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
             </button>
           )}
 
-          {activeEdition && submissions.length > 0 && (
+          {viewedEdition && submissions.length > 0 && (
             <div className="relative group">
               <button disabled={downloading}
                 onClick={() => setDownloadMenuOpen(v => !v)}
@@ -717,7 +1320,10 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
             </div>
           )}
 
-          {activeEdition && canAdd && (
+          {/* Alleen in de actieve editie: in een afgeronde sessie iets
+              bijzetten is nooit de bedoeling, en met een kiezer erbij is dat
+              anders één verkeerde keuze. */}
+          {viewedEdition && activeEdition && viewedEdition.id === activeEdition.id && canAdd && (
             <button onClick={() => setShowUpload(true)}
               className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white transition-all"
               style={{ background: '#3A913F' }}>
@@ -727,10 +1333,21 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
         </div>
       </div>
 
-      {!activeEdition ? (
+      {(deleteError || zipError) && (
+        <div className="mb-5 flex items-start gap-2 px-4 py-3 rounded-xl"
+          style={{ background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)' }}>
+          <p className="text-sm text-red-300 flex-1">{deleteError ?? zipError}</p>
+          <button onClick={() => { setDeleteError(null); setZipError(null) }} aria-label="Melding sluiten"
+            className="text-red-400 hover:text-red-200 transition-colors flex-shrink-0">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {!viewedEdition ? (
         <div className="flex flex-col items-center justify-center py-24 text-center">
           <Layers size={32} className="text-zinc-700 mb-4" />
-          <p className="text-zinc-400 font-medium mb-1">Geen actieve editie</p>
+          <p className="text-zinc-400 font-medium mb-1">Nog geen editie</p>
           {canManageEditions ? (
             <p className="text-sm text-zinc-600">Maak een editie aan via{' '}
               <button onClick={() => setShowEditions(true)} className="underline hover:text-zinc-400">Edities</button>.
@@ -762,6 +1379,14 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
             })}
           </div>
 
+          {/* Links zijn bij Inspiratie het gewone geval, dus staat dit vóór
+              de lijst en niet achter de Toevoegen-knop. Alleen in de actieve
+              editie, net als uploaden. */}
+          {section === 'inspiratie' && activeEdition && viewedEdition.id === activeEdition.id && canAdd && (
+            <LinkPaste editionId={activeEdition.id} section={section} topics={existingTopics}
+              onAdded={() => { pollsRef.current = 0; loadSubmissions(viewedEdition) }} />
+          )}
+
           {loading ? (
             <div className="flex items-center justify-center py-20 gap-2 text-zinc-600">
               <Loader2 size={16} className="animate-spin" /><span className="text-sm">Laden…</span>
@@ -770,14 +1395,17 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
             <div className="flex flex-col items-center justify-center py-20 text-center">
               {section === 'content' ? <ImageIcon size={28} className="text-zinc-700 mb-3" /> : <Layers size={28} className="text-zinc-700 mb-3" />}
               <p className="text-sm text-zinc-500 mb-1">Nog niets ingediend onder {section === 'content' ? 'Content' : 'Inspiratie'}.</p>
-              <button onClick={() => setShowUpload(true)} className="mt-2 text-sm font-medium" style={{ color: '#3A913F' }}>
-                + Eerste inzending toevoegen
-              </button>
+              {activeEdition && viewedEdition.id === activeEdition.id && canAdd && (
+                <button onClick={() => setShowUpload(true)} className="mt-2 text-sm font-medium" style={{ color: '#3A913F' }}>
+                  + Eerste inzending toevoegen
+                </button>
+              )}
             </div>
           ) : (
-            Object.entries(grouped).map(([clientName, subs]) => (
-              <ClientGroup key={clientName} clientName={clientName} submissions={subs}
-                currentUserId={currentUserId} isAdmin={isAdmin} canDeleteAll={canDeleteAll} onDelete={handleDelete} />
+            Object.entries(grouped).map(([label, subs]) => (
+              <SubmissionGroup key={label} label={label} submissions={subs}
+                currentUserId={currentUserId} isAdmin={isAdmin} canDeleteAll={canDeleteAll}
+                onDelete={handleDelete} hideTitles={section === 'inspiratie'} />
             ))
           )}
         </>
@@ -790,7 +1418,7 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
 
       {showEditions && (
         <EditionModal editions={editions} onClose={() => setShowEditions(false)}
-          onRefresh={() => loadEditions().then(a => { if (a) loadSubmissions(a) })} />
+          onRefresh={() => loadEditions(viewedEdition?.id).then(v => { if (v) loadSubmissions(v) })} />
       )}
     </div>
   )

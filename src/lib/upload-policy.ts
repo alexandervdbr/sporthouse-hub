@@ -42,6 +42,24 @@ export function isAllowedImageExt(filename: string): boolean {
   return ALLOWED_IMAGE_EXTS.includes(fileExt(filename))
 }
 
+// Pré-assist neemt alleen beeld en video aan: het is een inzamelbak voor
+// content, niet voor documenten.
+//
+// Op extensie, net als de lijsten hierboven, in plaats van op het MIME-type
+// dat de browser meestuurt. Dat laatste deed Pré-assist eerder met
+// `file.type.startsWith('image/')`, en daar glipt 'image/svg+xml' doorheen:
+// een afbeelding die scripts kan bevatten, en waar de rest van het platform
+// juist om die reden niet op het woord van de client afgaat.
+//
+// svg valt hier dus af. Niemand levert een logo aan als inzending, en de
+// cameraformaten die mensen wél insturen staan er allemaal in.
+export const ALLOWED_PREASSIST_EXTS = [...IMAGE_EXTS.filter(e => e !== 'svg'), ...VIDEO_EXTS]
+export const ALLOWED_PREASSIST_HINT = "Afbeeldingen en video's (JPG, PNG, HEIC, MP4, MOV, …)"
+
+export function isAllowedPreassistExt(filename: string): boolean {
+  return ALLOWED_PREASSIST_EXTS.includes(fileExt(filename))
+}
+
 // Narrower allowlist for plain-text document uploads (kennisbank), which are
 // read via file.text() — a real PDF/Office file would just produce garbage
 // bytes-as-text there, so restricting to actual text formats is correctness,
