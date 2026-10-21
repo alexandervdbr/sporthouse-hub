@@ -178,7 +178,13 @@ function SubmissionCard({ sub, canDelete, onDelete, hideTitle }: {
     ? (sub.thumbnail_link ? `/api/preassist/thumbnail?id=${sub.id}&size=small` : undefined)
     : sub.signedUrl
   const openLink = isDrive ? sub.web_view_link ?? undefined : sub.signedUrl
-  const downloadHref = isDrive ? `/api/preassist/download?id=${sub.id}` : sub.signedUrl
+  // Naar Drive, niet door onze eigen functie. Het bestand staat daar al en is
+  // al gedeeld; het hier doorheen streamen kost de volledige bestandsgrootte
+  // aan bandbreedte, voor elke collega die het aanklikt. Bij een editie vol
+  // video's is dat de grootste post die er is.
+  //
+  // De oude route blijft bestaan voor de zip per persoon, die admin-only is.
+  const downloadHref = isDrive ? sub.web_view_link ?? undefined : sub.signedUrl
 
   return (
     <div className="group relative rounded-xl overflow-hidden"
@@ -219,7 +225,10 @@ function SubmissionCard({ sub, canDelete, onDelete, hideTitle }: {
             </a>
           )}
           {downloadHref && (
-            <a href={downloadHref} download={sub.file_name}
+            <a href={downloadHref}
+              {...(isDrive
+                ? { target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Openen in Drive om te downloaden', title: 'Openen in Drive om te downloaden' }
+                : { download: sub.file_name, 'aria-label': 'Downloaden' })}
               className="tap-target p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors">
               <Download size={15} />
             </a>

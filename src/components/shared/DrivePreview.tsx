@@ -147,7 +147,15 @@ export function DrivePreviewModal({
               </button>
             )}
             {downloadHref && (
-              <a href={downloadHref} download aria-label="Downloaden" title="Downloaden"
+              // Wijst de link naar een andere site (Drive, bijvoorbeeld), dan
+              // doet `download` daar niets: de browser negeert dat attribuut
+              // cross-origin en navigeert gewoon weg. Dan liever een nieuw
+              // tabblad, zodat je niet uit het voorbeeld geklikt wordt.
+              <a href={downloadHref}
+                {...(/^https?:\/\//.test(downloadHref)
+                  ? { target: '_blank', rel: 'noopener noreferrer' }
+                  : { download: true })}
+                aria-label="Downloaden" title="Downloaden"
                 className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors">
                 <Download size={16} />
               </a>
