@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { normalizeSubmittedUrl, parseSubmittedUrls, isInstagramUrl, hostnameOf } from '@/lib/preassist-links'
+import {
+  normalizeSubmittedUrl, parseSubmittedUrls, isInstagramUrl, hostnameOf, groupLabelFor,
+} from '@/lib/preassist-links'
 
 // Hierop staat de unieke index die dezelfde link twee keer in één editie
 // tegenhoudt. Normaliseert dit anders dan de database verwacht, dan krijg je
@@ -69,5 +71,31 @@ describe('hostnameOf', () => {
   it('geeft de site zonder www terug', () => {
     expect(hostnameOf('https://www.tiktok.com/@x/video/1')).toBe('tiktok.com')
     expect(hostnameOf('rommel')).toBeNull()
+  })
+})
+
+// Waar een inzending onder komt te staan. Content hangt aan een klant,
+// Inspiratie aan een onderwerp — zodat een handvol links voor hetzelfde
+// project bij elkaar staat in plaats van los naast elkaar.
+describe('groupLabelFor', () => {
+  it('groepeert content op de klant', () => {
+    expect(groupLabelFor({ section: 'content', title: 'iets', client_name: 'Club Brugge' }))
+      .toBe('Club Brugge')
+  })
+
+  it('groepeert inspiratie op het onderwerp, niet op de klant', () => {
+    expect(groupLabelFor({ section: 'inspiratie', title: 'Refs Genk', client_name: 'KRC Genk' }))
+      .toBe('Refs Genk')
+  })
+
+  it('valt terug op Algemeen zonder onderwerp of klant', () => {
+    expect(groupLabelFor({ section: 'inspiratie', title: null, client_name: null })).toBe('Algemeen')
+    expect(groupLabelFor({ section: 'inspiratie', title: '   ', client_name: null })).toBe('Algemeen')
+    expect(groupLabelFor({ section: 'content', title: null, client_name: null })).toBe('Algemeen')
+  })
+
+  it('ziet hetzelfde onderwerp met losse spaties als één groep', () => {
+    expect(groupLabelFor({ section: 'inspiratie', title: ' Refs Genk ', client_name: null }))
+      .toBe(groupLabelFor({ section: 'inspiratie', title: 'Refs Genk', client_name: null }))
   })
 })

@@ -139,3 +139,20 @@ export function hostnameOf(url: string): string | null {
     return null
   }
 }
+
+// Waar een inzending onder komt te staan.
+//
+// Content hangt aan een klant, en dat is meteen de kop. Inspiratie hangt
+// nergens aan — daar is het onderwerp de kop, zodat een handvol links voor
+// hetzelfde project bij elkaar staat in plaats van los naast elkaar. Dat is
+// ook waarom het op de tekst gaat en niet op "alles wat in één keer verstuurd
+// is": een project loopt door, en morgen vind je nog twee referenties die er
+// gewoon bij horen.
+export function groupLabelFor(sub: {
+  section: string
+  title: string | null
+  client_name: string | null
+}): string {
+  if (sub.section === 'inspiratie') return sub.title?.trim() || 'Algemeen'
+  return sub.client_name ?? 'Algemeen'
+}

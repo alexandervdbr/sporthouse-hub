@@ -17,7 +17,7 @@ import {
 } from '@/lib/upload-policy'
 import { MAX_ZIP_BYTES, MAX_ZIP_LABEL, saveZip, uniqueZipPath } from '@/lib/zip-download'
 import { preassistRequiresClient } from '@/lib/preassist-upload'
-import { parseSubmittedUrls } from '@/lib/preassist-links'
+import { parseSubmittedUrls, groupLabelFor } from '@/lib/preassist-links'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -85,10 +85,11 @@ function namesOf(files: File[], max = 3) {
 // editie één wand met inzendingen blijft en niet twee lijstjes — maar de
 // acties verschillen: openen in plaats van downloaden, en geen voorbeeld in
 // een modal, want de post hoort op Instagram zelf bekeken te worden.
-function LinkCard({ sub, canDelete, onDelete }: {
+function LinkCard({ sub, canDelete, onDelete, hideTitle }: {
   sub: Submission
   canDelete: boolean
   onDelete: (id: string, filePath: string, provider?: string) => void
+  hideTitle?: boolean
 }) {
   const pending = sub.link_status === 'pending'
   const previewSrc = sub.thumbnail_drive_id ? `/api/preassist/thumbnail?id=${sub.id}&size=small` : undefined
@@ -129,8 +130,10 @@ function LinkCard({ sub, canDelete, onDelete }: {
         {/* De toelichting van de inzender staat vóór het onderschrift van de
             post: waarom iemand dit deelt zegt meer dan wat er toevallig bij
             stond. */}
-        {sub.title && <p className="text-sm text-zinc-200 font-medium mb-1 line-clamp-2">{sub.title}</p>}
-        {sub.link_caption && !sub.title && (
+        {!hideTitle && sub.title && (
+          <p className="text-sm text-zinc-200 font-medium mb-1 line-clamp-2">{sub.title}</p>
+        )}
+        {sub.link_caption && (hideTitle || !sub.title) && (
           <p className="text-xs text-zinc-400 mb-1.5 line-clamp-2">{sub.link_caption}</p>
         )}
         <div className="flex items-center justify-between gap-2">
@@ -148,10 +151,11 @@ function LinkCard({ sub, canDelete, onDelete }: {
   )
 }
 
-function SubmissionCard({ sub, canDelete, onDelete }: {
+function SubmissionCard({ sub, canDelete, onDelete, hideTitle }: {
   sub: Submission
   canDelete: boolean
   onDelete: (id: string, filePath: string, provider?: string) => void
+  hideTitle?: boolean
 }) {
   const video = isVideo(sub.file_type)
   const isDrive = sub.storage_provider === 'drive'
@@ -223,7 +227,9 @@ function SubmissionCard({ sub, canDelete, onDelete }: {
         </div>
       </div>
       <div className="px-3 py-2.5">
-        {sub.title && <p className="text-sm text-zinc-200 font-medium truncate mb-1.5">{sub.title}</p>}
+        {!hideTitle && sub.title && (
+          <p className="text-sm text-zinc-200 font-medium truncate mb-1.5">{sub.title}</p>
+        )}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 min-w-0">
             <User size={11} className="text-zinc-500 flex-shrink-0" />
@@ -582,7 +588,9 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
                   {!uploading && entry.status !== 'done' && (
                     <input type="text" value={entry.title} maxLength={200}
                       onChange={e => updateTitle(i, e.target.value)}
-                      placeholder="Toelichting (optioneel) — waarom stuur je dit in?"
+                      placeholder={needsClient
+                        ? 'Toelichting (optioneel) — waarom stuur je dit in?'
+                        : 'Onderwerp (optioneel) — bv. Refs Genk-campagne'}
                       className="w-full px-3 pb-2 bg-transparent text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none" />
                   )}
 
@@ -811,10 +819,12 @@ function EditionModal({ editions, onClose, onRefresh }: {
 // een bestandsupload laten lopen — screenshot, terugvinden, uploaden — is drie
 // stappen voor iets wat één geplakte link is, en dan wordt het niet gebruikt.
 // Vandaar dat dit bovenaan staat en niet achter een knop: plakken en klaar.
-function LinkPaste({ editionId, section, onAdded }: {
+function LinkPaste({ editionId, section, onAdded, topics }: {
   editionId: string
   section: Section
   onAdded: () => void
+  // Onderwerpen die in deze editie al bestaan.
+  topics: string[]
 }) {
   const [value,  setValue]  = useState('')
   const [note,   setNote]   = useState('')
@@ -867,12 +877,18 @@ function LinkPaste({ editionId, section, onAdded }: {
         style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }} />
 
       <div className="flex flex-wrap items-center gap-2 mt-2">
-        <input type="text" value={note} maxLength={200}
+        {/* Dit veld doet twee dingen tegelijk, en dat is met opzet: het is de
+            kop waaronder deze links komen te staan. Eén veld, want twee
+            (onderwerp én toelichting) is er één te veel op een plakveld. */}
+        <input type="text" value={note} maxLength={200} list="preassist-onderwerpen"
           onChange={e => setNote(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') submit() }}
-          placeholder="Toelichting (optioneel) — waarom stuur je dit in?"
+          placeholder="Onderwerp (optioneel) — bv. Refs Genk-campagne"
           className="flex-1 min-w-[12rem] px-3 py-2 rounded-lg text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none"
           style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }} />
+        <datalist id="preassist-onderwerpen">
+          {topics.map(t => <option key={t} value={t} />)}
+        </datalist>
         <button onClick={submit} disabled={busy || !urls.length}
           className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-40 transition-all"
           style={{ background: '#3A913F' }}>
@@ -881,27 +897,45 @@ function LinkPaste({ editionId, section, onAdded }: {
         </button>
       </div>
 
+      {topics.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 mt-2">
+          <span className="text-[10px] text-zinc-600 uppercase tracking-widest mr-1">Bestaand</span>
+          {topics.slice(0, 8).map(t => (
+            <button key={t} onClick={() => setNote(t)}
+              className="px-2 py-1 rounded-full text-[11px] transition-colors"
+              style={note === t
+                ? { background: 'rgba(58,145,63,0.2)', color: '#4ade80', border: '1px solid rgba(58,145,63,0.4)' }
+                : { background: 'rgba(255,255,255,0.05)', color: '#a1a1aa', border: '1px solid rgba(255,255,255,0.08)' }}>
+              {t}
+            </button>
+          ))}
+        </div>
+      )}
+
       {error  && <p className="mt-2 text-xs text-red-400">{error}</p>}
       {result && <p className="mt-2 text-xs text-amber-400">{result}</p>}
     </div>
   )
 }
 
-// ─── Client group ─────────────────────────────────────────────────────────────
+// ─── Groep ────────────────────────────────────────────────────────────────────
 
-function ClientGroup({ clientName, submissions, currentUserId, isAdmin, canDeleteAll, onDelete }: {
-  clientName: string
+function SubmissionGroup({ label, submissions, currentUserId, isAdmin, canDeleteAll, onDelete, hideTitles }: {
+  label: string
   submissions: Submission[]
   currentUserId: string
   isAdmin: boolean
   canDeleteAll: boolean
   onDelete: (id: string, filePath: string, provider?: string) => void
+  // Bij Inspiratie staat het onderwerp al in de kop; op elk kaartje eronder
+  // herhalen maakt er ruis van.
+  hideTitles: boolean
 }) {
   return (
     <div className="mb-8">
       <div className="flex items-center gap-3 mb-3">
         <div className="w-0.5 h-4 rounded-full" style={{ backgroundColor: '#3A913F' }} />
-        <h3 className="text-sm font-semibold text-zinc-200">{clientName}</h3>
+        <h3 className="text-sm font-semibold text-zinc-200">{label}</h3>
         <span className="text-[11px] px-2 py-0.5 rounded-full text-zinc-500"
           style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
           {submissions.length}
@@ -911,8 +945,8 @@ function ClientGroup({ clientName, submissions, currentUserId, isAdmin, canDelet
         {submissions.map(sub => {
           const canDelete = isAdmin || canDeleteAll || sub.submitted_by_id === currentUserId
           return sub.kind === 'link'
-            ? <LinkCard key={sub.id} sub={sub} canDelete={canDelete} onDelete={onDelete} />
-            : <SubmissionCard key={sub.id} sub={sub} canDelete={canDelete} onDelete={onDelete} />
+            ? <LinkCard key={sub.id} sub={sub} canDelete={canDelete} onDelete={onDelete} hideTitle={hideTitles} />
+            : <SubmissionCard key={sub.id} sub={sub} canDelete={canDelete} onDelete={onDelete} hideTitle={hideTitles} />
         })}
       </div>
     </div>
@@ -1104,10 +1138,22 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
           return acc
         }, {})
         for (const [sectionName, rows] of Object.entries(bySection)) {
-          const lines = rows.map(f =>
-            `- ${f.url}\n  ${f.person}${f.linkAuthor ? ` · ${f.linkAuthor}` : ''}${f.title ? `\n  "${f.title}"` : ''}`
-          )
-          zip.file(`${sectionName}/links.md`, `# ${sectionName} — links\n\n${lines.join('\n\n')}\n`)
+          // Zelfde indeling als op het scherm: per onderwerp, zodat de
+          // download leesbaar is zonder de app ernaast.
+          const byTopic = rows.reduce<Record<string, typeof rows>>((acc, f) => {
+            const topic = f.title?.trim() || 'Algemeen'
+            ;(acc[topic] ??= []).push(f)
+            return acc
+          }, {})
+
+          const blocks = Object.entries(byTopic).map(([topic, items]) => {
+            const lines = items.map(f =>
+              `- ${f.url}${f.linkAuthor ? `\n  ${f.linkAuthor}` : ''}\n  ingestuurd door ${f.person}`
+            )
+            return `## ${topic}\n\n${lines.join('\n\n')}`
+          })
+
+          zip.file(`${sectionName}/links.md`, `# ${sectionName} — links\n\n${blocks.join('\n\n')}\n`)
         }
       }
 
@@ -1130,13 +1176,22 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
     setDownloading(false)
   }
 
-  // Group filtered submissions by client
   const filtered = submissions.filter(s => s.section === section)
   const grouped  = filtered.reduce<Record<string, Submission[]>>((acc, s) => {
-    const key = s.client_name ?? 'Algemeen'
+    const key = groupLabelFor(s)
     ;(acc[key] ??= []).push(s)
     return acc
   }, {})
+
+  // Onderwerpen die in deze editie al bestaan, als suggestie onder het
+  // plakveld. Dat is wat het groeperen-op-tekst draaglijk maakt: dezelfde
+  // naam opnieuw kiezen is één klik in plaats van foutloos overtypen.
+  const existingTopics = Array.from(new Set(
+    submissions
+      .filter(s => s.section === 'inspiratie')
+      .map(s => s.title?.trim())
+      .filter((t): t is string => !!t)
+  )).sort((a, b) => a.localeCompare(b, 'nl'))
 
   return (
     <div className="p-4 sm:p-8 max-w-6xl mx-auto">
@@ -1283,7 +1338,7 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
               de lijst en niet achter de Toevoegen-knop. Alleen in de actieve
               editie, net als uploaden. */}
           {section === 'inspiratie' && activeEdition && viewedEdition.id === activeEdition.id && canAdd && (
-            <LinkPaste editionId={activeEdition.id} section={section}
+            <LinkPaste editionId={activeEdition.id} section={section} topics={existingTopics}
               onAdded={() => { pollsRef.current = 0; loadSubmissions(viewedEdition) }} />
           )}
 
@@ -1302,9 +1357,10 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
               )}
             </div>
           ) : (
-            Object.entries(grouped).map(([clientName, subs]) => (
-              <ClientGroup key={clientName} clientName={clientName} submissions={subs}
-                currentUserId={currentUserId} isAdmin={isAdmin} canDeleteAll={canDeleteAll} onDelete={handleDelete} />
+            Object.entries(grouped).map(([label, subs]) => (
+              <SubmissionGroup key={label} label={label} submissions={subs}
+                currentUserId={currentUserId} isAdmin={isAdmin} canDeleteAll={canDeleteAll}
+                onDelete={handleDelete} hideTitles={section === 'inspiratie'} />
             ))
           )}
         </>
