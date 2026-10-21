@@ -1,123 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { isDriveStorageConfigured, uploadFile, trashFile, getOrCreateFolderPath, driveRootFolderId } from '@/lib/drive-storage'
+import { trashFile } from '@/lib/drive-storage'
 import { hasOpenSection } from '@/lib/auth-permissions'
 
-export const maxDuration = 300
-
-const MAX_SIZE = 500 * 1024 * 1024 // 500 MB — Drive can hold far more; the practical
-// ceiling is Vercel's serverless request body limit, not this check.
-
-export async function POST(request: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Niet ingelogd.' }, { status: 401 })
-
-  // Stond er niet: alleen de DELETE hieronder keek naar permissies. Omdat de
-  // rij via de service-role client wordt geschreven, raakt de insert-policy
-  // uit migratie 0032 nooit — dus wie "Content toevoegen" bewust uit heeft
-  // staan, zag geen knop maar kon wel posten.
-  if (!hasOpenSection(user, 'preassist_toevoegen')) {
-    return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 })
-  }
-
-  if (!isDriveStorageConfigured()) {
-    return NextResponse.json({ error: 'Google Drive is niet geconfigureerd.' }, { status: 503 })
-  }
-
-  let formData: FormData
-  try {
-    formData = await request.formData()
-  } catch {
-    return NextResponse.json({ error: 'Kon het formulier niet lezen.' }, { status: 400 })
-  }
-
-  const file        = formData.get('file') as File | null
-  const editionId    = formData.get('editionId') as string | null
-  const section      = formData.get('section') as string | null
-  const clientId     = formData.get('clientId') as string | null
-  const clientName   = formData.get('clientName') as string | null
-
-  if (!file || !file.name || file.size === 0) {
-    return NextResponse.json({ error: 'Geen geldig bestand ontvangen.' }, { status: 400 })
-  }
-  if (!editionId || !section || !clientId || !clientName) {
-    return NextResponse.json({ error: 'Editie, sectie en klant zijn verplicht.' }, { status: 400 })
-  }
-  if (section !== 'content' && section !== 'inspiratie') {
-    return NextResponse.json({ error: 'Ongeldige sectie.' }, { status: 400 })
-  }
-  if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
-    return NextResponse.json({ error: 'Enkel afbeeldingen en video\'s zijn toegelaten.' }, { status: 400 })
-  }
-  if (file.size > MAX_SIZE) {
-    return NextResponse.json({ error: `Bestand mag niet groter zijn dan ${MAX_SIZE / 1024 / 1024} MB.` }, { status: 400 })
-  }
-
-  let buffer: Buffer
-  try {
-    buffer = Buffer.from(await file.arrayBuffer())
-  } catch {
-    return NextResponse.json({ error: 'Kon bestand niet lezen.' }, { status: 500 })
-  }
-
-  const admin = createAdminClient()
-
-  const { data: edition } = await admin
-    .from('preassist_editions')
-    .select('title')
-    .eq('id', editionId)
-    .single()
-
-  if (!edition) return NextResponse.json({ error: 'Editie niet gevonden.' }, { status: 404 })
-
-  const userName = (user.user_metadata?.full_name as string | undefined) ?? user.email ?? 'Onbekend'
-  const sectionLabel = section === 'content' ? 'Content' : 'Inspiratie'
-
-  let driveFile
-  try {
-    const folderId = await getOrCreateFolderPath(
-      ['Pré-Assist', edition.title, sectionLabel, clientName],
-      driveRootFolderId()!
-    )
-    driveFile = await uploadFile(buffer, `${userName} — ${file.name}`, file.type, folderId)
-  } catch (err) {
-    console.error('Pré-assist Drive upload error:', err)
-    const msg = err instanceof Error ? err.message : String(err)
-    return NextResponse.json({ error: `Fout bij uploaden naar Drive: ${msg}` }, { status: 500 })
-  }
-
-  const { data: record, error: dbError } = await admin
-    .from('preassist_submissions')
-    .insert({
-      edition_id: editionId,
-      section,
-      title: null,
-      file_name: file.name,
-      file_type: file.type,
-      file_size: file.size,
-      submitted_by_id: user.id,
-      submitted_by_name: userName,
-      client_id: clientId,
-      client_name: clientName,
-      storage_provider: 'drive',
-      drive_file_id: driveFile.id,
-      web_view_link: driveFile.webViewLink,
-      web_content_link: driveFile.webContentLink,
-      thumbnail_link: driveFile.thumbnailLink,
-    })
-    .select()
-    .single()
-
-  if (dbError) {
-    console.error('Pré-assist DB insert error:', dbError)
-    try { await trashFile(driveFile.id) } catch { /* best effort cleanup */ }
-    return NextResponse.json({ error: `Fout bij opslaan: ${dbError.message}` }, { status: 500 })
-  }
-
-  return NextResponse.json(record, { status: 201 })
-}
-
+// Alleen nog verwijderen. De POST die hier stond nam het hele bestand in één
+// request aan, wat Vercel boven 4,5 MB weigert voordat onze code draait — zie
+// upload-session en finalize ernaast, die de bytes rechtstreeks naar Google
+// laten gaan.
+//
+// De route houdt zijn naam omdat de client hier al naar DELETE'te; alleen de
+// POST is weg.
 export async function DELETE(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
