@@ -1717,12 +1717,18 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
               {uploadsRunning && ` · ${uploadPercent}%`}
             </p>
 
-            {/* Welk bestand het niet haalde, want de pop-up met die uitleg is
-                dicht. */}
+            {/* Welk bestand het niet haalde én waarom. Alleen de naam tonen
+                zegt niets: dan weet je dat er iets stuk is, maar niet wat —
+                en de pop-up waarin die uitleg stond is dicht. */}
             {!uploadsRunning && uploadErrors > 0 && (
-              <p className="mt-1.5 text-[10px] text-red-400 break-words">
-                {uploads.filter(u => u.status === 'error').map(u => u.name).join(', ')}
-              </p>
+              <div className="mt-2 space-y-1.5">
+                {uploads.filter(u => u.status === 'error').map(u => (
+                  <div key={u.name}>
+                    <p className="text-[10px] text-red-400 break-words">{u.name}</p>
+                    {u.error && <p className="text-[10px] text-zinc-500 break-words">{u.error}</p>}
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>
