@@ -191,6 +191,11 @@ const ROLE_PRESETS = [
       'welkom_stagiair',
       'team',
       'chat',
+      // Pré-assist is een inzamelbak waar iedereen aan meedoet — bekijken en
+      // indienen zit daarom in elke rol. Edities aanmaken en andermans
+      // inzendingen verwijderen blijft bij de admins.
+      'preassist',
+      'preassist_toevoegen',
     ],
   },
   {
@@ -216,6 +221,8 @@ const ROLE_PRESETS = [
       'stijlvoorbeelden',
       'mijn-gedacht',
       'mijn_gedacht_types_beheren',
+      'preassist',
+      'preassist_toevoegen',
     ],
   },
   {
@@ -237,6 +244,7 @@ const ROLE_PRESETS = [
       'materiaal',
       'materiaal_reserveren',
       'preassist',
+      'preassist_toevoegen',
     ],
   },
   {

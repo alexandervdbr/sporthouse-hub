@@ -302,7 +302,6 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
 
   function addFiles(incoming: FileList | null) {
     if (!incoming) return
-    const defaultClient = needsClient ? clients[0] : undefined
     const all = Array.from(incoming)
     // Op extensie, niet op het MIME-type dat de browser erbij verzint — zelfde
     // allowlist als de server aanhoudt, zodat een bestand hier wordt
@@ -328,8 +327,13 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
       .filter(f => isAllowedPreassistExt(f.name) && f.size <= MAX_UPLOAD_BYTES)
       .map(file => ({
         file,
-        clientId:   defaultClient?.id   ?? '',
-        clientName: defaultClient?.name ?? '',
+        // Leeg, en niet alvast de eerste klant uit de lijst. Dat scheelde
+        // één klik en kostte een stille fout: wie vijftien bestanden sleept
+        // kreeg ze allemaal toegewezen aan wie toevallig bovenaan stond, met
+        // een uploadknop die gewoon aan ging. Dat merkt niemand tot de
+        // editie wordt uitgepakt. De knop blokkeert al op een lege keuze.
+        clientId:   '',
+        clientName: '',
         title: '',
         status: 'pending' as const,
         progress: 0,
@@ -522,6 +526,13 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
           </div>
 
           {rejected && <p className="text-xs text-amber-400 mb-3">{rejected}</p>}
+
+          {needsClient && entries.length > 0 && entries.some(e => !e.clientId) && !uploading && (
+            <p className="text-xs text-zinc-500 mb-3">
+              Kies nog een klant bij {entries.filter(e => !e.clientId).length} van de {entries.length} bestand
+              {entries.length !== 1 ? 'en' : ''}.
+            </p>
+          )}
 
           {/* File rows */}
           {entries.length > 0 && (
