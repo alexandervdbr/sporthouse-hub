@@ -63,6 +63,9 @@ end $$;
 -- trackingparameter), want anders is dezelfde post twee keer delen twee
 -- verschillende rijen — zie normalizeInstagramUrl in lib/instagram-oembed,
 -- waar save-reel al tegen dit probleem aanliep.
+-- LET OP: deze index is partieel en dat blijkt niet te werken met de upsert
+-- die hem gebruikt — zie 0060, die hem vervangt. Hier blijft hij staan zoals
+-- hij gedraaid is.
 create unique index if not exists preassist_submissions_edition_url_idx
   on preassist_submissions (edition_id, url)
   where url is not null;
