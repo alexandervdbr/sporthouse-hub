@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { preassistFolderSegments, preassistSectionLabel, preassistUploadName } from '@/lib/preassist-upload'
+import {
+  preassistFolderSegments, preassistSectionLabel, preassistUploadName, preassistRequiresClient,
+} from '@/lib/preassist-upload'
 
 // upload-session maakt deze map aan, finalize rekent hem opnieuw uit om te
 // controleren dat het bestand er echt in beland is. Gaan die twee uit elkaar
@@ -15,6 +17,20 @@ describe('preassistFolderSegments', () => {
   it('gebruikt het label van de sectie, niet de sleutel', () => {
     expect(preassistFolderSegments('Q1 2026', 'inspiratie', 'KRC Genk'))
       .toEqual(['Pré-Assist', 'Q1 2026', 'Inspiratie', 'KRC Genk'])
+  })
+
+  it('laat de klantlaag weg als er geen klant is', () => {
+    // Inspiratie wordt zonder klant ingestuurd; dan hoort er in Drive geen
+    // map "Algemeen" te ontstaan die niets betekent.
+    expect(preassistFolderSegments('Q1 2026', 'inspiratie', null))
+      .toEqual(['Pré-Assist', 'Q1 2026', 'Inspiratie'])
+  })
+})
+
+describe('preassistRequiresClient', () => {
+  it('vraagt een klant bij content en niet bij inspiratie', () => {
+    expect(preassistRequiresClient('content')).toBe(true)
+    expect(preassistRequiresClient('inspiratie')).toBe(false)
   })
 })
 

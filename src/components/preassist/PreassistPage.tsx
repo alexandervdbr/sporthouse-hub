@@ -16,6 +16,7 @@ import {
   isAllowedPreassistExt, ALLOWED_PREASSIST_HINT, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL,
 } from '@/lib/upload-policy'
 import { MAX_ZIP_BYTES, MAX_ZIP_LABEL, saveZip, uniqueZipPath } from '@/lib/zip-download'
+import { preassistRequiresClient } from '@/lib/preassist-upload'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -194,9 +195,14 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
   const [rejected,  setRejected]  = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  // Inspiratie hangt niet aan een klant: wat iemand opvalt hoort niet per se
+  // bij werk voor iemand. De toelichting is daar wat het verhaal vertelt.
+  const needsClient = preassistRequiresClient(section)
+
   useEffect(() => {
+    if (!needsClient) return
     supabase.from('clients').select('*').order('name').then(({ data }) => setClients((data ?? []) as Client[]))
-  }, [])
+  }, [needsClient])
 
   const groupedClients = Object.entries(
     clients.reduce<Record<string, Client[]>>((acc, c) => {
@@ -208,7 +214,7 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
 
   function addFiles(incoming: FileList | null) {
     if (!incoming) return
-    const defaultClient = clients[0]
+    const defaultClient = needsClient ? clients[0] : undefined
     const all = Array.from(incoming)
     // Op extensie, niet op het MIME-type dat de browser erbij verzint — zelfde
     // allowlist als de server aanhoudt, zodat een bestand hier wordt
@@ -256,7 +262,7 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
   }
 
   async function handleUpload(retryOnly = false) {
-    if (!entries.length || entries.some(e => !e.clientId)) return
+    if (!entries.length || (needsClient && entries.some(e => !e.clientId))) return
     setUploading(true)
     setDone(false)
     // Bij opnieuw proberen alleen de mislukte bestanden. De File-objecten
@@ -286,7 +292,7 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
             body: JSON.stringify({
               editionId,
               section,
-              clientId: entry.clientId,
+              clientId: entry.clientId || null,
               filename: entry.file.name,
               mimeType: entry.file.type || 'application/octet-stream',
               fileSize: entry.file.size,
@@ -326,7 +332,7 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
             body: JSON.stringify({
               editionId,
               section,
-              clientId: entry.clientId,
+              clientId: entry.clientId || null,
               uploadUrl,
               fileName: entry.file.name,
               fileSize: entry.file.size,
@@ -366,7 +372,7 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
     if (errorCount === 0) setTimeout(onClose, 800)
   }
 
-  const allAssigned  = entries.length > 0 && entries.every(e => e.clientId)
+  const allAssigned  = entries.length > 0 && (!needsClient || entries.every(e => e.clientId))
   const doneCount    = entries.filter(e => e.status === 'done').length
   const errorCount   = entries.filter(e => e.status === 'error').length
   // Gemiddelde van de echte voortgang per bestand in plaats van het aantal
@@ -443,25 +449,27 @@ function UploadModal({ section, editionId, onClose, onUploaded }: {
                       {formatSize(entry.file.size)}
                     </span>
 
-                    {/* Client selector */}
-                    <div className="flex-shrink-0 w-40">
-                      <select
-                        value={entry.clientId}
-                        disabled={uploading}
-                        onChange={e => {
-                          const opt = clients.find(c => c.id === e.target.value)
-                          if (opt) updateEntry(i, opt.id, opt.name)
-                        }}
-                        style={selectStyle}
-                      >
-                        <option value="">— Klant —</option>
-                        {groupedClients.map(([cat, items]) => (
-                          <optgroup key={cat} label={cat}>
-                            {items.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                          </optgroup>
-                        ))}
-                      </select>
-                    </div>
+                    {/* Client selector — alleen bij Content */}
+                    {needsClient && (
+                      <div className="flex-shrink-0 w-40">
+                        <select
+                          value={entry.clientId}
+                          disabled={uploading}
+                          onChange={e => {
+                            const opt = clients.find(c => c.id === e.target.value)
+                            if (opt) updateEntry(i, opt.id, opt.name)
+                          }}
+                          style={selectStyle}
+                        >
+                          <option value="">— Klant —</option>
+                          {groupedClients.map(([cat, items]) => (
+                            <optgroup key={cat} label={cat}>
+                              {items.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            </optgroup>
+                          ))}
+                        </select>
+                      </div>
+                    )}
 
                     {/* Status / remove — het resultaat blijft staan nadat het
                         uploaden klaar is, anders verdwijnt het ✗ van een

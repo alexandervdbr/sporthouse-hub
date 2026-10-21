@@ -12,12 +12,23 @@ export function preassistSectionLabel(section: PreassistSection): string {
   return section === 'content' ? 'Content' : 'Inspiratie'
 }
 
+// Inspiratie hangt niet aan een klant: het is materiaal dat iemand opvalt,
+// geen werk dat ergens bij hoort. Zonder klant vervalt die maplaag, zodat er
+// in Drive geen map "Algemeen" ontstaat die niets betekent.
 export function preassistFolderSegments(
   editionTitle: string,
   section: PreassistSection,
-  clientName: string
+  clientName: string | null
 ): string[] {
-  return ['Pré-Assist', editionTitle, preassistSectionLabel(section), clientName]
+  const base = ['Pré-Assist', editionTitle, preassistSectionLabel(section)]
+  return clientName ? [...base, clientName] : base
+}
+
+// Of er voor deze sectie een klant gekozen moet worden. Staat hier en niet in
+// de modal, omdat upload-session en finalize dezelfde vraag stellen en een
+// verschil van mening daar een upload weigert die prima is.
+export function preassistRequiresClient(section: PreassistSection): boolean {
+  return section === 'content'
 }
 
 // De naam van de inzender staat vooraan in de bestandsnaam, zodat een map in

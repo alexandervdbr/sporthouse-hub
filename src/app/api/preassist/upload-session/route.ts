@@ -3,7 +3,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { isDriveStorageConfigured, createResumableUploadSession, getOrCreateFolderPath, driveRootFolderId } from '@/lib/drive-storage'
 import { hasOpenSection, hasClientAccess } from '@/lib/auth-permissions'
 import { isAllowedPreassistExt, ALLOWED_PREASSIST_HINT, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/lib/upload-policy'
-import { preassistFolderSegments, preassistUploadName } from '@/lib/preassist-upload'
+import { preassistFolderSegments, preassistUploadName, preassistRequiresClient } from '@/lib/preassist-upload'
 
 // Opent een Drive-sessie en geeft de browser de sessie-URL, zodat die de
 // bytes rechtstreeks naar Google stuurt. Deze route raakt nooit bestandsinhoud
@@ -34,11 +34,15 @@ export async function POST(request: NextRequest) {
   const mimeType  = (body?.mimeType as string | undefined) || 'application/octet-stream'
   const fileSize  = body?.fileSize as number | undefined
 
-  if (!editionId || !section || !clientId || !filename || typeof fileSize !== 'number' || fileSize <= 0) {
+  if (!editionId || !section || !filename || typeof fileSize !== 'number' || fileSize <= 0) {
     return NextResponse.json({ error: 'Ongeldig verzoek.' }, { status: 400 })
   }
   if (section !== 'content' && section !== 'inspiratie') {
     return NextResponse.json({ error: 'Ongeldige sectie.' }, { status: 400 })
+  }
+  // Inspiratie hoort niet bij een klant; content wel.
+  if (preassistRequiresClient(section) && !clientId) {
+    return NextResponse.json({ error: 'Kies een klant.' }, { status: 400 })
   }
   if (!isAllowedPreassistExt(filename)) {
     return NextResponse.json({ error: `Dit bestandstype wordt niet ondersteund. Toegestaan: ${ALLOWED_PREASSIST_HINT}.` }, { status: 400 })
@@ -50,7 +54,7 @@ export async function POST(request: NextRequest) {
   // inzending onder een willekeurige andere klant hangen. /api/files/upload-
   // session controleert dit al; de dropdown is bovendien RLS-gefilterd, dus
   // dit sluit alleen het gat op API-niveau.
-  if (!hasClientAccess(user, clientId)) {
+  if (clientId && !hasClientAccess(user, clientId)) {
     return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
   }
 
@@ -63,18 +67,22 @@ export async function POST(request: NextRequest) {
     .single()
   if (!edition) return NextResponse.json({ error: 'Editie niet gevonden.' }, { status: 404 })
 
-  const { data: client } = await admin
-    .from('clients')
-    .select('id, name')
-    .eq('id', clientId)
-    .single()
-  if (!client) return NextResponse.json({ error: 'Klant niet gevonden.' }, { status: 404 })
+  let clientName: string | null = null
+  if (clientId) {
+    const { data: client } = await admin
+      .from('clients')
+      .select('id, name')
+      .eq('id', clientId)
+      .single()
+    if (!client) return NextResponse.json({ error: 'Klant niet gevonden.' }, { status: 404 })
+    clientName = client.name
+  }
 
   const userName = (user.user_metadata?.full_name as string | undefined) ?? user.email ?? 'Onbekend'
 
   try {
     const folderId = await getOrCreateFolderPath(
-      preassistFolderSegments(edition.title, section, client.name),
+      preassistFolderSegments(edition.title, section, clientName),
       driveRootFolderId()!
     )
     const uploadUrl = await createResumableUploadSession(

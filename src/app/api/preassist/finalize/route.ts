@@ -3,7 +3,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { getFileMetadata, trashFile, getResumableUploadResult, getOrCreateFolderPath, driveRootFolderId } from '@/lib/drive-storage'
 import { hasOpenSection, hasClientAccess } from '@/lib/auth-permissions'
 import { isAllowedPreassistExt, ALLOWED_PREASSIST_HINT } from '@/lib/upload-policy'
-import { preassistFolderSegments } from '@/lib/preassist-upload'
+import { preassistFolderSegments, preassistRequiresClient } from '@/lib/preassist-upload'
 
 // Aangeroepen zodra de browser de bytes rechtstreeks naar de sessie-URL van
 // /api/preassist/upload-session heeft gestuurd. Schrijft alleen de rij in
@@ -27,11 +27,16 @@ export async function POST(request: NextRequest) {
   const titleInput = (body?.title as string | null | undefined) ?? null
   const fileSize   = Number(body?.fileSize)
 
-  if (!editionId || !section || !clientId || !uploadUrl || !fileName || !Number.isFinite(fileSize) || fileSize <= 0) {
+  if (!editionId || !section || !uploadUrl || !fileName || !Number.isFinite(fileSize) || fileSize <= 0) {
     return NextResponse.json({ error: 'Ongeldig verzoek.' }, { status: 400 })
   }
   if (section !== 'content' && section !== 'inspiratie') {
     return NextResponse.json({ error: 'Ongeldige sectie.' }, { status: 400 })
+  }
+  // Inspiratie hoort niet bij een klant; content wel. Dezelfde vraag als in
+  // upload-session, via dezelfde functie.
+  if (preassistRequiresClient(section) && !clientId) {
+    return NextResponse.json({ error: 'Kies een klant.' }, { status: 400 })
   }
   // De sessie-URL komt van de browser terug, dus wordt hij gecontroleerd zoals
   // files/finalize dat doet: hier wordt naar niets anders dan een Drive-
@@ -39,7 +44,7 @@ export async function POST(request: NextRequest) {
   if (!uploadUrl.startsWith('https://www.googleapis.com/upload/drive/v3/files?')) {
     return NextResponse.json({ error: 'Ongeldige upload-URL.' }, { status: 400 })
   }
-  if (!hasClientAccess(user, clientId)) {
+  if (clientId && !hasClientAccess(user, clientId)) {
     return NextResponse.json({ error: 'Geen toegang tot deze klant.' }, { status: 403 })
   }
 
@@ -52,12 +57,16 @@ export async function POST(request: NextRequest) {
     .single()
   if (!edition) return NextResponse.json({ error: 'Editie niet gevonden.' }, { status: 404 })
 
-  const { data: client } = await admin
-    .from('clients')
-    .select('id, name')
-    .eq('id', clientId)
-    .single()
-  if (!client) return NextResponse.json({ error: 'Klant niet gevonden.' }, { status: 404 })
+  let clientName: string | null = null
+  if (clientId) {
+    const { data: client } = await admin
+      .from('clients')
+      .select('id, name')
+      .eq('id', clientId)
+      .single()
+    if (!client) return NextResponse.json({ error: 'Klant niet gevonden.' }, { status: 404 })
+    clientName = client.name
+  }
 
   // De browser stuurt de bytes naar Google, en het antwoord op zijn laatste
   // blok komt zonder CORS-headers aan — hij ziet de upload wel landen, maar
@@ -92,7 +101,7 @@ export async function POST(request: NextRequest) {
   // komen te staan die naar een bestand van een andere klant wijst.
   try {
     const expectedParent = await getOrCreateFolderPath(
-      preassistFolderSegments(edition.title, section, client.name),
+      preassistFolderSegments(edition.title, section, clientName),
       driveRootFolderId()!
     )
     if (!driveFile.parents?.includes(expectedParent)) {
@@ -124,8 +133,8 @@ export async function POST(request: NextRequest) {
       file_size: driveFile.size ? Number(driveFile.size) : fileSize,
       submitted_by_id: user.id,
       submitted_by_name: userName,
-      client_id: clientId,
-      client_name: client.name,
+      client_id: clientId ?? null,
+      client_name: clientName,
       storage_provider: 'drive',
       drive_file_id: driveFile.id,
       web_view_link: driveFile.webViewLink,
