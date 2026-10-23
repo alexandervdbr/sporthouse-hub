@@ -3,7 +3,7 @@
 -- Op 21 oktober 2026 gaf Drive een tijd lang "Internal Error" terug. Dat kwam
 -- aan het licht doordat één iemand toevallig aan het uploaden was en er een
 -- screenshot van stuurde. Niemand anders wist het, en achteraf was er niets
--- terug te vinden: geen logboek, geen tijdstip, geen idee hoe lang het duurde.
+-- terug te vinden: geen tijdstip, geen duur, geen logboek.
 --
 -- Vanaf hier schrijft withDriveRetry (lib/drive-storage) een rij weg zodra hij
 -- het na vier pogingen opgeeft op een fout die duidelijk van Google komt. Dus
@@ -21,10 +21,7 @@ create table if not exists drive_incidents (
   occurred_at timestamptz not null default now(),
   -- Welke Drive-aanroep het betrof: "map aanmaken", "sessie openen", …
   source      text,
-  message     text,
-  -- Gezet zodra hierover een melding naar de admins ging. Dubbel gebruik:
-  -- het is ook de afkoelperiode, zie claim_drive_alert hieronder.
-  alerted_at  timestamptz
+  message     text
 );
 
 create index if not exists drive_incidents_occurred_at_idx
@@ -48,34 +45,6 @@ begin
   ) then
     alter publication supabase_realtime add table drive_incidents;
   end if;
-end $$;
-
--- Precies één melding per storing, niet één per mislukte upload.
---
--- Tijdens een storing faalt elke upload van iedereen; zonder dit zou er een
--- stroom notificaties uitgaan. Deze functie geeft alleen `true` terug aan de
--- eerste aanroeper binnen de afkoelperiode — de rest krijgt `false` en stuurt
--- niets.
---
--- De advisory lock maakt dat waterdicht: serverless-aanroepen draaien naast
--- elkaar, en zonder die lock kunnen twee instanties allebei zien dat er nog
--- geen melding uitging.
-create or replace function public.claim_drive_alert(incident uuid, cooldown interval default '30 minutes')
-returns boolean
-language plpgsql
-as $$
-declare
-  claimed boolean;
-begin
-  perform pg_advisory_xact_lock(hashtext('drive_alert'));
-
-  if exists (select 1 from drive_incidents where alerted_at > now() - cooldown) then
-    return false;
-  end if;
-
-  update drive_incidents set alerted_at = now() where id = incident;
-  get diagnostics claimed = row_count;
-  return claimed;
 end $$;
 
 commit;

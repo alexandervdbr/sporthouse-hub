@@ -126,7 +126,7 @@ export async function withDriveRetry<T>(label: string, fn: () => Promise<T>, att
         // een foutmelding. Dát is het moment om het vast te leggen — niet de
         // pogingen onderweg, want die vangen we juist op.
         if (isTransientDriveError(err)) {
-          const { recordDriveIncident } = await import('@/lib/drive-alert')
+          const { recordDriveIncident } = await import('@/lib/drive-incidents')
           await recordDriveIncident(label, err)
         }
         throw err
