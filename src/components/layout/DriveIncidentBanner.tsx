@@ -1,0 +1,98 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { AlertTriangle, X } from 'lucide-react'
+
+// Zegt het zelf wanneer Google het laat afweten.
+//
+// Op 21 oktober 2026 lag Drive er een tijd uit. Iedereen die uploadde kreeg
+// een onbegrijpelijke foutmelding, en niemand wist of het aan henzelf lag, aan
+// het platform, of aan Google. Dit haalt die vraag weg.
+//
+// De banner heeft geen aan/uit: hij volgt uit de feiten. Zijn er recent
+// Drive-fouten geweest, dan staat hij er; houdt het op, dan verdwijnt hij
+// vanzelf. Niemand hoeft een storing "af te sluiten", en er kan dus ook geen
+// melding blijven hangen over iets wat allang voorbij is.
+
+// Twee fouten binnen dit venster. Eén losse 500 van Google is ruis, en daar
+// hoort niet het hele bedrijf een storingsmelding voor te zien.
+const WINDOW_MINUTES = 10
+const THRESHOLD = 2
+
+export default function DriveIncidentBanner() {
+  const [active, setActive] = useState(false)
+  // Hoe lang geleden de laatste fout was, berekend op het moment dat we
+  // kijken. Tijdens het renderen de klok uitlezen maakt het resultaat
+  // afhankelijk van wanneer React toevallig opnieuw tekent.
+  const [minutesAgo, setMinutesAgo] = useState<number | null>(null)
+  const [dismissed, setDismissed] = useState(false)
+
+  useEffect(() => {
+    const supabase = createClient()
+
+    async function check() {
+      const since = new Date(Date.now() - WINDOW_MINUTES * 60_000).toISOString()
+      const { data } = await supabase
+        .from('drive_incidents')
+        .select('occurred_at')
+        .gte('occurred_at', since)
+        .order('occurred_at', { ascending: false })
+        .limit(THRESHOLD)
+
+      const rows = data ?? []
+      setActive(rows.length >= THRESHOLD)
+      setMinutesAgo(rows[0]
+        ? Math.max(0, Math.round((Date.now() - new Date(rows[0].occurred_at).getTime()) / 60_000))
+        : null)
+    }
+
+    check()
+
+    // Geen timer die blijft lopen — de realtime-verbinding meldt een nieuwe
+    // storing uit zichzelf. Zie CLAUDE.md over wat periodiek bevragen kost.
+    const channel = supabase
+      .channel('drive-incidents')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'drive_incidents' }, () => {
+        setDismissed(false)
+        check()
+      })
+      .subscribe()
+
+    // Eén controle als het venster weer de aandacht krijgt, zodat een banner
+    // van een voorbije storing niet blijft staan bij wie zijn tabblad open
+    // liet staan.
+    const onFocus = () => check()
+    window.addEventListener('focus', onFocus)
+
+    return () => {
+      supabase.removeChannel(channel)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [])
+
+  if (!active || dismissed) return null
+
+  return (
+    <div className="flex-shrink-0 flex items-center gap-3 px-4 py-2 text-xs font-medium"
+      style={{ backgroundColor: '#450a0a', borderBottom: '1px solid #99181860', color: '#fca5a5' }}>
+      <AlertTriangle size={14} className="flex-shrink-0" />
+      <p className="flex-1 min-w-0">
+        Google Drive heeft een storing. Uploads en downloads lukken nu mogelijk niet — je bestand is
+        niet kwijt, probeer het straks opnieuw.
+        {minutesAgo !== null && (
+          <span className="text-red-300/60">
+            {' '}Laatste fout {minutesAgo === 0 ? 'zojuist' : `${minutesAgo} min geleden`}.
+          </span>
+        )}
+      </p>
+      {/* Wegklikken geldt voor nu. Komt er een nieuwe fout binnen, dan staat
+          hij er weer — anders klikt iemand hem 's ochtends weg en mist hij de
+          storing van later op de dag. */}
+      <button onClick={() => setDismissed(true)} aria-label="Melding verbergen"
+        className="flex-shrink-0 hover:text-red-200 transition-colors">
+        <X size={14} />
+      </button>
+    </div>
+  )
+}

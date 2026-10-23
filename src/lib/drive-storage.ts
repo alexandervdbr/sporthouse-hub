@@ -121,7 +121,16 @@ export async function withDriveRetry<T>(label: string, fn: () => Promise<T>, att
       return await fn()
     } catch (err) {
       lastError = err
-      if (!isTransientDriveError(err) || attempt === attempts) throw err
+      if (!isTransientDriveError(err) || attempt === attempts) {
+        // Opgegeven op een fout die van Google komt: vanaf hier ziet iemand
+        // een foutmelding. Dát is het moment om het vast te leggen — niet de
+        // pogingen onderweg, want die vangen we juist op.
+        if (isTransientDriveError(err)) {
+          const { recordDriveIncident } = await import('@/lib/drive-alert')
+          await recordDriveIncident(label, err)
+        }
+        throw err
+      }
       // 0,5s — 1s — 2s, met wat ruis erdoor zodat tien gelijktijdige uploads
       // niet allemaal op hetzelfde moment terugkomen.
       const wait = 500 * 2 ** (attempt - 1) + Math.random() * 250
