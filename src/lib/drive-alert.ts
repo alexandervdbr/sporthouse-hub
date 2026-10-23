@@ -80,10 +80,16 @@ async function notifyAdmins(source: string, message: string): Promise<void> {
 
   webpush.setVapidDetails(VAPID_EMAIL, NEXT_PUBLIC_VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY)
 
+  // Een eigen tag, want notificaties met dezelfde tag vervangen elkaar op het
+  // scherm. De chat stuurt er geen mee en valt dus terug op 'default' — zonder
+  // dit zou het eerstvolgende chatbericht deze melding wegdrukken, of
+  // andersom. Twee storingen kort na elkaar overschrijven elkaar wél, en dat
+  // klopt: het is dezelfde storing.
   const payload = JSON.stringify({
     title: 'Google Drive heeft een storing',
     body: `Uploads en downloads lopen nu mis (${source}). Collega's zien een melding in de app.`,
     url: '/dashboard',
+    tag: 'drive-storing',
   })
 
   await Promise.all(subscriptions.map(async s => {
