@@ -265,6 +265,37 @@ function SubmissionCard({ sub, canDelete, onDelete, hideTitle }: {
 
 // ─── Upload Modal ─────────────────────────────────────────────────────────────
 
+// Welke bestanden erdoor mogen, en wat er over de rest te zeggen valt.
+//
+// Op extensie en niet op het MIME-type dat de browser erbij verzint — zelfde
+// allowlist als de server aanhoudt, zodat een bestand hier wordt
+// tegengehouden en niet pas na een upload van een halve gigabyte.
+//
+// Mét de namen erbij, en beide redenen tegelijk: wie één te grote video en
+// één pdf sleept, hoort over allebei iets te lezen en te zien welk bestand
+// het betrof.
+export function screenFiles(files: File[]): { accepted: File[]; rejected: string | null } {
+  const wrongType = files.filter(f => !isAllowedPreassistExt(f.name))
+  const tooBig    = files.filter(f => isAllowedPreassistExt(f.name) && f.size > MAX_UPLOAD_BYTES)
+
+  const reasons = [
+    tooBig.length    ? `groter dan ${MAX_UPLOAD_LABEL}: ${namesOf(tooBig)}` : null,
+    wrongType.length ? `verkeerd type: ${namesOf(wrongType)}` : null,
+  ].filter(Boolean)
+
+  return {
+    accepted: files.filter(f => isAllowedPreassistExt(f.name) && f.size <= MAX_UPLOAD_BYTES),
+    rejected: reasons.length
+      ? `Overgeslagen — ${reasons.join('; ')}. Toegestaan: ${ALLOWED_PREASSIST_HINT}.`
+      : null,
+  }
+}
+
+function toEntry(file: File): FileEntry {
+  return { file, status: 'pending', progress: 0 }
+}
+
+
 // Wat er van een lopende upload te zien valt, los van de modal waarin hij
 // gestart is. De upload leeft in een achtergrondlus die blijft draaien als de
 // pop-up dichtgaat — zonder dit zag je daar niets meer van terwijl de
@@ -287,7 +318,7 @@ interface FileEntry {
 // onderscheidt van een echte: die laatste heeft een id, deze alleen een naam.
 const PROPOSED_PREFIX = 'voorgesteld:'
 
-function UploadModal({ section, editionId, onClose, onUploaded, groups, proposedClients, onProgress }: {
+function UploadModal({ section, editionId, onClose, onUploaded, groups, proposedClients, onProgress, initialFiles }: {
   section: Section
   editionId: string
   onClose: () => void
@@ -304,9 +335,16 @@ function UploadModal({ section, editionId, onClose, onUploaded, groups, proposed
   // Elke voortgangswijziging gaat ook naar de pagina, zodat die hem kan
   // blijven tonen als deze modal al gesloten is.
   onProgress: (items: UploadProgress[]) => void
+  // Bestanden die al op de pagina zelf gesleept zijn, voordat deze modal
+  // bestond. Die horen er meteen in te staan in plaats van opnieuw gekozen
+  // te moeten worden.
+  initialFiles?: File[]
 }) {
   const supabase = createClient()
-  const [entries,   setEntries]   = useState<FileEntry[]>([])
+  // Wat er op de pagina gesleept is, staat er meteen in. Dat is een
+  // beginwaarde en geen synchronisatie, dus hier en niet in een effect.
+  const screened = screenFiles(initialFiles ?? [])
+  const [entries,   setEntries]   = useState<FileEntry[]>(() => screened.accepted.map(toEntry))
   const [clients,   setClients]   = useState<Client[]>([])
   const [clientId,  setClientId]  = useState('')
   // Leeg betekent "kies uit de lijst"; staat hier iets, dan is het een
@@ -319,14 +357,14 @@ function UploadModal({ section, editionId, onClose, onUploaded, groups, proposed
   const [note,      setNote]      = useState('')
   const [uploading, setUploading] = useState(false)
   const [done,      setDone]      = useState(false)
-  const [rejected,  setRejected]  = useState<string | null>(null)
+  const [rejected,  setRejected]  = useState<string | null>(() => screened.rejected)
   const inputRef = useRef<HTMLInputElement>(null)
 
   // De lus die uploadt blijft draaien nadat de modal is weggeklikt. setEntries
   // doet dan niets meer (de component bestaat niet), maar deze ref en de
   // callback naar de pagina wel — vandaar dat alles hier langs gaat in plaats
   // van rechtstreeks via setEntries.
-  const entriesRef = useRef<FileEntry[]>([])
+  const entriesRef = useRef<FileEntry[]>(entries)
   function updateEntries(fn: (prev: FileEntry[]) => FileEntry[]) {
     const next = fn(entriesRef.current)
     entriesRef.current = next
@@ -345,6 +383,7 @@ function UploadModal({ section, editionId, onClose, onUploaded, groups, proposed
     supabase.from('clients').select('*').order('name').then(({ data }) => setClients((data ?? []) as Client[]))
   }, [needsClient])
 
+
   const groupedClients = Object.entries(
     clients.reduce<Record<string, Client[]>>((acc, c) => {
       const label = CATEGORY_LABEL[c.category] ?? c.category
@@ -353,38 +392,13 @@ function UploadModal({ section, editionId, onClose, onUploaded, groups, proposed
     }, {})
   )
 
-  function addFiles(incoming: FileList | null) {
+  function addFiles(incoming: FileList | File[] | null) {
     if (!incoming) return
-    const all = Array.from(incoming)
-    // Op extensie, niet op het MIME-type dat de browser erbij verzint — zelfde
-    // allowlist als de server aanhoudt, zodat een bestand hier wordt
-    // tegengehouden en niet pas na een upload van een halve gigabyte.
-    const wrongType = all.filter(f => !isAllowedPreassistExt(f.name))
-    const tooBig    = all.filter(f => isAllowedPreassistExt(f.name) && f.size > MAX_UPLOAD_BYTES)
-
-    // Mét de namen erbij, en beide redenen tegelijk. Het was een ternary die
-    // alleen de grootte meldde, dus wie één te grote video en één pdf sleepte
-    // hoorde niets over die pdf — en in geen van beide gevallen welk bestand.
-    const reasons = [
-      tooBig.length    ? `groter dan ${MAX_UPLOAD_LABEL}: ${namesOf(tooBig)}` : null,
-      wrongType.length ? `verkeerd type: ${namesOf(wrongType)}` : null,
-    ].filter(Boolean)
-
-    setRejected(
-      reasons.length
-        ? `Overgeslagen — ${reasons.join('; ')}. Toegestaan: ${ALLOWED_PREASSIST_HINT}.`
-        : null
-    )
-
-    const newEntries: FileEntry[] = all
-      .filter(f => isAllowedPreassistExt(f.name) && f.size <= MAX_UPLOAD_BYTES)
-      .map(file => ({
-        file,
-        status: 'pending' as const,
-        progress: 0,
-      }))
-    updateEntries(prev => [...prev, ...newEntries])
+    const { accepted, rejected } = screenFiles(Array.from(incoming))
+    setRejected(rejected)
+    updateEntries(prev => [...prev, ...accepted.map(toEntry)])
   }
+
 
   function removeEntry(index: number) {
     updateEntries(prev => prev.filter((_, i) => i !== index))
@@ -1178,6 +1192,13 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
   const [zipError,      setZipError]      = useState<string | null>(null)
   const [copied,        setCopied]        = useState(false)
   const [uploads,       setUploads]       = useState<UploadProgress[]>([])
+  // Bestanden die op de pagina gesleept zijn; zetten de uploadmodal open met
+  // die bestanden er al in.
+  const [droppedFiles,  setDroppedFiles]  = useState<File[]>([])
+  // Of er op dit moment iets boven het venster hangt. Een teller en geen
+  // boolean: dragleave vuurt ook als je van het ene kindelement naar het
+  // andere gaat, en dan zou de markering staan te knipperen.
+  const [dragDepth,     setDragDepth]     = useState(0)
   const pollsRef = useRef(0)
 
   const submitters = Array.from(
@@ -1241,6 +1262,35 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
     }, 3000)
     return () => clearTimeout(timer)
   }, [submissions, viewedEdition, loadSubmissions])
+
+  const canUploadHere = !!activeEdition && !!viewedEdition && viewedEdition.id === activeEdition.id && canAdd
+
+  function openUploadWith(files: File[]) {
+    if (!canUploadHere) return
+    setDroppedFiles(files)
+    setShowUpload(true)
+  }
+
+  // Slepen werkt op de hele pagina, niet alleen in het vak. Iemand die een
+  // map openzet en bestanden het venster in trekt, mikt niet op een rechthoek.
+  function onDragEnter(e: React.DragEvent) {
+    if (!canUploadHere || !e.dataTransfer.types.includes('Files')) return
+    e.preventDefault()
+    setDragDepth(d => d + 1)
+  }
+
+  function onDragLeave() {
+    setDragDepth(d => Math.max(0, d - 1))
+  }
+
+  function onDrop(e: React.DragEvent) {
+    setDragDepth(0)
+    if (!canUploadHere) return
+    const files = Array.from(e.dataTransfer.files ?? [])
+    if (!files.length) return
+    e.preventDefault()
+    openUploadWith(files)
+  }
 
   function selectEdition(id: string) {
     const next = editions.find(e => e.id === id)
@@ -1478,7 +1528,11 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
   )).sort((a, b) => a.localeCompare(b, 'nl'))
 
   return (
-    <div className="p-4 sm:p-8 max-w-6xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-6xl mx-auto"
+      onDragEnter={onDragEnter}
+      onDragOver={e => { if (canUploadHere && e.dataTransfer.types.includes('Files')) e.preventDefault() }}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}>
 
       {/* Header */}
       <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
@@ -1645,10 +1699,37 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
           )}
           </div>
 
+          {/* Op dezelfde plek als het plakveld hiernaast, en om dezelfde reden:
+              de handeling waarvoor je komt hoort in de pagina te staan, niet
+              in een hoek tussen andere knoppen. Compact gehouden — je scrolt
+              hier ook om andermans werk te bekijken — maar hij groeit zodra
+              er iets boven hangt. */}
+          {section === 'content' && canUploadHere && (
+            <div
+              onClick={() => openUploadWith([])}
+              className={`mb-7 flex items-center justify-center gap-2 rounded-xl cursor-pointer transition-all ${
+                dragDepth > 0 ? 'py-8' : 'py-3'
+              }`}
+              style={{
+                border: `2px dashed ${dragDepth > 0 ? 'rgba(58,145,63,0.6)' : 'rgba(255,255,255,0.12)'}`,
+                background: dragDepth > 0 ? 'rgba(58,145,63,0.08)' : 'rgba(255,255,255,0.02)',
+              }}>
+              <Upload size={14} className={dragDepth > 0 ? 'text-green-400' : 'text-zinc-500'} />
+              <p className={`text-sm ${dragDepth > 0 ? 'text-green-300' : 'text-zinc-400'}`}>
+                {dragDepth > 0 ? 'Laat los om toe te voegen' : 'Klik of sleep je bestanden hier'}
+              </p>
+              {dragDepth === 0 && (
+                <span className="text-xs text-zinc-600 hidden sm:inline">
+                  Afbeeldingen &amp; video&apos;s — max {MAX_UPLOAD_LABEL}
+                </span>
+              )}
+            </div>
+          )}
+
           {/* Links zijn bij Inspiratie het gewone geval, dus staat dit vóór
               de lijst en niet achter de Toevoegen-knop. Alleen in de actieve
               editie, net als uploaden. */}
-          {section === 'inspiratie' && activeEdition && viewedEdition.id === activeEdition.id && canAdd && (
+          {section === 'inspiratie' && canUploadHere && activeEdition && (
             <LinkPaste editionId={activeEdition.id} section={section} topics={existingTopics}
               onAdded={() => { pollsRef.current = 0; loadSubmissions(viewedEdition) }} />
           )}
@@ -1661,8 +1742,8 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
             <div className="flex flex-col items-center justify-center py-20 text-center">
               {section === 'content' ? <ImageIcon size={28} className="text-zinc-700 mb-3" /> : <Layers size={28} className="text-zinc-700 mb-3" />}
               <p className="text-sm text-zinc-500 mb-1">Nog niets ingediend onder {section === 'content' ? 'Content' : 'Inspiratie'}.</p>
-              {activeEdition && viewedEdition.id === activeEdition.id && canAdd && (
-                <button onClick={() => setShowUpload(true)} className="mt-2 text-sm font-medium" style={{ color: '#3A913F' }}>
+              {canUploadHere && (
+                <button onClick={() => openUploadWith([])} className="mt-2 text-sm font-medium" style={{ color: '#3A913F' }}>
                   + Eerste inzending toevoegen
                 </button>
               )}
@@ -1680,8 +1761,9 @@ export default function PreassistPage({ currentUserId, isAdmin, canManageEdition
       {showUpload && activeEdition && (
         <UploadModal section={section} editionId={activeEdition.id}
           groups={existingGroups} proposedClients={proposedClients}
-          onProgress={setUploads}
-          onClose={() => setShowUpload(false)} onUploaded={() => loadSubmissions(activeEdition)} />
+          onProgress={setUploads} initialFiles={droppedFiles}
+          onClose={() => { setShowUpload(false); setDroppedFiles([]) }}
+          onUploaded={() => loadSubmissions(activeEdition)} />
       )}
 
       {/* De uploadlus draait door als je de pop-up wegklikt. Zonder dit zag je
