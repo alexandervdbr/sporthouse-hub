@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { AlertTriangle, X } from 'lucide-react'
 
@@ -27,6 +27,9 @@ export default function DriveIncidentBanner() {
   // afhankelijk van wanneer React toevallig opnieuw tekent.
   const [minutesAgo, setMinutesAgo] = useState<number | null>(null)
   const [dismissed, setDismissed] = useState(false)
+  // Wat de focus-afhandeling moet weten zonder dat het effect opnieuw opgezet
+  // hoeft te worden.
+  const activeRef = useRef(false)
 
   useEffect(() => {
     const supabase = createClient()
@@ -46,6 +49,7 @@ export default function DriveIncidentBanner() {
 
       const rows = data ?? []
       const isActive = rows.length >= THRESHOLD
+      activeRef.current = isActive
       setActive(isActive)
       setMinutesAgo(rows[0]
         ? Math.max(0, Math.round((Date.now() - new Date(rows[0].occurred_at).getTime()) / 60_000))
@@ -75,10 +79,14 @@ export default function DriveIncidentBanner() {
       })
       .subscribe()
 
-    // Eén controle als het venster weer de aandacht krijgt, zodat een banner
-    // van een voorbije storing niet blijft staan bij wie zijn tabblad open
-    // liet staan.
-    const onFocus = () => check()
+    // Alleen nakijken bij terugkeren als er een banner stáát. Browsers remmen
+    // timers in een tabblad op de achtergrond af, dus die ene afspraak kan te
+    // laat vuren en dan hangt er een melding over een voorbije storing.
+    //
+    // Staat er geen banner, dan valt er niets te verversen — en dan hoort
+    // tabbladwisselen ook geen vraag naar de database te zijn. In het normale
+    // geval, zonder storing, is dit dus precies nul extra verkeer.
+    const onFocus = () => { if (activeRef.current) check() }
     window.addEventListener('focus', onFocus)
 
     return () => {
