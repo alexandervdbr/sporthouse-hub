@@ -30,6 +30,10 @@ export default function DriveIncidentBanner() {
 
   useEffect(() => {
     const supabase = createClient()
+    // Eén afspraak vooruit, geen herhalende timer: we weten precies wanneer
+    // de banner mag verdwijnen, dus kijken we dán één keer — niet elke
+    // zoveel seconden voor niets.
+    let expiry: ReturnType<typeof setTimeout> | undefined
 
     async function check() {
       const since = new Date(Date.now() - WINDOW_MINUTES * 60_000).toISOString()
@@ -41,10 +45,22 @@ export default function DriveIncidentBanner() {
         .limit(THRESHOLD)
 
       const rows = data ?? []
-      setActive(rows.length >= THRESHOLD)
+      const isActive = rows.length >= THRESHOLD
+      setActive(isActive)
       setMinutesAgo(rows[0]
         ? Math.max(0, Math.round((Date.now() - new Date(rows[0].occurred_at).getTime()) / 60_000))
         : null)
+
+      clearTimeout(expiry)
+      if (!isActive) return
+
+      // De banner gaat uit zodra er minder dan THRESHOLD fouten in het venster
+      // zitten — dus op het moment dat de oudste van de twee nieuwste eruit
+      // valt. Daar zetten we één controle op. Komt er intussen een nieuwe
+      // fout binnen, dan schuift dat moment vanzelf op.
+      const oldestInWindow = new Date(rows[THRESHOLD - 1].occurred_at).getTime()
+      const until = oldestInWindow + WINDOW_MINUTES * 60_000 - Date.now()
+      expiry = setTimeout(check, Math.max(1_000, until + 1_000))
     }
 
     check()
@@ -66,6 +82,7 @@ export default function DriveIncidentBanner() {
     window.addEventListener('focus', onFocus)
 
     return () => {
+      clearTimeout(expiry)
       supabase.removeChannel(channel)
       window.removeEventListener('focus', onFocus)
     }
