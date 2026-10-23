@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation'
 import Sidebar from '@/components/layout/Sidebar'
 import TopBar from '@/components/layout/TopBar'
 import PreviewBanner from '@/components/layout/PreviewBanner'
+import DriveIncidentBanner from '@/components/layout/DriveIncidentBanner'
 import PushNotificationSetup from '@/components/layout/PushNotificationSetup'
 import { SidebarProvider } from '@/contexts/SidebarContext'
 import { FavoritesProvider } from '@/contexts/FavoritesContext'
@@ -49,6 +50,10 @@ export default function AppShell({ clients, children }: Props) {
         <Sidebar clients={clients} />
         <main className="flex-1 flex flex-col overflow-hidden bg-zinc-950 min-w-0">
           <PreviewBanner />
+          {/* Op elke pagina, niet alleen waar bestanden zitten: mensen komen
+              binnen op het dashboard, en daar wil je het al zien vóór je aan
+              een upload begint. */}
+          <DriveIncidentBanner />
           <TopBar />
           <div className={`flex-1 ${scroll === 'hidden' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
             {children}
