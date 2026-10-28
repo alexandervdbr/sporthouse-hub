@@ -10,7 +10,7 @@ import { useRouter } from 'next/navigation'
 import type { Person } from '@/lib/planning-config'
 import { usePreview } from '@/lib/preview-context'
 import {
-  ACCESS_MODULES, ACCESS_GROUPS, effectiveLevels, levelOf, levelsFromSections, sectionsForLevels,
+  ACCESS_MODULES, ACCESS_GROUPS, effectiveLevels, levelOf, levelsFromSections, sectionsForLevels, chosenClients,
   type AccessLevels,
 } from '@/lib/access-roles'
 import type { RoleRow } from '@/components/admin/RolesPage'
@@ -304,6 +304,60 @@ function formatDate(iso: string | null) {
   return d.toLocaleDateString('nl-BE', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+// ─── Klantenlijst ──────────────────────────────────────────────────────────────
+// Per categorie aanvinken, met Alles/Geen per categorie.
+
+function ClientChecklist({ clients, value, onChange }: { clients: ClientOption[]; value: string[]; onChange: (next: string[]) => void }) {
+  return (
+    <div className="space-y-4 pl-2 border-l border-zinc-800">
+      {(['intern', 'klant', 'atleet', 'podcast'] as const).map(cat => {
+        const catClients = clients.filter(c => c.category === cat)
+        if (!catClients.length) return null
+        return (
+          <div key={cat}>
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-[10px] font-medium text-zinc-600 uppercase tracking-widest">{CATEGORY_LABELS[cat]}</p>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => onChange([...new Set([...value, ...catClients.map(c => c.id)])])}
+                  className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors">Alles</button>
+                <span className="text-zinc-700">·</span>
+                <button type="button" onClick={() => onChange(value.filter(id => !catClients.some(c => c.id === id)))}
+                  className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors">Geen</button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {catClients.map(c => (
+                <Checkbox
+                  key={c.id}
+                  checked={value.includes(c.id)}
+                  onChange={v => onChange(v ? [...value, c.id] : value.filter(id => id !== c.id))}
+                  label={c.name}
+                />
+              ))}
+            </div>
+          </div>
+        )
+      })}
+      {clients.length === 0 && <p className="text-xs text-zinc-600">Nog geen klanten aangemaakt.</p>}
+    </div>
+  )
+}
+
+// Een rol met "alleen gekozen klanten": de lijst staat meteen open, zonder
+// vinkje ervoor, want zonder keuze ziet deze persoon niets.
+function ChosenClientsField({ clients, value, onChange }: { clients: ClientOption[]; value: string[]; onChange: (next: string[]) => void }) {
+  return (
+    <div>
+      <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mb-1">Klanten</p>
+      <p className="text-[10px] text-zinc-600 mb-2.5">Deze rol ziet alleen de klanten die je hier aanvinkt.</p>
+      {value.length === 0 && (
+        <p className="text-[10px] text-amber-400 mb-2">Nog niets aangevinkt — ziet voorlopig geen enkele klant.</p>
+      )}
+      <ClientChecklist clients={clients} value={value} onChange={onChange} />
+    </div>
+  )
+}
+
 // ─── Invite Modal ─────────────────────────────────────────────────────────────
 
 function InviteModal({ clients, roles, onClose, onInvited }: { clients: ClientOption[]; roles: RoleRow[]; onClose: () => void; onInvited: () => void }) {
@@ -313,6 +367,7 @@ function InviteModal({ clients, roles, onClose, onInvited }: { clients: ClientOp
   const [role,            setRole]            = useState('')
   const [accessRole,      setAccessRole]      = useState<string | null>(null)
   const [advanced,        setAdvanced]        = useState(false)
+  const [endDate,         setEndDate]         = useState('')
   const [planningColumn,  setPlanningColumn]  = useState('')
   const roster = usePlanningRoster()
   const legacyColumn = legacyColumnOption(planningColumn)
@@ -322,10 +377,13 @@ function InviteModal({ clients, roles, onClose, onInvited }: { clients: ClientOp
   const [error,           setError]           = useState('')
   const [success,         setSuccess]         = useState(false)
 
+  const chosenRole = roles.find(r => r.id === accessRole)
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!email.trim()) { setError('Vul een e-mailadres in.'); return }
     if (!accessRole) { setError('Kies een rol.'); return }
+    if (chosenRole?.requires_end_date && !endDate) { setError(`Een ${chosenRole.label.toLowerCase()} heeft een einddatum nodig.`); return }
     setSaving(true); setError('')
     const r = await fetch('/api/admin/users', {
       method: 'POST',
@@ -333,8 +391,9 @@ function InviteModal({ clients, roles, onClose, onInvited }: { clients: ClientOp
       body: JSON.stringify({
         email, full_name: name, phone, role,
         access_role: accessRole,
-        clients: restrictClients ? clientIds : [],
+        clients: chosenRole?.client_scope === 'chosen' || restrictClients ? clientIds : [],
         planning_column: planningColumn || null,
+        expires_at: endDate || null,
       }),
     })
     if (!r.ok) { setError(await r.text()); setSaving(false); return }
@@ -405,10 +464,25 @@ function InviteModal({ clients, roles, onClose, onInvited }: { clients: ClientOp
                   Wat elke rol mag, stel je in onder Rollen. Uitzonderingen voor deze persoon kan je na het uitnodigen toevoegen.
                 </p>
               </div>
+              {chosenRole?.client_scope === 'chosen' && (
+                <ChosenClientsField clients={clients} value={clientIds} onChange={setClientIds} />
+              )}
+              <div>
+                <label className="block text-xs text-zinc-500 uppercase tracking-wider mb-1.5">
+                  Einddatum{chosenRole?.requires_end_date ? ' *' : ''}
+                </label>
+                <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
+                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 focus:outline-none focus:border-zinc-500 transition-colors" />
+                <p className="text-[10px] text-zinc-600 mt-1.5">
+                  {chosenRole?.requires_end_date
+                    ? 'Verplicht voor deze rol. Het account wordt op die dag automatisch verwijderd.'
+                    : 'Optioneel. Het account wordt op die dag automatisch verwijderd.'}
+                </p>
+              </div>
               <button type="button" onClick={() => setAdvanced(a => !a)}
                 className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors">
                 {advanced ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                Geavanceerd: planningkolom en klantentoegang
+                {chosenRole?.client_scope === 'chosen' ? 'Geavanceerd: planningkolom' : 'Geavanceerd: planningkolom en klantentoegang'}
               </button>
               {advanced && (<>
               <div>
@@ -429,48 +503,21 @@ function InviteModal({ clients, roles, onClose, onInvited }: { clients: ClientOp
                   ))}
                 </select>
               </div>
+              {chosenRole?.client_scope !== 'chosen' && (
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs text-zinc-500 uppercase tracking-wider">Klantentoegang</label>
-                </div>
+                <label className="block text-xs text-zinc-500 uppercase tracking-wider mb-2">Klantentoegang</label>
                 <Checkbox
                   checked={restrictClients}
                   onChange={v => { setRestrictClients(v); if (!v) setClientIds([]) }}
                   label="Beperk tot specifieke klanten"
                 />
                 {restrictClients && (
-                  <div className="mt-3 space-y-4 pl-2 border-l border-zinc-800">
-                    {(['intern', 'klant', 'atleet', 'podcast'] as const).map(cat => {
-                      const catClients = clients.filter(c => c.category === cat)
-                      if (!catClients.length) return null
-                      return (
-                        <div key={cat}>
-                          <div className="flex items-center justify-between mb-1.5">
-                            <p className="text-[10px] font-medium text-zinc-600 uppercase tracking-widest">{CATEGORY_LABELS[cat]}</p>
-                            <div className="flex gap-2">
-                              <button type="button" onClick={() => setClientIds(prev => [...new Set([...prev, ...catClients.map(c => c.id)])])}
-                                className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors">Alles</button>
-                              <span className="text-zinc-700">·</span>
-                              <button type="button" onClick={() => setClientIds(prev => prev.filter(id => !catClients.some(c => c.id === id)))}
-                                className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors">Geen</button>
-                            </div>
-                          </div>
-                          <div className="space-y-2">
-                            {catClients.map(c => (
-                              <Checkbox
-                                key={c.id}
-                                checked={clientIds.includes(c.id)}
-                                onChange={v => setClientIds(prev => v ? [...prev, c.id] : prev.filter(id => id !== c.id))}
-                                label={c.name}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      )
-                    })}
+                  <div className="mt-3">
+                    <ClientChecklist clients={clients} value={clientIds} onChange={setClientIds} />
                   </div>
                 )}
               </div>
+              )}
               </>)}
               {error && (
                 <div className="flex items-start gap-2 px-3 py-2.5 bg-red-950/40 border border-red-900/40 rounded-lg">
@@ -558,11 +605,13 @@ function PermissionsPanel({
   )
   const teamContact = useTeamContact(user.email)
   const contactEnd = teamContact?.active_until ?? ''
+  // De lijst kan het "geen enkele klant"-id bevatten (NO_CLIENTS); dat is
+  // geen klant en hoort niet als vinkje op het scherm.
   const [restrictClients, setRestrictClients] = useState(
-    (user.permissions?.clients?.length ?? 0) > 0
+    chosenClients(user.permissions?.clients).length > 0
   )
   const [clientIds, setClientIds] = useState<string[]>(
-    user.permissions?.clients ?? []
+    chosenClients(user.permissions?.clients)
   )
   const [saving,         setSaving]         = useState(false)
   const [deleting,      setDeleting]      = useState(false)
@@ -605,13 +654,16 @@ function PermissionsPanel({
   async function handleSave() {
     setSaving(true); setError(''); setSaved(false)
     if (!accessRole) { setError('Kies een rol.'); setSaving(false); return }
+    if (role?.requires_end_date && !expiresAt) {
+      setError(`Een ${role.label.toLowerCase()} heeft een vervaldatum nodig.`); setSaving(false); return
+    }
     const r = await fetch(`/api/admin/users/${user.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         access_role: accessRole,
         overrides,
-        clients: restrictClients ? clientIds : [],
+        clients: role?.client_scope === 'chosen' || restrictClients ? clientIds : [],
         planning_column: planningColumn || null,
         credentials: sections.includes('wachtwoorden_bekijken') ? credIds : null,
         expires_at: expiresAt || null,
@@ -722,56 +774,35 @@ function PermissionsPanel({
         </div>
 
         {/* Client access */}
-        <div>
-          <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mb-2">Klantentoegang</p>
-          <Checkbox
-            checked={restrictClients}
-            onChange={v => { setRestrictClients(v); if (!v) setClientIds([]) }}
-            label="Beperk tot specifieke klanten"
-          />
-          {restrictClients && (
-            <div className="mt-3 space-y-4 pl-2 border-l border-zinc-800">
-              {(['intern', 'klant', 'atleet', 'podcast'] as const).map(cat => {
-                const catClients = clients.filter(c => c.category === cat)
-                if (!catClients.length) return null
-                return (
-                  <div key={cat}>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <p className="text-[10px] font-medium text-zinc-600 uppercase tracking-widest">{CATEGORY_LABELS[cat]}</p>
-                      <div className="flex gap-2">
-                        <button type="button" onClick={() => setClientIds(prev => [...new Set([...prev, ...catClients.map(c => c.id)])])}
-                          className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors">Alles</button>
-                        <span className="text-zinc-700">·</span>
-                        <button type="button" onClick={() => setClientIds(prev => prev.filter(id => !catClients.some(c => c.id === id)))}
-                          className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors">Geen</button>
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      {catClients.map(c => (
-                        <Checkbox
-                          key={c.id}
-                          checked={clientIds.includes(c.id)}
-                          onChange={v => setClientIds(prev => v ? [...prev, c.id] : prev.filter(id => id !== c.id))}
-                          label={c.name}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )
-              })}
-              {restrictClients && clientIds.length === 0 && (
-                <p className="text-[10px] text-amber-500">Geen klanten geselecteerd — gebruiker ziet niets.</p>
-              )}
-            </div>
-          )}
-          {!restrictClients && (
-            <p className="text-[10px] text-zinc-600 mt-1.5">Gebruiker ziet alle klanten, atleten en podcasts.</p>
-          )}
-        </div>
+        {role?.client_scope === 'chosen' ? (
+          <ChosenClientsField clients={clients} value={clientIds} onChange={setClientIds} />
+        ) : (
+          <div>
+            <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mb-2">Klantentoegang</p>
+            <Checkbox
+              checked={restrictClients}
+              onChange={v => { setRestrictClients(v); if (!v) setClientIds([]) }}
+              label="Beperk tot specifieke klanten"
+            />
+            {restrictClients && (
+              <div className="mt-3">
+                <ClientChecklist clients={clients} value={clientIds} onChange={setClientIds} />
+                {clientIds.length === 0 && (
+                  <p className="text-[10px] text-amber-500 mt-2">Niets aangevinkt — dan geldt er geen beperking en ziet deze persoon alle klanten.</p>
+                )}
+              </div>
+            )}
+            {!restrictClients && (
+              <p className="text-[10px] text-zinc-600 mt-1.5">Gebruiker ziet alle klanten, atleten en podcasts.</p>
+            )}
+          </div>
+        )}
 
         {/* Expiry date */}
         <div>
-          <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mb-2">Vervaldatum account</p>
+          <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mb-2">
+            Vervaldatum account{role?.requires_end_date ? ' *' : ''}
+          </p>
           <input
             type="date"
             value={expiresAt}

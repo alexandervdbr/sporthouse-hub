@@ -15,6 +15,7 @@
 // de keuzelijsten te tonen.
 
 import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { PROJECTKALENDER_ENABLED } from '@/lib/features'
 
 export interface AccessLevel {
   key: string
@@ -36,7 +37,7 @@ const AAN_UIT = (key: string): AccessLevel[] => [
   { key: 'aan', label: 'Aan', adds: [key] },
 ]
 
-export const ACCESS_MODULES: AccessModule[] = [
+const ALL_MODULES: AccessModule[] = [
   { key: 'dashboard',       label: 'Dashboard',       group: 'Algemeen', levels: AAN_UIT('dashboard') },
   { key: 'projecten',       label: 'Projecten',       group: 'Algemeen', levels: AAN_UIT('projecten') },
   { key: 'chat',            label: 'Chat',            group: 'Algemeen', levels: AAN_UIT('chat') },
@@ -102,12 +103,14 @@ export const ACCESS_MODULES: AccessModule[] = [
 
   {
     key: 'materiaal', label: 'Materiaal', group: 'Werkvloer',
-    hint: 'Beheren = materiaal toevoegen/verwijderen, statistieken en externe verhuur.',
+    hint: 'Eigen reservaties annuleren kan iedereen. Beheren = ook die van anderen, materiaal toevoegen/verwijderen, statistieken en externe verhuur.',
     levels: [
       { key: 'geen',       label: 'Geen',       adds: [] },
       { key: 'bekijken',   label: 'Bekijken',   adds: ['materiaal'] },
-      { key: 'reserveren', label: 'Reserveren', adds: ['materiaal_reserveren', 'reservering_verwijderen'] },
-      { key: 'beheren',    label: 'Beheren',    adds: ['materiaal_toevoegen', 'materiaal_verwijderen', 'stats_materiaal', 'materiaal_extern'] },
+      // Eigen reservaties kan iedereen altijd annuleren; reservering_verwijderen
+      // is die van een ander, en dat hoort bij beheren.
+      { key: 'reserveren', label: 'Reserveren', adds: ['materiaal_reserveren'] },
+      { key: 'beheren',    label: 'Beheren',    adds: ['reservering_verwijderen', 'materiaal_toevoegen', 'materiaal_verwijderen', 'stats_materiaal', 'materiaal_extern'] },
     ],
   },
   {
@@ -162,6 +165,12 @@ export const ACCESS_MODULES: AccessModule[] = [
   },
 ]
 
+// Onderdelen in de koelkast (zie src/lib/features.ts) verdwijnen uit het
+// scherm en geven niemand nog rechten; hun niveaus blijven in de rollen staan
+// en komen terug zodra het onderdeel weer aan staat.
+const FROZEN_MODULES = new Set(PROJECTKALENDER_ENABLED ? [] : ['projectkalender'])
+export const ACCESS_MODULES: AccessModule[] = ALL_MODULES.filter(m => !FROZEN_MODULES.has(m.key))
+
 export const ACCESS_GROUPS = [...new Set(ACCESS_MODULES.map(m => m.group))]
 
 // Elke sleutel die via een niveau te bereiken is. De test controleert dat
@@ -170,12 +179,30 @@ export const ALL_SECTION_KEYS = ACCESS_MODULES.flatMap(m => m.levels.flatMap(l =
 
 export type AccessLevels = Record<string, string>
 
+// 'all': ziet alle klanten, tenzij je per persoon beperkt.
+// 'chosen': ziet alleen de klanten die je per persoon aanvinkt — niets
+// aangevinkt is ook echt niets (zie NO_CLIENTS).
+export type ClientScope = 'all' | 'chosen'
+
 export interface AccessRole {
   id: string
   label: string
   color: string
   levels: AccessLevels
   sort_order: number
+  client_scope?: ClientScope
+  requires_end_date?: boolean
+}
+
+// Een lege klantenlijst betekent overal "alle klanten" — in de app
+// (hasClientAccess), in de RLS (user_has_client_access) en in de kalender.
+// Om "geen enkele klant" te kunnen zeggen zonder al die plekken te wijzigen,
+// staat er dan één id in de lijst die nooit bestaat. Het is een geldige uuid,
+// zodat een .in('id', clients) gewoon niets teruggeeft in plaats van te falen.
+export const NO_CLIENTS = '00000000-0000-0000-0000-000000000000'
+
+export function chosenClients(clients: unknown): string[] {
+  return Array.isArray(clients) ? clients.filter((c): c is string => typeof c === 'string' && c !== NO_CLIENTS) : []
 }
 
 function moduleByKey(key: string) {
@@ -283,6 +310,18 @@ export interface AccessInput {
 // De enige plek waar een rol een sleutellijst wordt. Wat de browser stuurt is
 // een rol en een paar afwijkingen; welke sleutels daaruit volgen beslist de
 // server, met de rol zoals die nú in de database staat.
+function resolveClients(role: AccessRole | null, prevRole: AccessRole | null, input: string[] | undefined, prev: unknown): string[] {
+  if (role?.client_scope === 'chosen') {
+    const picked = chosenClients(input !== undefined ? input : prev)
+    return picked.length > 0 ? picked : [NO_CLIENTS]
+  }
+  if (input !== undefined) return chosenClients(input)
+  // Van een rol met gekozen klanten naar een rol die alles ziet (een stagiair
+  // die medewerker wordt): de oude keuze was een rolkeuze, geen beperking.
+  if (prevRole?.client_scope === 'chosen') return []
+  return chosenClients(prev)
+}
+
 export function buildAppMetadata(
   existing: Record<string, unknown> | undefined,
   input: AccessInput,
@@ -301,7 +340,7 @@ export function buildAppMetadata(
     sections: untouchedLegacy && Array.isArray(prevPerms.sections)
       ? prevPerms.sections
       : sectionsForLevels(effectiveLevels(role?.levels, overrides)),
-    clients: input.clients !== undefined ? input.clients : (prevPerms.clients ?? []),
+    clients: resolveClients(role, roles.find(r => r.id === existing?.role) ?? null, input.clients, prevPerms.clients),
   }
 
   const planningColumn = input.planning_column !== undefined ? input.planning_column : prevPerms.planning_column

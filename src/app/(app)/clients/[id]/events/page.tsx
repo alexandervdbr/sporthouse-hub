@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
+import { PROJECTKALENDER_ENABLED } from '@/lib/features'
 import EventCalendar from '@/components/calendar/EventCalendar'
 import { isAdminUser } from '@/lib/auth-permissions'
 
@@ -9,6 +10,7 @@ interface Props {
 
 export default async function ClientEventsPage({ params }: Props) {
   const { id } = await params
+  if (!PROJECTKALENDER_ENABLED) redirect(`/clients/${id}`)
   const supabase = await createClient()
 
   const [{ data: client }, { data: { user } }] = await Promise.all([

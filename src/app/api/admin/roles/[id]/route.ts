@@ -11,7 +11,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!caller) return new Response('Forbidden', { status: 403 })
 
   const { id } = await params
-  const { label, color, levels } = await req.json()
+  const { label, color, levels, client_scope, requires_end_date } = await req.json()
 
   const admin = createAdminClient()
   const roles = await loadRoles(admin)
@@ -21,9 +21,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
   if (typeof label === 'string' && label.trim()) patch.label = label.trim()
   if (typeof color === 'string' && color) patch.color = color
+  if (client_scope === 'all' || client_scope === 'chosen') patch.client_scope = client_scope
+  if (typeof requires_end_date === 'boolean') patch.requires_end_date = requires_end_date
   if (levels && typeof levels === 'object') {
     // Alleen bekende onderdelen met een bestaand niveau gaan de database in.
-    const clean: AccessLevels = {}
+    // Wat er al stond blijft de basis: een onderdeel in de koelkast staat niet
+    // in het scherm, maar zijn niveau moet er nog zijn als het terugkomt.
+    const clean: AccessLevels = { ...role.levels }
     for (const m of ACCESS_MODULES) clean[m.key] = levelOf(levels as AccessLevels, m)
     patch.levels = clean
   }

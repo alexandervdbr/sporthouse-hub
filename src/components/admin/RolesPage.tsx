@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Loader2, Plus, Trash2, AlertCircle, Check, Info, X } from 'lucide-react'
 import {
   ACCESS_MODULES, ACCESS_GROUPS, ROLE_COLORS, levelOf,
-  type AccessLevels,
+  type AccessLevels, type ClientScope,
 } from '@/lib/access-roles'
 
 export interface RoleRow {
@@ -14,6 +14,8 @@ export interface RoleRow {
   levels: AccessLevels
   sort_order: number
   user_count: number
+  client_scope?: ClientScope
+  requires_end_date?: boolean
 }
 
 // Eén scherm voor alle rollen tegelijk: onderdelen onder elkaar, rollen naast
@@ -24,6 +26,7 @@ export default function RolesPage() {
   const [roles,   setRoles]   = useState<RoleRow[]>([])
   const [draft,   setDraft]   = useState<Record<string, AccessLevels>>({})
   const [labels,  setLabels]  = useState<Record<string, string>>({})
+  const [settings, setSettings] = useState<Record<string, RoleSettings>>({})
   const [loading, setLoading] = useState(true)
   const [saving,  setSaving]  = useState(false)
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
@@ -38,6 +41,7 @@ export default function RolesPage() {
       setRoles(rows)
       setDraft(Object.fromEntries(rows.map(x => [x.id, { ...x.levels }])))
       setLabels(Object.fromEntries(rows.map(x => [x.id, x.label])))
+      setSettings(Object.fromEntries(rows.map(x => [x.id, settingsOf(x)])))
     } else {
       setMessage({ kind: 'error', text: await r.text() })
     }
@@ -50,7 +54,9 @@ export default function RolesPage() {
     .filter(r => {
       const d = draft[r.id]
       const levelsChanged = ACCESS_MODULES.some(m => levelOf(d, m) !== levelOf(r.levels, m))
-      return levelsChanged || (labels[r.id] ?? r.label).trim() !== r.label
+      const set = settings[r.id] ?? settingsOf(r)
+      const settingsChanged = set.client_scope !== settingsOf(r).client_scope || set.requires_end_date !== settingsOf(r).requires_end_date
+      return levelsChanged || settingsChanged || (labels[r.id] ?? r.label).trim() !== r.label
     })
     .map(r => r.id)
   const affected = roles.filter(r => dirtyIds.includes(r.id)).reduce((n, r) => n + r.user_count, 0)
@@ -60,9 +66,15 @@ export default function RolesPage() {
     setMessage(null)
   }
 
+  function setSetting(roleId: string, patch: Partial<RoleSettings>) {
+    setSettings(prev => ({ ...prev, [roleId]: { ...prev[roleId], ...patch } }))
+    setMessage(null)
+  }
+
   function discard() {
     setDraft(Object.fromEntries(roles.map(x => [x.id, { ...x.levels }])))
     setLabels(Object.fromEntries(roles.map(x => [x.id, x.label])))
+    setSettings(Object.fromEntries(roles.map(x => [x.id, settingsOf(x)])))
     setMessage(null)
   }
 
@@ -74,7 +86,7 @@ export default function RolesPage() {
       const r = await fetch(`/api/admin/roles/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ levels: draft[id], ...(label ? { label } : {}) }),
+        body: JSON.stringify({ levels: draft[id], ...settings[id], ...(label ? { label } : {}) }),
       })
       if (!r.ok) {
         setMessage({ kind: 'error', text: await r.text() })
@@ -129,7 +141,7 @@ export default function RolesPage() {
         <div className="flex items-start gap-2 px-3 py-3 bg-amber-950/30 border border-amber-900/40 rounded-lg max-w-xl">
           <AlertCircle size={14} className="text-amber-400 mt-0.5 flex-shrink-0" />
           <p className="text-sm text-amber-300">
-            Er zijn nog geen rollen. Staat migratie 0064_access_roles.sql al in de database?
+            Er zijn nog geen rollen. Staan migraties 0064 en 0065 al in de database?
           </p>
         </div>
       ) : (
@@ -173,6 +185,29 @@ export default function RolesPage() {
               </tr>
             </thead>
             <tbody>
+              <tr>
+                <td colSpan={roles.length + 1} className="px-4 pt-4 pb-1.5 text-[10px] font-semibold text-zinc-600 uppercase tracking-widest sticky left-0">
+                  Account
+                </td>
+              </tr>
+              <SettingRow
+                label="Klanten"
+                hint="Alleen gekozen: deze rol ziet enkel de klanten die je per persoon aanvinkt — niets aangevinkt is niets."
+                roles={roles}
+                value={r => settings[r.id]?.client_scope ?? 'all'}
+                original={r => settingsOf(r).client_scope}
+                options={[{ key: 'all', label: 'Alle klanten' }, { key: 'chosen', label: 'Alleen gekozen' }]}
+                onChange={(id, v) => setSetting(id, { client_scope: v as ClientScope })}
+              />
+              <SettingRow
+                label="Einddatum verplicht"
+                hint="Bij uitnodigen moet je een einddatum invullen; op die dag wordt het account automatisch verwijderd."
+                roles={roles}
+                value={r => (settings[r.id]?.requires_end_date ? 'ja' : 'nee')}
+                original={r => (settingsOf(r).requires_end_date ? 'ja' : 'nee')}
+                options={[{ key: 'nee', label: 'Nee' }, { key: 'ja', label: 'Ja' }]}
+                onChange={(id, v) => setSetting(id, { requires_end_date: v === 'ja' })}
+              />
               {ACCESS_GROUPS.map(group => (
                 <GroupRows key={group} group={group} roles={roles} draft={draft} onChange={setLevel} />
               ))}
@@ -219,6 +254,50 @@ export default function RolesPage() {
         />
       )}
     </div>
+  )
+}
+
+interface RoleSettings {
+  client_scope: ClientScope
+  requires_end_date: boolean
+}
+
+function settingsOf(r: RoleRow): RoleSettings {
+  return { client_scope: r.client_scope ?? 'all', requires_end_date: r.requires_end_date ?? false }
+}
+
+function SettingRow({ label, hint, roles, value, original, options, onChange }: {
+  label: string
+  hint: string
+  roles: RoleRow[]
+  value: (r: RoleRow) => string
+  original: (r: RoleRow) => string
+  options: { key: string; label: string }[]
+  onChange: (roleId: string, value: string) => void
+}) {
+  return (
+    <tr className="border-t border-zinc-900 hover:bg-zinc-900/40">
+      <td className="px-4 py-1.5 sticky left-0 bg-zinc-950">
+        <span className="flex items-center gap-1.5 text-zinc-300">
+          {label}
+          <span title={hint} className="text-zinc-600 cursor-help"><Info size={11} /></span>
+        </span>
+      </td>
+      {roles.map(r => {
+        const v = value(r)
+        const changed = v !== original(r)
+        return (
+          <td key={r.id} className="px-2 py-1.5">
+            <select value={v} onChange={e => onChange(r.id, e.target.value)} aria-label={`${label} voor ${r.label}`}
+              className={`w-full px-2 py-1 rounded-md text-xs bg-zinc-900 border focus:outline-none transition-colors ${
+                changed ? 'border-amber-600/70 text-amber-200' : v === options[0].key ? 'border-zinc-800 text-zinc-600' : 'border-zinc-700 text-zinc-200'
+              }`}>
+              {options.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+            </select>
+          </td>
+        )
+      })}
+    </tr>
   )
 }
 

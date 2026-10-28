@@ -15,7 +15,9 @@ export async function requireAdmin() {
 export async function loadRoles(admin: SupabaseClient): Promise<AccessRole[]> {
   const { data, error } = await admin
     .from('access_roles')
-    .select('id, label, color, levels, sort_order')
+    // * en niet een vaste lijst: zo werkt dit ook als migratie 0065 (de
+    // kolommen client_scope en requires_end_date) nog niet is uitgevoerd.
+    .select('*')
     .order('sort_order')
   if (error) throw new Error(error.message)
   return (data ?? []) as AccessRole[]

@@ -36,6 +36,8 @@ export async function POST(req: Request) {
     label: name,
     color: color || ROLE_COLORS[roles.length % ROLE_COLORS.length],
     levels: source?.levels ?? allLowest(),
+    client_scope: source?.client_scope ?? 'all',
+    requires_end_date: source?.requires_end_date ?? false,
     sort_order: Math.max(0, ...roles.map(r => r.sort_order)) + 10,
   }
   const { error } = await admin.from('access_roles').insert(row)

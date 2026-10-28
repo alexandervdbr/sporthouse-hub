@@ -19,6 +19,13 @@ export async function POST(req: Request) {
     const { data: { user } } = await admin.auth.admin.getUserById(id)
     if (!user) continue
     const meta = buildAppMetadata(user.app_metadata, { access_role }, roles)
+    const role = roles.find(r => r.id === access_role)!
+    if (role.requires_end_date && !meta.expires_at) {
+      return new Response(
+        `${updated > 0 ? `Na ${updated} aanpassing(en) gestopt: ` : ''}${user.email} heeft nog geen einddatum — een ${role.label.toLowerCase()} heeft er een nodig. Stel die eerst in bij de persoon.`,
+        { status: 400 },
+      )
+    }
     if (locksOutCaller(caller, id, meta)) {
       return new Response(`Na ${updated} aanpassing(en) gestopt: zonder Beheer zou je jezelf buitensluiten`, { status: 400 })
     }

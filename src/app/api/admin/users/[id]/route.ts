@@ -21,6 +21,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!existing) return new Response('Gebruiker niet gevonden', { status: 404 })
   const updated = buildAppMetadata(existing.app_metadata, { access_role, overrides, clients, planning_column, credentials }, roles)
   if (expires_at !== undefined) updated.expires_at = expires_at || null
+  const finalRole = roles.find(r => r.id === updated.role)
+  if (finalRole?.requires_end_date && !updated.expires_at) {
+    return new Response(`Een ${finalRole.label.toLowerCase()} heeft een einddatum nodig`, { status: 400 })
+  }
   if (locksOutCaller(caller, id, updated)) {
     return new Response('Zonder Beheer sluit je jezelf buiten — kies een rol met Beheer', { status: 400 })
   }

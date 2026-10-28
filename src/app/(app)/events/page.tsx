@@ -1,10 +1,13 @@
 import { createClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
+import { PROJECTKALENDER_ENABLED } from '@/lib/features'
 import EventCalendar from '@/components/calendar/EventCalendar'
 import { isAdminUser } from '@/lib/auth-permissions'
 
 export const metadata = { title: 'Projectkalender — Sporthouse' }
 
 export default async function EventsPage() {
+  if (!PROJECTKALENDER_ENABLED) redirect('/dashboard')
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 

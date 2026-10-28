@@ -2,9 +2,11 @@ import { describe, it, expect } from 'vitest'
 import {
   ACCESS_MODULES, ALL_SECTION_KEYS, sectionsForLevels, effectiveLevels, cleanOverrides,
   levelsFromSections, allHighest, allLowest, slugifyRoleId, buildAppMetadata, locksOutCaller,
+  NO_CLIENTS, chosenClients,
   type AccessRole,
 } from '@/lib/access-roles'
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { ADMIN_EMAILS, hasClientAccess } from '@/lib/auth-permissions'
+import { PROJECTKALENDER_ENABLED } from '@/lib/features'
 
 // De vakjes zoals ze in het beheerscherm stonden vóór de rollen. Elke sleutel
 // hier wordt ergens in de app of de RLS gecontroleerd; als er één niet meer
@@ -29,9 +31,13 @@ const OUDE_VAKJES = [
   'mijn-gedacht', 'mijn_gedacht_types_beheren',
 ]
 
+// Zolang de Projectkalender in de koelkast staat, geeft geen enkel niveau
+// zijn sleutels; de rest moet er allemaal nog zijn.
+const BEREIKBAAR = PROJECTKALENDER_ENABLED ? OUDE_VAKJES : OUDE_VAKJES.filter(k => !k.startsWith('projectkalender'))
+
 describe('catalogus', () => {
   it('bereikt exact de oude vakjes, elk één keer', () => {
-    expect([...ALL_SECTION_KEYS].sort()).toEqual([...OUDE_VAKJES].sort())
+    expect([...ALL_SECTION_KEYS].sort()).toEqual([...BEREIKBAAR].sort())
     expect(new Set(ALL_SECTION_KEYS).size).toBe(ALL_SECTION_KEYS.length)
   })
 
@@ -44,6 +50,11 @@ describe('catalogus', () => {
 })
 
 describe('sectionsForLevels', () => {
+  it('geeft reserveren zonder andermans reservaties te mogen verwijderen', () => {
+    expect(sectionsForLevels({ materiaal: 'reserveren' })).not.toContain('reservering_verwijderen')
+    expect(sectionsForLevels({ materiaal: 'beheren' })).toContain('reservering_verwijderen')
+  })
+
   it('telt de lagere niveaus mee', () => {
     const s = sectionsForLevels({ materiaal: 'reserveren' })
     expect(s).toContain('materiaal')
@@ -52,7 +63,7 @@ describe('sectionsForLevels', () => {
   })
 
   it('geeft alles bij alle hoogste niveaus en niets bij de laagste', () => {
-    expect([...sectionsForLevels(allHighest())].sort()).toEqual([...OUDE_VAKJES].sort())
+    expect([...sectionsForLevels(allHighest())].sort()).toEqual([...BEREIKBAAR].sort())
     expect(sectionsForLevels(allLowest())).toEqual([])
   })
 
@@ -82,7 +93,7 @@ describe('afwijkingen per persoon', () => {
 
 describe('levelsFromSections', () => {
   it('leest een oude sleutellijst terug als niveaus', () => {
-    const lv = levelsFromSections(['materiaal', 'materiaal_reserveren', 'reservering_verwijderen', 'beheer'])
+    const lv = levelsFromSections(['materiaal', 'materiaal_reserveren', 'beheer'])
     expect(lv.materiaal).toBe('reserveren')
     expect(lv.beheer).toBe('aan')
     expect(lv.planning).toBe('geen')
@@ -156,5 +167,45 @@ describe('locksOutCaller', () => {
   it('laat het toe voor iemand anders of voor een vaste admin', () => {
     expect(locksOutCaller({ id: 'a', email: 'x@y.be' }, 'b', zonderBeheer)).toBe(false)
     expect(locksOutCaller({ id: 'a', email: ADMIN_EMAILS[0] }, 'a', zonderBeheer)).toBe(false)
+  })
+})
+
+describe('klanten per rol', () => {
+  const roles: AccessRole[] = [
+    { id: 'stagiair', label: 'Stagiair', color: '#000', sort_order: 1, levels: {}, client_scope: 'chosen', requires_end_date: true },
+    { id: 'medewerker', label: 'Medewerker', color: '#000', sort_order: 2, levels: {}, client_scope: 'all' },
+  ]
+  const clientsOf = (m: Record<string, unknown>) => (m.permissions as { clients: string[] }).clients
+
+  it('geeft een stagiair zonder gekozen klanten echt geen enkele klant', () => {
+    const meta = buildAppMetadata({}, { access_role: 'stagiair', clients: [] }, roles)
+    expect(clientsOf(meta)).toEqual([NO_CLIENTS])
+    // Dezelfde vraag die elke klantpagina en route stelt.
+    expect(hasClientAccess({ app_metadata: meta as never }, 'een-klant')).toBe(false)
+  })
+
+  it('geeft een stagiair precies de gekozen klanten', () => {
+    const meta = buildAppMetadata({}, { access_role: 'stagiair', clients: ['k1', NO_CLIENTS] }, roles)
+    expect(clientsOf(meta)).toEqual(['k1'])
+    expect(hasClientAccess({ app_metadata: meta as never }, 'k1')).toBe(true)
+    expect(hasClientAccess({ app_metadata: meta as never }, 'k2')).toBe(false)
+  })
+
+  it('laat een stagiair die medewerker wordt weer alles zien', () => {
+    const stagiair = buildAppMetadata({}, { access_role: 'stagiair', clients: ['k1'] }, roles)
+    const medewerker = buildAppMetadata(stagiair, { access_role: 'medewerker' }, roles)
+    expect(clientsOf(medewerker)).toEqual([])
+  })
+
+  it('houdt een bewuste beperking bij een medewerker', () => {
+    const meta = buildAppMetadata({}, { access_role: 'medewerker', clients: ['k1'] }, roles)
+    expect(clientsOf(meta)).toEqual(['k1'])
+    const again = buildAppMetadata(meta, {}, roles)
+    expect(clientsOf(again)).toEqual(['k1'])
+  })
+
+  it('toont het onbestaande id nooit als gekozen klant', () => {
+    expect(chosenClients([NO_CLIENTS])).toEqual([])
+    expect(chosenClients(undefined)).toEqual([])
   })
 })
