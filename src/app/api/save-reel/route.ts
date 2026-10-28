@@ -5,6 +5,7 @@ import { fetchInstagramOembed, InstagramOembedError, normalizeInstagramUrl } fro
 import { classifyReel } from '@/lib/reel-classification'
 import { hostThumbnailOnDrive } from '@/lib/reel-thumbnail-storage'
 import { getReelMediaTypes } from '@/lib/reel-media-types'
+import { isTeamToken } from '@/lib/reel-team-token'
 
 // Called by the iOS Share Sheet shortcut (and later the Android PWA share
 // target) — no Supabase session, just a per-user bearer token. Excluded from
@@ -18,13 +19,20 @@ export async function POST(request: NextRequest) {
 
   const admin = createAdminClient()
 
-  const { data: tokenRow } = await admin
-    .from('user_api_tokens')
-    .select('user_id')
-    .eq('token', token)
-    .maybeSingle()
+  // Eerst de teamtoken (gedeelde snelkoppeling, staat in Vercel), dan een
+  // persoonlijke uit de database. Een reel via de teamtoken heeft geen
+  // eigenaar — het is gedeelde inspiratie, zie ook migratie 0023.
+  let userId: string | null = null
+  if (!isTeamToken(token)) {
+    const { data: tokenRow } = await admin
+      .from('user_api_tokens')
+      .select('user_id')
+      .eq('token', token)
+      .maybeSingle()
 
-  if (!tokenRow) return Response.json({ status: 'error', message: 'Unauthorized' }, { status: 401 })
+    if (!tokenRow) return Response.json({ status: 'error', message: 'Unauthorized' }, { status: 401 })
+    userId = tokenRow.user_id
+  }
 
   let body: { url?: string; note?: string }
   try {
@@ -91,7 +99,7 @@ export async function POST(request: NextRequest) {
   const { data: row, error } = await admin
     .from('reel_inspiration')
     .insert({
-      user_id: tokenRow.user_id,
+      user_id: userId,
       url,
       thumbnail_url: oembed.thumbnailUrl,
       caption: oembed.title,
