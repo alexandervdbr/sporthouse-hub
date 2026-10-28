@@ -13,6 +13,22 @@
 //
 // Geen server-only imports: het beheerscherm gebruikt dezelfde catalogus om
 // de keuzelijsten te tonen.
+//
+// ── Een nieuw recht toevoegen ────────────────────────────────────────────────
+// 1. Controleer het in de code met hasSection(user, 'mijn_nieuwe_sleutel')
+//    (src/lib/auth-permissions.ts). Admins mogen altijd alles; daar hoef je
+//    niets voor te doen.
+// 2. Zet de sleutel hieronder in ALL_MODULES: als extra niveau op een
+//    bestaand onderdeel (bv. 'beheren' op Materiaal), of als nieuw onderdeel
+//    met AAN_UIT('sleutel') of een eigen ladder. Kies group om te bepalen
+//    onder welke kop hij in het scherm staat.
+// 3. Klaar. Elke bestaande rol krijgt automatisch het laagste niveau, dus de
+//    nieuwe feature is uit voor iedereen behalve admins tot je hem in
+//    Beheer → Rollen aanzet. Geen migratie, geen ander scherm.
+//
+// src/lib/__tests__/access-coverage.test.ts faalt als stap 2 vergeten is
+// (een sleutel die de code controleert maar die niemand kan krijgen), of als
+// een sleutel in de catalogus nergens meer gecontroleerd wordt.
 
 import { ADMIN_EMAILS } from '@/lib/auth-permissions'
 import { PROJECTKALENDER_ENABLED } from '@/lib/features'
@@ -170,6 +186,9 @@ const ALL_MODULES: AccessModule[] = [
 // en komen terug zodra het onderdeel weer aan staat.
 const FROZEN_MODULES = new Set(PROJECTKALENDER_ENABLED ? [] : ['projectkalender'])
 export const ACCESS_MODULES: AccessModule[] = ALL_MODULES.filter(m => !FROZEN_MODULES.has(m.key))
+export const FROZEN_SECTION_KEYS = ALL_MODULES
+  .filter(m => FROZEN_MODULES.has(m.key))
+  .flatMap(m => m.levels.flatMap(l => l.adds))
 
 export const ACCESS_GROUPS = [...new Set(ACCESS_MODULES.map(m => m.group))]
 
