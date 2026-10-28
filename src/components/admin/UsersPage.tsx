@@ -4,11 +4,16 @@ import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import {
   Loader2, UserPlus, Search, X, AlertCircle,
-  Shield, RefreshCw, ChevronRight, Check, UserCheck, Eye,
+  Shield, RefreshCw, ChevronRight, ChevronDown, Check, UserCheck, Eye, RotateCcw,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import type { Person } from '@/lib/planning-config'
 import { usePreview } from '@/lib/preview-context'
+import {
+  ACCESS_MODULES, ACCESS_GROUPS, effectiveLevels, levelOf, levelsFromSections, sectionsForLevels,
+  type AccessLevels,
+} from '@/lib/access-roles'
+import type { RoleRow } from '@/components/admin/RolesPage'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -22,6 +27,8 @@ interface User {
   email: string
   full_name: string
   permissions: Permissions | null
+  access_role: string | null
+  role_overrides: AccessLevels
   expires_at: string | null
   last_sign_in: string | null
   created_at: string
@@ -54,213 +61,137 @@ const CATEGORY_LABELS: Record<string, string> = {
   podcast: 'Podcasts',
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Rollen ───────────────────────────────────────────────────────────────────
+// Welke rollen er zijn en wat ze mogen, staat in Beheer → Rollen. Hier kies je
+// er per persoon één, plus eventueel een paar afwijkingen.
 
-const SECTION_GROUPS = [
-  {
-    title: 'Beheer',
-    sections: [
-      { key: 'beheer', label: 'Beheerpagina & gebruikersbeheer' },
-    ],
-  },
-  {
-    title: 'Hoofdnavigatie',
-    sections: [
-      { key: 'dashboard',       label: 'Dashboard' },
-      { key: 'projecten',       label: 'Projecten' },
-      { key: 'team',            label: 'Team' },
-      { key: 'chat',            label: 'Chat' },
-      { key: 'vergaderingen',   label: 'Vergaderingen' },
-      { key: 'welkom_stagiair', label: 'Welkom stagiair' },
-      { key: 'googlephotos',    label: 'Google Photos' },
-    ],
-  },
-  {
-    title: 'Planning',
-    sections: [
-      { key: 'planning',         label: 'Planning bekijken' },
-      { key: 'planning_volledig', label: 'Planning bewerken (zie noot bij Planning kolom)' },
-      { key: 'planning_statistieken', label: 'Statistieken bekijken (Planning)' },
-    ],
-  },
-  {
-    title: 'Kalenders',
-    sections: [
-      { key: 'projectkalender',             label: 'Projectkalender bekijken' },
-      { key: 'projectkalender_toevoegen',   label: 'Projecten toevoegen' },
-      { key: 'projectkalender_verwijderen', label: 'Projecten verwijderen' },
-      { key: 'contentkalender_toevoegen',   label: 'Contentkalender — posts toevoegen' },
-      { key: 'contentkalender_verwijderen', label: 'Contentkalender — posts verwijderen' },
-    ],
-  },
-  {
-    title: 'Team',
-    sections: [
-      { key: 'team_toevoegen',  label: 'Teamleden toevoegen' },
-      { key: 'team_verwijderen', label: 'Teamleden verwijderen' },
-    ],
-  },
-  {
-    title: 'Freelancers',
-    sections: [
-      { key: 'freelancers', label: 'Freelancer tab bekijken & beheren' },
-    ],
-  },
-  {
-    title: 'Klantbestanden',
-    sections: [
-      { key: 'bestanden_verwijderen', label: 'Bestanden verwijderen (alle klanten)' },
-    ],
-  },
-  {
-    title: 'Kennisbank',
-    sections: [
-      { key: 'kennisbank_bewerken', label: 'Kennisbank invullen & bewerken' },
-    ],
-  },
-  {
-    title: 'Pré-assist',
-    sections: [
-      { key: 'preassist',            label: 'Pré-assist bekijken' },
-      { key: 'preassist_beheer',     label: 'Edities toevoegen / verwijderen' },
-      { key: 'preassist_toevoegen',  label: 'Content toevoegen' },
-      { key: 'preassist_verwijderen', label: 'Content verwijderen' },
-      { key: 'preassist_downloaden', label: 'Inzendingen downloaden' },
-    ],
-  },
-  {
-    title: 'Materiaal',
-    sections: [
-      { key: 'materiaal',               label: 'Materiaal bekijken' },
-      { key: 'stats_materiaal',         label: 'Statistieken bekijken' },
-      { key: 'materiaal_toevoegen',     label: 'Materiaal toevoegen' },
-      { key: 'materiaal_verwijderen',   label: 'Materiaal verwijderen' },
-      { key: 'materiaal_reserveren',    label: 'Reserveren' },
-      { key: 'reservering_verwijderen', label: 'Reserveringen verwijderen' },
-      { key: 'materiaal_extern',        label: 'Extern (externe verhuur)' },
-    ],
-  },
-  {
-    title: 'Wachtwoorden',
-    sections: [
-      { key: 'wachtwoorden_bekijken',    label: 'Bekijken' },
-      { key: 'wachtwoorden_toevoegen',   label: 'Toevoegen' },
-      { key: 'wachtwoorden_verwijderen', label: 'Verwijderen' },
-    ],
-  },
-  {
-    title: 'Financiën',
-    sections: [
-      { key: 'financien_bekijken', label: 'Documenten bekijken' },
-      { key: 'financien_beheren',  label: 'Documenten uploaden & verwijderen' },
-    ],
-  },
-  {
-    title: 'Administratie',
-    sections: [
-      { key: 'administratie_bekijken', label: 'Documenten bekijken' },
-      { key: 'administratie_beheren',  label: 'Documenten uploaden & verwijderen' },
-    ],
-  },
-  {
-    title: 'Copy Generator',
-    sections: [
-      { key: 'stijlvoorbeelden', label: 'Stijlvoorbeelden toevoegen & verwijderen' },
-    ],
-  },
-  {
-    title: 'Mijn gedacht!',
-    sections: [
-      { key: 'mijn-gedacht', label: 'Toegang tot Mijn gedacht!' },
-      { key: 'mijn_gedacht_types_beheren', label: 'Nieuwe types aanmaken (bv. "3D")' },
-    ],
-  },
-]
+function useRoles() {
+  const [roles, setRoles] = useState<RoleRow[]>([])
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/admin/roles')
+      .then(r => (r.ok ? r.json() : []))
+      .then((rows: RoleRow[]) => { if (!cancelled) { setRoles(rows); setReady(true) } })
+      .catch(() => { if (!cancelled) setReady(true) })
+    return () => { cancelled = true }
+  }, [])
+  return { roles, ready }
+}
 
-const SECTIONS = SECTION_GROUPS.flatMap(g => g.sections)
+function RolePicker({ roles, value, onChange }: { roles: RoleRow[]; value: string | null; onChange: (id: string) => void }) {
+  if (roles.length === 0) {
+    return <p className="text-xs text-amber-400">Nog geen rollen — maak ze aan onder Beheer → Rollen.</p>
+  }
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {roles.map(r => {
+        const active = r.id === value
+        return (
+          <button
+            key={r.id}
+            type="button"
+            onClick={() => onChange(r.id)}
+            aria-pressed={active}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all"
+            style={{
+              backgroundColor: active ? `${r.color}28` : `${r.color}0d`,
+              border: `1px solid ${active ? r.color : `${r.color}40`}`,
+              color: active ? r.color : `${r.color}bb`,
+            }}
+          >
+            {active && <Check size={11} strokeWidth={3} />}
+            {r.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
 
-// ─── Role presets ─────────────────────────────────────────────────────────────
-// Update the `sections` arrays below to match the exact permissions per role.
+function RoleBadge({ role, overrides }: { role: RoleRow | undefined; overrides: number }) {
+  if (!role) return null
+  return (
+    <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full"
+      style={{ color: role.color, backgroundColor: `${role.color}18`, border: `1px solid ${role.color}45` }}>
+      {role.label}
+      {overrides > 0 && <span className="font-normal opacity-80">+{overrides}</span>}
+    </span>
+  )
+}
 
-const ROLE_PRESETS = [
-  {
-    id: 'stagiair',
-    label: 'Stagiair',
-    color: '#f59e0b',
-    sections: [
-      'dashboard',
-      'welkom_stagiair',
-      'team',
-      'chat',
-      // Pré-assist is een inzamelbak waar iedereen aan meedoet — bekijken en
-      // indienen zit daarom in elke rol. Edities aanmaken en andermans
-      // inzendingen verwijderen blijft bij de admins.
-      'preassist',
-      'preassist_toevoegen',
-    ],
-  },
-  {
-    id: 'creator',
-    label: 'Creator',
-    color: '#3b82f6',
-    sections: [
-      'dashboard',
-      'projecten',
-      'team',
-      'chat',
-      'vergaderingen',
-      'googlephotos',
-      'planning',
-      'projectkalender',
-      'projectkalender_toevoegen',
-      'contentkalender_toevoegen',
-      'materiaal',
-      'materiaal_reserveren',
-      'reservering_verwijderen',
-      'wachtwoorden_bekijken',
-      'wachtwoorden_toevoegen',
-      'stijlvoorbeelden',
-      'mijn-gedacht',
-      'mijn_gedacht_types_beheren',
-      'preassist',
-      'preassist_toevoegen',
-    ],
-  },
-  {
-    id: 'medewerker',
-    label: 'Medewerker',
-    color: '#06b6d4',
-    sections: [
-      'dashboard',
-      'projecten',
-      'team',
-      'chat',
-      'vergaderingen',
-      'planning',
-      'planning_volledig',
-      'projectkalender',
-      'projectkalender_toevoegen',
-      'contentkalender_toevoegen',
-      'googlephotos',
-      'materiaal',
-      'materiaal_reserveren',
-      'preassist',
-      'preassist_toevoegen',
-    ],
-  },
-  {
-    id: 'admin',
-    label: 'Admin',
-    color: '#22c55e',
-    sections: SECTIONS.map(s => s.key),
-  },
-  {
-    id: 'freelancer',
-    label: 'Freelancer',
-    color: '#a855f7',
-    sections: [] as string[],
-  },
-]
+// Afwijkingen van de rol voor één persoon. Ingeklapt zolang er geen zijn —
+// de bedoeling is dat je hier zelden moet komen.
+function OverridesEditor({ roleLevels, overrides, onChange }: {
+  roleLevels: AccessLevels | undefined
+  overrides: AccessLevels
+  onChange: (next: AccessLevels) => void
+}) {
+  const count = Object.keys(overrides).length
+  const [open, setOpen] = useState(count > 0)
+  const effective = effectiveLevels(roleLevels, overrides)
+
+  function set(moduleKey: string, level: string) {
+    const next = { ...overrides }
+    const mod = ACCESS_MODULES.find(m => m.key === moduleKey)!
+    if (levelOf(roleLevels, mod) === level) delete next[moduleKey]
+    else next[moduleKey] = level
+    onChange(next)
+  }
+
+  return (
+    <div>
+      <button type="button" onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors">
+        {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+        Aanpassingen voor deze persoon
+        {count > 0 && (
+          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-900/40 text-amber-300">{count}</span>
+        )}
+      </button>
+      {open && (
+        <div className="mt-3 space-y-4">
+          {count > 0 && (
+            <button type="button" onClick={() => onChange({})}
+              className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300">
+              <RotateCcw size={10} /> Alles terug naar de rol
+            </button>
+          )}
+          {ACCESS_GROUPS.map(group => (
+            <div key={group}>
+              <p className="text-[10px] font-medium text-zinc-600 uppercase tracking-widest mb-1.5">{group}</p>
+              <div className="space-y-1.5 pl-2 border-l border-zinc-800">
+                {ACCESS_MODULES.filter(m => m.group === group).map(m => {
+                  const isOverride = m.key in overrides
+                  const roleValue = levelOf(roleLevels, m)
+                  return (
+                    <div key={m.key} className="flex items-center gap-2">
+                      <span className="text-xs text-zinc-400 flex-1 min-w-0 truncate" title={m.hint}>{m.label}</span>
+                      <select
+                        value={effective[m.key]}
+                        onChange={e => set(m.key, e.target.value)}
+                        aria-label={m.label}
+                        className={`w-40 px-2 py-1 rounded-md text-xs bg-zinc-900 border focus:outline-none ${
+                          isOverride ? 'border-amber-600/70 text-amber-200' : 'border-zinc-800 text-zinc-400'
+                        }`}
+                      >
+                        {m.levels.map(l => (
+                          <option key={l.key} value={l.key}>
+                            {l.label}{l.key === roleValue ? ' (rol)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 interface TeamContactRow {
   id: string
@@ -373,43 +304,15 @@ function formatDate(iso: string | null) {
   return d.toLocaleDateString('nl-BE', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-// ─── Role Preset Selector ─────────────────────────────────────────────────────
-
-function RolePresets({ current, onSelect }: { current: string[]; onSelect: (sections: string[]) => void }) {
-  return (
-    <div className="flex flex-wrap gap-1.5 mb-3">
-      {ROLE_PRESETS.map(preset => {
-        const isActive = preset.sections.length === current.length &&
-          preset.sections.every(s => current.includes(s))
-        return (
-          <button
-            key={preset.id}
-            type="button"
-            onClick={() => onSelect(preset.sections)}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-all"
-            style={{
-              backgroundColor: isActive ? `${preset.color}28` : `${preset.color}10`,
-              border: `1px solid ${isActive ? preset.color : `${preset.color}40`}`,
-              color: isActive ? preset.color : `${preset.color}cc`,
-            }}
-          >
-            {preset.label}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
 // ─── Invite Modal ─────────────────────────────────────────────────────────────
 
-function InviteModal({ clients, onClose, onInvited }: { clients: ClientOption[]; onClose: () => void; onInvited: () => void }) {
-  const allSections = SECTIONS.map(s => s.key)
+function InviteModal({ clients, roles, onClose, onInvited }: { clients: ClientOption[]; roles: RoleRow[]; onClose: () => void; onInvited: () => void }) {
   const [email,           setEmail]           = useState('')
   const [name,            setName]            = useState('')
   const [phone,           setPhone]           = useState('')
   const [role,            setRole]            = useState('')
-  const [sections,        setSections]        = useState<string[]>([])
+  const [accessRole,      setAccessRole]      = useState<string | null>(null)
+  const [advanced,        setAdvanced]        = useState(false)
   const [planningColumn,  setPlanningColumn]  = useState('')
   const roster = usePlanningRoster()
   const legacyColumn = legacyColumnOption(planningColumn)
@@ -419,23 +322,20 @@ function InviteModal({ clients, onClose, onInvited }: { clients: ClientOption[];
   const [error,           setError]           = useState('')
   const [success,         setSuccess]         = useState(false)
 
-  function toggleSection(key: string) {
-    setSections(prev => prev.includes(key) ? prev.filter(s => s !== key) : [...prev, key])
-  }
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!email.trim()) { setError('Vul een e-mailadres in.'); return }
+    if (!accessRole) { setError('Kies een rol.'); return }
     setSaving(true); setError('')
-    const permissions: Permissions = {
-      sections,
-      clients: restrictClients ? clientIds : [],
-      ...(planningColumn ? { planning_column: planningColumn } : {}),
-    }
     const r = await fetch('/api/admin/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, full_name: name, phone, role, permissions }),
+      body: JSON.stringify({
+        email, full_name: name, phone, role,
+        access_role: accessRole,
+        clients: restrictClients ? clientIds : [],
+        planning_column: planningColumn || null,
+      }),
     })
     if (!r.ok) { setError(await r.text()); setSaving(false); return }
     setSuccess(true); setSaving(false); onInvited()
@@ -499,28 +399,18 @@ function InviteModal({ clients, onClose, onInvited }: { clients: ClientOption[];
                 </span>
               </div>
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs text-zinc-500 uppercase tracking-wider">Toegang</label>
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => setSections(allSections)} className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors">Alles</button>
-                    <span className="text-zinc-700">·</span>
-                    <button type="button" onClick={() => setSections([])} className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors">Geen</button>
-                  </div>
-                </div>
-                <RolePresets current={sections} onSelect={setSections} />
-                <div className="space-y-4 px-1">
-                  {SECTION_GROUPS.map(group => (
-                    <div key={group.title}>
-                      <p className="text-[10px] font-medium text-zinc-600 uppercase tracking-widest mb-2">{group.title}</p>
-                      <div className="space-y-2 pl-2 border-l border-zinc-800">
-                        {group.sections.map(s => (
-                          <Checkbox key={s.key} checked={sections.includes(s.key)} onChange={() => toggleSection(s.key)} label={s.label} />
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <label className="block text-xs text-zinc-500 uppercase tracking-wider mb-2">Rol *</label>
+                <RolePicker roles={roles} value={accessRole} onChange={setAccessRole} />
+                <p className="text-[10px] text-zinc-600 mt-2">
+                  Wat elke rol mag, stel je in onder Rollen. Uitzonderingen voor deze persoon kan je na het uitnodigen toevoegen.
+                </p>
               </div>
+              <button type="button" onClick={() => setAdvanced(a => !a)}
+                className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors">
+                {advanced ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                Geavanceerd: planningkolom en klantentoegang
+              </button>
+              {advanced && (<>
               <div>
                 <label className="block text-xs text-zinc-500 uppercase tracking-wider mb-1.5">Planning kolom</label>
                 <p className="text-[10px] text-zinc-600 mb-1.5">
@@ -529,7 +419,7 @@ function InviteModal({ clients, onClose, onInvited }: { clients: ClientOption[];
                 </p>
                 <select value={planningColumn} onChange={e => setPlanningColumn(e.target.value)}
                   className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 focus:outline-none focus:border-zinc-500 transition-colors">
-                  <option value="">— Volledige planning (of via checkbox) —</option>
+                  <option value="">— Volgens de rol —</option>
                   <option value="__none__">— Mag niets bewerken —</option>
                   {legacyColumn && (
                     <option value={legacyColumn}>{legacyColumn} (oude toekenning)</option>
@@ -581,6 +471,7 @@ function InviteModal({ clients, onClose, onInvited }: { clients: ClientOption[];
                   </div>
                 )}
               </div>
+              </>)}
               {error && (
                 <div className="flex items-start gap-2 px-3 py-2.5 bg-red-950/40 border border-red-900/40 rounded-lg">
                   <AlertCircle size={13} className="text-red-400 mt-0.5 flex-shrink-0" />
@@ -622,22 +513,43 @@ function Checkbox({ checked, onChange, label }: { checked: boolean; onChange: (v
   )
 }
 
+// Kleiner vakje voor de selectie in de lijst — zonder label ernaast.
+function MiniCheck({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+  return (
+    <button type="button" role="checkbox" aria-checked={checked} aria-label={label}
+      onClick={e => { e.stopPropagation(); onChange(!checked) }}
+      className="tap-target w-4 h-4 rounded flex items-center justify-center transition-all"
+      style={checked
+        ? { backgroundColor: '#3A913F', border: '1px solid #3A913F' }
+        : { backgroundColor: 'transparent', border: '1px solid #3f3f46' }}>
+      {checked && <Check size={10} className="text-white" strokeWidth={3} />}
+    </button>
+  )
+}
+
 // ─── Permissions Panel ────────────────────────────────────────────────────────
 
 function PermissionsPanel({
-  user, photoUrl, clients, onClose, onSaved,
+  user, photoUrl, clients, roles, onClose, onSaved, onDeleted,
 }: {
   user: User
   photoUrl?: string | null
   clients: ClientOption[]
+  roles: RoleRow[]
   onClose: () => void
-  onSaved: (userId: string, permissions: Permissions | null, expiresAt?: string | null) => void
+  onSaved: () => void
+  onDeleted: (userId: string) => void
 }) {
-  const allSections = SECTIONS.map(s => s.key)
-
-  const [sections,       setSections]       = useState<string[]>(
-    user.permissions ? user.permissions.sections : allSections
+  // Een account van vóór de rollen heeft alleen een sleutellijst. Die lezen
+  // we terug als afwijkingen zonder rol, zodat het scherm toont wat hij nu
+  // mag; zodra je een rol kiest, worden het afwijkingen op die rol.
+  const legacyLevels = !user.access_role && user.permissions ? levelsFromSections(user.permissions.sections) : null
+  const [accessRole, setAccessRole] = useState<string | null>(user.access_role)
+  const [overrides,  setOverrides]  = useState<AccessLevels>(
+    user.access_role ? (user.role_overrides ?? {}) : (legacyLevels ?? {})
   )
+  const role = roles.find(r => r.id === accessRole)
+  const sections = sectionsForLevels(effectiveLevels(role?.levels, overrides))
   const [planningColumn, setPlanningColumn] = useState<string>(user.permissions?.planning_column ?? '')
   const roster = usePlanningRoster()
   const legacyColumn = legacyColumnOption(planningColumn)
@@ -673,12 +585,17 @@ function PermissionsPanel({
     })
   }, [])
 
-  function toggleSection(key: string) {
-    setSections(prev => prev.includes(key) ? prev.filter(s => s !== key) : [...prev, key])
-  }
-
-  function toggleAllSections(val: boolean) {
-    setSections(val ? allSections : [])
+  // Rol wisselen houdt alleen de afwijkingen die ook ten opzichte van de
+  // nieuwe rol nog iets veranderen.
+  function chooseRole(id: string) {
+    const next = roles.find(r => r.id === id)
+    const kept: AccessLevels = {}
+    const current = effectiveLevels(role?.levels, overrides)
+    for (const m of ACCESS_MODULES) {
+      if (m.key in overrides && levelOf(next?.levels, m) !== current[m.key]) kept[m.key] = current[m.key]
+    }
+    setAccessRole(id)
+    setOverrides(accessRole ? kept : {})
   }
 
   function toggleCred(id: string) {
@@ -687,21 +604,22 @@ function PermissionsPanel({
 
   async function handleSave() {
     setSaving(true); setError(''); setSaved(false)
-    const hasBekijken = sections.includes('wachtwoorden_bekijken')
-    const permissions: Permissions = {
-      sections,
-      clients: restrictClients ? clientIds : [],
-      ...(planningColumn ? { planning_column: planningColumn } : {}),
-      ...(hasBekijken ? { credentials: credIds } : {}),
-    }
+    if (!accessRole) { setError('Kies een rol.'); setSaving(false); return }
     const r = await fetch(`/api/admin/users/${user.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ permissions, expires_at: expiresAt || null }),
+      body: JSON.stringify({
+        access_role: accessRole,
+        overrides,
+        clients: restrictClients ? clientIds : [],
+        planning_column: planningColumn || null,
+        credentials: sections.includes('wachtwoorden_bekijken') ? credIds : null,
+        expires_at: expiresAt || null,
+      }),
     })
     if (!r.ok) { setError(await r.text()); setSaving(false); return }
     setSaved(true); setSaving(false)
-    onSaved(user.id, permissions, expiresAt || null)
+    onSaved()
     setTimeout(() => setSaved(false), 2000)
   }
 
@@ -709,8 +627,7 @@ function PermissionsPanel({
     setDeleting(true)
     const r = await fetch(`/api/admin/users/${user.id}`, { method: 'DELETE' })
     if (!r.ok) { setError(await r.text()); setDeleting(false); return }
-    onSaved(user.id, null)
-    onClose()
+    onDeleted(user.id)
   }
 
   return (
@@ -732,28 +649,22 @@ function PermissionsPanel({
       {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
 
-        {/* Sections */}
+        {/* Rol */}
         <div>
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest">Toegang</p>
-            <div className="flex gap-2">
-              <button onClick={() => toggleAllSections(true)} className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors">Alles</button>
-              <span className="text-zinc-700">·</span>
-              <button onClick={() => toggleAllSections(false)} className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors">Geen</button>
+          <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mb-2.5">Rol</p>
+          {!user.access_role && (
+            <div className="flex items-start gap-2 px-3 py-2 mb-3 bg-amber-950/30 border border-amber-900/40 rounded-lg">
+              <AlertCircle size={12} className="text-amber-400 mt-0.5 flex-shrink-0" />
+              <p className="text-[11px] text-amber-300 leading-relaxed">
+                {user.permissions
+                  ? 'Dit account heeft nog geen rol. Wat hij nu mag staat hieronder als aanpassingen; kies een rol om het op te ruimen.'
+                  : 'Dit account heeft nog geen rol en geen rechten ingesteld — daardoor ziet hij op sommige plekken alles. Kies een rol.'}
+              </p>
             </div>
-          </div>
-          <RolePresets current={sections} onSelect={setSections} />
-          <div className="space-y-4 mt-1">
-            {SECTION_GROUPS.map(group => (
-              <div key={group.title}>
-                <p className="text-[10px] font-medium text-zinc-600 uppercase tracking-widest mb-2">{group.title}</p>
-                <div className="space-y-2 pl-2 border-l border-zinc-800">
-                  {group.sections.map(s => (
-                    <Checkbox key={s.key} checked={sections.includes(s.key)} onChange={() => toggleSection(s.key)} label={s.label} />
-                  ))}
-                </div>
-              </div>
-            ))}
+          )}
+          <RolePicker roles={roles} value={accessRole} onChange={chooseRole} />
+          <div className="mt-4">
+            <OverridesEditor roleLevels={role?.levels} overrides={overrides} onChange={setOverrides} />
           </div>
         </div>
 
@@ -798,7 +709,7 @@ function PermissionsPanel({
           </p>
           <select value={planningColumn} onChange={e => setPlanningColumn(e.target.value)}
             className="w-full px-3 py-2 bg-zinc-800/60 border border-zinc-700 rounded-lg text-sm text-zinc-200 focus:outline-none focus:border-zinc-600 transition-colors">
-            <option value="">— Volledige planning (of via checkbox) —</option>
+            <option value="">— Volgens de rol —</option>
             <option value="__none__">— Mag niets bewerken —</option>
             {legacyColumn && (
               <option value={legacyColumn}>{legacyColumn} (oude toekenning)</option>
@@ -1067,9 +978,15 @@ export default function UsersPage() {
   const [showInvite,      setShowInvite]       = useState(false)
   const [showFreelanceInvite, setShowFreelanceInvite] = useState(false)
   const [selectedId,      setSelectedId]      = useState<string | null>(null)
+  const [checked,         setChecked]         = useState<Set<string>>(new Set())
+  const [bulkRole,        setBulkRole]        = useState('')
+  const [bulkBusy,        setBulkBusy]        = useState(false)
+  const [bulkMessage,     setBulkMessage]     = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
+  const { roles } = useRoles()
 
-  const loadUsers = useCallback(async () => {
-    setLoading(true)
+  // silent: na opslaan opnieuw ophalen zonder dat de lijst even verdwijnt.
+  const loadUsers = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     const r = await fetch('/api/admin/users')
     if (r.ok) setUsers(await r.json())
     setLoading(false)
@@ -1111,17 +1028,32 @@ export default function UsersPage() {
     router.push('/dashboard')
   }
 
-  function handlePanelSaved(userId: string, permissions: Permissions | null, expiresAt?: string | null) {
-    if (permissions === null) {
-      setUsers(prev => prev.filter(u => u.id !== userId))
-      setSelectedId(null)
-    } else {
-      setUsers(prev => prev.map(u =>
-        u.id === userId
-          ? { ...u, permissions, expires_at: expiresAt !== undefined ? expiresAt : u.expires_at }
-          : u
-      ))
-    }
+  function handleDeleted(userId: string) {
+    setUsers(prev => prev.filter(u => u.id !== userId))
+    setChecked(prev => { const n = new Set(prev); n.delete(userId); return n })
+    setSelectedId(null)
+  }
+
+  function toggleChecked(id: string) {
+    setChecked(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
+    setBulkMessage(null)
+  }
+
+  async function applyBulkRole() {
+    if (!bulkRole || checked.size === 0) return
+    setBulkBusy(true); setBulkMessage(null)
+    const r = await fetch('/api/admin/users/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [...checked], access_role: bulkRole }),
+    })
+    setBulkBusy(false)
+    if (!r.ok) { setBulkMessage({ kind: 'error', text: await r.text() }); await loadUsers(true); return }
+    const { updated } = await r.json()
+    const label = roles.find(x => x.id === bulkRole)?.label ?? bulkRole
+    setBulkMessage({ kind: 'ok', text: `${updated} ${updated === 1 ? 'persoon is nu' : 'mensen zijn nu'} ${label}.` })
+    setChecked(new Set()); setBulkRole('')
+    await loadUsers(true)
   }
 
   const photoByEmail = Object.fromEntries(
@@ -1134,6 +1066,7 @@ export default function UsersPage() {
   })
 
   const selectedUser = users.find(u => u.id === selectedId) ?? null
+  const selectable = filtered.filter(u => !freelancerEmails.has(u.email.toLowerCase()))
 
   return (
     <div className="flex h-full min-h-0">
@@ -1151,7 +1084,7 @@ export default function UsersPage() {
             <p className="text-sm text-zinc-500">{users.length} {users.length === 1 ? 'gebruiker' : 'gebruikers'}</p>
           </div>
           <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
-            <button onClick={loadUsers} disabled={loading} aria-label="Ververs gebruikerslijst"
+            <button onClick={() => loadUsers()} disabled={loading} aria-label="Ververs gebruikerslijst"
               className="w-8 h-8 flex items-center justify-center rounded-lg border border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700 transition-colors disabled:opacity-40 flex-shrink-0">
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
             </button>
@@ -1181,6 +1114,34 @@ export default function UsersPage() {
           )}
         </div>
 
+        {/* Bulk */}
+        {(checked.size > 0 || bulkMessage) && (
+          <div className="flex flex-wrap items-center gap-2 mb-3 px-3 py-2 rounded-lg border border-zinc-800 bg-zinc-900/60 flex-shrink-0">
+            {checked.size > 0 && (
+              <>
+                <span className="text-xs text-zinc-300">{checked.size} geselecteerd</span>
+                <select value={bulkRole} onChange={e => setBulkRole(e.target.value)} aria-label="Rol voor de selectie"
+                  className="px-2 py-1 rounded-md text-xs bg-zinc-800 border border-zinc-700 text-zinc-200 focus:outline-none">
+                  <option value="">Rol geven…</option>
+                  {roles.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+                </select>
+                <button onClick={applyBulkRole} disabled={!bulkRole || bulkBusy}
+                  className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-white rounded-md disabled:opacity-40"
+                  style={{ backgroundColor: '#3A913F' }}>
+                  {bulkBusy && <Loader2 size={11} className="animate-spin" />}
+                  Toepassen
+                </button>
+                <button onClick={() => setChecked(new Set())} className="text-xs text-zinc-500 hover:text-zinc-300">Selectie wissen</button>
+              </>
+            )}
+            {bulkMessage && (
+              <span className={`text-xs ${bulkMessage.kind === 'ok' ? 'text-green-400' : 'text-red-400'} ${checked.size > 0 ? '' : 'flex-1'}`}>
+                {bulkMessage.text}
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Table */}
         <div className="border border-zinc-800 rounded-xl flex-1 overflow-y-auto scroll-x">
           {loading ? (
@@ -1195,8 +1156,15 @@ export default function UsersPage() {
             <table className="w-full min-w-[720px] sm:min-w-0">
               <thead>
                 <tr className="border-b border-zinc-800 bg-zinc-900/50">
+                  <th className="pl-4 py-3 w-8">
+                    <MiniCheck
+                      checked={selectable.length > 0 && selectable.every(u => checked.has(u.id))}
+                      onChange={v => setChecked(v ? new Set(selectable.map(u => u.id)) : new Set())}
+                      label="Alles selecteren"
+                    />
+                  </th>
                   <th className="px-4 py-3 text-left text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Gebruiker</th>
-                  <th className="px-4 py-3 text-left text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Toegang</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Rol</th>
                   <th className="px-4 py-3 text-left text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Laatste login</th>
                   <th className="px-4 py-3 text-left text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Status</th>
                   <th className="px-4 py-3" />
@@ -1205,15 +1173,18 @@ export default function UsersPage() {
               <tbody className="divide-y divide-zinc-800/60">
                 {filtered.map(u => {
                   const isSelected = u.id === selectedId
-                  const knownKeys = SECTIONS.map(s => s.key)
-                  const sectionCount = u.permissions
-                    ? u.permissions.sections.filter(s => knownKeys.includes(s)).length
-                    : SECTIONS.length
+                  const isFreelancer = freelancerEmails.has(u.email.toLowerCase())
+                  const userRole = roles.find(r => r.id === u.access_role)
                   return (
                     <tr key={u.id}
                       onClick={() => setSelectedId(isSelected ? null : u.id)}
                       className="transition-colors cursor-pointer group"
                       style={{ backgroundColor: isSelected ? 'rgba(58,145,63,0.06)' : undefined }}>
+                      <td className="pl-4 py-3 w-8" onClick={e => e.stopPropagation()}>
+                        {!isFreelancer && (
+                          <MiniCheck checked={checked.has(u.id)} onChange={() => toggleChecked(u.id)} label={`Selecteer ${u.full_name || u.email}`} />
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
                           <UserAvatar name={u.full_name} email={u.email} photoUrl={photoByEmail[u.email.toLowerCase()]} size={8} />
@@ -1224,14 +1195,17 @@ export default function UsersPage() {
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        {freelancerEmails.has(u.email.toLowerCase()) ? (
+                        {isFreelancer ? (
                           <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full"
                             style={{ color: '#c084fc', backgroundColor: 'rgba(168,85,247,0.12)', border: '1px solid rgba(168,85,247,0.3)' }}>
                             <UserCheck size={10} /> Freelancer
                           </span>
+                        ) : userRole ? (
+                          <RoleBadge role={userRole} overrides={Object.keys(u.role_overrides ?? {}).length} />
                         ) : (
-                          <span className="text-xs text-zinc-500">
-                            {sectionCount === SECTIONS.length ? 'Alles' : sectionCount === 0 ? 'Geen' : `${sectionCount} van ${SECTIONS.length}`}
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full"
+                            style={{ color: '#fbbf24', backgroundColor: '#451a0330', border: '1px solid #92400e50' }}>
+                            {u.permissions ? 'Geen rol' : 'Geen rol · ziet veel'}
                           </span>
                         )}
                       </td>
@@ -1296,13 +1270,15 @@ export default function UsersPage() {
           user={selectedUser}
           photoUrl={photoByEmail[selectedUser.email.toLowerCase()]}
           clients={allClients}
+          roles={roles}
           onClose={() => setSelectedId(null)}
-          onSaved={handlePanelSaved}
+          onSaved={() => loadUsers(true)}
+          onDeleted={handleDeleted}
         />
       )}
 
       {showInvite && (
-        <InviteModal clients={allClients} onClose={() => setShowInvite(false)} onInvited={loadUsers} />
+        <InviteModal clients={allClients} roles={roles} onClose={() => setShowInvite(false)} onInvited={() => loadUsers(true)} />
       )}
 
       {showFreelanceInvite && (

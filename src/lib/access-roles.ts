@@ -182,26 +182,26 @@ function moduleByKey(key: string) {
   return ACCESS_MODULES.find(m => m.key === key)
 }
 
-export function lowestLevel(module: AccessModule) {
-  return module.levels[0].key
+export function lowestLevel(mod: AccessModule) {
+  return mod.levels[0].key
 }
 
-export function highestLevel(module: AccessModule) {
-  return module.levels[module.levels.length - 1].key
+export function highestLevel(mod: AccessModule) {
+  return mod.levels[mod.levels.length - 1].key
 }
 
 // Een onbekend niveau (een oude rol, een module die hernoemd is) valt terug
 // op het laagste. Bij twijfel minder, nooit meer.
-export function levelOf(levels: AccessLevels | null | undefined, module: AccessModule) {
-  const wanted = levels?.[module.key]
-  return module.levels.some(l => l.key === wanted) ? wanted! : lowestLevel(module)
+export function levelOf(levels: AccessLevels | null | undefined, mod: AccessModule) {
+  const wanted = levels?.[mod.key]
+  return mod.levels.some(l => l.key === wanted) ? wanted! : lowestLevel(mod)
 }
 
 export function sectionsForLevels(levels: AccessLevels | null | undefined): string[] {
   const out: string[] = []
-  for (const module of ACCESS_MODULES) {
-    const chosen = levelOf(levels, module)
-    for (const level of module.levels) {
+  for (const mod of ACCESS_MODULES) {
+    const chosen = levelOf(levels, mod)
+    for (const level of mod.levels) {
       out.push(...level.adds)
       if (level.key === chosen) break
     }
@@ -214,8 +214,8 @@ export function sectionsForLevels(levels: AccessLevels | null | undefined): stri
 // "Creator + 2 aanpassingen" ook echt twee verschillen betekent.
 export function effectiveLevels(roleLevels: AccessLevels | null | undefined, overrides: AccessLevels | null | undefined): AccessLevels {
   const out: AccessLevels = {}
-  for (const module of ACCESS_MODULES) {
-    out[module.key] = levelOf(overrides && module.key in overrides ? overrides : roleLevels, module)
+  for (const mod of ACCESS_MODULES) {
+    out[mod.key] = levelOf(overrides && mod.key in overrides ? overrides : roleLevels, mod)
   }
   return out
 }
@@ -224,9 +224,9 @@ export function cleanOverrides(roleLevels: AccessLevels | null | undefined, over
   const out: AccessLevels = {}
   if (!overrides) return out
   for (const [key, value] of Object.entries(overrides)) {
-    const module = moduleByKey(key)
-    if (!module || !module.levels.some(l => l.key === value)) continue
-    if (levelOf(roleLevels, module) === value) continue
+    const mod = moduleByKey(key)
+    if (!mod || !mod.levels.some(l => l.key === value)) continue
+    if (levelOf(roleLevels, mod) === value) continue
     out[key] = value
   }
   return out
@@ -238,13 +238,13 @@ export function cleanOverrides(roleLevels: AccessLevels | null | undefined, over
 export function levelsFromSections(sections: string[]): AccessLevels {
   const have = new Set(sections)
   const out: AccessLevels = {}
-  for (const module of ACCESS_MODULES) {
-    let reached = lowestLevel(module)
-    for (const level of module.levels) {
+  for (const mod of ACCESS_MODULES) {
+    let reached = lowestLevel(mod)
+    for (const level of mod.levels) {
       if (!level.adds.every(k => have.has(k))) break
       reached = level.key
     }
-    out[module.key] = reached
+    out[mod.key] = reached
   }
   return out
 }
@@ -257,8 +257,8 @@ export function allLowest(): AccessLevels {
   return Object.fromEntries(ACCESS_MODULES.map(m => [m.key, lowestLevel(m)]))
 }
 
-export function levelLabel(module: AccessModule, levelKey: string) {
-  return module.levels.find(l => l.key === levelKey)?.label ?? levelKey
+export function levelLabel(mod: AccessModule, levelKey: string) {
+  return mod.levels.find(l => l.key === levelKey)?.label ?? levelKey
 }
 
 export const ROLE_COLORS = ['#f59e0b', '#3b82f6', '#06b6d4', '#22c55e', '#ec4899', '#a855f7', '#ef4444', '#71717a']
