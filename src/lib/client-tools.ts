@@ -1,5 +1,6 @@
 import type { Client } from '@/types/database'
 import { FolderOpen, Mic, PenLine, BrainCircuit, Gift, Scissors, CalendarDays, CalendarRange, GraduationCap, BarChart2, Landmark, ClipboardList, LayoutList, Search, FileText } from 'lucide-react'
+import { PROJECTKALENDER_ENABLED } from '@/lib/features'
 
 export interface ToolDefinition {
   id: string
@@ -58,14 +59,14 @@ export function getAvailableTools(client: Client, perms: ToolPermissions): ToolD
       color: '#0ea5e9',
       href: (id: string) => `/clients/${id}/calendar`,
     },
-    {
+    ...(PROJECTKALENDER_ENABLED ? [{
       id: 'events',
       label: 'Projectkalender',
       description: 'Overzicht van events, shoots, wedstrijden en deadlines.',
       icon: CalendarRange,
       color: '#a855f7',
       href: (id: string) => `/clients/${id}/events`,
-    },
+    }] : []),
     {
       id: 'files',
       label: 'Bestanden',

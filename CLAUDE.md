@@ -80,6 +80,25 @@ git push
 - Gebruik duidelijke commit messages op basis van wat er net gedaan is
 - Vraag bevestiging voor je pusht naar `main`
 
+## Rechten en rollen
+
+Wie wat mag, loopt via rollen (Beheer → Rollen). Een rol is per onderdeel één
+niveau; de server rekent dat om naar losse sleutels in
+`app_metadata.permissions.sections`, en die controleert de code met
+`hasSection(user, 'sleutel')`.
+
+Bij een nieuwe feature die een recht nodig heeft:
+
+1. Controleer het met `hasSection(user, 'nieuwe_sleutel')`.
+2. Voeg de sleutel toe aan `ALL_MODULES` in `src/lib/access-roles.ts` — als
+   niveau op een bestaand onderdeel of als nieuw onderdeel. Daar staat ook de
+   uitleg.
+3. Niets anders: bestaande rollen krijgen het laagste niveau, dus de feature
+   staat uit tot een admin hem aanzet in Beheer → Rollen.
+
+`src/lib/__tests__/access-coverage.test.ts` (draait in CI) faalt als stap 2
+vergeten is. Onderdelen die tijdelijk uit staan, staan in `src/lib/features.ts`.
+
 ## Verbruik in de gaten houden
 
 Dit project draait op de gratis plannen van Supabase en Vercel. In oktober

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { ChevronLeft, ChevronRight, Plus, X, Trash2, Loader2 } from 'lucide-react'
+import { PROJECTKALENDER_ENABLED } from '@/lib/features'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -714,9 +715,13 @@ export default function ContentCalendar({ clientId, canAdd = true, canDelete = t
       .then(r => r.json()).then(data => { if (Array.isArray(data)) setTeamMembers(data) })
       .catch(() => {})
 
-    fetch(`/api/events?clientId=${clientId}`)
-      .then(r => r.json()).then(data => { if (Array.isArray(data)) setProjectEvents(data) })
-      .catch(() => {})
+    // Zolang de Projectkalender in de koelkast staat, komen er geen nieuwe
+    // events bij — dan is dit verzoek per kalender verloren moeite.
+    if (PROJECTKALENDER_ENABLED) {
+      fetch(`/api/events?clientId=${clientId}`)
+        .then(r => r.json()).then(data => { if (Array.isArray(data)) setProjectEvents(data) })
+        .catch(() => {})
+    }
   }, [clientId])
 
   const loadPosts = useCallback(async () => {

@@ -1,13 +1,5 @@
-import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { isAdminUser } from '@/lib/auth-permissions'
-
-async function requireAdmin() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-  const ok = isAdminUser(user)
-  return ok ? user : null
-}
+import { createAdminClient } from '@/lib/supabase/server'
+import { requireAdmin, loadRoles, buildAppMetadata } from '@/lib/access-roles-server'
 
 // GET — list all users
 export async function GET() {
@@ -23,6 +15,8 @@ export async function GET() {
     email:       u.email ?? '',
     full_name:   u.user_metadata?.full_name ?? u.user_metadata?.name ?? '',
     permissions: u.app_metadata?.permissions ?? null,
+    access_role: u.app_metadata?.role ?? null,
+    role_overrides: u.app_metadata?.role_overrides ?? {},
     expires_at:  u.app_metadata?.expires_at ?? null,
     last_sign_in: u.last_sign_in_at ?? null,
     created_at:  u.created_at,
@@ -37,10 +31,20 @@ export async function POST(req: Request) {
   const caller = await requireAdmin()
   if (!caller) return new Response('Forbidden', { status: 403 })
 
-  const { email, full_name, phone, role, permissions } = await req.json()
+  // `role` is hier de functie (bv. "Videograaf") voor Team; de toegang zit in
+  // access_role. Welke sleutels daaruit volgen rekent de server uit.
+  const { email, full_name, phone, role, access_role, overrides, clients, planning_column, expires_at } = await req.json()
   if (!email?.trim()) return new Response('E-mailadres is verplicht', { status: 400 })
 
   const admin = createAdminClient()
+  const roles = await loadRoles(admin)
+  const chosenRole = roles.find(r => r.id === access_role)
+  if (!chosenRole) return new Response('Kies een rol', { status: 400 })
+  if (chosenRole.requires_end_date && !expires_at) {
+    return new Response(`Een ${chosenRole.label.toLowerCase()} heeft een einddatum nodig`, { status: 400 })
+  }
+  const appMetadata = buildAppMetadata({}, { access_role, overrides, clients: clients ?? [], planning_column }, roles)
+  if (expires_at) appMetadata.expires_at = expires_at
 
   // Create pre-approved user (email pre-confirmed so Google OAuth linking works)
   // Role/access fields go in app_metadata — it's server-only, unlike user_metadata
@@ -50,10 +54,7 @@ export async function POST(req: Request) {
     user_metadata: {
       full_name: full_name?.trim() ?? '',
     },
-    app_metadata: {
-      allowed:     true,
-      permissions: permissions ?? null,
-    },
+    app_metadata: appMetadata,
     email_confirm: true,
   })
   if (error) return new Response(error.message, { status: 500 })

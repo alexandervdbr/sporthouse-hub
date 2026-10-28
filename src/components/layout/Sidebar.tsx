@@ -6,6 +6,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { Client } from '@/types/database'
+import { PROJECTKALENDER_ENABLED } from '@/lib/features'
 import { LayoutDashboard, KanbanSquare, CalendarDays, CalendarRange, Users, LogOut, Camera, UserCheck, MessageSquare, ShieldCheck, Lock, Layers, X, Star, Bookmark } from 'lucide-react'
 import { useSidebar } from '@/contexts/SidebarContext'
 import { useFavorites } from '@/contexts/FavoritesContext'
@@ -287,7 +288,7 @@ export default function Sidebar({ clients }: SidebarProps) {
             { href: '/dashboard',   icon: LayoutDashboard, label: 'Dashboard',      section: 'dashboard',      external: false },
             { href: '/projects',    icon: KanbanSquare,    label: 'Projecten',      section: 'projecten',      external: false },
             { href: '/planning',    icon: CalendarDays,    label: 'Planning',       section: 'planning',       external: false },
-            { href: '/events',      icon: CalendarRange,   label: 'Projectkalender', section: 'projectkalender', external: false },
+            ...(PROJECTKALENDER_ENABLED ? [{ href: '/events', icon: CalendarRange, label: 'Projectkalender', section: 'projectkalender', external: false }] : []),
             { href: '/equipment',   icon: Camera,          label: 'Materiaal',      section: 'materiaal',      external: false },
             { href: '/team',        icon: Users,           label: 'Team',           section: 'team',           external: false },
             { href: '/freelancers', icon: UserCheck,       label: 'Freelancers',    section: 'freelancers',    external: false },
