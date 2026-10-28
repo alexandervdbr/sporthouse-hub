@@ -1,30 +1,29 @@
-import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { isAdminUser } from '@/lib/auth-permissions'
+import { createAdminClient } from '@/lib/supabase/server'
+import { requireAdmin, loadRoles, buildAppMetadata, locksOutCaller } from '@/lib/access-roles-server'
 
-async function requireAdmin() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-  const ok = isAdminUser(user)
-  return ok ? user : null
-}
-
-// PATCH — update role and/or permissions
+// PATCH — rol, afwijkingen, klanten, planningkolom, wachtwoorden, vervaldatum.
+// Elk veld is optioneel; wat ontbreekt blijft zoals het was.
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const caller = await requireAdmin()
   if (!caller) return new Response('Forbidden', { status: 403 })
 
   const { id } = await params
   const body = await req.json()
-  const { permissions, expires_at } = body
+  const { access_role, overrides, clients, planning_column, credentials, expires_at } = body
 
   const admin = createAdminClient()
+  const roles = await loadRoles(admin)
+  if (access_role && !roles.some(r => r.id === access_role)) {
+    return new Response('Onbekende rol', { status: 400 })
+  }
 
   const { data: { user: existing } } = await admin.auth.admin.getUserById(id)
-  const updated: Record<string, unknown> = { ...existing?.app_metadata }
-  if (permissions !== undefined) updated.permissions = permissions
+  if (!existing) return new Response('Gebruiker niet gevonden', { status: 404 })
+  const updated = buildAppMetadata(existing.app_metadata, { access_role, overrides, clients, planning_column, credentials }, roles)
   if (expires_at !== undefined) updated.expires_at = expires_at || null
-  updated.allowed = true  // always mark as approved when admin saves
+  if (locksOutCaller(caller, id, updated)) {
+    return new Response('Zonder Beheer sluit je jezelf buiten — kies een rol met Beheer', { status: 400 })
+  }
 
   const { error } = await admin.auth.admin.updateUserById(id, { app_metadata: updated })
   if (error) return new Response(error.message, { status: 500 })
