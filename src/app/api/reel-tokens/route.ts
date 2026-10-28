@@ -1,6 +1,7 @@
 import crypto from 'crypto'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { isAdminUser } from '@/lib/auth-permissions'
+import { teamToken } from '@/lib/reel-team-token'
 
 // Personal bearer token for the reel-inspiration shortcut, shown once on the
 // settings page so the user can paste it into the Shortcut's Authorization
@@ -21,7 +22,11 @@ export async function GET() {
     .eq('user_id', user.id)
     .maybeSingle()
 
-  if (existing) return Response.json({ token: existing.token })
+  // De teamtoken gaat mee naar het instelscherm, dat alleen admins zien:
+  // zij zetten hem in de gedeelde snelkoppeling.
+  const team_token = teamToken()
+
+  if (existing) return Response.json({ token: existing.token, team_token })
 
   const token = crypto.randomBytes(32).toString('hex')
   const { data, error } = await admin
@@ -31,7 +36,7 @@ export async function GET() {
     .single()
 
   if (error || !data) return new Response('Kon token niet aanmaken.', { status: 500 })
-  return Response.json({ token: data.token })
+  return Response.json({ token: data.token, team_token })
 }
 
 // Regenerate — invalidates the previous token (lost phone, leaked link, ...).
@@ -51,5 +56,5 @@ export async function POST() {
     .single()
 
   if (error || !data) return new Response('Kon token niet vernieuwen.', { status: 500 })
-  return Response.json({ token: data.token })
+  return Response.json({ token: data.token, team_token: teamToken() })
 }

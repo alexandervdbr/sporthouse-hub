@@ -74,7 +74,8 @@ export interface Message {
 
 export interface ReelInspiration {
   id: string
-  user_id: string
+  // null bij een reel via de teamtoken van de gedeelde snelkoppeling
+  user_id: string | null
   url: string
   thumbnail_url: string | null
   caption: string | null

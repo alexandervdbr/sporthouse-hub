@@ -38,6 +38,7 @@ function CopyField({ label, value }: { label: string; value: string }) {
 
 export default function ReelInspirationSetup() {
   const [token, setToken] = useState<string | null>(null)
+  const [teamToken, setTeamToken] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [regenerating, setRegenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -50,6 +51,7 @@ export default function ReelInspirationSetup() {
       if (!res.ok) throw new Error()
       const data = await res.json()
       setToken(data.token)
+      setTeamToken(data.team_token ?? null)
     } catch {
       setError('Kon je token niet ophalen. Probeer de pagina te herladen.')
     } finally {
@@ -60,7 +62,7 @@ export default function ReelInspirationSetup() {
   useEffect(() => { load() }, [])
 
   async function handleRegenerate() {
-    if (!confirm('Nieuwe token aanmaken? De oude stopt dan met werken — je moet de snelkoppeling opnieuw instellen.')) return
+    if (!confirm('Nieuwe persoonlijke token aanmaken? De oude stopt dan met werken. De teamtoken verandert niet.')) return
     setRegenerating(true)
     setError(null)
     try {
@@ -91,31 +93,54 @@ export default function ReelInspirationSetup() {
         </div>
       )}
 
-      {token && (
-        <>
-          <CopyField label="Endpoint URL (Get Contents of URL)" value={endpointUrl} />
-          <CopyField label="Authorization header (Bearer token)" value={`Bearer ${token}`} />
-        </>
-      )}
+      <CopyField label="Endpoint URL (Get Contents of URL)" value={endpointUrl} />
+
+      {/* De teamtoken is wat in de gedeelde snelkoppeling hoort: hij staat in
+          Vercel, niet in de database, en verandert niet als iemand hieronder
+          zijn persoonlijke token vernieuwt. */}
+      <div>
+        {teamToken ? (
+          <CopyField label="Authorization header — teamtoken (voor de gedeelde snelkoppeling)" value={`Bearer ${teamToken}`} />
+        ) : (
+          <div className="px-3 py-2.5 rounded-lg text-sm text-amber-300" style={{ background: 'rgba(120,53,15,0.2)', border: '1px solid rgba(251,191,36,0.25)' }}>
+            Nog geen teamtoken ingesteld. Zet <span className="font-mono">SAVE_REEL_TEAM_TOKEN</span> in Vercel
+            (minstens 32 tekens) en deploy opnieuw — dan verschijnt hij hier.
+          </div>
+        )}
+        <p className="text-xs text-zinc-600 mt-1.5">
+          Gebruik deze in de snelkoppeling die je met collega&apos;s deelt. Hij blijft werken, ook als iemand zijn persoonlijke token vernieuwt.
+        </p>
+      </div>
 
       <div>
         <p className="text-xs font-medium text-zinc-500 mb-1.5">Instellen in de snelkoppeling</p>
         <ol className="text-sm text-zinc-400 space-y-1 list-decimal list-inside">
           <li>Open de Reel-snelkoppeling in de Shortcuts-app en bewerk hem</li>
           <li>Zet de &quot;Get Contents of URL&quot;-actie op bovenstaande endpoint URL</li>
-          <li>Voeg een header toe: <span className="text-zinc-300 font-mono">Authorization</span> met bovenstaande waarde</li>
+          <li>Voeg een header toe: <span className="text-zinc-300 font-mono">Authorization</span> met de teamtoken hierboven</li>
+          <li>Deel hem opnieuw (Delen → iCloud-link kopiëren): een gedeelde snelkoppeling is een kopie, collega&apos;s moeten de nieuwe één keer toevoegen</li>
         </ol>
       </div>
 
-      <button
-        onClick={handleRegenerate}
-        disabled={regenerating}
-        className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-zinc-200 transition-colors disabled:opacity-50"
-        style={{ border: '1px solid rgba(255,255,255,0.10)' }}
-      >
-        <RefreshCw size={13} className={regenerating ? 'animate-spin' : undefined} />
-        Nieuwe token aanmaken
-      </button>
+      {token && (
+        <details className="group">
+          <summary className="text-xs font-medium text-zinc-500 hover:text-zinc-300 cursor-pointer select-none">
+            Persoonlijke token (alleen voor je eigen snelkoppeling)
+          </summary>
+          <div className="mt-3 space-y-3">
+            <CopyField label="Authorization header — persoonlijk" value={`Bearer ${token}`} />
+            <button
+              onClick={handleRegenerate}
+              disabled={regenerating}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-zinc-200 transition-colors disabled:opacity-50"
+              style={{ border: '1px solid rgba(255,255,255,0.10)' }}
+            >
+              <RefreshCw size={13} className={regenerating ? 'animate-spin' : undefined} />
+              Nieuwe persoonlijke token aanmaken
+            </button>
+          </div>
+        </details>
+      )}
     </div>
   )
 }
