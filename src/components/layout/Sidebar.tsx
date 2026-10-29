@@ -6,7 +6,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { Client } from '@/types/database'
-import { PROJECTKALENDER_ENABLED } from '@/lib/features'
+import { PROJECTKALENDER_ENABLED, CHAT_ENABLED } from '@/lib/features'
 import { LayoutDashboard, KanbanSquare, CalendarDays, CalendarRange, Users, LogOut, Camera, UserCheck, MessageSquare, ShieldCheck, Lock, Layers, X, Star, Bookmark } from 'lucide-react'
 import { useSidebar } from '@/contexts/SidebarContext'
 import { useFavorites } from '@/contexts/FavoritesContext'
@@ -143,6 +143,7 @@ export default function Sidebar({ clients }: SidebarProps) {
 
   // Fetch unread count + subscribe to new messages
   useEffect(() => {
+    if (!CHAT_ENABLED) return
     async function fetchUnread() {
       const res = await fetch('/api/chat/unread')
       if (res.ok) {
@@ -292,7 +293,7 @@ export default function Sidebar({ clients }: SidebarProps) {
             { href: '/equipment',   icon: Camera,          label: 'Materiaal',      section: 'materiaal',      external: false },
             { href: '/team',        icon: Users,           label: 'Team',           section: 'team',           external: false },
             { href: '/freelancers', icon: UserCheck,       label: 'Freelancers',    section: 'freelancers',    external: false },
-            { href: '/chat',        icon: MessageSquare,   label: 'Chat',           section: 'chat',           external: false },
+            ...(CHAT_ENABLED ? [{ href: '/chat', icon: MessageSquare, label: 'Chat', section: 'chat', external: false }] : []),
             { href: '/passwords',   icon: Lock,            label: 'Wachtwoorden',    section: 'wachtwoorden_bekijken', external: false },
             { href: '/preassist',   icon: Layers,          label: 'Pré-assist',      section: 'preassist',             external: false },
             { href: '/mijn-gedacht', icon: Bookmark,       label: 'Mijn gedacht!',   section: 'mijn-gedacht',          external: false },

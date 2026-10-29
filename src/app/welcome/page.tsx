@@ -3,6 +3,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { Client } from '@/types/database'
 import { getLogo } from '@/lib/logos'
+import { CHAT_ENABLED } from '@/lib/features'
 import {
   Sparkles, Users, Building2, Mic2, Dumbbell,
   Wrench, Clock, MessageCircle, ArrowRight, BookOpen,
@@ -232,10 +233,16 @@ export default async function WelcomePage() {
           <MessageCircle size={18} style={{ color: '#3A913F' }} className="flex-shrink-0" />
           <p className="text-sm text-zinc-400">
             Nog vragen of iets onduidelijk?{' '}
-            <Link href="/chat" className="font-medium hover:underline" style={{ color: '#3A913F' }}>
-              Open de chat
-            </Link>{' '}
-            of spreek je begeleider aan.
+            {CHAT_ENABLED ? (
+              <>
+                <Link href="/chat" className="font-medium hover:underline" style={{ color: '#3A913F' }}>
+                  Open de chat
+                </Link>{' '}
+                of spreek je begeleider aan.
+              </>
+            ) : (
+              <>Spreek je begeleider aan.</>
+            )}
           </p>
         </div>
 

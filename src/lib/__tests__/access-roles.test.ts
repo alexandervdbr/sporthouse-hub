@@ -2,11 +2,10 @@ import { describe, it, expect } from 'vitest'
 import {
   ACCESS_MODULES, ALL_SECTION_KEYS, sectionsForLevels, effectiveLevels, cleanOverrides,
   levelsFromSections, allHighest, allLowest, slugifyRoleId, buildAppMetadata, locksOutCaller,
-  NO_CLIENTS, chosenClients,
+  NO_CLIENTS, chosenClients, FROZEN_SECTION_KEYS,
   type AccessRole,
 } from '@/lib/access-roles'
 import { ADMIN_EMAILS, hasClientAccess } from '@/lib/auth-permissions'
-import { PROJECTKALENDER_ENABLED } from '@/lib/features'
 
 // De vakjes zoals ze in het beheerscherm stonden vóór de rollen. Elke sleutel
 // hier wordt ergens in de app of de RLS gecontroleerd; als er één niet meer
@@ -31,9 +30,9 @@ const OUDE_VAKJES = [
   'mijn-gedacht', 'mijn_gedacht_types_beheren',
 ]
 
-// Zolang de Projectkalender in de koelkast staat, geeft geen enkel niveau
+// Zolang een onderdeel in de koelkast staat (src/lib/features.ts), geeft geen niveau
 // zijn sleutels; de rest moet er allemaal nog zijn.
-const BEREIKBAAR = PROJECTKALENDER_ENABLED ? OUDE_VAKJES : OUDE_VAKJES.filter(k => !k.startsWith('projectkalender'))
+const BEREIKBAAR = OUDE_VAKJES.filter(k => !FROZEN_SECTION_KEYS.includes(k))
 
 describe('catalogus', () => {
   it('bereikt exact de oude vakjes, elk één keer', () => {
@@ -128,7 +127,7 @@ describe('buildAppMetadata', () => {
     const sections = (meta.permissions as { sections: string[] }).sections
     expect(meta.role).toBe('creator')
     expect(meta.role_overrides).toEqual({ planning: 'bewerken' })
-    expect(sections).toEqual(expect.arrayContaining(['chat', 'planning', 'planning_volledig']))
+    expect(sections).toEqual(expect.arrayContaining(['planning', 'planning_volledig']))
     expect(sections).not.toContain('beheer')
     expect(meta.allowed).toBe(true)
   })
