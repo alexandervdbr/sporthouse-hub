@@ -104,8 +104,10 @@ for (const t of TARGETS) {
   // Freelancers: de lege opdrachtmappen mogen mee zodra hun bestanden weg zijn.
   if (t.folder === 'Freelancers') {
     for (const sub of (await children(folder.id)).filter(f => f.mimeType === FOLDER)) {
+      // Op id vergelijken: allFiles levert telkens nieuwe objecten.
+      const orphanIds = new Set(orphans.map(f => f.id))
       const inside = await allFiles(sub.id)
-      if (inside.every(f => orphans.includes(f))) trash.push({ ...sub, isFolder: true })
+      if (inside.every(f => orphanIds.has(f.id))) trash.push({ ...sub, isFolder: true })
     }
   }
 }

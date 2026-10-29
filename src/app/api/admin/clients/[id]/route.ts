@@ -1,5 +1,6 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { isAdminUser } from '@/lib/auth-permissions'
+import { removeOwnLogo } from '@/lib/client-logos'
 
 const CATEGORIES = ['klant', 'atleet', 'podcast', 'intern']
 
@@ -34,8 +35,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (Object.keys(updates).length === 0) return new Response('Niets om op te slaan.', { status: 400 })
 
   const admin = createAdminClient()
+  // Het vorige logo, zodat een vervangen upload niet blijft rondslingeren.
+  const { data: before } = 'logo_url' in updates
+    ? await admin.from('clients').select('logo_url').eq('id', id).single()
+    : { data: null }
   const { data, error } = await admin.from('clients').update(updates).eq('id', id).select().single()
   if (error) return new Response(error.message, { status: 500 })
+  if (before?.logo_url && before.logo_url !== data.logo_url) await removeOwnLogo(admin, before.logo_url)
   return Response.json(data)
 }
 
@@ -57,7 +63,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   const { confirmName } = await req.json().catch(() => ({ confirmName: undefined }))
 
   const admin = createAdminClient()
-  const { data: client } = await admin.from('clients').select('name').eq('id', id).single()
+  const { data: client } = await admin.from('clients').select('name, logo_url').eq('id', id).single()
   if (!client) return new Response('Klant niet gevonden.', { status: 404 })
 
   if (confirmName !== client.name) {
@@ -66,5 +72,6 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
 
   const { error } = await admin.from('clients').delete().eq('id', id)
   if (error) return new Response(error.message, { status: 500 })
+  await removeOwnLogo(admin, client.logo_url)
   return new Response(null, { status: 204 })
 }

@@ -1,3 +1,10 @@
+// De host van de eigen Supabase-opslag, uit de omgeving in plaats van vast in
+// de code. Na het verlies van de database (28 oktober 2026) stond hier nog het
+// oude project, en weigerde next/image elke afbeelding uit het nieuwe.
+const supabaseHost = (() => {
+  try { return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').hostname } catch { return null }
+})()
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Next 16 removed the `eslint` build-config key and the `next lint`
@@ -16,13 +23,9 @@ const nextConfig = {
     proxyClientMaxBodySize: '2gb',
   },
   images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: 'cyhburjidtoudltqabfo.supabase.co',
-        pathname: '/storage/v1/object/public/**',
-      },
-    ],
+    remotePatterns: supabaseHost
+      ? [{ protocol: 'https', hostname: supabaseHost, pathname: '/storage/v1/object/public/**' }]
+      : [],
   },
 };
 

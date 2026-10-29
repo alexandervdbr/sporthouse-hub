@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
-import { Building2, Plus, Search, Pencil, Trash2, Loader2, X, Check, AlertTriangle } from 'lucide-react'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { Building2, Plus, Search, Pencil, Trash2, Loader2, X, Check, AlertTriangle, Upload } from 'lucide-react'
+import { getLogo } from '@/lib/logos'
 
 interface AdminClient {
   id: string
@@ -35,6 +36,84 @@ interface FormState {
 }
 
 const EMPTY_FORM: FormState = { name: '', category: 'klant', color: COLOR_PALETTE[0], logo_url: '', description: '' }
+
+// Verkleint een logo in de browser tot max. 256 px aan de langste kant. Een
+// logo staat nergens groter dan een paar tientallen pixels, dus een origineel
+// van een paar MB zou bij elke paginalading voor niets meegaan.
+async function shrinkLogo(file: File): Promise<Blob> {
+  const bitmap = await createImageBitmap(file)
+  const scale = Math.min(1, 256 / Math.max(bitmap.width, bitmap.height))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale))
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale))
+  canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+  bitmap.close()
+  // WebP waar de browser het kan maken; Safari geeft dan stil een PNG terug,
+  // en dat neemt de server ook aan.
+  return new Promise((resolve, reject) =>
+    canvas.toBlob(b => (b ? resolve(b) : reject(new Error('Kon de afbeelding niet verwerken.'))), 'image/webp', 0.9))
+}
+
+function LogoField({ name, value, onChange }: { name: string; value: string; onChange: (url: string) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  // Zonder geüpload logo valt getLogo terug op de vaste lijst in de code.
+  const preview = getLogo(name, value || null)
+
+  async function handleFile(file: File | undefined) {
+    if (!file) return
+    setBusy(true); setError(null)
+    try {
+      const blob = await shrinkLogo(file)
+      const body = new FormData()
+      body.append('logo', blob, 'logo')
+      const res = await fetch('/api/admin/clients/logo', { method: 'POST', body })
+      if (!res.ok) throw new Error(await res.text())
+      onChange((await res.json()).url)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Uploaden mislukt.')
+    } finally {
+      setBusy(false)
+      if (inputRef.current) inputRef.current.value = ''
+    }
+  }
+
+  return (
+    <div>
+      <label className="block text-xs text-zinc-500 mb-1">Logo</label>
+      <div className="flex items-center gap-3">
+        <div className="w-12 h-12 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center overflow-hidden flex-shrink-0">
+          {preview
+            // eslint-disable-next-line @next/next/no-img-element
+            ? <img src={preview} alt="" className="w-full h-full object-cover" />
+            : <Building2 size={16} className="text-zinc-600" />}
+        </div>
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
+          <button type="button" onClick={() => inputRef.current?.click()} disabled={busy}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-200 border border-zinc-700 hover:border-zinc-600 disabled:opacity-50 transition-colors">
+            {busy ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+            {value ? 'Ander logo' : 'Logo uploaden'}
+          </button>
+          {value && (
+            <button type="button" onClick={() => onChange('')} disabled={busy}
+              className="text-xs text-zinc-500 hover:text-red-400 transition-colors">
+              Verwijderen
+            </button>
+          )}
+        </div>
+        <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
+          onChange={e => handleFile(e.target.files?.[0])} />
+      </div>
+      <p className="text-[10px] text-zinc-600 mt-1.5">
+        {value
+          ? 'Geüpload logo. Wordt pas bewaard als je de klant opslaat.'
+          : preview ? 'Standaardlogo uit de vaste lijst. Upload er een om het te vervangen.' : 'PNG, JPG of WebP. Wordt automatisch verkleind.'}
+      </p>
+      {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
+    </div>
+  )
+}
 
 function ClientFormModal({ initial, onClose, onSaved }: {
   initial: AdminClient | null
@@ -143,16 +222,7 @@ function ClientFormModal({ initial, onClose, onSaved }: {
           </div>
         </div>
 
-        <div>
-          <label className="block text-xs text-zinc-500 mb-1">Logo URL</label>
-          <input
-            type="text"
-            value={form.logo_url}
-            onChange={e => setForm(f => ({ ...f, logo_url: e.target.value }))}
-            placeholder="https://…"
-            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600 transition-colors"
-          />
-        </div>
+        <LogoField name={form.name} value={form.logo_url} onChange={url => setForm(f => ({ ...f, logo_url: url }))} />
 
         <div>
           <label className="block text-xs text-zinc-500 mb-1">Beschrijving</label>
