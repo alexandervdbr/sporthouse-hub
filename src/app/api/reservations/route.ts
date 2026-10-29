@@ -58,7 +58,7 @@ export async function POST(req: Request) {
   if (!user) return new Response('Unauthorized', { status: 401 })
 
   const body = await req.json()
-  const { equipment_id, pickup_datetime, return_datetime, project, note } = body
+  const { equipment_id, pickup_datetime, return_datetime, project, note, reserved_for } = body
 
   if (!equipment_id || !pickup_datetime || !return_datetime) {
     return new Response('Missing required fields', { status: 400 })
@@ -105,12 +105,16 @@ export async function POST(req: Request) {
     )
   }
 
+  // Iedereen mag voor een collega reserveren: reserved_by is voor wie het is,
+  // created_by wie het ingaf. Zonder reserved_for is dat dezelfde persoon.
   const meta        = user.user_metadata ?? {}
-  const reserved_by = meta.full_name ?? meta.name ?? meta.email ?? user.email ?? 'Onbekend'
+  const created_by  = meta.full_name ?? meta.name ?? meta.email ?? user.email ?? 'Onbekend'
+  const reserved_by = typeof reserved_for === 'string' && reserved_for.trim() ? reserved_for.trim() : created_by
 
   const rows = occupiedDates.map(date => ({
     equipment_id,
     reserved_by,
+    created_by,
     date,
     pickup_datetime,
     return_datetime,
@@ -123,6 +127,15 @@ export async function POST(req: Request) {
     .insert(rows)
     .select()
 
-  if (error) return new Response(error.message, { status: 500 })
+  if (error) {
+    // 23505: iemand anders was net sneller op een van deze dagen.
+    if (error.code === '23505') {
+      return new Response(
+        JSON.stringify({ error: 'Net gereserveerd door iemand anders. Herlaad de pagina en kies andere dagen.' }),
+        { status: 409, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+    return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+  }
   return Response.json(data, { status: 201 })
 }

@@ -1,14 +1,14 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { isAdminUser } from '@/lib/auth-permissions'
+import { canManageEquipment } from '@/lib/equipment-access'
 
 // Vaste projecten voor materiaalreservaties (FoS, De Spor, …). Iedereen mag ze
-// lezen om te kunnen reserveren; enkel beheerders mogen de lijst aanpassen.
+// lezen om te kunnen reserveren; wie de materiaalplanning beheert, past de
+// lijst aan.
 async function requireAdmin() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
-  const isAdmin = isAdminUser(user)
-  return isAdmin ? user : null
+  return canManageEquipment(user) ? user : null
 }
 
 export async function GET() {
@@ -51,7 +51,21 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   if (!await requireAdmin()) return new Response('Forbidden', { status: 403 })
 
-  const { id, ...fields } = await req.json()
+  const body = await req.json()
+  const admin = createAdminClient()
+
+  // { order: [id, …] } zet de volgorde na slepen.
+  if (Array.isArray(body.order)) {
+    const results = await Promise.all(
+      (body.order as string[]).map((id, i) =>
+        admin.from('equipment_projects').update({ sort_order: i + 1 }).eq('id', id))
+    )
+    const failed = results.find(r => r.error)
+    if (failed?.error) return new Response(failed.error.message, { status: 500 })
+    return new Response(null, { status: 204 })
+  }
+
+  const { id, ...fields } = body
   if (!id) return new Response('ID ontbreekt', { status: 400 })
 
   const update: Record<string, unknown> = {}
@@ -60,7 +74,6 @@ export async function PATCH(req: Request) {
   if (typeof fields.show_in_planner === 'boolean') update.show_in_planner = fields.show_in_planner
   if (typeof fields.sort_order === 'number') update.sort_order = fields.sort_order
 
-  const admin = createAdminClient()
   const { data, error } = await admin
     .from('equipment_projects')
     .update(update)

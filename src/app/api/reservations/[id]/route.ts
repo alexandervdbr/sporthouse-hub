@@ -19,16 +19,16 @@ export async function DELETE(
 
   if (!res) return new Response('Not found', { status: 404 })
 
-  if (res.pickup_datetime) {
-    // Delete all rows for this reservation group
-    await supabase
-      .from('equipment_reservations')
-      .delete()
-      .eq('equipment_id', res.equipment_id)
-      .eq('pickup_datetime', res.pickup_datetime)
-  } else {
-    await supabase.from('equipment_reservations').delete().eq('id', id)
-  }
+  // Een reservatie over meerdere dagen is één rij per dag: die gaan samen weg.
+  const { error } = res.pickup_datetime
+    ? await supabase
+        .from('equipment_reservations')
+        .delete()
+        .eq('equipment_id', res.equipment_id)
+        .eq('pickup_datetime', res.pickup_datetime)
+    : await supabase.from('equipment_reservations').delete().eq('id', id)
+
+  if (error) return new Response(error.message, { status: 500 })
 
   return new Response(null, { status: 204 })
 }

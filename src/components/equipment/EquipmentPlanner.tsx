@@ -2,46 +2,17 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
-import EquipmentAdminPanel from '@/components/equipment/EquipmentAdminPanel'
+import EquipmentAdminPanel, { type AdminTab } from '@/components/equipment/EquipmentAdminPanel'
+import {
+  DEFAULT_OWNER_NOTE,
+  type EquipmentItem, type EquipmentCategory, type EquipmentProject, type Reservation,
+} from '@/components/equipment/types'
 import { isAdminUser } from '@/lib/auth-permissions'
 import {
   ChevronLeft, ChevronRight, ChevronDown, ChevronRight as ChevronRightIcon,
-  X, Loader2, AlertCircle, Trash2, BarChart3, Search, Info, Calendar, Plus, Settings
+  X, Loader2, AlertCircle, Trash2, BarChart3, Search, Info, Calendar, Plus, Settings, UserRound
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface EquipmentItem {
-  id: string
-  name: string
-  category: string
-  description?: string
-  is_broken?: boolean
-  broken_note?: string | null
-}
-
-// Vast project waaronder gereserveerd kan worden. show_in_planner laat het
-// raster het project tonen in plaats van de persoon, zodat FoS- en De
-// Spor-blokken herkenbaar blijven terwijl de naam eronder bewaard blijft.
-interface EquipmentProject {
-  id: string
-  name: string
-  color: string
-  show_in_planner: boolean
-  sort_order: number
-}
-
-interface Reservation {
-  id: string
-  equipment_id: string
-  reserved_by: string
-  date: string
-  pickup_datetime: string | null
-  return_datetime: string | null
-  project: string | null
-  note: string | null
-}
 
 // ─── User colours ─────────────────────────────────────────────────────────────
 
@@ -71,31 +42,9 @@ function getFirstName(name: string): string {
 
 // ─── Category colours ─────────────────────────────────────────────────────────
 
-const CATEGORY_COLORS: Record<string, string> = {
-  'SET 1 VIDEO':               '#3A913F',
-  'SET 2 VIDEO':               '#34a33a',
-  'SET 3 VIDEO':               '#2eb535',
-  'SET 4 VIDEO':               '#28c730',
-  'SET 5 VIDEO':               '#22d92b',
-  'FOTO':                      '#facc15',
-  'EXTRA LENZEN':              '#0ea5e9',
-  'Tentacle':                  '#a855f7',
-  'Sennheiser':                '#c084fc',
-  'LICHT':                     '#f59e0b',
-  'GoPro':                     '#22d3ee',
-  'Drone':                     '#38bdf8',
-  'Statieven':                 '#64748b',
-  'Extra':                     '#71717a',
-  'Ballieman + mobiele studio':'#ec4899',
-}
-
-const CATEGORY_ORDER = [
-  'SET 1 VIDEO', 'SET 2 VIDEO', 'SET 3 VIDEO', 'SET 4 VIDEO', 'SET 5 VIDEO',
-  'FOTO', 'EXTRA LENZEN', 'Tentacle', 'Sennheiser', 'LICHT',
-  'GoPro', 'Drone', 'Statieven', 'Extra', 'Ballieman + mobiele studio',
-]
-
-function catColor(cat: string) { return CATEGORY_COLORS[cat] ?? '#3A913F' }
+// Categorieën, kleuren en volgorde komen uit Beheer (equipment_categories).
+type CatColor = (category: string) => string
+const FALLBACK_CAT_COLOR = '#3A913F'
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 
@@ -150,9 +99,11 @@ function getOccupiedDates(pickupDate: string, pickupTime: string, returnDate: st
   return dates
 }
 
-// Build ISO datetime with local timezone offset (avoids UTC ambiguity)
+// Build ISO datetime with local timezone offset (avoids UTC ambiguity). The
+// offset is the one on that date, not today's: across a clock change they
+// differ by an hour.
 function makeISO(date: string, time: string): string {
-  const offset = -(new Date().getTimezoneOffset())
+  const offset = -(new Date(`${date}T${time}:00`).getTimezoneOffset())
   const h = Math.floor(Math.abs(offset) / 60).toString().padStart(2, '0')
   const m = (Math.abs(offset) % 60).toString().padStart(2, '0')
   const sign = offset >= 0 ? '+' : '-'
@@ -192,7 +143,20 @@ function Modal({ children, onClose, wide }: { children: React.ReactNode; onClose
 
 // ─── Equipment Info Modal ─────────────────────────────────────────────────────
 
-function EquipmentInfoModal({ item, onClose }: { item: EquipmentItem; onClose: () => void }) {
+function OwnerNotice({ item }: { item: EquipmentItem }) {
+  if (!item.owner) return null
+  return (
+    <div className="flex items-start gap-2 px-3 py-2 rounded-lg border border-amber-500/30 bg-amber-500/10">
+      <UserRound size={13} className="text-amber-400 mt-0.5 flex-shrink-0" />
+      <div className="min-w-0">
+        <p className="text-xs text-amber-200">{item.owner_note || DEFAULT_OWNER_NOTE}</p>
+        <p className="text-[11px] text-amber-400/80 mt-0.5">Verantwoordelijke · {item.owner}</p>
+      </div>
+    </div>
+  )
+}
+
+function EquipmentInfoModal({ item, catColor, onClose }: { item: EquipmentItem; catColor: CatColor; onClose: () => void }) {
   const color = catColor(item.category)
   return (
     <Modal onClose={onClose}>
@@ -205,7 +169,8 @@ function EquipmentInfoModal({ item, onClose }: { item: EquipmentItem; onClose: (
           <X size={15} />
         </button>
       </div>
-      <div className="px-5 py-4">
+      <div className="px-5 py-4 space-y-3">
+        <OwnerNotice item={item} />
         {item.description ? (
           <div>
             <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-2">Inhoud set</p>
@@ -222,150 +187,6 @@ function EquipmentInfoModal({ item, onClose }: { item: EquipmentItem; onClose: (
   )
 }
 
-// ─── Add Equipment Modal ──────────────────────────────────────────────────────
-
-function AddEquipmentModal({
-  onClose,
-  onCreated,
-}: {
-  onClose: () => void
-  onCreated: (item: EquipmentItem) => void
-}) {
-  const [name,          setName]          = useState('')
-  const [category,      setCategory]      = useState('')
-  const [newCategory,   setNewCategory]   = useState('')
-  const [customCat,     setCustomCat]     = useState(false)
-  const [description,   setDescription]  = useState('')
-  const [saving,        setSaving]        = useState(false)
-  const [error,         setError]         = useState('')
-
-  const allCategories = CATEGORY_ORDER
-  const effectiveCategory = customCat ? newCategory.trim() : category
-
-  async function handleSubmit() {
-    if (!name.trim())              { setError('Geef een naam op.'); return }
-    if (!effectiveCategory)        { setError('Selecteer of maak een categorie.'); return }
-    setSaving(true); setError('')
-    try {
-      const r = await fetch('/api/equipment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, category: effectiveCategory, description }),
-      })
-      const data = await r.json()
-      if (!r.ok) throw new Error(data.error || data || 'Onbekende fout')
-      onCreated(data)
-      onClose()
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Fout bij opslaan')
-    }
-    setSaving(false)
-  }
-
-  return (
-    <Modal onClose={onClose} wide>
-      <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-zinc-100">Materiaal toevoegen</h2>
-        <button onClick={onClose} aria-label="Sluiten" title="Sluiten" className="text-zinc-600 hover:text-zinc-300 transition-colors">
-          <X size={15} />
-        </button>
-      </div>
-
-      <div className="px-5 py-4 space-y-4">
-        <div>
-          <label className="block text-xs text-zinc-500 uppercase tracking-wider mb-1.5">Naam</label>
-          <input
-            autoFocus
-            type="text"
-            value={name}
-            onChange={e => setName(e.target.value)}
-            placeholder="bijv. Sony FX3"
-            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors"
-          />
-        </div>
-
-        <div>
-          <label className="block text-xs text-zinc-500 uppercase tracking-wider mb-1.5">Categorie</label>
-          {!customCat ? (
-            <div className="flex gap-2">
-              <select
-                value={category}
-                onChange={e => setCategory(e.target.value)}
-                className="flex-1 min-w-0 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 focus:outline-none focus:border-zinc-500 transition-colors"
-              >
-                <option value="">Kies een categorie…</option>
-                {allCategories.map(cat => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => setCustomCat(true)}
-                className="px-3 py-2 text-xs text-zinc-400 border border-zinc-700 rounded-lg hover:text-zinc-200 hover:border-zinc-500 transition-colors whitespace-nowrap"
-              >
-                + Nieuwe
-              </button>
-            </div>
-          ) : (
-            <div className="flex gap-2">
-              <input
-                autoFocus
-                type="text"
-                value={newCategory}
-                onChange={e => setNewCategory(e.target.value)}
-                placeholder="Naam van nieuwe categorie…"
-                className="flex-1 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors"
-              />
-              <button
-                type="button"
-                onClick={() => { setCustomCat(false); setNewCategory('') }}
-                className="px-3 py-2 text-xs text-zinc-400 border border-zinc-700 rounded-lg hover:text-zinc-200 hover:border-zinc-500 transition-colors"
-              >
-                Annuleer
-              </button>
-            </div>
-          )}
-        </div>
-
-        <div>
-          <label className="block text-xs text-zinc-500 uppercase tracking-wider mb-1.5">
-            Inhoud / omschrijving <span className="text-zinc-700 normal-case">(optioneel)</span>
-          </label>
-          <textarea
-            value={description}
-            onChange={e => setDescription(e.target.value)}
-            placeholder="Inhoud van de set, specificaties…"
-            rows={4}
-            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors resize-none"
-          />
-        </div>
-
-        {error && (
-          <div className="flex items-start gap-2 px-3 py-2.5 bg-red-950/40 border border-red-900/40 rounded-lg">
-            <AlertCircle size={13} className="text-red-400 mt-0.5 flex-shrink-0" />
-            <p className="text-sm text-red-400">{error}</p>
-          </div>
-        )}
-      </div>
-
-      <div className="px-5 py-3 border-t border-zinc-800 flex flex-wrap items-center gap-2">
-        <button onClick={onClose} className="px-4 py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors">
-          Annuleren
-        </button>
-        <button
-          onClick={handleSubmit}
-          disabled={saving}
-          className="ml-auto flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 transition-colors"
-          style={{ backgroundColor: '#3A913F' }}
-        >
-          {saving && <Loader2 size={13} className="animate-spin" />}
-          Toevoegen
-        </button>
-      </div>
-    </Modal>
-  )
-}
-
 // ─── Reservation Create Modal ─────────────────────────────────────────────────
 
 interface CreateModalProps {
@@ -375,13 +196,17 @@ interface CreateModalProps {
   // next booking relative to the dates being picked.
   allReservations: Reservation[]
   projects: EquipmentProject[]
+  // Namen om voor te reserveren: collega's en wie al eens reserveerde.
+  people: string[]
+  currentUser: string
+  catColor: CatColor
   initialEquipment?: EquipmentItem
   initialDate?: string
   onClose: () => void
   onCreated: (reservations: Reservation[]) => void
 }
 
-function ReservationCreateModal({ equipment, resMap, allReservations, projects, initialEquipment, initialDate, onClose, onCreated }: CreateModalProps) {
+function ReservationCreateModal({ equipment, resMap, allReservations, projects, people, currentUser, catColor, initialEquipment, initialDate, onClose, onCreated }: CreateModalProps) {
   const today = toISO(new Date())
 
   const [query,       setQuery]       = useState('')
@@ -394,6 +219,8 @@ function ReservationCreateModal({ equipment, resMap, allReservations, projects, 
   const [returnTime,  setReturnTime]  = useState('17:00')
   const [project,     setProject]     = useState('')
   const [note,        setNote]        = useState('')
+  // Leeg = voor jezelf. Wie reserveert voor een collega, typt of kiest diens naam.
+  const [reserveFor,  setReserveFor]  = useState('')
   const [saving,      setSaving]      = useState(false)
   const [error,       setError]       = useState('')
 
@@ -402,7 +229,7 @@ function ReservationCreateModal({ equipment, resMap, allReservations, projects, 
     const q = query.toLowerCase()
     const chosen = new Set(selected.map(s => s.id))
     return equipment
-      .filter(e => !chosen.has(e.id))
+      .filter(e => !chosen.has(e.id) && !e.is_broken)
       .filter(e => e.name.toLowerCase().includes(q) || e.category.toLowerCase().includes(q))
       .slice(0, 8)
   }, [query, equipment, selected])
@@ -458,6 +285,7 @@ function ReservationCreateModal({ equipment, resMap, allReservations, projects, 
             return_datetime:  makeISO(returnDate, returnTime),
             project,
             note,
+            reserved_for: reserveFor.trim() || undefined,
           }),
         })
         const data = await r.json()
@@ -479,7 +307,8 @@ function ReservationCreateModal({ equipment, resMap, allReservations, projects, 
     setSaving(false)
   }
 
-  const canSubmit = selected.length > 0 && !!pickupDate && !!returnDate && occupiedDates.length > 0 && conflicts.length === 0
+  const inPast    = !!pickupDate && pickupDate < today
+  const canSubmit = selected.length > 0 && !!pickupDate && !!returnDate && occupiedDates.length > 0 && conflicts.length === 0 && !inPast
 
   return (
     <Modal onClose={onClose} wide>
@@ -542,6 +371,19 @@ function ReservationCreateModal({ equipment, resMap, allReservations, projects, 
             </div>
           )}
 
+          {/* Materiaal met een vaste verantwoordelijke: wel te reserveren,
+              maar in samenspraak. */}
+          {selected.some(i => i.owner) && (
+            <div className="space-y-1.5 mb-2">
+              {selected.filter(i => i.owner).map(item => (
+                <div key={item.id}>
+                  {selected.filter(i => i.owner).length > 1 && <p className="text-[10px] text-zinc-500 mb-0.5">{item.name}</p>}
+                  <OwnerNotice item={item} />
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Search stays available so more items can be added */}
           <div className="relative">
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
@@ -585,7 +427,12 @@ function ReservationCreateModal({ equipment, resMap, allReservations, projects, 
             <label className="block text-xs text-zinc-500 uppercase tracking-wider mb-1.5">
               <span className="flex items-center gap-1"><Calendar size={11} /> Ophalen</span>
             </label>
-            <input type="date" value={pickupDate} onChange={e => setPickupDate(e.target.value)}
+            <input type="date" value={pickupDate} min={today}
+              onChange={e => {
+                setPickupDate(e.target.value)
+                // Terugbrengen kan niet vóór ophalen.
+                if (returnDate < e.target.value) setReturnDate(e.target.value)
+              }}
               className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 focus:outline-none focus:border-zinc-500 transition-colors" />
             <input type="time" value={pickupTime} onChange={e => setPickupTime(e.target.value)}
               className="w-full mt-1.5 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 focus:outline-none focus:border-zinc-500 transition-colors" />
@@ -636,6 +483,19 @@ function ReservationCreateModal({ equipment, resMap, allReservations, projects, 
         {/* Project + note */}
         <div className="space-y-2">
           <div>
+            <label className="block text-xs text-zinc-500 uppercase tracking-wider mb-1.5">Voor wie?</label>
+            <input type="text" value={reserveFor} onChange={e => setReserveFor(e.target.value)}
+              list="reserve-for-options"
+              placeholder={currentUser ? `${currentUser} (jezelf)` : 'Jezelf'}
+              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:border-zinc-500 transition-colors" />
+            <datalist id="reserve-for-options">
+              {people.filter(n => n !== currentUser).map(n => <option key={n} value={n} />)}
+            </datalist>
+            {reserveFor.trim() && reserveFor.trim() !== currentUser && (
+              <p className="mt-1 text-[11px] text-zinc-500">Op naam van {reserveFor.trim()}, ingegeven door jou.</p>
+            )}
+          </div>
+          <div>
             <label className="block text-xs text-zinc-500 uppercase tracking-wider mb-1.5">Project</label>
             {/* Vaste projecten als knopjes, maar het veld blijft vrije tekst:
                 een eenmalige shoot hoeft niet eerst aangemaakt te worden. */}
@@ -674,11 +534,11 @@ function ReservationCreateModal({ equipment, resMap, allReservations, projects, 
         </div>
 
         {/* Error */}
-        {(error || conflicts.length > 0) && (
+        {(error || conflicts.length > 0 || inPast) && (
           <div className="flex items-start gap-2 px-3 py-2.5 bg-red-950/40 border border-red-900/40 rounded-lg">
             <AlertCircle size={13} className="text-red-400 mt-0.5 flex-shrink-0" />
             <p className="text-sm text-red-400">
-              {error || (conflicts.length === 1
+              {error || (inPast ? 'Ophalen ligt in het verleden.' : conflicts.length === 1
                 ? `${conflicts[0].item.name} is al gereserveerd op ${conflicts[0].dates.length} van deze ${conflicts[0].dates.length === 1 ? 'dag' : 'dagen'}.`
                 : `${conflicts.length} items zijn al gereserveerd op een of meer van deze dagen.`)}
             </p>
@@ -711,11 +571,12 @@ interface ViewModalProps {
   currentUser: string
   isAdmin: boolean
   canDeleteReservation: boolean
+  catColor: CatColor
   onClose: () => void
   onDeleted: (reservationId: string, equipmentId: string, pickupDatetime: string | null) => void
 }
 
-function ReservationViewModal({ equipment, reservation: res, currentUser, isAdmin, canDeleteReservation, onClose, onDeleted }: ViewModalProps) {
+function ReservationViewModal({ equipment, reservation: res, currentUser, isAdmin, canDeleteReservation, catColor, onClose, onDeleted }: ViewModalProps) {
   const [deleting, setDeleting] = useState(false)
   const [error,    setError]    = useState('')
   const color     = catColor(equipment.category)
@@ -735,16 +596,18 @@ function ReservationViewModal({ equipment, reservation: res, currentUser, isAdmi
   async function handleDelete() {
     setDeleting(true)
     try {
-      await fetch(`/api/reservations/${res.id}`, { method: 'DELETE' })
+      const r = await fetch(`/api/reservations/${res.id}`, { method: 'DELETE' })
+      if (!r.ok) throw new Error((await r.text()) || 'Fout bij verwijderen')
       onDeleted(res.id, res.equipment_id, res.pickup_datetime)
       onClose()
-    } catch {
-      setError('Fout bij verwijderen')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Fout bij verwijderen')
     }
     setDeleting(false)
   }
 
-  const canDelete = isAdmin || canDeleteReservation || res.reserved_by === currentUser
+  // Wie voor een collega reserveerde, mag die reservatie ook weer annuleren.
+  const canDelete = isAdmin || canDeleteReservation || res.reserved_by === currentUser || res.created_by === currentUser
 
   return (
     <Modal onClose={onClose}>
@@ -763,8 +626,15 @@ function ReservationViewModal({ equipment, reservation: res, currentUser, isAdmi
         <div className="flex items-center gap-3 py-3 px-4 rounded-xl"
           style={{ background: `${userColor}12`, border: `1px solid ${userColor}28` }}>
           <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: userColor }} />
-          <p className="text-sm font-medium text-zinc-200">{res.reserved_by}</p>
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-zinc-200">{res.reserved_by}</p>
+            {res.created_by && res.created_by !== res.reserved_by && (
+              <p className="text-[11px] text-zinc-500">Gereserveerd door {res.created_by}</p>
+            )}
+          </div>
         </div>
+
+        <OwnerNotice item={equipment} />
 
         {/* Times */}
         {(res.pickup_datetime || res.return_datetime) && (
@@ -841,6 +711,8 @@ export default function EquipmentPlanner() {
   const [year,               setYear]               = useState(today.getFullYear())
   const [month,              setMonth]              = useState(today.getMonth())
   const [equipment,          setEquipment]          = useState<EquipmentItem[]>([])
+  const [dbCategories,       setDbCategories]       = useState<EquipmentCategory[]>([])
+  const [teamNames,          setTeamNames]          = useState<string[]>([])
   const [projects,           setProjects]           = useState<EquipmentProject[]>([])
   const [reservations,       setReservations]       = useState<Reservation[]>([])
   const [dayProjects,        setDayProjects]        = useState<Record<string, string>>({})
@@ -862,10 +734,10 @@ export default function EquipmentPlanner() {
   const [viewModal,      setViewModal]      = useState<{ equipment: EquipmentItem; date: string; reservation: Reservation } | null>(null)
   const [createModal,    setCreateModal]    = useState<{ equipment?: EquipmentItem; date?: string } | null>(null)
   const [infoItem,       setInfoItem]       = useState<EquipmentItem | null>(null)
-  const [addEquipModal,  setAddEquipModal]  = useState(false)
-  const [adminPanel,     setAdminPanel]     = useState(false)
+  const [adminPanel,     setAdminPanel]     = useState<{ tab: AdminTab; category?: string } | null>(null)
   const [deleteConfirm,  setDeleteConfirm]  = useState<EquipmentItem | null>(null)
   const [deleting,       setDeleting]       = useState(false)
+  const [deleteError,    setDeleteError]    = useState('')
 
   const daysInMonth   = getDaysInMonth(year, month)
   const days          = Array.from({ length: daysInMonth }, (_, i) => new Date(year, month, i + 1))
@@ -906,10 +778,17 @@ export default function EquipmentPlanner() {
     })
   }, [])
 
-  // Load equipment once
+  // Load equipment, categories, projects and the team once
   useEffect(() => {
     fetch('/api/equipment').then(r => r.json()).then(setEquipment).catch(console.error)
+    fetch('/api/equipment-categories').then(r => r.ok ? r.json() : []).then(setDbCategories).catch(() => {})
     fetch('/api/equipment-projects').then(r => r.json()).then(setProjects).catch(() => {})
+    // Alleen voor de suggesties bij "Voor wie?" en de verantwoordelijke.
+    fetch('/api/team/members')
+      .then(r => r.ok ? r.json() : [])
+      .then((rows: { name: string; active?: boolean }[]) =>
+        setTeamNames(rows.filter(r => r.active !== false && r.name).map(r => r.name)))
+      .catch(() => {})
   }, [])
 
   // Load day projects
@@ -949,35 +828,37 @@ export default function EquipmentPlanner() {
 
   useEffect(() => { loadReservations() }, [loadReservations])
 
+  // Both lists change together: the grid shows this month, the "Laatst /
+  // Daarna" lines read from everything.
   function handleCreated(newRes: Reservation[]) {
     setReservations(prev => [...prev, ...newRes])
+    setAllReservations(prev => [...prev, ...newRes])
   }
 
   function handleDeleted(reservationId: string, equipmentId: string, pickupDatetime: string | null) {
-    setReservations(prev =>
-      pickupDatetime
-        ? prev.filter(r => !(r.equipment_id === equipmentId && r.pickup_datetime === pickupDatetime))
-        : prev.filter(r => r.id !== reservationId)
-    )
-  }
-
-  function handleEquipmentCreated(item: EquipmentItem) {
-    setEquipment(prev => [...prev, item])
+    const keep = (r: Reservation) => pickupDatetime
+      ? !(r.equipment_id === equipmentId && r.pickup_datetime === pickupDatetime)
+      : r.id !== reservationId
+    setReservations(prev => prev.filter(keep))
+    setAllReservations(prev => prev.filter(keep))
   }
 
   async function handleEquipmentDelete(item: EquipmentItem) {
-    setDeleting(true)
+    setDeleting(true); setDeleteError('')
     try {
-      await fetch('/api/equipment', {
+      const r = await fetch('/api/equipment', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: item.id }),
       })
+      // Bv. nog reservaties: dan blijft het staan en zeggen we waarom.
+      if (!r.ok) throw new Error((await r.text()) || 'Verwijderen mislukt')
       setEquipment(prev => prev.filter(e => e.id !== item.id))
-      setReservations(prev => prev.filter(r => r.equipment_id !== item.id))
-    } catch (e) { console.error(e) }
+      setDeleteConfirm(null)
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : 'Verwijderen mislukt')
+    }
     setDeleting(false)
-    setDeleteConfirm(null)
   }
 
   // Lookup map
@@ -990,13 +871,16 @@ export default function EquipmentPlanner() {
   const visibleEquipment = useMemo(() => {
     // Defect materiaal verdwijnt uit het raster, behalve voor beheerders — die
     // moeten het kunnen terugzetten zodra het hersteld is.
-    const pool = isAdmin ? equipment : equipment.filter(e => !e.is_broken)
+    const pool = (canToevoegen ? equipment : equipment.filter(e => !e.is_broken))
+      .slice()
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name.localeCompare(b.name))
     if (!searchQuery.trim()) return pool
     const q = searchQuery.toLowerCase()
     return pool.filter(e =>
-      e.name.toLowerCase().includes(q) || e.category.toLowerCase().includes(q)
+      e.name.toLowerCase().includes(q) || e.category.toLowerCase().includes(q) ||
+      (e.owner ?? '').toLowerCase().includes(q)
     )
-  }, [equipment, searchQuery, isAdmin])
+  }, [equipment, searchQuery, canToevoegen])
 
   // Projectnaam -> project, om reservaties in het raster op projectnaam en
   // -kleur te kunnen tonen in plaats van op persoon.
@@ -1013,7 +897,17 @@ export default function EquipmentPlanner() {
     return { text: getFirstName(res.reserved_by), color: getUserColor(res.reserved_by), isProject: false }
   }, [projectByName])
 
-  const categories = CATEGORY_ORDER.filter(cat => visibleEquipment.some(e => e.category === cat))
+  // Volgorde en kleur uit Beheer. Materiaal waarvan de categorie (nog) niet in
+  // die lijst staat, komt achteraan in plaats van onzichtbaar te zijn.
+  const catColor = useCallback<CatColor>(
+    cat => dbCategories.find(c => c.name === cat)?.color ?? FALLBACK_CAT_COLOR,
+    [dbCategories]
+  )
+  const categories = useMemo(() => {
+    const known = dbCategories.map(c => c.name)
+    const extra = Array.from(new Set(equipment.map(e => e.category))).filter(c => !known.includes(c)).sort()
+    return [...known, ...extra].filter(cat => visibleEquipment.some(e => e.category === cat))
+  }, [dbCategories, equipment, visibleEquipment])
 
   const tableMinWidth = DATE_COL_W + categories.reduce((sum, cat) => {
     if (!searchQuery && collapsedCategories.has(cat)) return sum + COLLAPSED_W
@@ -1059,6 +953,18 @@ export default function EquipmentPlanner() {
       .then((rows: Reservation[]) => setAllReservations(Array.isArray(rows) ? rows : []))
       .catch(() => { /* history is a nicety; the planner works without it */ })
   }, [])
+
+  // Namen om voor te reserveren of als verantwoordelijke te kiezen.
+  const people = useMemo(() => {
+    const names = new Set<string>(teamNames)
+    for (const r of allReservations) names.add(r.reserved_by)
+    if (currentUser) names.add(currentUser)
+    return Array.from(names).filter(Boolean).sort((a, b) => a.localeCompare(b))
+  }, [teamNames, allReservations, currentUser])
+  const ownerOptions = useMemo(
+    () => Array.from(new Set([...projects.map(p => p.name), ...people])),
+    [projects, people]
+  )
 
   // Per item: the most recent booking strictly before the selected day, and the
   // next one strictly after.
@@ -1124,7 +1030,7 @@ export default function EquipmentPlanner() {
 
           {canToevoegen && (
             <button
-              onClick={() => setAddEquipModal(true)}
+              onClick={() => setAdminPanel({ tab: 'materiaal' })}
               className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-zinc-300 border border-zinc-700 hover:border-zinc-500 hover:text-zinc-100 rounded-lg transition-colors"
             >
               + Materiaal toevoegen
@@ -1156,9 +1062,9 @@ export default function EquipmentPlanner() {
             <ChevronRight size={15} />
           </button>
           <div className="w-px h-5 bg-zinc-800" />
-          {isAdmin && (
+          {canToevoegen && (
             <button
-              onClick={() => setAdminPanel(true)}
+              onClick={() => setAdminPanel({ tab: 'categorieen' })}
               className="flex items-center gap-2 px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 hover:border-zinc-600 hover:bg-zinc-800 rounded-lg transition-colors"
             >
               <Settings size={13} />
@@ -1284,15 +1190,15 @@ export default function EquipmentPlanner() {
               <div className="flex items-center gap-2 flex-shrink-0">
                 {canToevoegen && (
                   <button
-                    onClick={() => setAddEquipModal(true)}
+                    onClick={() => setAdminPanel({ tab: 'materiaal' })}
                     className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border border-zinc-700 text-xs text-zinc-300"
                   >
                     <Plus size={13} /> Materiaal toevoegen
                   </button>
                 )}
-                {isAdmin && (
+                {canToevoegen && (
                   <button
-                    onClick={() => setAdminPanel(true)}
+                    onClick={() => setAdminPanel({ tab: 'categorieen' })}
                     className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-zinc-700 text-xs text-zinc-400"
                   >
                     <Settings size={13} /> Beheer
@@ -1357,6 +1263,11 @@ export default function EquipmentPlanner() {
                                 return parts.length ? parts.join('   ') : 'Nog niet gereserveerd'
                               })()}
                             </span>
+                            {item.owner && (
+                              <span className="mt-0.5 flex items-center gap-1 text-[10px] text-amber-400/90">
+                                <UserRound size={10} /> Verantwoordelijke · {item.owner}
+                              </span>
+                            )}
                           </span>
                         </button>
                       )
@@ -1516,9 +1427,20 @@ export default function EquipmentPlanner() {
                             defect
                           </span>
                         )}
+                        {/* Vaste verantwoordelijke: reserveren in samenspraak. */}
+                        {item.owner && (
+                          <span
+                            title={`${item.owner_note || DEFAULT_OWNER_NOTE} Verantwoordelijke: ${item.owner}`}
+                            className="absolute bottom-6 left-1 right-1 flex items-center justify-center gap-0.5 px-1 rounded text-[9px] font-medium truncate"
+                            style={{ background: 'rgba(245,158,11,0.12)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.3)' }}
+                          >
+                            <UserRound size={8} className="flex-shrink-0" />
+                            <span className="truncate">{item.owner}</span>
+                          </span>
+                        )}
                         {canVerwijderen && (
                           <button
-                            onClick={e => { e.stopPropagation(); setDeleteConfirm(item) }}
+                            onClick={e => { e.stopPropagation(); setDeleteError(''); setDeleteConfirm(item) }}
                             title="Materiaal verwijderen"
                             className="absolute bottom-1.5 left-1/2 -translate-x-1/2 opacity-0 group-hover/th:opacity-100 transition-opacity p-0.5 rounded text-red-500 hover:text-red-400 hover:bg-red-950/40"
                           >
@@ -1684,6 +1606,7 @@ export default function EquipmentPlanner() {
           currentUser={currentUser}
           isAdmin={isAdmin}
           canDeleteReservation={canReserveringVerwijderen}
+          catColor={catColor}
           onClose={() => setViewModal(null)}
           onDeleted={(resId, equipId, pickupDt) => handleDeleted(resId, equipId, pickupDt)}
         />
@@ -1691,9 +1614,14 @@ export default function EquipmentPlanner() {
       {adminPanel && (
         <EquipmentAdminPanel
           equipment={equipment}
+          categories={dbCategories}
           projects={projects}
-          onClose={() => setAdminPanel(false)}
-          onEquipmentChange={updated => setEquipment(prev => prev.map(e => e.id === updated.id ? updated : e))}
+          people={ownerOptions}
+          initialTab={adminPanel.tab}
+          initialCategory={adminPanel.category}
+          onClose={() => setAdminPanel(null)}
+          onEquipmentChange={setEquipment}
+          onCategoriesChange={setDbCategories}
           onProjectsChange={setProjects}
         />
       )}
@@ -1703,6 +1631,9 @@ export default function EquipmentPlanner() {
           resMap={resMap}
           allReservations={allReservations}
           projects={projects}
+          people={people}
+          currentUser={currentUser}
+          catColor={catColor}
           initialEquipment={createModal.equipment}
           initialDate={createModal.date}
           onClose={() => setCreateModal(null)}
@@ -1710,13 +1641,7 @@ export default function EquipmentPlanner() {
         />
       )}
       {infoItem && (
-        <EquipmentInfoModal item={infoItem} onClose={() => setInfoItem(null)} />
-      )}
-      {addEquipModal && (
-        <AddEquipmentModal
-          onClose={() => setAddEquipModal(false)}
-          onCreated={handleEquipmentCreated}
-        />
+        <EquipmentInfoModal item={infoItem} catColor={catColor} onClose={() => setInfoItem(null)} />
       )}
       {deleteConfirm && (
         <Modal onClose={() => setDeleteConfirm(null)}>
@@ -1730,7 +1655,13 @@ export default function EquipmentPlanner() {
             <p className="text-sm text-zinc-300">
               Ben je zeker dat je <span className="font-semibold text-zinc-100">{deleteConfirm.name}</span> wil verwijderen?
             </p>
-            <p className="text-xs text-zinc-500 mt-1">Alle reservaties voor dit materiaal worden ook verwijderd.</p>
+            <p className="text-xs text-zinc-500 mt-1">Dit kan alleen als er geen reservaties meer op staan.</p>
+            {deleteError && (
+              <div className="mt-3 flex items-start gap-2 px-3 py-2.5 bg-red-950/40 border border-red-900/40 rounded-lg">
+                <AlertCircle size={13} className="text-red-400 mt-0.5 flex-shrink-0" />
+                <p className="text-sm text-red-400">{deleteError}</p>
+              </div>
+            )}
           </div>
           <div className="px-5 py-3 border-t border-zinc-800 flex flex-wrap items-center gap-2">
             <button onClick={() => setDeleteConfirm(null)} className="px-4 py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors">
