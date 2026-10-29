@@ -450,6 +450,20 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
     return out
   }, [depts, teamById])
 
+  // Na het verlies van de database (28 oktober 2026) stond het rooster vol
+  // id's van contacten die niet meer bestonden — 35 stuks, één voor één
+  // wegklikken was geen optie. Dit haalt ze in één keer uit de kladversie;
+  // pas Opslaan schrijft het weg. De afdelingen zelf blijven staan.
+  //
+  // Alleen als Team echt geladen is: met een lege contactenlijst zou elk id
+  // "niet gekoppeld" lijken en het hele rooster leeggemaakt worden.
+  const [confirmPrune, setConfirmPrune] = useState(false)
+  const canPrune = isBeheer && teamContacts.length > 0
+  function pruneNotInTeam() {
+    setDepts(prev => prev.map(d => ({ ...d, employees: d.employees.filter(id => teamById.has(id)) })))
+    setConfirmPrune(false)
+  }
+
   function jumpToDept(deptIdx: number) {
     setTab('afdelingen')
     setCollapsed(prev => ({ ...prev, [deptIdx]: false }))
@@ -797,6 +811,30 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
                   {showNotInTeamDigest ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                 </span>
               </button>
+              {showNotInTeamDigest && canPrune && (
+                <div className="px-3 pb-2 flex flex-wrap items-center gap-2">
+                  {confirmPrune ? (
+                    <>
+                      <span className="text-[11px] text-amber-300">
+                        {notInTeamList.length} naam{notInTeamList.length === 1 ? '' : 'en'} uit het rooster halen? De afdelingen blijven staan.
+                      </span>
+                      <button onClick={pruneNotInTeam}
+                        className="px-2 py-1 rounded-md text-[11px] font-medium text-white bg-amber-700 hover:bg-amber-600 transition-colors">
+                        Ja, weghalen
+                      </button>
+                      <button onClick={() => setConfirmPrune(false)}
+                        className="px-2 py-1 rounded-md text-[11px] text-zinc-400 hover:text-zinc-200 transition-colors">
+                        Annuleren
+                      </button>
+                    </>
+                  ) : (
+                    <button onClick={() => setConfirmPrune(true)}
+                      className="px-2 py-1 rounded-md text-[11px] font-medium text-amber-300 border border-amber-800/60 hover:bg-amber-900/30 transition-colors">
+                      Alle niet-gekoppelde namen weghalen
+                    </button>
+                  )}
+                </div>
+              )}
               {showNotInTeamDigest && (
                 <div className="px-3 pb-2 space-y-0.5">
                   {notInTeamList.map((n, i) => (
