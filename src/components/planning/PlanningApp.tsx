@@ -170,6 +170,12 @@ export default function PlanningApp() {
   // wat de config zou wegschrijven staat dan stil, want anders overschrijft
   // één mislukte GET het echte rooster met een verouderde kopie uit de code.
   const [configFailed, setConfigFailed] = useState(false)
+  // Of de server zelf een rooster teruggaf. Tot dan staat er een kopie uit de
+  // browser op het scherm, en die mag nooit vanzelf teruggeschreven worden:
+  // na het verlies van de database (28 oktober 2026) deed de "Nieuw"-heling
+  // hieronder precies dat, en zette zo 35 id's van niet meer bestaande
+  // contacten terug in de database. Zelf opslaan in de configuratie kan wel.
+  const [serverHasConfig, setServerHasConfig] = useState(false)
   const [presets, setPresets] = useState<PlanningPreset[]>([])
   const [showConfig, setShowConfig] = useState(false)
 
@@ -214,6 +220,7 @@ export default function PlanningApp() {
       .then((cfg: Department[] | null) => {
         if (Array.isArray(cfg) && cfg.length > 0) {
           setActiveDepts(cfg)
+          setServerHasConfig(true)
           try { localStorage.setItem(CONFIG_CACHE_KEY, JSON.stringify(cfg)) } catch { /* private browsing */ }
         }
       })
@@ -236,6 +243,7 @@ export default function PlanningApp() {
     // ergens anders dan de database, en schrijft de cache dat verschil vast.
     if (!res.ok) return
     setActiveDepts(newDepts)
+    setServerHasConfig(true)
     try { localStorage.setItem(CONFIG_CACHE_KEY, JSON.stringify(newDepts)) } catch { /* private browsing */ }
   }, [configFailed])
 
@@ -280,7 +288,7 @@ export default function PlanningApp() {
   // afdelingen staan. Binnen één afdeling is het altijd een duplicaat, want
   // het is letterlijk hetzelfde id.
   useEffect(() => {
-    if (!isBeheer || configFailed || activeDepts.length === 0 || configWriteRef.current) return
+    if (!isBeheer || configFailed || !serverHasConfig || activeDepts.length === 0 || configWriteRef.current) return
     let changed = false
     const next = activeDepts.map(d => {
       const seen = new Set<string>()
@@ -294,7 +302,7 @@ export default function PlanningApp() {
     if (!changed) return
     configWriteRef.current = true
     handleSaveConfig(next).finally(() => { configWriteRef.current = false })
-  }, [isBeheer, configFailed, activeDepts, handleSaveConfig])
+  }, [isBeheer, configFailed, serverHasConfig, activeDepts, handleSaveConfig])
 
   // 2) Nieuwe Team-contacten komen vanzelf in een bakje "Nieuw" terecht, zodat
   // een nieuwe collega een plek in de planning heeft zonder dat iemand aan een
@@ -304,7 +312,7 @@ export default function PlanningApp() {
   // Vergelijken op id, dus geen naamsvergelijking meer die ernaast kan zitten.
   // De hele hernoemingsmachinerie die hier ooit naast stond is daarmee weg.
   useEffect(() => {
-    if (!isBeheer || configFailed || teamContacts.length === 0 || activeDepts.length === 0 || configWriteRef.current) return
+    if (!isBeheer || configFailed || !serverHasConfig || teamContacts.length === 0 || activeDepts.length === 0 || configWriteRef.current) return
     const known = new Set(activeDepts.flatMap(d => d.employees))
     const missing = teamContacts.filter(c =>
       // Wie niet meer meedraait hoort hier niet opnieuw binnengehaald te
@@ -318,7 +326,7 @@ export default function PlanningApp() {
     bucket.employees.push(...missing.map(c => c.id))
     configWriteRef.current = true
     handleSaveConfig(next).finally(() => { configWriteRef.current = false })
-  }, [isBeheer, configFailed, teamContacts, activeDepts, handleSaveConfig])
+  }, [isBeheer, configFailed, serverHasConfig, teamContacts, activeDepts, handleSaveConfig])
 
   // ── Load presets ─────────────────────────────────────────────────────────
   // Ook opnieuw op te vragen: de Presets-tab in de configuratiemodal schrijft
@@ -812,7 +820,16 @@ export default function PlanningApp() {
     }
 
     if (!opts?.silent) setLoading(true)
-    const results = await Promise.all(months.map(fetchMonth))
+    let results: PlanningRow[][]
+    try {
+      results = await Promise.all(months.map(fetchMonth))
+    } catch (err) {
+      // Een mislukte ophaling mag het draaiende icoontje niet laten staan;
+      // de volgende poll of zichtbaarheidswissel probeert het opnieuw.
+      if (callId === loadCallIdRef.current) setLoading(false)
+      console.error('Planning ophalen mislukt:', err)
+      return
+    }
     if (callId !== loadCallIdRef.current) return // superseded by a newer load
 
     const map: PlanningWeekData = {}
@@ -823,7 +840,12 @@ export default function PlanningApp() {
       writeCachedMonth(months[i].year, months[i].month, rows, newestOf(rows, '1970-01-01T00:00:00Z'))
     })
     setData(map)
-    if (!opts?.silent) setLoading(false)
+    // Ook bij een stille ophaling: die kan een zichtbare hebben ingehaald
+    // (een poll of live-wijziging tijdens de eerste lading). De ingehaalde
+    // ruimt zijn eigen icoontje niet op — hij stopt bij "superseded" — dus
+    // deed niemand het, en bleef het icoontje naast de maand draaien terwijl
+    // de gegevens er allang stonden.
+    setLoading(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthsToLoad])
 
@@ -845,6 +867,9 @@ export default function PlanningApp() {
       if (callId !== loadCallIdRef.current) return
       if (!ok) return loadPeriodDataRef.current({ silent: true, skipCache: true })
     }
+    // Zelfde reden als onderaan loadPeriodData: deze poll kan de eerste,
+    // zichtbare lading hebben ingehaald.
+    setLoading(false)
   }, [monthsToLoad])
 
   // Kept in a ref so the polling effect below (registered once, empty deps
