@@ -29,21 +29,30 @@ export default function PushNotificationSetup() {
         }
         if (permission !== 'granted') return
 
-        const existing = await reg.pushManager.getSubscription()
-        if (existing) return
-
-        const sub = await reg.pushManager.subscribe({
+        const sub = (await reg.pushManager.getSubscription()) ?? await reg.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: urlBase64ToUint8Array(
             process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!
           ),
         })
 
-        await fetch('/api/push/subscribe', {
+        // Ook een bestaand abonnement melden. Vroeger stopte dit zodra de
+        // browser er al een had, in de veronderstelling dat de server het dan
+        // ook kende. Na het verlies van de database (28 oktober 2026) klopte
+        // dat niet meer: elke browser had een abonnement, de tabel was leeg, en
+        // niemand kreeg nog meldingen. De server werkt bij op endpoint, dus
+        // opnieuw sturen kan geen kwaad — één keer per browsersessie volstaat.
+        const syncedKey = `push-synced:${sub.endpoint}`
+        try { if (sessionStorage.getItem(syncedKey)) return } catch { /* private browsing */ }
+
+        const res = await fetch('/api/push/subscribe', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(sub.toJSON()),
         })
+        if (res.ok) {
+          try { sessionStorage.setItem(syncedKey, '1') } catch { /* private browsing */ }
+        }
       } catch {
         // silently fail — push is non-critical
       }

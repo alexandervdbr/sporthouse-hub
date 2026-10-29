@@ -31,7 +31,7 @@
 // een sleutel in de catalogus nergens meer gecontroleerd wordt.
 
 import { ADMIN_EMAILS } from '@/lib/auth-permissions'
-import { PROJECTKALENDER_ENABLED } from '@/lib/features'
+import { PROJECTKALENDER_ENABLED, CHAT_ENABLED } from '@/lib/features'
 
 export interface AccessLevel {
   key: string
@@ -184,7 +184,10 @@ const ALL_MODULES: AccessModule[] = [
 // Onderdelen in de koelkast (zie src/lib/features.ts) verdwijnen uit het
 // scherm en geven niemand nog rechten; hun niveaus blijven in de rollen staan
 // en komen terug zodra het onderdeel weer aan staat.
-const FROZEN_MODULES = new Set(PROJECTKALENDER_ENABLED ? [] : ['projectkalender'])
+const FROZEN_MODULES = new Set([
+  ...(PROJECTKALENDER_ENABLED ? [] : ['projectkalender']),
+  ...(CHAT_ENABLED ? [] : ['chat']),
+])
 export const ACCESS_MODULES: AccessModule[] = ALL_MODULES.filter(m => !FROZEN_MODULES.has(m.key))
 export const FROZEN_SECTION_KEYS = ALL_MODULES
   .filter(m => FROZEN_MODULES.has(m.key))
