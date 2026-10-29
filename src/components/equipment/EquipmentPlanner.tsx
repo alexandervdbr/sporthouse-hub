@@ -3,14 +3,15 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import EquipmentAdminPanel, { type AdminTab } from '@/components/equipment/EquipmentAdminPanel'
+import EquipmentTimeline from '@/components/equipment/EquipmentTimeline'
 import {
   DEFAULT_OWNER_NOTE,
   type EquipmentItem, type EquipmentCategory, type EquipmentProject, type Reservation,
 } from '@/components/equipment/types'
 import { isAdminUser } from '@/lib/auth-permissions'
 import {
-  ChevronLeft, ChevronRight, ChevronDown, ChevronRight as ChevronRightIcon,
-  X, Loader2, AlertCircle, Trash2, BarChart3, Search, Info, Calendar, Plus, Settings, UserRound
+  ChevronLeft, ChevronRight, ChevronDown,
+  X, Loader2, AlertCircle, Trash2, BarChart3, Search, Calendar, Plus, Settings, UserRound, Camera
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -114,14 +115,6 @@ const MONTH_NAMES = [
   'Januari','Februari','Maart','April','Mei','Juni',
   'Juli','Augustus','September','Oktober','November','December',
 ]
-
-// ─── Dimensions ──────────────────────────────────────────────────────────────
-
-const DATE_COL_W    = 200
-const EQUIP_COL_W   = 100
-const COLLAPSED_W   = 36
-const ROW_H         = 38
-const HEADER_H      = 110
 
 // ─── Modal base ───────────────────────────────────────────────────────────────
 
@@ -711,6 +704,7 @@ export default function EquipmentPlanner() {
   const [year,               setYear]               = useState(today.getFullYear())
   const [month,              setMonth]              = useState(today.getMonth())
   const [equipment,          setEquipment]          = useState<EquipmentItem[]>([])
+  const [equipmentLoaded,    setEquipmentLoaded]    = useState(false)
   const [dbCategories,       setDbCategories]       = useState<EquipmentCategory[]>([])
   const [teamNames,          setTeamNames]          = useState<string[]>([])
   const [projects,           setProjects]           = useState<EquipmentProject[]>([])
@@ -720,8 +714,6 @@ export default function EquipmentPlanner() {
   const [currentUser,        setCurrentUser]        = useState('')
   const [isAdmin,            setIsAdmin]            = useState(false)
   const [collapsedCategories,setCollapsedCategories] = useState<Set<string>>(new Set())
-  const [editingDay,         setEditingDay]         = useState<string | null>(null)
-  const [editValue,          setEditValue]          = useState('')
   const [searchQuery,        setSearchQuery]        = useState('')
   const [canReserveren,           setCanReserveren]           = useState(true)
   const [canToevoegen,            setCanToevoegen]            = useState(false)
@@ -738,6 +730,7 @@ export default function EquipmentPlanner() {
   const [deleteConfirm,  setDeleteConfirm]  = useState<EquipmentItem | null>(null)
   const [deleting,       setDeleting]       = useState(false)
   const [deleteError,    setDeleteError]    = useState('')
+  const [menuOpen,       setMenuOpen]       = useState(false)
 
   const daysInMonth   = getDaysInMonth(year, month)
   const days          = Array.from({ length: daysInMonth }, (_, i) => new Date(year, month, i + 1))
@@ -780,7 +773,11 @@ export default function EquipmentPlanner() {
 
   // Load equipment, categories, projects and the team once
   useEffect(() => {
-    fetch('/api/equipment').then(r => r.json()).then(setEquipment).catch(console.error)
+    fetch('/api/equipment')
+      .then(r => r.ok ? r.json() : [])
+      .then((rows: EquipmentItem[]) => setEquipment(Array.isArray(rows) ? rows : []))
+      .catch(console.error)
+      .finally(() => setEquipmentLoaded(true))
     fetch('/api/equipment-categories').then(r => r.ok ? r.json() : []).then(setDbCategories).catch(() => {})
     fetch('/api/equipment-projects').then(r => r.json()).then(setProjects).catch(() => {})
     // Alleen voor de suggesties bij "Voor wie?" en de verantwoordelijke.
@@ -806,7 +803,6 @@ export default function EquipmentPlanner() {
 
   async function saveProjectName(date: string, value: string) {
     setDayProjects(prev => ({ ...prev, [date]: value }))
-    setEditingDay(null)
     try {
       await fetch('/api/day-projects', {
         method: 'POST',
@@ -909,10 +905,8 @@ export default function EquipmentPlanner() {
     return [...known, ...extra].filter(cat => visibleEquipment.some(e => e.category === cat))
   }, [dbCategories, equipment, visibleEquipment])
 
-  const tableMinWidth = DATE_COL_W + categories.reduce((sum, cat) => {
-    if (!searchQuery && collapsedCategories.has(cat)) return sum + COLLAPSED_W
-    return sum + visibleEquipment.filter(e => e.category === cat).length * EQUIP_COL_W
-  }, 0)
+  // Lege lijst (bv. net na de herstart): uitleg in plaats van een leeg raster.
+  const noEquipment = equipmentLoaded && equipment.length === 0
 
   // ── Mobile: one day at a time ───────────────────────────────────────────────
   // The dates × equipment grid can't shrink to a phone, and scrolling it
@@ -993,102 +987,153 @@ export default function EquipmentPlanner() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
+      {/* Header: titel en maand links, zoeken en reserveren rechts. Beheer,
+          stats en externe huur zitten samen achter één menu — die gebruik je
+          af en toe, reserveren elke dag. */}
       <div className="flex-shrink-0 flex items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-zinc-800">
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-5 min-w-0">
           <div className="min-w-0">
             <h1 className="text-base sm:text-lg font-semibold text-zinc-100 truncate">Materiaalplanning</h1>
-            <p className="text-xs sm:text-sm text-zinc-400 mt-0.5">{MONTH_NAMES[month]} {year}</p>
+            <p className="lg:hidden text-xs sm:text-sm text-zinc-400 mt-0.5">{MONTH_NAMES[month]} {year}</p>
           </div>
-          {isAdmin && (
-            <span className="hidden sm:inline px-2 py-0.5 rounded-full text-[11px] font-semibold flex-shrink-0"
-              style={{ background: 'rgba(251,191,36,0.15)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)' }}>
-              Beheerder
-            </span>
-          )}
-        </div>
-        {/* Desktop control cluster. On mobile these live in the day view below,
-            where they fit — this row has no space for them on a phone. */}
-        <div className="hidden lg:flex items-center gap-2">
-          {/* Search */}
-          <div className="relative">
-            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Zoek materiaal…"
-              className="pl-7 pr-7 py-1.5 bg-zinc-900 border border-zinc-700 rounded-lg text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors w-44"
-            />
-            {searchQuery && (
-              <button onClick={() => setSearchQuery('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors">
-                <X size={11} />
+          <div className="hidden lg:flex items-center gap-1">
+            <button onClick={prevMonth} aria-label="Vorige maand" title="Vorige maand"
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors">
+              <ChevronLeft size={16} />
+            </button>
+            <span className="w-36 text-center text-sm font-medium text-zinc-200 tabular-nums">{MONTH_NAMES[month]} {year}</span>
+            <button onClick={nextMonth} aria-label="Volgende maand" title="Volgende maand"
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors">
+              <ChevronRight size={16} />
+            </button>
+            {!isCurrentMonth && (
+              <button onClick={() => { setYear(today.getFullYear()); setMonth(today.getMonth()) }}
+                className="ml-1 px-2.5 py-1 text-xs text-zinc-400 border border-zinc-700 rounded-lg hover:bg-zinc-800 hover:text-zinc-200 transition-colors">
+                Vandaag
               </button>
             )}
           </div>
+        </div>
 
-          {canToevoegen && (
-            <button
-              onClick={() => setAdminPanel({ tab: 'materiaal' })}
-              className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-zinc-300 border border-zinc-700 hover:border-zinc-500 hover:text-zinc-100 rounded-lg transition-colors"
-            >
-              + Materiaal toevoegen
-            </button>
+        <div className="hidden lg:flex items-center gap-2">
+          {!noEquipment && (
+            <div className="relative">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Zoek materiaal of naam…"
+                className="pl-7 pr-7 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600 transition-colors w-56"
+              />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery('')} aria-label="Zoekopdracht wissen"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors">
+                  <X size={11} />
+                </button>
+              )}
+            </div>
           )}
 
-          {canReserveren && (
+          {canReserveren && !noEquipment && (
             <button
               onClick={() => setCreateModal({})}
-              className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-white rounded-lg transition-colors"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-white rounded-lg transition-colors hover:brightness-110"
               style={{ backgroundColor: '#3A913F' }}
             >
-              + Reserveren
+              <Plus size={13} /> Reserveren
             </button>
           )}
 
-          <div className="w-px h-5 bg-zinc-800" />
-
-          {!isCurrentMonth && (
-            <button onClick={() => { setYear(today.getFullYear()); setMonth(today.getMonth()) }}
-              className="px-3 py-1.5 text-xs text-zinc-400 border border-zinc-700 rounded-lg hover:bg-zinc-800 transition-colors">
-              Deze maand
-            </button>
-          )}
-          <button onClick={prevMonth} aria-label="Vorige maand" title="Vorige maand" className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 border border-zinc-800 transition-colors">
-            <ChevronLeft size={15} />
-          </button>
-          <button onClick={nextMonth} aria-label="Volgende maand" title="Volgende maand" className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 border border-zinc-800 transition-colors">
-            <ChevronRight size={15} />
-          </button>
-          <div className="w-px h-5 bg-zinc-800" />
-          {canToevoegen && (
-            <button
-              onClick={() => setAdminPanel({ tab: 'categorieen' })}
-              className="flex items-center gap-2 px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 hover:border-zinc-600 hover:bg-zinc-800 rounded-lg transition-colors"
-            >
-              <Settings size={13} />
-              Beheer
-            </button>
-          )}
-
-          {canStats && (
-            <Link href="/equipment/stats"
-              className="flex items-center gap-2 px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 hover:border-zinc-600 hover:bg-zinc-800 rounded-lg transition-colors">
-              <BarChart3 size={13} />
-              Stats
-            </Link>
-          )}
-          {canExtern && (
-            <Link href="/equipment/extern"
-              className="flex items-center gap-2 px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 hover:border-zinc-600 hover:bg-zinc-800 rounded-lg transition-colors">
-              <Calendar size={13} />
-              Extern
-            </Link>
+          {(canToevoegen || canStats || canExtern) && (
+            <div className="relative">
+              <button
+                onClick={() => setMenuOpen(o => !o)}
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900 rounded-lg transition-colors"
+              >
+                <Settings size={13} /> Meer <ChevronDown size={12} />
+              </button>
+              {menuOpen && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setMenuOpen(false)} />
+                  <div role="menu" className="absolute right-0 top-full mt-1 z-40 w-56 py-1 rounded-xl bg-zinc-900 border border-zinc-800 shadow-2xl">
+                    {canToevoegen && (
+                      <>
+                        <p className="px-3 pt-1.5 pb-1 text-[10px] text-zinc-600 uppercase tracking-wider">Inrichten</p>
+                        {([
+                          ['categorieen', 'Categorieën'],
+                          ['materiaal',   'Materiaal & verantwoordelijken'],
+                          ['defect',      'Defect melden'],
+                          ['projecten',   'Vaste projecten'],
+                        ] as [AdminTab, string][]).map(([tab, label]) => (
+                          <button key={tab} role="menuitem"
+                            onClick={() => { setMenuOpen(false); setAdminPanel({ tab }) }}
+                            className="w-full text-left px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100">
+                            {label}
+                          </button>
+                        ))}
+                      </>
+                    )}
+                    {(canStats || canExtern) && canToevoegen && <div className="my-1 border-t border-zinc-800" />}
+                    {canStats && (
+                      <Link href="/equipment/stats" role="menuitem"
+                        className="flex items-center gap-2 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100">
+                        <BarChart3 size={13} className="text-zinc-500" /> Statistieken
+                      </Link>
+                    )}
+                    {canExtern && (
+                      <Link href="/equipment/extern" role="menuitem"
+                        className="flex items-center gap-2 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100">
+                        <Calendar size={13} className="text-zinc-500" /> Externe huur
+                      </Link>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           )}
         </div>
       </div>
 
+      {noEquipment ? (
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="max-w-sm text-center">
+            <div className="mx-auto mb-4 w-12 h-12 rounded-2xl flex items-center justify-center border border-zinc-800 bg-zinc-900">
+              <Camera size={20} className="text-zinc-500" />
+            </div>
+            <h2 className="text-base font-semibold text-zinc-100">Nog geen materiaal</h2>
+            {canToevoegen ? (
+              <>
+                <p className="mt-1.5 text-sm text-zinc-500">
+                  Zet eerst je categorieën klaar en voeg dan het materiaal toe — je kan een hele lijst in één keer plakken.
+                </p>
+                <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+                  <button
+                    onClick={() => setAdminPanel({ tab: 'materiaal' })}
+                    className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white rounded-lg hover:brightness-110"
+                    style={{ backgroundColor: '#3A913F' }}
+                  >
+                    <Plus size={14} /> Materiaal toevoegen
+                  </button>
+                  <button
+                    onClick={() => setAdminPanel({ tab: 'categorieen' })}
+                    className="px-4 py-2 text-sm text-zinc-300 border border-zinc-700 rounded-lg hover:bg-zinc-800"
+                  >
+                    Categorieën bekijken
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p className="mt-1.5 text-sm text-zinc-500">
+                Zodra een beheerder het materiaal heeft ingegeven, kan je hier reserveren.
+              </p>
+            )}
+          </div>
+        </div>
+      ) : (
+      <>
       {/* ── Mobile: one day, listed as reservations ── */}
       <div className="lg:hidden flex flex-col flex-1 min-h-0 px-4 pt-3 gap-3">
         {/* Month navigation — the desktop cluster is hidden on phones, so
@@ -1337,265 +1382,41 @@ export default function EquipmentPlanner() {
         )}
       </div>
 
-      {/* Grid — desktop only */}
+      {/* Raster — enkel desktop */}
       <div className="hidden lg:block flex-1 overflow-auto">
         {loading ? (
           <div className="flex items-center justify-center h-40">
             <Loader2 size={22} className="animate-spin text-zinc-600" />
           </div>
+        ) : categories.length === 0 ? (
+          <div className="py-16 text-center text-sm text-zinc-500">
+            Niets gevonden voor &ldquo;{searchQuery}&rdquo;.
+          </div>
         ) : (
-          <table className="border-collapse" style={{ minWidth: tableMinWidth }}>
-            <thead>
-              {/* Category row */}
-              <tr>
-                <th className="sticky left-0 top-0 z-30 bg-zinc-950 border-b border-r border-zinc-800 text-left"
-                  style={{ width: DATE_COL_W, minWidth: DATE_COL_W, padding: '0 12px' }}
-                  rowSpan={2}>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] text-zinc-400 uppercase tracking-widest">Datum</span>
-                    <span className="text-[10px] text-zinc-500 uppercase tracking-widest">Project</span>
-                  </div>
-                </th>
-                {categories.map(cat => {
-                  const collapsed = !searchQuery && collapsedCategories.has(cat)
-                  const count     = visibleEquipment.filter(e => e.category === cat).length
-                  const color     = catColor(cat)
-                  return (
-                    <th key={cat}
-                      colSpan={collapsed ? 1 : count}
-                      onClick={() => toggleCategory(cat)}
-                      className="sticky top-0 z-20 border-b border-r border-zinc-800 cursor-pointer select-none"
-                      style={{
-                        background: `linear-gradient(135deg, ${color}28 0%, #09090b 100%)`,
-                        padding: collapsed ? '6px 4px' : '6px 10px',
-                        width: collapsed ? COLLAPSED_W : undefined,
-                        minWidth: collapsed ? COLLAPSED_W : undefined,
-                        transition: 'all 0.15s',
-                      }}>
-                      {collapsed ? (
-                        <div className="flex flex-col items-center gap-0.5">
-                          <ChevronRightIcon size={10} style={{ color }} />
-                          <span className="text-[8px] font-bold uppercase" style={{ color, writingMode: 'vertical-rl', letterSpacing: 1 }}>
-                            {cat.slice(0, 6)}
-                          </span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-between gap-1">
-                          <span className="text-[11px] font-bold uppercase tracking-widest whitespace-nowrap" style={{ color }}>
-                            {cat}
-                          </span>
-                          <ChevronDown size={10} style={{ color, opacity: 0.6 }} />
-                        </div>
-                      )}
-                    </th>
-                  )
-                })}
-              </tr>
-
-              {/* Equipment name row */}
-              <tr>
-                {categories.flatMap(cat => {
-                  const collapsed = !searchQuery && collapsedCategories.has(cat)
-                  if (collapsed) {
-                    return [
-                      <th key={`col-${cat}`}
-                        className="sticky top-0 z-20 border-b border-r border-zinc-800/60 bg-zinc-950"
-                        style={{ width: COLLAPSED_W, minWidth: COLLAPSED_W, height: HEADER_H }}
-                      />
-                    ]
-                  }
-                  const color = catColor(cat)
-                  return visibleEquipment.filter(e => e.category === cat).map(item => (
-                    <th key={item.id}
-                      className="sticky top-0 z-20 border-b border-r border-zinc-800/60 bg-zinc-950 group/th"
-                      style={{ width: EQUIP_COL_W, minWidth: EQUIP_COL_W, padding: '0 2px', height: HEADER_H }}>
-                      <div className="flex items-start justify-center pt-2 px-1.5 relative cursor-pointer" style={{ height: HEADER_H }}
-                        onClick={() => setInfoItem(item)}
-                        title={`Klik voor inhoud: ${item.name}`}>
-                        <Info size={9} className="absolute top-1.5 right-1.5 opacity-0 group-hover/th:opacity-60 transition-opacity" style={{ color }} />
-                        <span className={`text-[11px] font-medium leading-snug text-center transition-colors group-hover/th:opacity-80 ${item.is_broken ? 'line-through opacity-50' : ''}`} style={{ color }}>
-                          {item.name}
-                        </span>
-                        {/* Alleen beheerders zien defect materiaal nog staan;
-                            voor iedereen anders is de kolom er niet. */}
-                        {item.is_broken && (
-                          <span
-                            title={item.broken_note || 'Defect gemeld'}
-                            className="absolute top-1.5 left-1.5 px-1 rounded text-[8px] font-bold uppercase tracking-wide"
-                            style={{ background: 'rgba(220,38,38,0.2)', color: '#f87171', border: '1px solid rgba(220,38,38,0.4)' }}
-                          >
-                            defect
-                          </span>
-                        )}
-                        {/* Vaste verantwoordelijke: reserveren in samenspraak. */}
-                        {item.owner && (
-                          <span
-                            title={`${item.owner_note || DEFAULT_OWNER_NOTE} Verantwoordelijke: ${item.owner}`}
-                            className="absolute bottom-6 left-1 right-1 flex items-center justify-center gap-0.5 px-1 rounded text-[9px] font-medium truncate"
-                            style={{ background: 'rgba(245,158,11,0.12)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.3)' }}
-                          >
-                            <UserRound size={8} className="flex-shrink-0" />
-                            <span className="truncate">{item.owner}</span>
-                          </span>
-                        )}
-                        {canVerwijderen && (
-                          <button
-                            onClick={e => { e.stopPropagation(); setDeleteError(''); setDeleteConfirm(item) }}
-                            title="Materiaal verwijderen"
-                            className="absolute bottom-1.5 left-1/2 -translate-x-1/2 opacity-0 group-hover/th:opacity-100 transition-opacity p-0.5 rounded text-red-500 hover:text-red-400 hover:bg-red-950/40"
-                          >
-                            <Trash2 size={9} />
-                          </button>
-                        )}
-                      </div>
-                    </th>
-                  ))
-                })}
-              </tr>
-            </thead>
-
-            <tbody>
-              {days.map(day => {
-                const iso       = toISO(day)
-                const isToday   = iso === todayISO
-                const isPast    = iso < todayISO
-                const weekend   = isWeekend(day)
-                const dayName   = getDayName(day)
-                const project   = dayProjects[iso] ?? ''
-                const isEditing = editingDay === iso
-
-                return (
-                  <tr key={iso} className="group">
-                    {/* Date + project cell */}
-                    <td className="sticky left-0 z-10 border-b border-r border-zinc-800/60"
-                      style={{
-                        width: DATE_COL_W, minWidth: DATE_COL_W, height: ROW_H, padding: '0 10px',
-                        // Must stay fully opaque: this cell is sticky, so the
-                        // equipment columns scroll underneath it. A translucent
-                        // highlight here lets their content show through, which
-                        // is why only today's row looked doubled up.
-                        // #0f1911 is rgba(58,145,63,0.12) composited over #09090b.
-                        background: isToday ? '#0f1911' : weekend ? '#0c0c0c' : '#09090b',
-                      }}>
-                      <div className="flex items-center justify-between gap-2 w-full">
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                          <span className="text-sm font-semibold tabular-nums w-6 h-6 flex items-center justify-center rounded-full"
-                            style={isToday
-                              ? { backgroundColor: '#3A913F', color: '#fff' }
-                              : { color: weekend ? '#71717a' : '#c4c4c1' }}>
-                            {day.getDate()}
-                          </span>
-                          <span className={`text-[10px] uppercase tracking-wider ${weekend ? 'text-zinc-600' : 'text-zinc-500'}`}>
-                            {dayName}
-                          </span>
-                          {!isPast && canReserveren && (
-                            <button
-                              onClick={() => setCreateModal({ date: iso })}
-                              title="Materiaal reserveren voor deze dag"
-                              className="opacity-0 group-hover:opacity-100 w-4 h-4 flex items-center justify-center rounded text-zinc-500 hover:text-white hover:bg-zinc-700 transition-all text-xs leading-none flex-shrink-0"
-                            >
-                              +
-                            </button>
-                          )}
-                        </div>
-                        {isEditing ? (
-                          <input autoFocus value={editValue}
-                            onChange={e => setEditValue(e.target.value)}
-                            onBlur={() => saveProjectName(iso, editValue)}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter') saveProjectName(iso, editValue)
-                              if (e.key === 'Escape') setEditingDay(null)
-                            }}
-                            className="w-24 px-1.5 py-0.5 bg-zinc-800 border border-zinc-600 rounded text-xs text-zinc-200 focus:outline-none focus:border-zinc-500"
-                            placeholder="Project…"
-                          />
-                        ) : (
-                          <span
-                            className={`text-xs truncate cursor-pointer rounded px-1.5 py-0.5 transition-colors hover:bg-zinc-800 max-w-[90px] ${
-                              project ? 'text-zinc-300 font-medium' : 'text-zinc-700 hover:text-zinc-500'
-                            }`}
-                            onClick={() => { setEditingDay(iso); setEditValue(project) }}
-                            title={project || 'Klik om project toe te voegen'}>
-                            {project || '+'}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-
-                    {/* Equipment cells */}
-                    {categories.flatMap(cat => {
-                      const collapsed = !searchQuery && collapsedCategories.has(cat)
-                      const catEquip  = visibleEquipment.filter(e => e.category === cat)
-
-                      if (collapsed) {
-                        const reservedCount = catEquip.filter(item => resMap.has(`${item.id}_${iso}`)).length
-                        return [(
-                          <td key={`c-${cat}-${iso}`}
-                            onClick={() => toggleCategory(cat)}
-                            className="border-b border-r border-zinc-800/40 cursor-pointer"
-                            style={{ width: COLLAPSED_W, minWidth: COLLAPSED_W, height: ROW_H, padding: '3px' }}>
-                            <div className="h-full rounded flex items-center justify-center"
-                              style={{
-                                backgroundColor: reservedCount > 0 ? `${catColor(cat)}18` : 'transparent',
-                                border: reservedCount > 0 ? `1px solid ${catColor(cat)}35` : '1px solid transparent',
-                              }}>
-                              {reservedCount > 0 && (
-                                <span className="text-[9px] font-bold" style={{ color: catColor(cat) }}>
-                                  {reservedCount}
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                        )]
-                      }
-
-                      return catEquip.map(item => {
-                        const res = resMap.get(`${item.id}_${iso}`)
-                        if (res) {
-                          const cell = cellLabel(res)
-                          return (
-                            <td key={item.id}
-                              className="border-b border-r border-zinc-800/40 cursor-pointer"
-                              style={{ height: ROW_H, padding: '3px' }}
-                              onClick={() => setViewModal({ equipment: item, date: iso, reservation: res })}
-                              // De naam blijft altijd in de tooltip staan, ook wanneer
-                              // de cel het project toont.
-                              title={`${res.reserved_by}${res.project ? ` — ${res.project}` : ''}${res.note ? ` — ${res.note}` : ''}`}>
-                              <div className="h-full rounded flex items-center justify-center px-1 overflow-hidden"
-                                style={{ backgroundColor: `${cell.color}22`, border: `1px solid ${cell.color}55` }}>
-                                <span className="text-[10px] font-semibold truncate leading-none" style={{ color: cell.color }}>
-                                  {cell.text}
-                                </span>
-                              </div>
-                            </td>
-                          )
-                        }
-
-                        return (
-                          <td key={item.id}
-                            className={`border-b border-r border-zinc-800/40 ${!isPast && canReserveren ? 'cursor-pointer group/cell' : ''}`}
-                            style={{ height: ROW_H, padding: '3px' }}
-                            onClick={() => !isPast && canReserveren && !item.is_broken && setCreateModal({ equipment: item, date: iso })}>
-                            <div className={`h-full rounded flex items-center justify-center transition-all ${
-                              isPast ? 'opacity-20' : 'group-hover/cell:brightness-125'
-                            }`}
-                              style={{
-                                backgroundColor: weekend && !isPast ? 'rgba(58,145,63,0.05)' : 'rgba(58,145,63,0.10)',
-                                border: '1px solid rgba(58,145,63,0.18)',
-                              }}>
-                              {!isPast && <span className="text-[10px] font-medium text-[#3A913F]">Vrij</span>}
-                            </div>
-                          </td>
-                        )
-                      })
-                    })}
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+          <EquipmentTimeline
+            days={days}
+            todayISO={todayISO}
+            categories={categories}
+            equipment={visibleEquipment}
+            catColor={catColor}
+            resMap={resMap}
+            cellLabel={cellLabel}
+            collapsed={collapsedCategories}
+            onToggleCategory={toggleCategory}
+            searching={!!searchQuery.trim()}
+            dayProjects={dayProjects}
+            onSaveDayProject={saveProjectName}
+            canReserveren={canReserveren}
+            canVerwijderen={canVerwijderen}
+            onReserve={(item, date) => setCreateModal({ equipment: item, date })}
+            onOpenReservation={(item, date, res) => setViewModal({ equipment: item, date, reservation: res })}
+            onInfo={setInfoItem}
+            onDelete={item => { setDeleteError(''); setDeleteConfirm(item) }}
+          />
         )}
       </div>
+      </>
+      )}
 
       {/* Modals */}
       {viewModal && (
