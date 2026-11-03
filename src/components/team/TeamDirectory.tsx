@@ -5,6 +5,7 @@ import { Plus, Pencil, Trash2, Loader2, Mail, Phone, X, Check, Users, Camera } f
 import { createClient } from '@/lib/supabase/client'
 import Image from 'next/image'
 import { isAdminUser } from '@/lib/auth-permissions'
+import { pickTeamClient } from '@/lib/team-client'
 import {
   EMPLOYMENT_TYPES, EMPLOYMENT_LABELS, isActiveContact, type EmploymentType,
 } from '@/lib/employment'
@@ -78,6 +79,11 @@ function ContactModal({
   onSave: (data: FormState) => Promise<void>
   onClose: () => void
 }) {
+  // Een nieuwe collega komt altijd onder Sporthouse, zoals bij een uitnodiging
+  // (zie src/lib/team-client.ts). Vroeger was het de eerste interne klant uit
+  // een lijst op naam — en "Friends of Sports" komt alfabetisch vóór
+  // "Sporthouse". Bij bewerken blijft het contact waar het staat.
+  const teamClient = pickTeamClient(clients)
   const [form, setForm] = useState<FormState>(
     initial
       ? {
@@ -92,10 +98,9 @@ function ContactModal({
         }
       : {
           name: '', role: '', email: '', phone: '', photo_url: '',
-          clientId: clients[0]?.id ?? '', employmentType: 'vast', activeUntil: '',
+          clientId: teamClient.ok ? teamClient.id : '', employmentType: 'vast', activeUntil: '',
         }
   )
-  // clientId is always set to the first intern client — not shown to user
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
@@ -125,7 +130,7 @@ function ContactModal({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!form.name.trim()) { setError('Naam is verplicht.'); return }
-    if (!form.clientId) { setError('Selecteer een bedrijf.'); return }
+    if (!form.clientId) { setError(teamClient.ok ? 'Selecteer een bedrijf.' : teamClient.error); return }
     setSaving(true)
     try {
       await onSave(form)
