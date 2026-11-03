@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/server'
 import { requireAdmin, loadRoles, buildAppMetadata } from '@/lib/access-roles-server'
+import { pickTeamClient } from '@/lib/team-client'
 
 // GET — list all users
 export async function GET() {
@@ -46,6 +47,51 @@ export async function POST(req: Request) {
   const appMetadata = buildAppMetadata({}, { access_role, overrides, clients: clients ?? [], planning_column }, roles)
   if (expires_at) appMetadata.expires_at = expires_at
 
+  // Koppelen aan Team. Dit deed vroeger een blinde insert, en dat is hoe er
+  // duplicaten ontstonden: iemand twee keer uitnodigen, of uitnodigen van
+  // iemand die al handmatig in Team stond, leverde telkens een tweede
+  // contactrij op. Die duplicaten lopen door tot in de planning, want het
+  // rooster koppelt op naam.
+  //
+  // Nu eerst zoeken. Over álle interne klanten, niet alleen de eerste — dat
+  // is ook waar /api/team/members kijkt, dus een bestaand contact onder een
+  // tweede interne klant werd anders alsnog gemist.
+  //
+  // Dit gebeurt vóór het account aangemaakt wordt: lukt het koppelen niet,
+  // dan liever geen account dan een account zonder plek in Team.
+  const { data: internClients } = await admin
+    .from('clients')
+    .select('id, name')
+    .eq('category', 'intern')
+
+  const internIds = (internClients ?? []).map((c: { id: string }) => c.id)
+  const wanted = email.trim().toLowerCase()
+
+  // In JS vergelijken en niet met ilike: een e-mailadres mag een underscore
+  // bevatten, en dat is een jokerteken in ilike — dan matcht "a_b@x.be" ook
+  // "axb@x.be". Het gaat om een handvol rijen, dus dit kost niets.
+  const { data: existing } = internIds.length > 0
+    ? await admin
+        .from('contacts')
+        .select('id, name, phone, role, email')
+        .in('client_id', internIds)
+        .not('email', 'is', null)
+    : { data: [] }
+
+  const match = (existing ?? []).find(
+    (c: { email: string | null }) => c.email?.trim().toLowerCase() === wanted
+  )
+
+  // Een nieuw contact komt altijd onder Sporthouse. Vroeger was dat "de eerste
+  // interne klant die de database teruggaf", zonder vaste volgorde — met
+  // Friends of Sports ernaast kon een nieuwe collega daar belanden.
+  let teamClientId: string | null = null
+  if (!match) {
+    const pick = pickTeamClient(internClients ?? [])
+    if (!pick.ok) return new Response(pick.error, { status: 409 })
+    teamClientId = pick.id
+  }
+
   // Create pre-approved user (email pre-confirmed so Google OAuth linking works)
   // Role/access fields go in app_metadata — it's server-only, unlike user_metadata
   // which the client can rewrite via supabase.auth.updateUser().
@@ -59,56 +105,24 @@ export async function POST(req: Request) {
   })
   if (error) return new Response(error.message, { status: 500 })
 
-  // Koppelen aan Team. Dit deed vroeger een blinde insert, en dat is hoe er
-  // duplicaten ontstonden: iemand twee keer uitnodigen, of uitnodigen van
-  // iemand die al handmatig in Team stond, leverde telkens een tweede
-  // contactrij op. Die duplicaten lopen door tot in de planning, want het
-  // rooster koppelt op naam.
-  //
-  // Nu eerst zoeken. Over álle interne klanten, niet alleen de eerste — dat
-  // is ook waar /api/team/members kijkt, dus een bestaand contact onder een
-  // tweede interne klant werd anders alsnog gemist.
-  const { data: internClients } = await admin
-    .from('clients')
-    .select('id')
-    .eq('category', 'intern')
-
-  const internIds = (internClients ?? []).map((c: { id: string }) => c.id)
-  if (internIds.length > 0) {
-    const wanted = email.trim().toLowerCase()
-
-    // In JS vergelijken en niet met ilike: een e-mailadres mag een underscore
-    // bevatten, en dat is een jokerteken in ilike — dan matcht "a_b@x.be" ook
-    // "axb@x.be". Het gaat om een handvol rijen, dus dit kost niets.
-    const { data: existing } = await admin
-      .from('contacts')
-      .select('id, name, phone, role, email')
-      .in('client_id', internIds)
-      .not('email', 'is', null)
-
-    const match = (existing ?? []).find(
-      (c: { email: string | null }) => c.email?.trim().toLowerCase() === wanted
-    )
-
-    if (match) {
-      // Aanvullen, niet overschrijven: wat al ingevuld staat is vaker juist
-      // dan wat er toevallig in dit uitnodigingsformulier stond.
-      const patch: Record<string, string> = {}
-      if (full_name?.trim() && !match.name?.trim()) patch.name = full_name.trim()
-      if (phone?.trim() && !match.phone?.trim()) patch.phone = phone.trim()
-      if (role?.trim() && !match.role?.trim()) patch.role = role.trim()
-      if (Object.keys(patch).length > 0) {
-        await admin.from('contacts').update(patch).eq('id', match.id)
-      }
-    } else {
-      await admin.from('contacts').insert({
-        client_id: internIds[0],
-        name:      (full_name?.trim() || email.trim()),
-        email:     email.trim(),
-        phone:     phone?.trim() || null,
-        role:      role?.trim() || null,
-      })
+  if (match) {
+    // Aanvullen, niet overschrijven: wat al ingevuld staat is vaker juist
+    // dan wat er toevallig in dit uitnodigingsformulier stond.
+    const patch: Record<string, string> = {}
+    if (full_name?.trim() && !match.name?.trim()) patch.name = full_name.trim()
+    if (phone?.trim() && !match.phone?.trim()) patch.phone = phone.trim()
+    if (role?.trim() && !match.role?.trim()) patch.role = role.trim()
+    if (Object.keys(patch).length > 0) {
+      await admin.from('contacts').update(patch).eq('id', match.id)
     }
+  } else {
+    await admin.from('contacts').insert({
+      client_id: teamClientId,
+      name:      (full_name?.trim() || email.trim()),
+      email:     email.trim(),
+      phone:     phone?.trim() || null,
+      role:      role?.trim() || null,
+    })
   }
 
   return Response.json({ id: data.user.id, email: data.user.email })
