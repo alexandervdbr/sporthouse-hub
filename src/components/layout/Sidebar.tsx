@@ -7,7 +7,7 @@ import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { Client } from '@/types/database'
 import { PROJECTKALENDER_ENABLED, CHAT_ENABLED } from '@/lib/features'
-import { LayoutDashboard, KanbanSquare, CalendarDays, CalendarRange, Users, LogOut, Camera, UserCheck, MessageSquare, ShieldCheck, Lock, Layers, X, Star, Bookmark } from 'lucide-react'
+import { LayoutDashboard, KanbanSquare, CalendarDays, CalendarRange, Users, LogOut, Camera, UserCheck, MessageSquare, ShieldCheck, Lock, Layers, X, Star, Bookmark, Wrench } from 'lucide-react'
 import { useSidebar } from '@/contexts/SidebarContext'
 import { useFavorites } from '@/contexts/FavoritesContext'
 import { cn } from '@/lib/utils'
@@ -15,6 +15,8 @@ import { getLogo } from '@/lib/logos'
 import { usePreview } from '@/lib/preview-context'
 import { isAdminUser } from '@/lib/auth-permissions'
 import { clearPlanningCache } from '@/lib/planning-cache'
+import { useToolStatus } from '@/contexts/ToolStatusContext'
+import { toolForPath, isInDevelopment } from '@/lib/tool-status'
 
 interface SidebarProps {
   clients: Client[]
@@ -117,6 +119,7 @@ export default function Sidebar({ clients }: SidebarProps) {
   }, [mobileOpen, closeMobile])
   const supabase = createClient()
   const { preview } = usePreview()
+  const { status: toolStatus, seesDevVersion } = useToolStatus()
   const [realIsAdmin,     setRealIsAdmin]     = useState(false)
   const [realPermissions, setRealPermissions] = useState<Permissions | null>(null)
   const [unreadChat,  setUnreadChat]  = useState(0)
@@ -327,6 +330,29 @@ export default function Sidebar({ clients }: SidebarProps) {
                 <span className="relative flex items-center gap-2.5">
                   <Icon size={15} className="flex-shrink-0" />
                   {!collapsed && <span>{label}</span>}
+                  {(() => {
+                    // Dev-modus (src/lib/tool-status.ts): admins zien "DEV",
+                    // de rest een sleuteltje — het item blijft staan, zodat
+                    // niemand denkt dat de tool verdwenen is.
+                    const tool = external ? null : toolForPath(href)
+                    if (!tool || !isInDevelopment(toolStatus, tool.key)) return null
+                    const dev = seesDevVersion(tool.key)
+                    if (collapsed) {
+                      return (
+                        <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full"
+                          style={{ backgroundColor: dev ? '#fb923c' : '#71717a' }} />
+                      )
+                    }
+                    return dev ? (
+                      <span className="ml-auto text-[9px] font-bold tracking-wider px-1.5 py-0.5 rounded"
+                        style={{ backgroundColor: '#431407', color: '#fdba74' }}
+                        title="In ontwikkeling — alleen admins zien deze tool">
+                        DEV
+                      </span>
+                    ) : (
+                      <Wrench size={11} className="ml-auto text-zinc-600" aria-label="Wordt aangepast" />
+                    )
+                  })()}
                   {label === 'Chat' && unreadChat > 0 && (
                     <span
                       className={cn(

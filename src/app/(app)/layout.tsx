@@ -3,6 +3,8 @@ import { redirect } from 'next/navigation'
 import AppShell from '@/components/layout/AppShell'
 import { Client } from '@/types/database'
 import { filterClientsForUser } from '@/lib/filter-clients'
+import { isAdminUser } from '@/lib/auth-permissions'
+import { toStatusMap } from '@/lib/tool-status'
 
 // Single shared layout for every authenticated in-app section (dashboard,
 // clients, chat, team, planning, equipment, freelancers, admin, events,
@@ -25,15 +27,20 @@ export default async function AppLayout({
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: clients } = await supabase
-    .from('clients')
-    .select('*')
-    .order('name')
+  // Toolstatus (dev-modus, zie src/lib/tool-status.ts) gaat mee in dezelfde
+  // ronde: dit layout draait één keer per sessie, dus dat is één klein
+  // verzoek extra per sessie, niet per pagina. Bestaat de tabel nog niet
+  // (migratie 0069 niet uitgevoerd), dan geeft dit een fout en staat alles
+  // gewoon live.
+  const [{ data: clients }, { data: toolRows }] = await Promise.all([
+    supabase.from('clients').select('*').order('name'),
+    supabase.from('tool_status').select('tool, in_development, message, updated_at, updated_by'),
+  ])
 
   const visibleClients = filterClientsForUser((clients as Client[]) || [], user)
 
   return (
-    <AppShell clients={visibleClients}>
+    <AppShell clients={visibleClients} toolStatus={toStatusMap(toolRows)} isAdmin={isAdminUser(user)}>
       {children}
     </AppShell>
   )

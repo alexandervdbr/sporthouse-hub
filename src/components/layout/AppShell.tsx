@@ -9,9 +9,14 @@ import PushNotificationSetup from '@/components/layout/PushNotificationSetup'
 import { SidebarProvider } from '@/contexts/SidebarContext'
 import { FavoritesProvider } from '@/contexts/FavoritesContext'
 import { Client } from '@/types/database'
+import { ToolStatusProvider } from '@/contexts/ToolStatusContext'
+import ToolGate from '@/components/layout/ToolGate'
+import type { ToolStatusMap } from '@/lib/tool-status'
 
 interface Props {
   clients: Client[]
+  toolStatus: ToolStatusMap
+  isAdmin: boolean
   children: React.ReactNode
 }
 
@@ -35,12 +40,13 @@ const PUSH_NOTIFICATION_PREFIXES = ['/dashboard', '/calendar', '/chat', '/events
 // Height uses 100dvh rather than 100vh: on mobile browsers 100vh is the
 // viewport *without* the address bar, so the bottom of the app ends up hidden
 // behind it.
-export default function AppShell({ clients, children }: Props) {
+export default function AppShell({ clients, toolStatus, isAdmin, children }: Props) {
   const pathname = usePathname()
   const scroll: 'auto' | 'hidden' = HIDDEN_SCROLL_PREFIXES.some(p => pathname.startsWith(p)) ? 'hidden' : 'auto'
   const pushNotifications = PUSH_NOTIFICATION_PREFIXES.some(p => pathname.startsWith(p))
 
   return (
+    <ToolStatusProvider initialStatus={toolStatus} isAdmin={isAdmin}>
     <SidebarProvider>
       {/* Wraps children too, so the star on the client header shares state with
           the sidebar's favourites group. */}
@@ -55,12 +61,13 @@ export default function AppShell({ clients, children }: Props) {
               een upload begint. */}
           <DriveIncidentBanner />
           <TopBar />
-          <div className={`flex-1 ${scroll === 'hidden' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+          <ToolGate scroll={scroll}>
             {children}
-          </div>
+          </ToolGate>
         </main>
       </div>
       </FavoritesProvider>
     </SidebarProvider>
+    </ToolStatusProvider>
   )
 }
