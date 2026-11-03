@@ -77,3 +77,40 @@ export interface GearUnitHistory {
   status: GearStatusLogEntry[]
   bookings: GearUnitBooking[]
 }
+
+export interface GearBooking {
+  id: string
+  start_date: string
+  end_date: string
+  unit_ids: string[]
+  booked_for_user_id: string | null
+  freelancer_id: string | null
+  external_name: string | null
+  /** Naam van de persoon (kopie), null bij een boeking voor alleen een klant. */
+  person_name: string | null
+  client: GearClientRef | null
+  project: { id: string; name: string } | null
+  note: string | null
+  created_by: string | null
+  created_by_name: string
+}
+
+export interface GearBookingOptions {
+  colleagues: GearPerson[]
+  freelancers: { id: string; name: string }[]
+  clients: GearClientRef[]
+  projects: { id: string; name: string; client_id: string | null }[]
+}
+
+/** Wat het formulier naar de API stuurt bij boeken of wijzigen. */
+export interface GearBookingInput {
+  start_date: string
+  end_date: string
+  unit_ids: string[]
+  user_id?: string | null
+  freelancer_id?: string | null
+  external_name?: string | null
+  client_id?: string | null
+  project_id?: string | null
+  note?: string | null
+}

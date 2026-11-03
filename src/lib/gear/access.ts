@@ -32,3 +32,20 @@ export function gearAccess(user: User): GearAccess {
     manageCatalog:  hasOpenSection(user, 'materiaal_toevoegen'),
   }
 }
+
+/**
+ * Mag deze gebruiker deze boeking wijzigen of annuleren? Dezelfde regel als
+ * gear_check_booking_access() in de database (0072): eigen boeking (gemaakt
+ * door of voor jou) zolang ze niet voorbij is, of Beheren voor alles.
+ */
+export function canChangeBooking(
+  booking: { created_by: string | null; booked_for_user_id: string | null; end_date: string },
+  userId: string,
+  access: GearAccess,
+  today: string,
+): boolean {
+  if (access.manageBookings) return true
+  if (!access.book) return false
+  const mine = booking.created_by === userId || booking.booked_for_user_id === userId
+  return mine && booking.end_date >= today
+}
