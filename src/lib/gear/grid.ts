@@ -1,26 +1,44 @@
 import { buildBars, type Bar } from './bars'
+import { eachDay } from './dates'
 import { barLabel, shortNames, type BarLabel } from './labels'
 import type { DateRange } from './ranges'
-import type { GearBooking, GearCatalog, GearCategory, GearClientRef, GearUnit } from './types'
+import { effectiveResponsible, responsibleName, type EffectiveResponsible } from './responsible'
+import type { GearBooking, GearCatalog, GearCategory, GearItem, GearKit } from './types'
 
-// Catalogus + boekingen → wat het raster tekent. Het raster zelf (rijen of
-// kolommen) weet niets van boekingen; zo kan de oriëntatie later wisselen
-// zonder deze logica aan te raken.
+// Catalogus + boekingen → wat het raster tekent. Per categorie eerst de kits
+// (één rij, open te klappen naar hun onderdelen), dan de losse items. Het
+// raster zelf weet niets van boekingen; zo kan de oriëntatie later wisselen.
 
 export interface GridBar extends Bar, BarLabel {
-  /** Unit is defect of uit dienst terwijl deze boeking loopt of nog komt. */
+  /** Iets in deze boeking is defect of uit dienst terwijl ze loopt of nog komt. */
   flagged: boolean
 }
 
-export interface GridUnitRow {
-  unit: GearUnit
-  holder: GearClientRef | null
+export interface GridItemRow {
+  kind: 'item'
+  item: GearItem
+  responsible: EffectiveResponsible | null
   bars: GridBar[]
 }
 
+export interface GridKitRow {
+  kind: 'kit'
+  kit: GearKit
+  responsible: EffectiveResponsible | null
+  parts: GridItemRow[]
+  /** Boekingen van (een deel van) de kit "via" deze kit. */
+  bars: GridBar[]
+  /** Per dag: hoeveel onderdelen via een andere boeking weg zijn ("elders"). */
+  elsewhere: number[]
+  defectParts: number
+  limitedParts: number
+}
+
+export type GridRow = GridKitRow | GridItemRow
+
 export interface GridGroup {
   category: GearCategory
-  rows: GridUnitRow[]
+  rows: GridRow[]
 }
 
 /** Naam op de balk: kort (voornaam), of de externe naam zoals ingegeven. */
@@ -37,37 +55,80 @@ export function buildGrid(
   today: string,
   search = '',
 ): GridGroup[] {
+  const days = eachDay(window.start, window.end)
   const short = shortNames([...new Set(bookings.filter(b => b.person_name && !b.external_name).map(b => b.person_name!))])
-  const bookingById = new Map(bookings.map(b => [b.id, b]))
-  const holderById = new Map(catalog.holders.map(h => [h.id, h]))
+  const clients = new Map(catalog.clients.map(c => [c.id, c]))
+  const itemById = new Map(catalog.items.map(i => [i.id, i]))
+  const kitOf = new Map<string, GearKit>()
+  for (const k of catalog.kits) for (const id of k.item_ids) kitOf.set(id, k)
+  const label = (b: GearBooking) => barLabel({ personName: bookingPersonLabel(b, short), clientName: b.client?.name, clientColor: b.client?.color })
+  const unavailable = (i: GearItem | undefined) => !!i && (i.status === 'defect' || i.status === 'uit_dienst')
 
-  const byUnit = new Map<string, GearBooking[]>()
-  for (const b of bookings) for (const id of b.unit_ids) byUnit.set(id, [...(byUnit.get(id) ?? []), b])
+  const byItem = new Map<string, GearBooking[]>()
+  for (const b of bookings) for (const l of b.lines) byItem.set(l.item_id, [...(byItem.get(l.item_id) ?? []), b])
+
+  const itemRow = (item: GearItem): GridItemRow => ({
+    kind: 'item',
+    item,
+    responsible: effectiveResponsible(item, kitOf.get(item.id) ?? null, clients),
+    bars: buildBars((byItem.get(item.id) ?? []).map(b => ({ bookingId: b.id, range: { start: b.start_date, end: b.end_date }, cancelled: false })), window)
+      .map(bar => {
+        const b = bookings.find(x => x.id === bar.bookingId)!
+        return { ...bar, ...label(b), flagged: unavailable(item) && b.end_date >= today }
+      }),
+  })
+
+  const kitRow = (kit: GearKit): GridKitRow => {
+    const parts = kit.item_ids.map(id => itemById.get(id)).filter((i): i is GearItem => !!i)
+    const via = bookings.filter(b => b.lines.some(l => l.via_kit_id === kit.id))
+    const bars = buildBars(via.map(b => ({ bookingId: b.id, range: { start: b.start_date, end: b.end_date }, cancelled: false })), window)
+      .map(bar => {
+        const b = via.find(x => x.id === bar.bookingId)!
+        const flagged = b.end_date >= today && b.lines.some(l => l.via_kit_id === kit.id && unavailable(itemById.get(l.item_id)))
+        return { ...bar, ...label(b), flagged }
+      })
+    const partIds = new Set(kit.item_ids)
+    const elsewhere = days.map(d => {
+      const out = new Set<string>()
+      for (const b of bookings) {
+        if (d < b.start_date || d > b.end_date) continue
+        for (const l of b.lines) if (partIds.has(l.item_id) && l.via_kit_id !== kit.id) out.add(l.item_id)
+      }
+      return out.size
+    })
+    return {
+      kind: 'kit',
+      kit,
+      responsible: (() => { const name = responsibleName(kit, clients); return name ? { name, viaKit: null } : null })(),
+      parts: parts.map(itemRow),
+      bars,
+      elsewhere,
+      defectParts: parts.filter(unavailable).length,
+      limitedParts: parts.filter(p => p.status === 'beperkt').length,
+    }
+  }
 
   const q = search.trim().toLowerCase()
-  const matches = (u: GearUnit, cat: GearCategory) =>
-    !q || u.name.toLowerCase().includes(q) || cat.name.toLowerCase().includes(q)
-       || (u.home_client_id ? (holderById.get(u.home_client_id)?.name ?? '').toLowerCase().includes(q) : false)
+  const respText = (r: EffectiveResponsible | null) => (r?.name ?? '').toLowerCase()
+  const itemMatches = (r: GridItemRow, cat: GearCategory) =>
+    !q || r.item.name.toLowerCase().includes(q) || (r.item.model ?? '').toLowerCase().includes(q)
+       || cat.name.toLowerCase().includes(q) || respText(r.responsible).includes(q)
 
   return [...catalog.categories]
     .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, 'nl'))
     .map(category => {
-      const rows = catalog.units
-        .filter(u => u.category_id === category.id && matches(u, category))
+      const kits = catalog.kits
+        .filter(k => k.category_id === category.id)
         .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, 'nl'))
-        .map(unit => {
-          const unavailable = unit.status === 'defect' || unit.status === 'uit_dienst'
-          const bars = buildBars(
-            (byUnit.get(unit.id) ?? []).map(b => ({ bookingId: b.id, range: { start: b.start_date, end: b.end_date }, cancelled: false })),
-            window,
-          ).map(bar => {
-            const b = bookingById.get(bar.bookingId)!
-            const label = barLabel({ personName: bookingPersonLabel(b, short), clientName: b.client?.name, clientColor: b.client?.color })
-            return { ...bar, ...label, flagged: unavailable && b.end_date >= today }
-          })
-          return { unit, holder: unit.home_client_id ? holderById.get(unit.home_client_id) ?? null : null, bars }
-        })
-      return { category, rows }
+        .map(kitRow)
+        .filter(k => !q || k.kit.name.toLowerCase().includes(q) || category.name.toLowerCase().includes(q)
+                      || respText(k.responsible).includes(q) || k.parts.some(p => itemMatches(p, category)))
+      const loose = catalog.items
+        .filter(i => i.category_id === category.id && !kitOf.has(i.id))
+        .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, 'nl'))
+        .map(itemRow)
+        .filter(r => itemMatches(r, category))
+      return { category, rows: [...kits, ...loose] as GridRow[] }
     })
     .filter(g => g.rows.length > 0)
 }

@@ -9,7 +9,9 @@ import type { GearBookingInput } from './types'
 export type BookingArgs = {
   p_start_date: string
   p_end_date: string
-  p_unit_ids: string[]
+  p_item_ids: string[]
+  p_kit_ids: string[]
+  p_excluded_item_ids: string[]
   p_user_id: string | null
   p_freelancer_id: string | null
   p_external_name: string | null
@@ -19,20 +21,24 @@ export type BookingArgs = {
 }
 
 const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)
+const ids = (v: unknown): string[] | null =>
+  v === undefined || v === null ? [] : Array.isArray(v) && v.every(x => typeof x === 'string') ? (v as string[]) : null
 
 export function parseBookingInput(body: unknown): { args: BookingArgs } | { error: string } {
   const b = (body ?? {}) as Partial<Record<keyof GearBookingInput, unknown>>
   const start = text(b.start_date)
   const end = text(b.end_date)
   if (!start || !end || !isISODate(start) || !isISODate(end)) return { error: 'Kies een begin- en einddatum.' }
-  if (!Array.isArray(b.unit_ids) || b.unit_ids.some(id => typeof id !== 'string')) {
-    return { error: 'Kies minstens één stuk materiaal.' }
-  }
+  const itemIds = ids(b.item_ids), kitIds = ids(b.kit_ids), excluded = ids(b.excluded_item_ids)
+  if (!itemIds || !kitIds || !excluded) return { error: 'Ongeldige lijst met materiaal.' }
+  if (itemIds.length + kitIds.length === 0) return { error: 'Kies minstens één stuk materiaal of een kit.' }
   return {
     args: {
       p_start_date: start,
       p_end_date: end,
-      p_unit_ids: b.unit_ids as string[],
+      p_item_ids: itemIds,
+      p_kit_ids: kitIds,
+      p_excluded_item_ids: excluded,
       p_user_id: text(b.user_id),
       p_freelancer_id: text(b.freelancer_id),
       p_external_name: text(b.external_name),

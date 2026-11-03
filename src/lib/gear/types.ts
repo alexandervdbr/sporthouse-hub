@@ -1,6 +1,7 @@
 import type { UnitStatus } from './status'
 
-// Vormen zoals de API van /materiaal ze teruggeeft.
+// Vormen zoals de API van /materiaal ze teruggeeft (na 0074/0075: items en
+// kits in plaats van units).
 
 export interface GearCategory {
   id: string
@@ -9,20 +10,21 @@ export interface GearCategory {
   sort_order: number
 }
 
-export interface GearUnitContent {
-  id: string
-  unit_id: string
-  label: string
-  quantity: number
-  note: string | null
-  sort_order: number
+/** Verantwoordelijke: een klant óf een collega (met naamkopie). */
+export interface GearResponsible {
+  responsible_client_id: string | null
+  responsible_user_id: string | null
+  responsible_name: string | null
 }
 
-export interface GearUnit {
+/** Eén fysiek voorwerp: body, lens, batterij, kabel, … */
+export interface GearItem extends GearResponsible {
   id: string
   category_id: string
   name: string
-  quantity: number
+  model: string | null
+  number: string | null
+  serial_number: string | null
   sort_order: number
   label_color: string | null
   nd_size: string | null
@@ -30,8 +32,18 @@ export interface GearUnit {
   notes: string | null
   status: UnitStatus
   status_note: string | null
-  home_client_id: string | null
-  contents: GearUnitContent[]
+}
+
+/** Een groep items die samen gaan. item_ids in de volgorde van de kit. */
+export interface GearKit extends GearResponsible {
+  id: string
+  category_id: string
+  name: string
+  label_color: string | null
+  warning: string | null
+  notes: string | null
+  sort_order: number
+  item_ids: string[]
 }
 
 export interface GearClientRef {
@@ -42,9 +54,11 @@ export interface GearClientRef {
 
 export interface GearCatalog {
   categories: GearCategory[]
-  units: GearUnit[]
-  /** Alleen de klanten die als vaste houder voorkomen, met naam en kleur. */
-  holders: GearClientRef[]
+  items: GearItem[]
+  /** Alleen de kits die niet opgeheven zijn. */
+  kits: GearKit[]
+  /** De klanten die als verantwoordelijke voorkomen, met naam en kleur. */
+  clients: GearClientRef[]
 }
 
 export interface GearPerson {
@@ -62,7 +76,16 @@ export interface GearStatusLogEntry {
   changed_at: string
 }
 
-export interface GearUnitBooking {
+export interface GearMembershipEntry {
+  kit_id: string
+  kit_name: string
+  added_at: string
+  added_by_name: string
+  removed_at: string | null
+  removed_by_name: string | null
+}
+
+export interface GearItemBooking {
   id: string
   start_date: string
   end_date: string
@@ -71,18 +94,27 @@ export interface GearUnitBooking {
   note: string | null
   created_by_name: string
   cancelled_at: string | null
+  via_kit_name: string | null
 }
 
-export interface GearUnitHistory {
+export interface GearItemHistory {
   status: GearStatusLogEntry[]
-  bookings: GearUnitBooking[]
+  bookings: GearItemBooking[]
+  memberships: GearMembershipEntry[]
+}
+
+/** Eén regel van een boeking: welk item, en of het "via" een kit kwam. */
+export interface GearBookingLine {
+  item_id: string
+  via_kit_id: string | null
+  via_kit_name: string | null
 }
 
 export interface GearBooking {
   id: string
   start_date: string
   end_date: string
-  unit_ids: string[]
+  lines: GearBookingLine[]
   booked_for_user_id: string | null
   freelancer_id: string | null
   external_name: string | null
@@ -106,11 +138,30 @@ export interface GearBookingOptions {
 export interface GearBookingInput {
   start_date: string
   end_date: string
-  unit_ids: string[]
+  item_ids: string[]
+  kit_ids: string[]
+  /** Onderdelen van gekozen kits die bewust niet meegaan ("zonder …"). */
+  excluded_item_ids: string[]
   user_id?: string | null
   freelancer_id?: string | null
   external_name?: string | null
   client_id?: string | null
   project_id?: string | null
   note?: string | null
+}
+
+/** Wat een verhuis met komende boekingen doet of zou doen. */
+export interface GearMoveEffect {
+  booking_id: string
+  start_date: string
+  end_date: string
+  action: 'weggehaald' | 'toegevoegd' | 'weghalen' | 'toevoegen'
+  reason?: string
+  /** Door de API ingevuld: voor wie de boeking is. */
+  label?: string
+}
+
+export interface GearMoveResult {
+  updated: GearMoveEffect[]
+  failed: GearMoveEffect[]
 }

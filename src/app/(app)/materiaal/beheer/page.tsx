@@ -5,7 +5,7 @@ import { gearAccess } from '@/lib/gear/access'
 
 export const metadata = { title: 'Materiaal beheren — Sporthouse' }
 
-export default async function Page() {
+export default async function Page({ searchParams }: { searchParams: Promise<{ kit?: string }> }) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -14,5 +14,6 @@ export default async function Page() {
   const access = gearAccess(user)
   if (!access.manageCatalog) redirect(access.view ? '/materiaal' : '/dashboard')
 
-  return <MateriaalBeheer />
+  const { kit } = await searchParams
+  return <MateriaalBeheer initialKitId={typeof kit === 'string' ? kit : null} />
 }

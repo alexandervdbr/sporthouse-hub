@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { barLabel, homeNotice, personColor, shortNames } from '@/lib/gear/labels'
+import { barLabel, personColor, shortNames } from '@/lib/gear/labels'
 import { isBookable, isUnitStatus, STATUS_LABEL, UNIT_STATUSES } from '@/lib/gear/status'
 
 describe('barLabel', () => {
@@ -44,13 +44,6 @@ describe('shortNames', () => {
     expect(m.get('Jelle Aerts')).toBe('Jelle A.')
     expect(m.get('Jelle Bosmans')).toBe('Jelle B.')
     expect(m.get('Kenny Claes')).toBe('Kenny')
-  })
-})
-
-describe('homeNotice', () => {
-  it('noemt de vaste houder bij naam', () => {
-    expect(homeNotice('Sporting Hasselt')).toBe('Dit materiaal kan gehuurd worden in samenspraak met Sporting Hasselt.')
-    expect(homeNotice(' Friends of Sports ')).toBe('Dit materiaal kan gehuurd worden in samenspraak met Friends of Sports.')
   })
 })
 

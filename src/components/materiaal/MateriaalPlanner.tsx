@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Camera, ChevronLeft, ChevronRight, Loader2, Plus, Search, Settings, X } from 'lucide-react'
 import BookingForm from '@/components/materiaal/BookingForm'
 import DayList from '@/components/materiaal/DayList'
-import MaterialGrid from '@/components/materiaal/MaterialGrid'
+import MaterialGrid, { type GridTarget } from '@/components/materiaal/MaterialGrid'
 import { ACCENT, ErrorLine, send } from '@/components/materiaal/ui'
 import type { GearAccess } from '@/lib/gear/access'
 import { monthDays, todayInBrussels } from '@/lib/gear/dates'
@@ -19,7 +19,7 @@ import type { GearBooking, GearBookingOptions, GearCatalog } from '@/lib/gear/ty
 const MONTHS = ['Januari', 'Februari', 'Maart', 'April', 'Mei', 'Juni', 'Juli', 'Augustus', 'September', 'Oktober', 'November', 'December']
 
 type Dialog =
-  | { kind: 'new'; unitIds: string[]; start: string; end: string }
+  | { kind: 'new'; kitIds: string[]; itemIds: string[]; start: string; end: string }
   | { kind: 'open'; booking: GearBooking }
 
 export default function MateriaalPlanner({ userId, access }: { userId: string; access: GearAccess }) {
@@ -33,6 +33,8 @@ export default function MateriaalPlanner({ userId, access }: { userId: string; a
   const [loadingMonth, setLoadingMonth] = useState(true)
   const [search, setSearch] = useState('')
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  // Welke kits opengeklapt zijn (hun onderdelen zichtbaar).
+  const [openKits, setOpenKits] = useState<Set<string>>(new Set())
   const [dialog, setDialog] = useState<Dialog | null>(null)
   const [mobileDay, setMobileDay] = useState(today)
   // Na opslaan of annuleren de maand opnieuw laden.
@@ -78,11 +80,14 @@ export default function MateriaalPlanner({ userId, access }: { userId: string; a
   }
 
   const openBooking = (id: string) => { const b = bookingById.get(id); if (b) setDialog({ kind: 'open', booking: b }) }
-  const onSelectRange = useCallback((unitId: string, from: number, to: number) => {
-    setDialog({ kind: 'new', unitIds: [unitId], start: days[from], end: days[to] })
+  const onSelectRange = useCallback((target: GridTarget, from: number, to: number) => {
+    setDialog({ kind: 'new', kitIds: target.kind === 'kit' ? [target.id] : [], itemIds: target.kind === 'item' ? [target.id] : [], start: days[from], end: days[to] })
   }, [days])
 
-  const noUnits = catalog && catalog.units.length === 0
+  const toggle = (set: (fn: (s: Set<string>) => Set<string>) => void) => (id: string) =>
+    set(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
+
+  const noUnits = catalog && catalog.items.length === 0
 
   return (
     <div className="flex flex-col h-full">
@@ -111,7 +116,7 @@ export default function MateriaalPlanner({ userId, access }: { userId: string; a
             </div>
           )}
           {access.book && !noUnits && (
-            <button onClick={() => setDialog({ kind: 'new', unitIds: [], start: today < window_.start ? window_.start : today, end: today < window_.start ? window_.start : today })}
+            <button onClick={() => setDialog({ kind: 'new', kitIds: [], itemIds: [], start: today < window_.start ? window_.start : today, end: today < window_.start ? window_.start : today })}
               className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-white rounded-lg hover:brightness-110" style={{ backgroundColor: ACCENT }}>
               <Plus size={13} /> Boeken
             </button>
@@ -158,11 +163,15 @@ export default function MateriaalPlanner({ userId, access }: { userId: string; a
                 today={today}
                 groups={groups}
                 collapsed={search ? new Set() : collapsed}
-                onToggleCategory={id => setCollapsed(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })}
+                onToggleCategory={toggle(setCollapsed)}
+                // Bij zoeken klappen de kits open, zodat je ziet welk onderdeel matcht.
+                openKits={search ? new Set(catalog.kits.map(k => k.id)) : openKits}
+                onToggleKit={toggle(setOpenKits)}
                 canBook={access.book}
                 onSelectRange={onSelectRange}
                 onOpenBooking={openBooking}
-                onOpenUnit={id => router.push(`/materiaal/unit/${id}`)}
+                onOpenItem={id => router.push(`/materiaal/item/${id}`)}
+                onOpenKit={id => router.push(`/materiaal/kit/${id}`)}
               />
             )}
           </div>
@@ -172,9 +181,10 @@ export default function MateriaalPlanner({ userId, access }: { userId: string; a
               today={today}
               day={dayInView}
               onDay={setMobileDay}
-              groups={groups}
+              catalog={catalog}
+              bookings={bookings}
               canBook={access.book}
-              onBook={iso => setDialog({ kind: 'new', unitIds: [], start: iso, end: iso })}
+              onBook={iso => setDialog({ kind: 'new', kitIds: [], itemIds: [], start: iso, end: iso })}
               onOpenBooking={openBooking}
             />
           </div>
@@ -183,7 +193,7 @@ export default function MateriaalPlanner({ userId, access }: { userId: string; a
 
       {dialog && catalog && (
         <BookingForm
-          key={dialog.kind === 'open' ? dialog.booking.id : `${dialog.unitIds.join()}-${dialog.start}-${dialog.end}`}
+          key={dialog.kind === 'open' ? dialog.booking.id : `${dialog.kitIds.join()}-${dialog.itemIds.join()}-${dialog.start}-${dialog.end}`}
           catalog={catalog}
           options={options}
           bookings={bookings}

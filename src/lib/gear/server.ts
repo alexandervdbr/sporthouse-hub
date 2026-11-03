@@ -31,7 +31,7 @@ export function optionalText(value: unknown): string | null {
 /** Volgorde opslaan na slepen: sort_order = positie in de lijst. */
 export async function saveOrder(
   supabase: Awaited<ReturnType<typeof createClient>>,
-  table: 'gear_categories' | 'gear_units' | 'gear_unit_contents',
+  table: 'gear_categories' | 'gear_items' | 'gear_kits',
   ids: unknown,
 ) {
   if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string')) {
@@ -43,4 +43,21 @@ export async function saveOrder(
   const failed = results.find(r => r.error)
   if (failed?.error) return dbErrorResponse(failed.error)
   return new Response(null, { status: 204 })
+}
+
+/** Voor wie een boeking is, als korte tekst ("Bram Kreike · NoStrezz"). */
+export function bookingWho(b: { person_name: string | null; client_name?: string | null }): string {
+  return [b.person_name, b.client_name].filter(Boolean).join(' · ') || 'onbekend'
+}
+
+/** Verantwoordelijke uit een formulier: een klant óf een collega, nooit allebei. */
+export function responsibleFields(body: Record<string, unknown>):
+  | { fields: { responsible_client_id: string | null; responsible_user_id: string | null } }
+  | { error: string }
+  | null {
+  if (!('responsible_client_id' in body) && !('responsible_user_id' in body)) return null
+  const client = optionalText(body.responsible_client_id)
+  const user = optionalText(body.responsible_user_id)
+  if (client && user) return { error: 'Kies een klant óf een collega als verantwoordelijke.' }
+  return { fields: { responsible_client_id: client, responsible_user_id: user } }
 }

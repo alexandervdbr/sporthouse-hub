@@ -59,10 +59,3 @@ export function barLabel({ personName, clientName, clientColor }: BarLabelInput)
   if (person) return { text: person, color: personColor(person) }
   return { text: 'Onbekend', color: FALLBACK_COLOR }
 }
-
-export const DEFAULT_HOME_NOTICE = 'Dit materiaal kan gehuurd worden in samenspraak met'
-
-/** "Dit materiaal kan gehuurd worden in samenspraak met Sporting Hasselt." */
-export function homeNotice(holderName: string): string {
-  return `${DEFAULT_HOME_NOTICE} ${holderName.trim()}.`
-}

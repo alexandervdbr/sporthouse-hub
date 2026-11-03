@@ -1,8 +1,9 @@
 'use client'
 
 import type { ReactNode } from 'react'
-import { AlertCircle } from 'lucide-react'
+import { AlertCircle, Loader2 } from 'lucide-react'
 import { STATUS_LABEL, type UnitStatus } from '@/lib/gear/status'
+import type { GearClientRef } from '@/lib/gear/types'
 
 // Kleine bouwstenen die Beheer en de detailpagina van /materiaal delen.
 
@@ -70,3 +71,61 @@ export async function send<T = unknown>(url: string, method: string, body?: unkn
   if (!res.ok) throw new Error((await res.text()) || 'Er ging iets mis.')
   return (res.status === 204 ? null : await res.json()) as T
 }
+
+/** Wie verantwoordelijke kan zijn: klanten en collega's. */
+export interface People {
+  clients: GearClientRef[]
+  colleagues: { id: string; name: string }[]
+}
+
+
+export function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return <label className="block"><span className={labelCls}>{label}</span>{children}</label>
+}
+
+export function IconButton({ label, onClick, danger, children }: { label: string; onClick: () => void; danger?: boolean; children: React.ReactNode }) {
+  return (
+    <button type="button" onClick={onClick} aria-label={label} title={label}
+      className={`w-7 h-7 flex-shrink-0 flex items-center justify-center rounded-lg hover:bg-zinc-800 ${danger ? 'text-zinc-600 hover:text-red-400' : 'text-zinc-500 hover:text-zinc-200'}`}>
+      {children}
+    </button>
+  )
+}
+
+export function PrimaryButton({ onClick, busy, disabled, children }: { onClick: () => void; busy?: boolean; disabled?: boolean; children: React.ReactNode }) {
+  return (
+    <button type="button" onClick={onClick} disabled={busy || disabled}
+      className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-40 hover:brightness-110"
+      style={{ backgroundColor: ACCENT }}>
+      {busy ? <Loader2 size={13} className="animate-spin" /> : null}
+      {children}
+    </button>
+  )
+}
+
+/** Verantwoordelijke kiezen: niemand, een klant, of een collega. */
+export function ResponsiblePicker({ value, onChange, people }: {
+  value: { client: string | null; user: string | null; name: string | null }
+  onChange: (v: { responsible_client_id: string | null; responsible_user_id: string | null }) => void
+  people: People
+}) {
+  const current = value.client ? `client:${value.client}` : value.user ? `user:${value.user}` : ''
+  const knownUser = !value.user || people.colleagues.some(c => c.id === value.user)
+  return (
+    <select value={current} className={inputCls}
+      onChange={e => {
+        const [kind, id] = e.target.value.split(':')
+        onChange({ responsible_client_id: kind === 'client' ? id : null, responsible_user_id: kind === 'user' ? id : null })
+      }}>
+      <option value="">— Geen (van iedereen) —</option>
+      <optgroup label="Klanten">
+        {people.clients.map(c => <option key={c.id} value={`client:${c.id}`}>{c.name}</option>)}
+      </optgroup>
+      <optgroup label="Collega's">
+        {people.colleagues.map(c => <option key={c.id} value={`user:${c.id}`}>{c.name}</option>)}
+        {!knownUser && <option value={`user:${value.user}`}>{value.name ?? 'Collega'}</option>}
+      </optgroup>
+    </select>
+  )
+}
+
