@@ -20,17 +20,17 @@ export async function GET(req: Request) {
 
   const { data, error } = await supabase
     .from('gear_bookings')
-    .select('id, start_date, end_date, booked_for_user_id, freelancer_id, external_name, person_name, client_id, project_id, note, created_by, created_by_name, gear_booking_units(unit_id)')
+    .select('id, start_date, end_date, booked_for_user_id, freelancer_id, external_name, person_name, client_id, project_id, note, created_by, created_by_name, gear_booking_items(item_id, via_kit_id, via_kit_name)')
     .is('cancelled_at', null)
     .lte('start_date', end)
     .gte('end_date', start)
     .order('start_date')
   if (error) return dbErrorResponse(error)
 
-  type Row = Omit<GearBooking, 'unit_ids' | 'client' | 'project'> & {
+  type Row = Omit<GearBooking, 'lines' | 'client' | 'project'> & {
     client_id: string | null
     project_id: string | null
-    gear_booking_units: { unit_id: string }[]
+    gear_booking_items: GearBooking['lines']
   }
   const rows = (data ?? []) as Row[]
 
@@ -46,9 +46,9 @@ export async function GET(req: Request) {
   const clientById = new Map((clients.data ?? []).map(c => [c.id, c]))
   const projectById = new Map((projects.data ?? []).map(p => [p.id, p]))
 
-  const bookings: GearBooking[] = rows.map(({ client_id, project_id, gear_booking_units, ...b }) => ({
+  const bookings: GearBooking[] = rows.map(({ client_id, project_id, gear_booking_items, ...b }) => ({
     ...b,
-    unit_ids: gear_booking_units.map(u => u.unit_id),
+    lines: gear_booking_items,
     client: client_id ? clientById.get(client_id) ?? null : null,
     project: project_id ? projectById.get(project_id) ?? null : null,
   }))

@@ -112,3 +112,33 @@ describe('verantwoordelijke', () => {
     expect(responsibleLabel({ name: 'Friends of Sports', viaKit: 'Sony A7R' })).toBe('Verantwoordelijke: Friends of Sports (via kit Sony A7R)')
   })
 })
+
+import { previewMove } from '@/lib/gear/kits'
+
+describe('previewMove', () => {
+  const today = '2026-11-03'
+  const a1 = booking('a1', [['body', 'A'], ['lens', 'A']], '2026-11-10', '2026-11-11', { person_name: 'Bram' })
+  const a2 = booking('a2', [['lens', 'A']], '2026-11-20', '2026-11-20', { person_name: 'Kenny' })
+  const loopt = booking('loopt', [['body', 'A'], ['lens', 'A']], '2026-11-02', '2026-11-04')
+  const b1 = booking('b1', [['bat', 'B']], '2026-11-12', '2026-11-13', { client: { id: 'ns', name: 'NoStrezz', color: null } })
+  const b2 = booking('b2', [['bat', 'B']], '2026-11-25', '2026-11-25')
+  const elders = booking('elders', [['lens', null]], '2026-11-25', '2026-11-26', { person_name: 'Arne' })
+
+  it('lens van A naar B: uit de komende boekingen via A, in die via B', () => {
+    const p = previewMove('lens', 'A', 'B', [a1, a2, loopt, b1, b2, elders], today)
+    expect(p.remove.map(s => [s.booking.id, s.ok])).toEqual([['a1', true], ['a2', false]])
+    expect(p.remove[1].reason).toMatch(/enige stuk/)
+    expect(p.add.map(s => [s.booking.id, s.ok])).toEqual([['b1', true], ['b2', false]])
+    expect(p.add[1].reason).toBe('Al geboekt: Arne (2026-11-25 – 2026-11-26)')
+  })
+
+  it('lopende boekingen blijven buiten beschouwing', () => {
+    expect(previewMove('lens', 'A', null, [loopt], today).remove).toEqual([])
+  })
+
+  it('los maken raakt alleen de oude kit; in een kit zetten alleen de nieuwe', () => {
+    expect(previewMove('lens', 'A', null, [a1, b1], today).add).toEqual([])
+    expect(previewMove('bat', null, 'A', [a1, b1], today).remove).toEqual([])
+    expect(previewMove('bat', null, 'A', [a1, b1], today).add.map(s => s.booking.id)).toEqual(['a1'])
+  })
+})

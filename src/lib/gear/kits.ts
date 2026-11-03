@@ -84,3 +84,41 @@ export function selectionFromBooking(booking: GearBooking, kits: Map<string, Gea
   const inKits = new Set(kitIds.flatMap(k => kits.get(k)?.item_ids ?? []))
   return { kitIds, looseItemIds: loose.filter(id => !inKits.has(id)), excluded }
 }
+
+/**
+ * Wat een verhuis met de komende boekingen zou doen, voor het dialoogvenster
+ * in Beheer. Zelfde regels als gear_move_item() in de database (0074):
+ * alleen boekingen die nog moeten beginnen; uit die "via" de oude kit (niet
+ * als het item het enige stuk is), in die "via" de nieuwe kit (niet als het
+ * item die dagen al elders weg is).
+ */
+export function previewMove(
+  itemId: string,
+  fromKitId: string | null,
+  toKitId: string | null,
+  bookings: GearBooking[],
+  today: string,
+): { remove: MoveStep[]; add: MoveStep[] } {
+  const upcoming = bookings.filter(b => b.start_date > today)
+  const remove: MoveStep[] = !fromKitId ? [] : upcoming
+    .filter(b => b.lines.some(l => l.item_id === itemId && l.via_kit_id === fromKitId))
+    .map(b => b.lines.length === 1
+      ? { booking: b, ok: false, reason: 'Het is het enige stuk in die boeking; annuleer de boeking als hij niet meer nodig is.' }
+      : { booking: b, ok: true })
+  const add: MoveStep[] = !toKitId ? [] : upcoming
+    .filter(b => b.lines.some(l => l.via_kit_id === toKitId) && !b.lines.some(l => l.item_id === itemId))
+    .map(b => {
+      const clash = bookings.find(o => o.id !== b.id && o.lines.some(l => l.item_id === itemId)
+        && o.start_date <= b.end_date && b.start_date <= o.end_date)
+      return clash
+        ? { booking: b, ok: false, reason: `Al geboekt: ${[clash.person_name, clash.client?.name].filter(Boolean).join(' · ') || 'onbekend'} (${clash.start_date} – ${clash.end_date})` }
+        : { booking: b, ok: true }
+    })
+  return { remove, add }
+}
+
+export interface MoveStep {
+  booking: GearBooking
+  ok: boolean
+  reason?: string
+}
