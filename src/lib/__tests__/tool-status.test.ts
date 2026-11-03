@@ -9,6 +9,9 @@ describe('toolForPath', () => {
     expect(toolForPath('/equipment')?.key).toBe('materiaal')
     expect(toolForPath('/equipment/stats')?.key).toBe('materiaal')
     expect(toolForPath('/equipment/extern')?.key).toBe('materiaal')
+    expect(toolForPath('/materiaal')?.key).toBe('materiaalplanner')
+    expect(toolForPath('/materiaal/beheer')?.key).toBe('materiaalplanner')
+    expect(toolForPath('/materiaal/unit/abc')?.key).toBe('materiaalplanner')
   })
 
   it('pakt geen pad dat er alleen op lijkt', () => {

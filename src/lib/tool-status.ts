@@ -35,6 +35,10 @@ export interface DevTool {
 export const DEV_TOOLS: DevTool[] = [
   { key: 'planning',     label: 'Planning',      path: '/planning' },
   { key: 'materiaal',    label: 'Materiaal',     path: '/equipment' },
+  // De nieuwe materiaalplanner, naast de oude tot de overstap. Staat in
+  // ontwikkeling tot we overschakelen; de zijbalk toont hem dan alleen aan
+  // admins (zie Sidebar.tsx).
+  { key: 'materiaalplanner', label: 'Materiaalplanner (nieuw)', path: '/materiaal' },
   { key: 'projecten',    label: 'Projecten',     path: '/projects' },
   { key: 'team',         label: 'Team',          path: '/team' },
   { key: 'freelancers',  label: 'Freelancers',   path: '/freelancers' },
