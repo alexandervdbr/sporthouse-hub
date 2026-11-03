@@ -39,6 +39,9 @@ export const DEV_TOOLS: DevTool[] = [
   // ontwikkeling tot we overschakelen; de zijbalk toont hem dan alleen aan
   // admins (zie Sidebar.tsx).
   { key: 'materiaalplanner', label: 'Materiaalplanner (nieuw)', path: '/materiaal' },
+  // Poolwagens: blijft in ontwikkeling tot de vrijgave; tot dan zien alleen
+  // admins het.
+  { key: 'poolwagens',   label: 'Poolwagens',    path: '/poolwagens' },
   { key: 'projecten',    label: 'Projecten',     path: '/projects' },
   { key: 'team',         label: 'Team',          path: '/team' },
   { key: 'freelancers',  label: 'Freelancers',   path: '/freelancers' },
