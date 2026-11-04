@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useState, type ChangeEvent, type ReactNode } from 'react'
-import Link from 'next/link'
-import { Archive, ArchiveRestore, Ban, Check, ChevronRight, Loader2, Pencil, Plus, X } from 'lucide-react'
+import { Archive, ArchiveRestore, Ban, Check, Loader2, Pencil, Plus, X } from 'lucide-react'
 import { ACCENT, ErrorLine, inputCls, labelCls, send } from '@/components/materiaal/ui'
 import type { PoolCar } from '@/lib/poolwagens/types'
+import MailSettings from './MailSettings'
+import { PoolNav } from './ui'
 
 // Beheer van de poolwagens: toevoegen, bewerken, handmatig niet beschikbaar
 // zetten en archiveren. Verwijderen bestaat niet, zodat de historiek blijft.
@@ -57,10 +58,9 @@ export default function PoolwagenBeheer() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="p-4 sm:p-8 max-w-4xl mx-auto">
-        <div className="mb-6 flex items-center gap-2 text-sm text-zinc-500">
-          <Link href="/poolwagens" className="hover:text-zinc-300">Poolwagens</Link>
-          <ChevronRight size={14} />
-          <span className="text-zinc-200">Beheer</span>
+        <div className="flex flex-wrap items-center gap-4 mb-6">
+          <h1 className="text-lg font-semibold text-zinc-100">Poolwagens</h1>
+          <PoolNav current="beheer" manage />
         </div>
 
         <div className="flex items-center justify-between mb-4">
@@ -120,6 +120,8 @@ export default function PoolwagenBeheer() {
             )}
           </div>
         )}
+
+        <MailSettings />
       </div>
     </div>
   )
