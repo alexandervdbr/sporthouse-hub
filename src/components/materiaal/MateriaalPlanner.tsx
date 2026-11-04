@@ -2,12 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { Camera, ChevronLeft, ChevronRight, Loader2, Plus, Search, Settings, X } from 'lucide-react'
+import AddGearDialog from '@/components/materiaal/AddGearDialog'
 import BookingForm from '@/components/materiaal/BookingForm'
+import GearPanel, { type AddPrefill, type PanelTarget } from '@/components/materiaal/GearPanel'
+import { useGearActions } from '@/components/materiaal/useGearActions'
+import { planAddToKit } from '@/lib/gear/inventory'
 import DayList from '@/components/materiaal/DayList'
 import MaterialGrid, { type GridTarget } from '@/components/materiaal/MaterialGrid'
-import { ACCENT, ErrorLine, send } from '@/components/materiaal/ui'
+import { Button, ErrorLine, IconButton, buttonCls, inputCls, send } from '@/components/materiaal/ui'
 import type { GearAccess } from '@/lib/gear/access'
 import { monthDays, todayInBrussels } from '@/lib/gear/dates'
 import { buildGrid } from '@/lib/gear/grid'
@@ -24,11 +27,13 @@ type Dialog =
   | { kind: 'open'; booking: GearBooking }
 
 export default function MateriaalPlanner({ userId, access }: { userId: string; access: GearAccess }) {
-  const router = useRouter()
   const today = todayInBrussels()
   const [year, setYear] = useState(Number(today.slice(0, 4)))
   const [month, setMonth] = useState(Number(today.slice(5, 7)))
   const [catalog, setCatalog] = useState<GearCatalog | null>(null)
+  // Zijpaneel met de details van een categorie, kit of item (bewerken met Beheren).
+  const [panel, setPanel] = useState<PanelTarget | null>(null)
+  const [add, setAdd] = useState<AddPrefill | null>(null)
   const [options, setOptions] = useState<GearBookingOptions | null>(null)
   const [bookings, setBookings] = useState<GearBooking[]>([])
   const [loadingMonth, setLoadingMonth] = useState(true)
@@ -102,6 +107,16 @@ export default function MateriaalPlanner({ userId, access }: { userId: string; a
     }
   }
 
+  const reloadCatalog = useCallback(async () => {
+    try { setCatalog(await send<GearCatalog>('/api/materiaal/catalog', 'GET')) }
+    catch (e) { setError(e instanceof Error ? e.message : 'Laden mislukt.') }
+  }, [])
+  const actions = useGearActions({ catalog, reload: reloadCatalog, onError: setError })
+  const people = useMemo(() => ({
+    colleagues: (options?.colleagues ?? []).map(c => ({ id: c.id, name: c.name })),
+    clients: [...new Map([...(catalog?.clients ?? []), ...(options?.clients ?? [])].map(c => [c.id, c])).values()],
+  }), [options, catalog])
+
   const toggle = (set: (fn: (s: Set<string>) => Set<string>) => void) => (id: string) =>
     set(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
 
@@ -113,35 +128,32 @@ export default function MateriaalPlanner({ userId, access }: { userId: string; a
         <div className="flex items-center gap-4 min-w-0">
           <h1 className="text-base sm:text-lg font-semibold text-zinc-100">Materiaal</h1>
           <div className="flex items-center gap-1">
-            <button onClick={() => shiftMonth(-1)} aria-label="Vorige maand" className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800"><ChevronLeft size={16} /></button>
-            <span className="w-32 text-center text-sm font-medium text-zinc-200">{MONTHS[month - 1]} {year}</span>
-            <button onClick={() => shiftMonth(1)} aria-label="Volgende maand" className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800"><ChevronRight size={16} /></button>
-            {!isCurrentMonth && (
-              <button onClick={goToday} className="ml-1 px-2.5 py-1 text-xs text-zinc-400 border border-zinc-700 rounded-lg hover:bg-zinc-800">Vandaag</button>
-            )}
+            <IconButton label="Vorige maand" onClick={() => shiftMonth(-1)}><ChevronLeft size={16} /></IconButton>
+            <span className="w-32 text-center text-sm font-medium text-zinc-200 whitespace-nowrap">{MONTHS[month - 1]} {year}</span>
+            <IconButton label="Volgende maand" onClick={() => shiftMonth(1)}><ChevronRight size={16} /></IconButton>
+            {!isCurrentMonth && <Button size="sm" onClick={goToday} className="ml-1">Vandaag</Button>}
             {loadingMonth && <Loader2 size={14} className="ml-2 animate-spin text-zinc-600" />}
           </div>
         </div>
         <div className="flex items-center gap-2">
           {!noUnits && (
             <div className="relative hidden lg:block">
-              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Zoek materiaal of houder…" aria-label="Zoek materiaal"
-                className="pl-7 pr-7 py-1.5 w-56 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600" />
+                className={`${inputCls} !w-60 pl-9 pr-9`} />
               {search && (
-                <button onClick={() => setSearch('')} aria-label="Zoekopdracht wissen" className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500"><X size={11} /></button>
+                <span className="absolute right-0.5 top-1/2 -translate-y-1/2"><IconButton label="Zoekopdracht wissen" onClick={() => setSearch('')}><X size={12} /></IconButton></span>
               )}
             </div>
           )}
           {access.book && !noUnits && (
-            <button onClick={() => setDialog({ kind: 'new', kitIds: [], itemIds: [], start: today < window_.start ? window_.start : today, end: today < window_.start ? window_.start : today })}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-white rounded-lg hover:brightness-110" style={{ backgroundColor: ACCENT }}>
-              <Plus size={13} /> Boeken
-            </button>
+            <Button variant="primary" onClick={() => setDialog({ kind: 'new', kitIds: [], itemIds: [], start: today < window_.start ? window_.start : today, end: today < window_.start ? window_.start : today })}>
+              <Plus size={14} /> Boeken
+            </Button>
           )}
           {access.manageCatalog && (
-            <Link href="/materiaal/beheer" className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-zinc-400 border border-zinc-800 rounded-lg hover:text-zinc-200 hover:bg-zinc-900">
-              <Settings size={13} /> Beheer
+            <Link href="/materiaal/beheer" className={buttonCls('secondary')}>
+              <Settings size={14} /> Beheer
             </Link>
           )}
         </div>
@@ -164,7 +176,7 @@ export default function MateriaalPlanner({ userId, access }: { userId: string; a
                 : 'Zodra een beheerder het materiaal heeft ingegeven, kan je hier boeken.'}
             </p>
             {access.manageCatalog && (
-              <Link href="/materiaal/beheer" className="inline-flex mt-5 px-4 py-2 text-sm font-medium text-white rounded-lg" style={{ backgroundColor: ACCENT }}>
+              <Link href="/materiaal/beheer" className={`${buttonCls('primary')} mt-5`}>
                 Naar Beheer
               </Link>
             )}
@@ -188,8 +200,9 @@ export default function MateriaalPlanner({ userId, access }: { userId: string; a
                 canBook={access.book}
                 onSelectRange={onSelectRange}
                 onOpenBooking={openBooking}
-                onOpenItem={id => router.push(`/materiaal/item/${id}`)}
-                onOpenKit={id => router.push(`/materiaal/kit/${id}`)}
+                onOpenItem={id => setPanel({ type: 'item', id })}
+                onOpenKit={id => setPanel({ type: 'kit', id })}
+                onOpenCategory={id => setPanel({ type: 'category', id })}
                 canReorderCategories={access.manageCatalog}
                 onReorderCategory={reorderCategory}
               />
@@ -211,6 +224,17 @@ export default function MateriaalPlanner({ userId, access }: { userId: string; a
         </>
       )}
 
+      {panel && catalog && (
+        <GearPanel target={panel} catalog={catalog} people={people} access={access}
+          onClose={() => setPanel(null)} onOpen={setPanel} reload={reloadCatalog} run={actions.run} onAdd={setAdd}
+          onChange={fn => setCatalog(c => (c ? fn(c) : c))} />
+      )}
+      {add && catalog && (
+        <AddGearDialog catalog={catalog} prefill={add} onClose={() => setAdd(null)}
+          onAddToKit={(items, kit) => actions.run(planAddToKit(items, kit))}
+          onCreated={async t => { setAdd(null); await reloadCatalog(); if (t) setPanel(t) }} />
+      )}
+      {actions.ui}
       {dialog && catalog && (
         <BookingForm
           key={dialog.kind === 'open' ? dialog.booking.id : `${dialog.kitIds.join()}-${dialog.itemIds.join()}-${dialog.start}-${dialog.end}`}

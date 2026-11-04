@@ -40,8 +40,8 @@ export default function KitDetail({ kitId, access }: { kitId: string; access: Ge
           <p className="text-[11px] uppercase tracking-widest mb-1" style={{ color: category?.color }}>{category?.name}</p>
           <div className="flex flex-wrap items-center gap-2">
             <Package size={16} className="text-zinc-500" />
-            <h1 className="text-lg font-semibold text-zinc-100">{kit.name}</h1>
-            <span className="text-sm text-zinc-500">{parts.length} onderdelen</span>
+            <h1 className="min-w-0 text-lg font-semibold text-zinc-100 truncate" title={kit.name}>{kit.name}</h1>
+            <span className="text-sm text-zinc-500 whitespace-nowrap">{parts.length} onderdelen</span>
             {kit.label_color && <span className="text-xs text-zinc-500">· label {kit.label_color}</span>}
           </div>
           {kit.notes && <p className="mt-1 text-sm text-zinc-400">{kit.notes}</p>}
@@ -70,7 +70,7 @@ export default function KitDetail({ kitId, access }: { kitId: string; access: Ge
                 const own = effectiveResponsible(p, null, clients)
                 return (
                   <li key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
-                    <Link href={`/materiaal/item/${p.id}`} className="text-zinc-200 hover:underline">{p.name}</Link>
+                    <Link href={`/materiaal/item/${p.id}`} title={p.name} className="min-w-0 max-w-full truncate text-zinc-200 hover:underline">{p.name}</Link>
                     {p.serial_number && <span className="text-xs text-zinc-500">S/N {p.serial_number}</span>}
                     {p.status !== 'ok' && <StatusBadge status={p.status} />}
                     {p.status_note && p.status !== 'ok' && <span className="text-xs text-zinc-500">{p.status_note}</span>}

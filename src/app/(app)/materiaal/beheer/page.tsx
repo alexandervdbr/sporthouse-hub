@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import MateriaalBeheer from '@/components/materiaal/MateriaalBeheer'
+import InventoryTree from '@/components/materiaal/InventoryTree'
 import { gearAccess } from '@/lib/gear/access'
 
 export const metadata = { title: 'Materiaal beheren — Sporthouse' }
@@ -15,5 +15,5 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ k
   if (!access.manageCatalog) redirect(access.view ? '/materiaal' : '/dashboard')
 
   const { kit } = await searchParams
-  return <MateriaalBeheer initialKitId={typeof kit === 'string' ? kit : null} />
+  return <InventoryTree access={access} initialKitId={typeof kit === 'string' ? kit : null} />
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef } from 'react'
 import { Package, Plus } from 'lucide-react'
+import { Button } from '@/components/materiaal/ui'
 import { barLabel } from '@/lib/gear/labels'
 import type { GearBooking, GearCatalog } from '@/lib/gear/types'
 
@@ -58,14 +59,12 @@ export default function DayList({ days, today, day, onDay, catalog, bookings, ca
         </div>
       </div>
 
-      <div className="flex items-center justify-between flex-shrink-0">
-        <span className="text-sm font-semibold text-zinc-200">
+      <div className="flex items-center justify-between gap-3 flex-shrink-0">
+        <span className="min-w-0 truncate text-sm font-semibold text-zinc-200">
           {new Date(`${day}T12:00:00`).toLocaleDateString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long' })}
         </span>
         {canBook && day >= today && (
-          <button onClick={() => onBook(day)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-xs text-zinc-200">
-            <Plus size={13} /> Boeken
-          </button>
+          <Button size="sm" onClick={() => onBook(day)}><Plus size={13} /> Boeken</Button>
         )}
       </div>
 
@@ -83,7 +82,7 @@ export default function DayList({ days, today, day, onDay, catalog, bookings, ca
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-medium text-zinc-100 truncate">{label.text}</span>
                 {viaKits.map(k => (
-                  <span key={k} className="mt-1 flex items-center gap-1.5 text-xs text-zinc-300"><Package size={11} className="text-zinc-500" />{k}</span>
+                  <span key={k} className="mt-1 flex items-center gap-1.5 text-xs text-zinc-300 min-w-0" title={k}><Package size={11} className="text-zinc-500 flex-shrink-0" /><span className="truncate">{k}</span></span>
                 ))}
                 {loose.length > 0 && <span className="mt-1 block text-xs text-zinc-400">{loose.join(' · ')}</span>}
               </span>
