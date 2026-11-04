@@ -11,6 +11,7 @@ import { ACCENT, ErrorLine, send } from '@/components/materiaal/ui'
 import type { GearAccess } from '@/lib/gear/access'
 import { monthDays, todayInBrussels } from '@/lib/gear/dates'
 import { buildGrid } from '@/lib/gear/grid'
+import { moveCategory } from '@/lib/gear/categories'
 import type { GearBooking, GearBookingOptions, GearCatalog } from '@/lib/gear/types'
 
 // De materiaalplanner: één maand, units als rijen. Laadt de catalogus één
@@ -83,6 +84,23 @@ export default function MateriaalPlanner({ userId, access }: { userId: string; a
   const onSelectRange = useCallback((target: GridTarget, from: number, to: number) => {
     setDialog({ kind: 'new', kitIds: target.kind === 'kit' ? [target.id] : [], itemIds: target.kind === 'item' ? [target.id] : [], start: days[from], end: days[to] })
   }, [days])
+
+  // Categorie verslepen in het raster (Beheren): meteen tonen, dan opslaan via
+  // dezelfde route als Beheer → Categorieën; bij een fout terugzetten.
+  async function reorderCategory(activeId: string, overId: string) {
+    if (!catalog) return
+    const previous = catalog.categories
+    const next = moveCategory(previous, activeId, overId)
+    if (!next) return
+    setCatalog(c => (c ? { ...c, categories: next } : c))
+    setError('')
+    try {
+      await send('/api/materiaal/categories', 'PATCH', { order: next.map(c => c.id) })
+    } catch (e) {
+      setCatalog(c => (c ? { ...c, categories: previous } : c))
+      setError(e instanceof Error ? e.message : 'De volgorde kon niet opgeslagen worden.')
+    }
+  }
 
   const toggle = (set: (fn: (s: Set<string>) => Set<string>) => void) => (id: string) =>
     set(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
@@ -172,6 +190,8 @@ export default function MateriaalPlanner({ userId, access }: { userId: string; a
                 onOpenBooking={openBooking}
                 onOpenItem={id => router.push(`/materiaal/item/${id}`)}
                 onOpenKit={id => router.push(`/materiaal/kit/${id}`)}
+                canReorderCategories={access.manageCatalog}
+                onReorderCategory={reorderCategory}
               />
             )}
           </div>

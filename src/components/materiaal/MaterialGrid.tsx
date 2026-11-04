@@ -1,6 +1,10 @@
 'use client'
 
-import { AlertTriangle, ChevronDown, ChevronRight, Package, UserRound } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { DndContext, type DragEndEvent, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
+import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { AlertTriangle, ChevronDown, ChevronRight, GripVertical, Package, UserRound } from 'lucide-react'
 import { useGridSelection } from '@/components/materiaal/useGridSelection'
 import { RESPONSIBLE_NOTICE, responsibleLabel } from '@/lib/gear/responsible'
 import { STATUS_LABEL } from '@/lib/gear/status'
@@ -34,6 +38,9 @@ interface Props {
   onOpenBooking: (bookingId: string) => void
   onOpenItem: (itemId: string) => void
   onOpenKit: (kitId: string) => void
+  /** Alleen voor Beheren: een categorie met het greepje verslepen. */
+  canReorderCategories?: boolean
+  onReorderCategory?: (activeId: string, overId: string) => void
 }
 
 function dayHeader(iso: string) {
@@ -54,6 +61,17 @@ export default function MaterialGrid(props: Props) {
     i === todayIdx ? 'rgba(58,145,63,0.10)' : headers[i].weekend ? 'rgba(255,255,255,0.025)' : 'transparent'
   const ctx = { ...props, cols, dayBg, selection }
 
+  // Categorieën verslepen (Beheren): alleen het greepje start een sleep, zodat
+  // klikken op de balk (open/dicht) en slepen om te boeken blijven werken.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+  const canReorder = !!props.canReorderCategories && !!props.onReorderCategory
+  function onDragEnd(e: DragEndEvent) {
+    if (e.over && e.active.id !== e.over.id) props.onReorderCategory?.(String(e.active.id), String(e.over.id))
+  }
+
   return (
     <div style={{ minWidth: NAME_W + days.length * DAY_MIN }} className={selection.selecting ? 'select-none' : ''}>
       <div className="sticky top-0 z-20 grid bg-zinc-950 border-b border-zinc-800" style={{ gridTemplateColumns: cols }}>
@@ -71,19 +89,25 @@ export default function MaterialGrid(props: Props) {
         ))}
       </div>
 
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+      <SortableContext items={groups.map(g => g.category.id)} strategy={verticalListSortingStrategy}>
       {groups.map(({ category, rows }) => {
         const isCollapsed = collapsed.has(category.id)
         const outOn = (i: number) => rows.filter(r => r.bars.some(b => i >= b.startIndex && i < b.startIndex + b.span)).length
         return (
-          <div key={category.id}>
+          <CategoryBlock key={category.id} id={category.id} name={category.name} enabled={canReorder}>
+            {handle => (<>
             <div className="grid border-b border-zinc-800/80" style={{ gridTemplateColumns: cols, height: CAT_H }}>
-              <button onClick={() => onToggleCategory(category.id)} aria-expanded={!isCollapsed}
-                className="sticky left-0 z-10 flex items-center gap-2 px-3 border-r border-zinc-800 text-left"
+              <div className="sticky left-0 z-10 flex items-stretch border-r border-zinc-800"
                 style={{ background: `linear-gradient(90deg, ${category.color}26 0%, #09090b 100%), #09090b` }}>
-                {isCollapsed ? <ChevronRight size={12} style={{ color: category.color }} /> : <ChevronDown size={12} style={{ color: category.color }} />}
-                <span className="text-[11px] font-bold uppercase tracking-widest truncate" style={{ color: category.color }}>{category.name}</span>
-                <span className="ml-auto text-[10px] text-zinc-600 flex-shrink-0">{rows.length}</span>
-              </button>
+                {handle}
+                <button onClick={() => onToggleCategory(category.id)} aria-expanded={!isCollapsed}
+                  className={`flex-1 min-w-0 flex items-center gap-2 ${handle ? 'pl-1 pr-3' : 'px-3'} text-left`}>
+                  {isCollapsed ? <ChevronRight size={12} style={{ color: category.color }} /> : <ChevronDown size={12} style={{ color: category.color }} />}
+                  <span className="text-[11px] font-bold uppercase tracking-widest truncate" style={{ color: category.color }}>{category.name}</span>
+                  <span className="ml-auto text-[10px] text-zinc-600 flex-shrink-0">{rows.length}</span>
+                </button>
+              </div>
               {days.map((iso, i) => {
                 const out = isCollapsed ? outOn(i) : 0
                 return (
@@ -104,9 +128,33 @@ export default function MaterialGrid(props: Props) {
             ) : (
               <ItemRow key={`item-${row.item.id}`} row={row} color={category.color} {...ctx} />
             ))}
-          </div>
+            </>)}
+          </CategoryBlock>
         )
       })}
+      </SortableContext>
+      </DndContext>
+    </div>
+  )
+}
+
+// Eén categorie met al haar rijen; verslepen verplaatst het hele blok. Het
+// greepje (alleen voor Beheren) gaat als `handle` naar de categoriebalk.
+function CategoryBlock({ id, name, enabled, children }: {
+  id: string; name: string; enabled: boolean; children: (handle: ReactNode) => ReactNode
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: !enabled })
+  const handle = enabled ? (
+    <button {...attributes} {...listeners} aria-label={`Categorie ${name} verslepen`} title="Sleep om de volgorde van de categorieën te wijzigen"
+      className="flex-shrink-0 pl-1.5 pr-0.5 flex items-center text-zinc-500 hover:text-zinc-200 cursor-grab active:cursor-grabbing touch-none">
+      <GripVertical size={13} />
+    </button>
+  ) : null
+  return (
+    <div ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition, position: 'relative', zIndex: isDragging ? 15 : undefined }}
+      className={isDragging ? 'opacity-80 shadow-2xl' : undefined}>
+      {children(handle)}
     </div>
   )
 }
