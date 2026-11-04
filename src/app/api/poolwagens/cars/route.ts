@@ -1,4 +1,4 @@
-import { requirePoolwagens, dbErrorResponse } from '@/lib/poolwagens/server'
+import { requirePoolwagens, dbErrorResponse, poolDbErrorText } from '@/lib/poolwagens/server'
 import { parseCarInput } from '@/lib/poolwagens/car-input'
 import { CAR_COLUMNS } from '@/lib/poolwagens/types'
 
@@ -32,7 +32,8 @@ export async function POST(req: Request) {
 
   const { data, error } = await supabase.from('pool_cars').insert(parsed.row).select(CAR_COLUMNS).single()
   if (error) {
-    if (error.code === '23505') return new Response('Er bestaat al een wagen met deze nummerplaat.', { status: 409 })
+    // Twee unieke indexen: de nummerplaat en de naam (0080). De melding zegt welke.
+    if (error.code === '23505') return new Response(poolDbErrorText(error), { status: 409 })
     return dbErrorResponse(error)
   }
   return Response.json(data, { status: 201 })

@@ -39,10 +39,12 @@ export interface PoolReservation {
   arrival_km: number | null
   driven_km: number | null
   created_by: string | null
+  /** Wie de reservatie maakte; kan iemand anders zijn dan person_name (0080). */
+  created_by_name: string | null
 }
 
 export const RESERVATION_COLUMNS =
-  'id, car_id, user_id, person_name, client_id, client_name, start_at, end_at, note, departed_at, departure_km, arrived_at, arrival_km, driven_km, created_by'
+  'id, car_id, user_id, person_name, client_id, client_name, start_at, end_at, note, departed_at, departure_km, arrived_at, arrival_km, driven_km, created_by, created_by_name'
 
 export type DamageSeverity = 'licht' | 'ernstig'
 export type DamageStatus = 'gemeld' | 'in_behandeling' | 'hersteld'
@@ -76,7 +78,7 @@ export interface DamageReport {
 export const DAMAGE_COLUMNS =
   'id, car_id, reservation_id, description, severity, status, reported_by, reported_by_name, created_at, status_changed_at, status_changed_by_name, block_lifted_at, block_lifted_by_name, mail_status, mail_error, pool_car_damage_photos(id, filename)'
 
-/** Alles wat het planningsoverzicht voor één maand nodig heeft, in één verzoek. */
+/** Alles wat het planningsoverzicht voor een venster nodig heeft, in één verzoek. */
 export interface PoolPlanning {
   cars: PoolCar[]
   reservations: PoolReservation[]

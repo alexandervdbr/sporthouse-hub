@@ -13,7 +13,7 @@ const car = (id: string, extra: Partial<PoolCar> = {}): PoolCar => ({
 const res = (id: string, carId: string, start: string, end: string, extra: Partial<PoolReservation> = {}): PoolReservation => ({
   id, car_id: carId, user_id: 'u2', person_name: 'Bram Peeters', client_id: null, client_name: 'Croky',
   start_at: start, end_at: end, note: null, departed_at: null, departure_km: null, arrived_at: null, arrival_km: null,
-  driven_km: null, created_by: 'u2', ...extra,
+  driven_km: null, created_by: 'u2', created_by_name: 'Bram Peeters', ...extra,
 })
 const plan = (p: Partial<PoolPlanning>): PoolPlanning => ({ cars: [], reservations: [], blockingDamage: [], now: NOW.toISOString(), ...p })
 

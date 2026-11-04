@@ -142,6 +142,33 @@ describe('wagenbeheer — rechten', () => {
   })
 })
 
+describe('unieke wagennaam en het planningsvenster', () => {
+  it('dezelfde naam als een actieve wagen: 409 met een duidelijke melding', async () => {
+    state.user = user(MANAGER)
+    state.tables.pool_cars = { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "pool_cars_name_active_key"' } }
+    expect(await answer(cars.POST(json('POST', newCar)))).toEqual({ status: 409, text: 'Er bestaat al een wagen met deze naam.' })
+    expect(await answer(car.PATCH(json('PATCH', { name: 'Bus' }), params()))).toEqual({ status: 409, text: 'Er bestaat al een wagen met deze naam.' })
+    state.tables.pool_cars = { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "pool_cars_license_plate_key"' } }
+    expect(await answer(cars.POST(json('POST', newCar)))).toEqual({ status: 409, text: 'Er bestaat al een wagen met deze nummerplaat.' })
+  })
+
+  it('planning: from–to werkt, een te groot venster is een 400 zonder databaseverzoek', async () => {
+    state.user = user(USER)
+    expect(await statusOf(planning.GET(json('GET', undefined, 'http://hub.test/api/poolwagens/planning?from=2026-11-02&to=2026-11-08')))).toBe(200)
+    state.calls = []
+    expect(await statusOf(planning.GET(json('GET', undefined, 'http://hub.test/api/poolwagens/planning?from=2026-01-01&to=2026-12-31')))).toBe(400)
+    expect(state.calls).toEqual([])
+  })
+
+  it('reserveren voor een collega geeft p_user_id door', async () => {
+    state.user = user(USER)
+    state.rpc.pool_create_reservation = { data: 'r1' }
+    const U = '33333333-3333-4333-8333-333333333333'
+    expect(await statusOf(reservations.POST(json('POST', { ...booking, user_id: U })))).toBe(201)
+    expect(state.rpcArgs.pool_create_reservation).toMatchObject({ p_user_id: U })
+  })
+})
+
 describe('schadestatus, blokkade en instellingen — alleen beheer', () => {
   it('een gewone gebruiker krijgt overal een 403, zonder databaseverzoek', async () => {
     state.user = user(USER)

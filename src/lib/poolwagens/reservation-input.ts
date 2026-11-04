@@ -30,6 +30,16 @@ function client(b: Body): { p_client_id: string | null; p_client_name: string | 
   return { p_client_id: null, p_client_name: name }
 }
 
+/**
+ * Voor wie (optioneel): een collega. Leeg is de ingelogde gebruiker. Of die
+ * collega mag (bestaand account, geen freelancer), controleert de database.
+ */
+function person(b: Body): { p_user_id: string | null } | { error: string } {
+  if (b.user_id === undefined || b.user_id === null || b.user_id === '') return { p_user_id: null }
+  const id = uuid(b.user_id)
+  return id ? { p_user_id: id } : { error: 'Ongeldige collega.' }
+}
+
 function time(v: unknown): string | null {
   return typeof v === 'string' ? brusselsLocalToISO(v) : null
 }
@@ -48,6 +58,7 @@ export interface ReservationArgs {
   p_client_id: string | null
   p_client_name: string | null
   p_note: string | null
+  p_user_id: string | null
 }
 
 export function parseReservationInput(body: unknown): { args: ReservationArgs } | { error: string } {
@@ -60,7 +71,9 @@ export function parseReservationInput(body: unknown): { args: ReservationArgs } 
   if (Date.parse(end) <= Date.parse(start)) return { error: 'De terugkomst ligt na het vertrek.' }
   const c = client(b)
   if ('error' in c) return c
-  return { args: { p_car_id: car, p_start_at: start, p_end_at: end, ...c, p_note: text(b.note) } }
+  const who = person(b)
+  if ('error' in who) return who
+  return { args: { p_car_id: car, p_start_at: start, p_end_at: end, ...c, p_note: text(b.note), ...who } }
 }
 
 export interface DepartNowArgs {
@@ -70,6 +83,7 @@ export interface DepartNowArgs {
   p_client_name: string | null
   p_note: string | null
   p_km: number | null
+  p_user_id: string | null
 }
 
 /** "Nu vertrekken": geen vertrektijd (dat is nu), wel een verwachte terugkomst. */
@@ -84,7 +98,9 @@ export function parseDepartNowInput(body: unknown, now: Date = new Date()): { ar
   if ('error' in c) return c
   const km = optionalKm(b.km)
   if ('error' in km) return km
-  return { args: { p_car_id: car, p_end_at: end, ...c, p_note: text(b.note), p_km: km.km } }
+  const who = person(b)
+  if ('error' in who) return who
+  return { args: { p_car_id: car, p_end_at: end, ...c, p_note: text(b.note), p_km: km.km, ...who } }
 }
 
 /** Vertrek: tijdstip en km-stand mogen ontbreken (nu, laatst bekende stand). */
@@ -115,3 +131,15 @@ export function parseArrivalInput(body: unknown): { args: { p_arrived_at: string
 }
 
 export { uuid as parseUuid }
+
+/**
+ * De argumenten voor de database, zonder p_user_id als dat leeg is (dan
+ * reserveer je voor jezelf). Zo blijft gewoon reserveren werken zolang
+ * migratie 0080 nog niet gedraaid is; alleen "voor een collega" heeft ze nodig.
+ */
+export function rpcArgs<T extends { p_user_id: string | null }>(args: T): T | Omit<T, 'p_user_id'> {
+  if (args.p_user_id) return args
+  const { p_user_id: _skip, ...rest } = args
+  void _skip
+  return rest
+}

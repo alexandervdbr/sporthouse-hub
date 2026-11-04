@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Flag, Loader2, MailCheck, MailWarning, Unlock } from 'lucide-react'
 import DamageDialog from './DamageDialog'
-import { ErrorLine, PoolNav, inputCls, labelCls, secondaryCls, send } from './ui'
+import { ErrorLine, Notice, PoolNav, inputCls, labelCls, newNotice, secondaryCls, send } from './ui'
 import type { PoolwagenAccess } from '@/lib/poolwagens/access'
 import { isBlockingDamage } from '@/lib/poolwagens/blocking'
 import { DAMAGE_STATUSES, SEVERITY_LABEL, STATUS_LABEL } from '@/lib/poolwagens/damage-input'
@@ -34,7 +34,7 @@ export default function SchadeLijst({ access, highlight }: { access: PoolwagenAc
   const [reload, setReload] = useState(0)
   const [reporting, setReporting] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
-  const [notice, setNotice] = useState('')
+  const [notice, setNotice] = useState<{ text: string; id: number } | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -58,7 +58,7 @@ export default function SchadeLijst({ access, highlight }: { access: PoolwagenAc
     setError('')
     try {
       await fn()
-      setNotice(message)
+      setNotice(message ? newNotice(message) : null)
       setReload(r => r + 1)
     } catch (e) {
       setError((e as Error).message)
@@ -97,7 +97,7 @@ export default function SchadeLijst({ access, highlight }: { access: PoolwagenAc
 
         <div className="space-y-2 mb-4">
           <ErrorLine>{error}</ErrorLine>
-          {notice && <div className="px-3 py-2 rounded-lg bg-emerald-950/40 border border-emerald-900/40 text-sm text-emerald-300">{notice}</div>}
+          <Notice notice={notice} onClose={() => setNotice(null)} />
         </div>
 
         {!reports ? <Loader2 size={18} className="animate-spin text-zinc-600" /> : reports.length === 0 ? (
@@ -175,7 +175,7 @@ export default function SchadeLijst({ access, highlight }: { access: PoolwagenAc
 
       {reporting && (
         <DamageDialog cars={cars.filter(c => !c.archived_at)} carId={car || cars.find(c => !c.archived_at)?.id || ''} reservationId={null}
-          onClose={() => setReporting(false)} onSaved={msg => { setReporting(false); setNotice(msg); setReload(r => r + 1) }} />
+          onClose={() => setReporting(false)} onSaved={msg => { setReporting(false); setNotice(newNotice(msg)); setReload(r => r + 1) }} />
       )}
     </div>
   )

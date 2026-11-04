@@ -11,7 +11,7 @@ describe('parseReservationInput', () => {
   const times = { p_car_id: CAR, p_start_at: '2026-11-05T07:00:00.000Z', p_end_at: '2026-11-05T16:30:00.000Z' }
 
   it('zet Brusselse kloktijden om naar tijdstippen; klant en notitie mogen leeg', () => {
-    expect(parseReservationInput(base)).toEqual({ args: { ...times, p_client_id: null, p_client_name: null, p_note: null } })
+    expect(parseReservationInput(base)).toEqual({ args: { ...times, p_client_id: null, p_client_name: null, p_note: null, p_user_id: null } })
     expect(parseReservationInput({ ...base, note: ' x ' })).toMatchObject({ args: { p_note: 'x' } })
   })
   it('een bestaande klant: het id telt, een getypte naam ernaast niet', () => {
@@ -43,7 +43,7 @@ describe('parseDepartNowInput', () => {
   const now = new Date('2026-11-05T07:00:00Z')
   it('terugkomst in de toekomst, km optioneel', () => {
     expect(parseDepartNowInput({ car_id: CAR, end: '2026-11-05T12:00', km: '' }, now))
-      .toEqual({ args: { p_car_id: CAR, p_end_at: '2026-11-05T11:00:00.000Z', p_client_id: null, p_client_name: null, p_note: null, p_km: null } })
+      .toEqual({ args: { p_car_id: CAR, p_end_at: '2026-11-05T11:00:00.000Z', p_client_id: null, p_client_name: null, p_note: null, p_km: null, p_user_id: null } })
     expect(parseDepartNowInput({ car_id: CAR, end: '2026-11-05T12:00', client_name: 'Croky', km: '45.120' }, now))
       .toMatchObject({ args: { p_client_name: 'Croky', p_km: 45120 } })
   })

@@ -90,3 +90,98 @@ export function formatPeriod(startISO: string, endISO: string): string {
 export function periodsOverlap(a: { start: string; end: string }, b: { start: string; end: string }): boolean {
   return Date.parse(a.start) < Date.parse(b.end) && Date.parse(b.start) < Date.parse(a.end)
 }
+
+// ── Rekenen met kloktijden ──────────────────────────────────────────────────
+// Altijd via een echt tijdstip (brusselsLocalToISO en terug), nooit met een
+// vaste verschuiving: zo klopt "+3 uur" ook in de nacht van de zomer- naar de
+// wintertijd.
+
+/** Nu, als Brusselse kloktijd 'YYYY-MM-DDTHH:mm' (afgerond naar beneden op de minuut). */
+export function nowLocal(now: Date = new Date()): string {
+  return isoToBrusselsLocal(now)
+}
+
+/** Een kloktijd plus (of min) een aantal minuten, als kloktijd. Null bij ongeldige invoer. */
+export function addMinutesLocal(local: string, minutes: number): string | null {
+  const iso = brusselsLocalToISO(local)
+  return iso ? isoToBrusselsLocal(new Date(Date.parse(iso) + minutes * 60_000)) : null
+}
+
+/** Het eerstvolgende hele uur na nu, plus een aantal uren, als kloktijd. */
+export function nextHourLocal(now: Date = new Date(), plusHours = 0): string {
+  const hourStart = `${nowLocal(now).slice(0, 13)}:00`
+  return addMinutesLocal(hourStart, (1 + plusHours) * 60) ?? hourStart
+}
+
+/** Het uur zonder voorloopnul: "9:00", "14:30". */
+export function formatClock(iso: string | Date): string {
+  const local = isoToBrusselsLocal(iso)
+  return `${Number(local.slice(11, 13))}:${local.slice(14, 16)}`
+}
+
+const WEEKDAY_SHORT = ['zo', 'ma', 'di', 'wo', 'do', 'vr', 'za']
+
+/** Weekdag van een kalenderdag (0 = zondag), zonder tijdzone. */
+export function weekdayOf(day: string): number {
+  const [y, m, d] = day.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay()
+}
+
+/** "vr 7/11" */
+export function shortDayLabel(day: string): string {
+  return `${WEEKDAY_SHORT[weekdayOf(day)]} ${Number(day.slice(8, 10))}/${Number(day.slice(5, 7))}`
+}
+
+/** "vandaag", "morgen", "gisteren", of "vr 7/11". */
+export function relativeDayLabel(day: string, today: string): string {
+  const diff = Math.round((Date.UTC(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10))
+    - Date.UTC(+today.slice(0, 4), +today.slice(5, 7) - 1, +today.slice(8, 10))) / 86_400_000)
+  if (diff === 0) return 'vandaag'
+  if (diff === 1) return 'morgen'
+  if (diff === -1) return 'gisteren'
+  return shortDayLabel(day)
+}
+
+/** Een moment ten opzichte van vandaag: "15:00", "morgen 9:00", "vr 7/11 9:00". */
+export function formatWhen(iso: string, today: string): string {
+  const day = brusselsDay(iso)
+  return day === today ? formatClock(iso) : `${relativeDayLabel(day, today)} ${formatClock(iso)}`
+}
+
+/** De maandag van de week waarin die dag valt. */
+export function mondayOf(day: string): string {
+  const back = (weekdayOf(day) + 6) % 7
+  const [y, m, d] = day.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d - back)).toISOString().slice(0, 10)
+}
+
+/**
+ * Hoeveel een registratie (vertrek, aankomst) in de toekomst mag liggen:
+ * dezelfde marge als pool_register_departure en pool_register_arrival (0077),
+ * voor een klok die een paar minuten voorloopt.
+ */
+export const FUTURE_TOLERANCE_MS = 5 * 60_000
+
+/**
+ * Wat er mis is met een tijdstip van vertrek of aankomst, of null. Dezelfde
+ * regels als de database: niet in de toekomst (met de marge hierboven), en
+ * een aankomst niet vóór het vertrek.
+ */
+export function tripTimeError(
+  kind: 'vertrek' | 'aankomst',
+  local: string,
+  opts: { now: Date; departedAt?: string | null },
+): string | null {
+  if (!local) return kind === 'vertrek' ? 'Kies het tijdstip van vertrek.' : 'Kies het tijdstip van aankomst.'
+  const iso = brusselsLocalToISO(local)
+  if (!iso) return 'Ongeldig tijdstip.'
+  const at = Date.parse(iso)
+  if (at > opts.now.getTime() + FUTURE_TOLERANCE_MS) {
+    return kind === 'vertrek' ? 'Het vertrek ligt in de toekomst.' : 'De aankomst ligt in de toekomst.'
+  }
+  // Op de minuut: een vertrek om 15:27:40 en een aankomst "15:27" is dezelfde minuut.
+  if (kind === 'aankomst' && opts.departedAt && at < Math.floor(Date.parse(opts.departedAt) / 60_000) * 60_000) {
+    return 'De aankomst ligt vóór het vertrek.'
+  }
+  return null
+}

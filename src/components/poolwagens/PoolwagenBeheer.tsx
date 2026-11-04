@@ -4,6 +4,7 @@ import { useEffect, useState, type ChangeEvent, type ReactNode } from 'react'
 import { Archive, ArchiveRestore, Ban, Check, Loader2, Pencil, Plus, X } from 'lucide-react'
 import { ACCENT, ErrorLine, inputCls, labelCls, send } from '@/components/materiaal/ui'
 import type { PoolCar } from '@/lib/poolwagens/types'
+import { DUPLICATE_NAME_TEXT, isDuplicateCarName } from '@/lib/poolwagens/car-input'
 import MailSettings from './MailSettings'
 import { PoolNav } from './ui'
 
@@ -82,6 +83,7 @@ export default function PoolwagenBeheer() {
           <div className="mb-4">
             <CarEditor
               initial={EMPTY}
+              nameTaken={name => isDuplicateCarName(name, cars)}
               submitLabel="Toevoegen"
               onCancel={() => setAdding(false)}
               onSubmit={async form => {
@@ -105,7 +107,7 @@ export default function PoolwagenBeheer() {
         )}
 
         <div className="space-y-2">
-          {active.map(car => <CarRow key={car.id} car={car} onPatch={body => patch(car.id, body)} />)}
+          {active.map(car => <CarRow key={car.id} car={car} cars={cars} onPatch={body => patch(car.id, body)} />)}
         </div>
 
         {archived.length > 0 && (
@@ -115,7 +117,7 @@ export default function PoolwagenBeheer() {
             </button>
             {showArchived && (
               <div className="space-y-2 mt-3">
-                {archived.map(car => <CarRow key={car.id} car={car} onPatch={body => patch(car.id, body)} />)}
+                {archived.map(car => <CarRow key={car.id} car={car} cars={cars} onPatch={body => patch(car.id, body)} />)}
               </div>
             )}
           </div>
@@ -127,7 +129,7 @@ export default function PoolwagenBeheer() {
   )
 }
 
-function CarRow({ car, onPatch }: { car: PoolCar; onPatch: (body: Record<string, unknown>) => Promise<boolean> }) {
+function CarRow({ car, cars, onPatch }: { car: PoolCar; cars: PoolCar[]; onPatch: (body: Record<string, unknown>) => Promise<boolean> }) {
   const [editing, setEditing] = useState(false)
   const [blocking, setBlocking] = useState(false)
   const [note, setNote] = useState('')
@@ -144,6 +146,7 @@ function CarRow({ car, onPatch }: { car: PoolCar; onPatch: (body: Record<string,
     return (
       <CarEditor
         initial={{ name: car.name, license_plate: car.license_plate, make_model: car.make_model ?? '', current_km: String(car.current_km) }}
+        nameTaken={name => isDuplicateCarName(name, cars, car.id)}
         submitLabel="Opslaan"
         onCancel={() => setEditing(false)}
         onSubmit={async form => {
@@ -192,7 +195,12 @@ function CarRow({ car, onPatch }: { car: PoolCar; onPatch: (body: Record<string,
             </>
           )}
           {archivedCar && (
-            <IconButton label="Terugzetten" onClick={() => run({ archived: false })} disabled={busy}><ArchiveRestore size={14} /></IconButton>
+            <IconButton label="Terugzetten" disabled={busy}
+              onClick={() => {
+                // Dezelfde regel als de database: dan eerst hernoemen.
+                if (isDuplicateCarName(car.name, cars, car.id)) alert(`${DUPLICATE_NAME_TEXT} Hernoem eerst de actieve wagen "${car.name}".`)
+                else run({ archived: false })
+              }}><ArchiveRestore size={14} /></IconButton>
           )}
         </div>
       </div>
@@ -222,8 +230,9 @@ function CarRow({ car, onPatch }: { car: PoolCar; onPatch: (body: Record<string,
   )
 }
 
-function CarEditor({ initial, submitLabel, onSubmit, onCancel }: {
+function CarEditor({ initial, nameTaken, submitLabel, onSubmit, onCancel }: {
   initial: CarForm
+  nameTaken: (name: string) => boolean
   submitLabel: string
   onSubmit: (form: CarForm) => Promise<boolean>
   onCancel: () => void
@@ -231,6 +240,7 @@ function CarEditor({ initial, submitLabel, onSubmit, onCancel }: {
   const [form, setForm] = useState(initial)
   const [busy, setBusy] = useState(false)
   const set = (k: keyof CarForm) => (e: ChangeEvent<HTMLInputElement>) => setForm(f => ({ ...f, [k]: e.target.value }))
+  const duplicate = nameTaken(form.name)
 
   return (
     <form
@@ -245,7 +255,9 @@ function CarEditor({ initial, submitLabel, onSubmit, onCancel }: {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className={labelCls}>Naam / omschrijving</label>
-          <input className={inputCls} value={form.name} onChange={set('name')} placeholder="bv. Bestelwagen groot" required autoFocus />
+          <input className={inputCls} value={form.name} onChange={set('name')} placeholder="bv. Bestelwagen groot" required autoFocus
+            aria-invalid={duplicate} />
+          {duplicate && <p className="mt-1 text-xs text-red-400">{DUPLICATE_NAME_TEXT}</p>}
         </div>
         <div>
           <label className={labelCls}>Nummerplaat</label>
@@ -264,7 +276,7 @@ function CarEditor({ initial, submitLabel, onSubmit, onCancel }: {
         <button type="button" onClick={onCancel} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-zinc-400 hover:text-zinc-200">
           <X size={14} /> Annuleren
         </button>
-        <button type="submit" disabled={busy} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-50" style={{ backgroundColor: ACCENT }}>
+        <button type="submit" disabled={busy || duplicate} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-50" style={{ backgroundColor: ACCENT }}>
           {busy ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} {submitLabel}
         </button>
       </div>

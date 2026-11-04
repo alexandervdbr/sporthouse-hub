@@ -28,6 +28,7 @@ const CONSTRAINT_TEXT: Record<string, string> = {
   pool_car_reservations_one_open_trip: 'De wagen is nog niet terug van een vorige rit.',
   pool_car_reservations_arrival_after_departure: 'De kilometerstand en het tijdstip bij aankomst moeten minstens die bij vertrek zijn.',
   pool_cars_license_plate_key: 'Er bestaat al een wagen met deze nummerplaat.',
+  pool_cars_name_active_key: 'Er bestaat al een wagen met deze naam.',
 }
 
 export function poolDbErrorText(err: DbError): string {

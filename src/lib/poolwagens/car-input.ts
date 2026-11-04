@@ -14,6 +14,22 @@ export interface CarRow {
 
 const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)
 
+export const DUPLICATE_NAME_TEXT = 'Er bestaat al een wagen met deze naam.'
+
+/**
+ * Heeft een andere actieve wagen al deze naam? Hoofdletters en spaties
+ * vooraan of achteraan tellen niet mee, gearchiveerde wagens niet — zoals de
+ * unieke index pool_cars_name_active_key (0080).
+ */
+export function isDuplicateCarName(
+  name: string,
+  cars: { id: string; name: string; archived_at: string | null }[],
+  ignoreId: string | null = null,
+): boolean {
+  const key = name.trim().toLowerCase()
+  return !!key && cars.some(c => !c.archived_at && c.id !== ignoreId && c.name.trim().toLowerCase() === key)
+}
+
 /** Nummerplaat zoals ingegeven, in hoofdletters en zonder dubbele spaties. */
 export function formatPlate(value: string): string {
   return value.trim().toUpperCase().replace(/\s+/g, ' ')
