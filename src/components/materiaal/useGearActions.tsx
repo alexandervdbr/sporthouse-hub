@@ -67,7 +67,7 @@ export function useGearActions({ catalog, reload, onError }: {
     if (!plan || !cat) return
     onError('')
     const kitOf = kitByItem(cat.kits)
-    const name = (id: string) => cat.items.find(i => i.id === id)?.name ?? 'Onderdeel'
+    const name = (id: string) => plan.names?.[id] ?? cat.items.find(i => i.id === id)?.name ?? 'Onderdeel'
     const kitName = (id: string | null) => (id ? cat.kits.find(k => k.id === id)?.name ?? 'kit' : null)
 
     // 1. Voorvertoning voor elke verhuis die boekingen kan raken.
@@ -105,7 +105,7 @@ export function useGearActions({ catalog, reload, onError }: {
     const inverse = invertPlan(cat, steps)
     setToast({
       id: ++toastId,
-      message: `Verplaatst naar ${plan.target}${updated.length ? ` · ${updated.length} ${updated.length === 1 ? 'boeking' : 'boekingen'} bijgewerkt` : ''}`,
+      message: `${plan.verb ?? 'Verplaatst naar'} ${plan.target}${updated.length ? ` · ${updated.length} ${updated.length === 1 ? 'boeking' : 'boekingen'} bijgewerkt` : ''}`,
       details: failed.map(f => `Niet bijgewerkt: ${f.label ?? 'boeking'} (${f.start_date}${f.end_date !== f.start_date ? ` – ${f.end_date}` : ''}) — ${f.reason}`),
       tone: failed.length ? 'warn' : 'info',
       action: {

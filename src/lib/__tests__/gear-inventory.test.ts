@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { buildInventory, invertPlan, planDrop, planMoveTo, planShift, touchesBookings, undoLeftovers } from '@/lib/gear/inventory'
+import { buildInventory, invertPlan, isFiltering, planAddToKit, planDrop, planMoveTo, planShift, serialDuplicates, touchesBookings, undoLeftovers, VIEW_LABEL } from '@/lib/gear/inventory'
+import { previewMove } from '@/lib/gear/kits'
 import type { GearCatalog, GearItem, GearKit } from '@/lib/gear/types'
 
 const none = { responsible_client_id: null, responsible_user_id: null, responsible_name: null }
@@ -56,12 +57,73 @@ describe('buildInventory', () => {
     expect(ids('sony batterij')).toEqual(['batA', 'bat3', 'bat4'])
   })
 
-  it('filters: problemen, niet in een kit, met verantwoordelijke', () => {
+  it('één weergave tegelijk: problemen, niet in een kit, met verantwoordelijke', () => {
     const ids = (f: Parameters<typeof buildInventory>[1]) =>
       buildInventory(catalog, f).flatMap(c => [...c.kits.flatMap(k => k.parts), ...c.loose].map(i => i.id))
-    expect(ids({ problems: true })).toEqual(['batA'])
-    expect(ids({ notInKit: true })).toEqual(['fs7', 'bat3', 'bat4'])
-    expect(ids({ withResponsible: true })).toEqual(['bodyB', 'bat4'])   // via kit B, en eigen
+    expect(ids({ view: 'problems' })).toEqual(['batA'])
+    expect(ids({ view: 'notInKit' })).toEqual(['fs7', 'bat3', 'bat4'])
+    expect(ids({ view: 'withResponsible' })).toEqual(['bodyB', 'bat4'])   // kit B (via kit), en eigen
+    expect(ids({ view: 'all' })).toHaveLength(7)
+  })
+
+  it('zoeken werkt binnen de gekozen weergave', () => {
+    const ids = (f: Parameters<typeof buildInventory>[1]) =>
+      buildInventory(catalog, f).flatMap(c => [...c.kits.flatMap(k => k.parts), ...c.loose].map(i => i.id))
+    expect(ids({ view: 'notInKit', search: 'batterij' })).toEqual(['bat3', 'bat4'])   // batA zit in een kit
+    expect(ids({ view: 'problems', search: 'fx3' })).toEqual(['batA'])   // via de kitnaam FX3 A
+    expect(ids({ view: 'problems', search: 'lens' })).toEqual([])
+    expect(ids({ view: 'problems', search: 'batterij' })).toEqual(['batA'])
+  })
+
+  it('weet wanneer er gefilterd wordt, en kent de namen van de weergaven', () => {
+    expect(isFiltering({})).toBe(false)
+    expect(isFiltering({ view: 'all', search: '  ' })).toBe(false)
+    expect(isFiltering({ view: 'problems' })).toBe(true)
+    expect(isFiltering({ search: 'fx3' })).toBe(true)
+    expect(VIEW_LABEL).toEqual({ all: 'Alles', problems: 'Defect of beperkt', notInKit: 'Niet in een kit', withResponsible: 'Met verantwoordelijke' })
+  })
+})
+
+describe('serienummers', () => {
+  it('vindt een ander item met hetzelfde serienummer, zonder hoofdletters of spaties', () => {
+    expect(serialDuplicates(catalog, ' sn-111 ').map(i => i.id)).toEqual(['bodyA'])
+    expect(serialDuplicates(catalog, 'SN-111', 'bodyA')).toEqual([])        // zichzelf telt niet
+    expect(serialDuplicates(catalog, '')).toEqual([])
+    expect(serialDuplicates(catalog, 'SN-999')).toEqual([])
+  })
+})
+
+describe('nieuw item in een kit = erin verplaatsen', () => {
+  const plan = planAddToKit([{ id: 'nieuw1', name: 'Sony batterij #5' }, { id: 'nieuw2', name: 'Sony batterij #6' }], { id: 'A', name: 'FX3 A (groene labels)' })
+
+  it('verhuisstappen met boekingen bijwerken aan, zoals slepen', () => {
+    expect(plan.steps).toEqual([
+      { op: 'move', itemId: 'nieuw1', toKitId: 'A', updateBookings: true },
+      { op: 'move', itemId: 'nieuw2', toKitId: 'A', updateBookings: true },
+    ])
+    expect(plan.steps.every(touchesBookings)).toBe(true)
+    expect(plan).toMatchObject({ target: 'FX3 A (groene labels)', verb: 'Toegevoegd aan', names: { nieuw1: 'Sony batterij #5' } })
+  })
+
+  it('ongedaan maken: de nieuwe items worden weer los', () => {
+    expect(invertPlan(catalog, plan.steps)).toEqual([
+      { op: 'move', itemId: 'nieuw2', toKitId: null, updateBookings: false },
+      { op: 'move', itemId: 'nieuw1', toKitId: null, updateBookings: false },
+    ])
+  })
+
+  it('de voorvertoning zet het nieuwe item in de komende boekingen van de kit, waar het vrij is', () => {
+    const booking = (id: string, lines: [string, string | null][], start: string, end: string) => ({
+      id, start_date: start, end_date: end, lines: lines.map(([item_id, via]) => ({ item_id, via_kit_id: via, via_kit_name: via })),
+      booked_for_user_id: null, freelancer_id: null, external_name: null, person_name: 'Bram', client: null, project: null,
+      note: null, created_by: null, created_by_name: 'x',
+    })
+    const p = previewMove('nieuw1', null, 'A', [
+      booking('komt', [['bodyA', 'A']], '2026-11-20', '2026-11-21'),
+      booking('loopt', [['bodyA', 'A']], '2026-11-02', '2026-11-04'),
+    ], '2026-11-03')
+    expect(p.add.map(s => [s.booking.id, s.ok])).toEqual([['komt', true]])
+    expect(p.remove).toEqual([])
   })
 })
 

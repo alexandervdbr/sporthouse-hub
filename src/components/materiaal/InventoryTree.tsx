@@ -15,7 +15,7 @@ import { ItemBadges, KitBadges, KitIcon, ResponsiblePill, itemNameClass, itemTit
 import { useGearActions } from '@/components/materiaal/useGearActions'
 import { ACCENT, ErrorLine, send, type People } from '@/components/materiaal/ui'
 import type { GearAccess } from '@/lib/gear/access'
-import { buildInventory, isFiltering, planDrop, type DragRef, type InventoryFilters } from '@/lib/gear/inventory'
+import { INVENTORY_VIEWS, VIEW_LABEL, buildInventory, isFiltering, planAddToKit, planDrop, type DragRef, type InventoryFilters, type InventoryView } from '@/lib/gear/inventory'
 import { kitByItem } from '@/lib/gear/kits'
 import { effectiveResponsible } from '@/lib/gear/responsible'
 import type { GearBookingOptions, GearCatalog, GearItem } from '@/lib/gear/types'
@@ -26,11 +26,10 @@ import type { GearBookingOptions, GearCatalog, GearItem } from '@/lib/gear/types
 // boekingen en "Ongedaan maken"); vinkjes voor acties op meerdere items.
 // Op de telefoon geen greepjes: daar gaat verplaatsen via het zijpaneel.
 
-const FILTERS: { key: keyof InventoryFilters; label: string }[] = [
-  { key: 'problems', label: 'Defect/beperkt' },
-  { key: 'notInKit', label: 'Niet in een kit' },
-  { key: 'withResponsible', label: 'Met verantwoordelijke' },
-]
+/** "S/N 48213…": kort genoeg om de rij rustig te houden; de volledige waarde staat in de tooltip. */
+function shortSerial(serial: string) {
+  return serial.length > 8 ? `${serial.slice(0, 8)}…` : serial
+}
 
 const parseRef = (id: string): DragRef => {
   const [type, ...rest] = id.split(':')
@@ -97,7 +96,7 @@ export default function InventoryTree({ access, initialKitId }: { access: GearAc
         {item.name}
       </button>
       <ItemBadges item={item} />
-      {item.serial_number && <span className="hidden md:inline text-[10px] text-zinc-600 flex-shrink-0">S/N {item.serial_number}</span>}
+      {item.serial_number && <span title={`Serienummer ${item.serial_number}`} className="text-[10px] text-zinc-600 flex-shrink-0 tabular-nums">S/N {shortSerial(item.serial_number)}</span>}
       {/* Bij een onderdeel staat de verantwoordelijke van de kit al op de kit-rij. */}
       {(() => { const r = effectiveResponsible(item, kitOf.get(item.id) ?? null, clients); return r && (!part || !r.viaKit) ? <ResponsiblePill r={r} /> : null })()}
     </TreeRow>
@@ -119,8 +118,9 @@ export default function InventoryTree({ access, initialKitId }: { access: GearAc
           )}
         </div>
 
-        <div className="mb-4 space-y-2">
-          <div className="relative">
+        {/* Zoeken + één weergave tegelijk ("Toon:"). Zoeken werkt binnen die weergave. */}
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <div className="relative flex-1 min-w-[14rem]">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
             <input value={filters.search ?? ''} onChange={e => setFilters(f => ({ ...f, search: e.target.value }))}
               placeholder="Zoek naam, model, serienummer, kit…" aria-label="Zoeken"
@@ -129,14 +129,21 @@ export default function InventoryTree({ access, initialKitId }: { access: GearAc
               <button onClick={() => setFilters(f => ({ ...f, search: '' }))} aria-label="Zoekopdracht wissen" className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500"><X size={13} /></button>
             )}
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {FILTERS.map(f => (
-              <button key={f.key} aria-pressed={!!filters[f.key]} onClick={() => setFilters(prev => ({ ...prev, [f.key]: !prev[f.key] }))}
-                className={`px-2.5 py-1 rounded-full text-xs border ${filters[f.key] ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-300' : 'border-zinc-700 text-zinc-400 hover:text-zinc-200'}`}>
-                {f.label}
-              </button>
-            ))}
-          </div>
+          {(filters.view ?? 'all') === 'all' ? (
+            <label className="flex items-center gap-1.5 text-xs text-zinc-400">
+              Toon:
+              <select value="all" onChange={e => setFilters(f => ({ ...f, view: e.target.value as InventoryView }))}
+                aria-label="Toon" className="px-2 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-zinc-200">
+                {INVENTORY_VIEWS.map(v => <option key={v} value={v}>{VIEW_LABEL[v]}</option>)}
+              </select>
+            </label>
+          ) : (
+            <span className="flex items-center gap-1 pl-3 pr-1.5 py-1.5 rounded-lg border border-emerald-500/50 bg-emerald-500/15 text-sm text-emerald-200">
+              Toon: {VIEW_LABEL[filters.view!]}
+              <button onClick={() => setFilters(f => ({ ...f, view: 'all' }))} aria-label="Weergave terugzetten op Alles" title="Terug naar Alles"
+                className="ml-1 w-6 h-6 flex items-center justify-center rounded text-emerald-300 hover:bg-emerald-500/20"><X size={13} /></button>
+            </span>
+          )}
         </div>
 
         {error && <div className="mb-3"><ErrorLine>{error}</ErrorLine></div>}
@@ -222,6 +229,7 @@ export default function InventoryTree({ access, initialKitId }: { access: GearAc
       )}
       {add && (
         <AddGearDialog catalog={catalog} prefill={add} onClose={() => setAdd(null)}
+          onAddToKit={(items, kit) => actions.run(planAddToKit(items, kit))}
           onCreated={async t => {
             setAdd(null)
             await reload()

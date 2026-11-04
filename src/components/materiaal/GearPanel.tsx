@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { ArrowDown, ArrowUp, Check, Loader2, MoreHorizontal, Package, Plus, Search, Trash2, UserRound, Wrench, X } from 'lucide-react'
+import { SerialWarning } from '@/components/materiaal/AddGearDialog'
 import { ItemBadges, KitBadges } from '@/components/materiaal/GearLabels'
 import { ColorDots, ErrorLine, ResponsiblePicker, StatusBadge, inputCls, labelCls, send, type People } from '@/components/materiaal/ui'
 import type { GearAccess } from '@/lib/gear/access'
@@ -376,6 +377,7 @@ function ItemForm({ item, catalog, people, access, onChange, persist, run, onOpe
         <InlineText label="Nummer" value={item.number} placeholder="#3" disabled={!edit} onSave={number => patch({ number })} />
         <InlineText label="Serienummer" value={item.serial_number} disabled={!edit} onSave={serial_number => patch({ serial_number })} />
       </div>
+      <SerialWarning catalog={catalog} serial={item.serial_number} exceptItemId={item.id} onOpen={id => onOpen({ type: 'item', id })} />
       <div className="grid grid-cols-2 gap-2">
         <InlineText label="Labelkleur" value={item.label_color} disabled={!edit} onSave={label_color => patch({ label_color })} />
         <InlineText label="ND-filter" value={item.nd_size} disabled={!edit} onSave={nd_size => patch({ nd_size })} />

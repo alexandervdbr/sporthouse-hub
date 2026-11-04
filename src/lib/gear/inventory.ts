@@ -1,5 +1,5 @@
 import { kitByItem } from './kits'
-import { effectiveResponsible } from './responsible'
+import { effectiveResponsible, responsibleName } from './responsible'
 import type { GearCatalog, GearCategory, GearItem, GearKit, GearMoveEffect } from './types'
 
 // Het voorraadscherm (/materiaal/beheer): dezelfde opbouw als de planner
@@ -20,21 +20,34 @@ export interface InventoryCategory {
   loose: GearItem[]
 }
 
+/**
+ * Wat het voorraadscherm toont: precies één weergave tegelijk, plus zoeken
+ * binnen die weergave.
+ * - all:             alles
+ * - problems:        items die defect, beperkt of uit dienst zijn
+ * - notInKit:        alleen losse items
+ * - withResponsible: materiaal met een verantwoordelijke (eigen of via de kit)
+ */
+export const INVENTORY_VIEWS = ['all', 'problems', 'notInKit', 'withResponsible'] as const
+export type InventoryView = typeof INVENTORY_VIEWS[number]
+
+export const VIEW_LABEL: Record<InventoryView, string> = {
+  all: 'Alles',
+  problems: 'Defect of beperkt',
+  notInKit: 'Niet in een kit',
+  withResponsible: 'Met verantwoordelijke',
+}
+
 export interface InventoryFilters {
   search?: string
-  /** Alleen items die defect, beperkt of uit dienst zijn. */
-  problems?: boolean
-  /** Alleen losse items. */
-  notInKit?: boolean
-  /** Alleen materiaal met een verantwoordelijke (eigen of via de kit). */
-  withResponsible?: boolean
+  view?: InventoryView
 }
 
 const byOrder = <T extends { sort_order: number; name: string }>(a: T, b: T) =>
   a.sort_order - b.sort_order || a.name.localeCompare(b.name, 'nl')
 
 export function isFiltering(f: InventoryFilters): boolean {
-  return !!(f.search?.trim() || f.problems || f.notInKit || f.withResponsible)
+  return !!f.search?.trim() || (f.view ?? 'all') !== 'all'
 }
 
 /**
@@ -44,6 +57,7 @@ export function isFiltering(f: InventoryFilters): boolean {
  */
 export function buildInventory(catalog: GearCatalog, f: InventoryFilters = {}): InventoryCategory[] {
   const q = f.search?.trim().toLowerCase() ?? ''
+  const view = f.view ?? 'all'
   const items = new Map(catalog.items.map(i => [i.id, i]))
   const kitOf = kitByItem(catalog.kits)
   const clients = new Map(catalog.clients.map(c => [c.id, c]))
@@ -52,21 +66,24 @@ export function buildInventory(catalog: GearCatalog, f: InventoryFilters = {}): 
   const textMatch = (i: GearItem) => !q
     || [i.name, i.model, i.serial_number, kitOf.get(i.id)?.name].some(v => (v ?? '').toLowerCase().includes(q))
   const itemPasses = (i: GearItem) => textMatch(i)
-    && (!f.problems || i.status !== 'ok')
-    && (!f.withResponsible || !!effectiveResponsible(i, kitOf.get(i.id) ?? null, clients))
+    && (view !== 'problems' || i.status !== 'ok')
+    && (view !== 'withResponsible' || !!effectiveResponsible(i, kitOf.get(i.id) ?? null, clients))
 
   return [...catalog.categories].sort(byOrder).map(category => {
-    const kits = f.notInKit ? [] : catalog.kits
+    const kits = view === 'notInKit' ? [] : catalog.kits
       .filter(k => k.category_id === category.id)
       .sort(byOrder)
       .map(kit => {
         const parts = kit.item_ids.map(id => items.get(id)).filter((i): i is GearItem => !!i)
         if (!filtering) return { kit, parts }
-        const kitItself = (!q || kit.name.toLowerCase().includes(q)) && !f.problems
-          && (!f.withResponsible || !!effectiveResponsible({ responsible_client_id: null, responsible_user_id: null, responsible_name: null }, kit, clients))
-        return { kit, parts: kitItself ? parts : parts.filter(itemPasses) }
+        // De kit zelf matcht (zoekterm in de kitnaam, of een kit met een
+        // verantwoordelijke): dan met al zijn onderdelen.
+        const kitItself = view !== 'problems' && (!q || kit.name.toLowerCase().includes(q))
+          && (view !== 'withResponsible' || !!responsibleName(kit, clients))
+        return { kit, parts: kitItself ? parts : parts.filter(itemPasses), kitItself }
       })
-      .filter(k => !filtering || k.parts.length > 0 || (q && k.kit.name.toLowerCase().includes(q) && !f.problems && !f.withResponsible))
+      .filter(k => !filtering || k.parts.length > 0 || k.kitItself)
+      .map(({ kit, parts }) => ({ kit, parts }))
     const loose = catalog.items
       .filter(i => i.category_id === category.id && !kitOf.has(i.id))
       .sort(byOrder)
@@ -92,6 +109,10 @@ export interface Plan {
   steps: Step[]
   /** Voor de melding: "Verplaatst naar FX3 B". */
   target: string
+  /** Werkwoord in de melding; standaard "Verplaatst naar". */
+  verb?: string
+  /** Namen van items die (nog) niet in de geladen catalogus staan. */
+  names?: Record<string, string>
 }
 
 /** Wat je versleept, of waarop je loslaat. */
@@ -273,6 +294,33 @@ export function undoLeftovers(updated: GearMoveEffect[]): string[] {
     const what = e.action === 'weggehaald' ? 'blijft zonder dit onderdeel' : 'houdt dit onderdeel'
     return `${e.label ?? 'Boeking'} (${days}) ${what}`
   })
+}
+
+/**
+ * Een nieuw item in een kit zetten is hetzelfde als het erin verplaatsen: met
+ * het venster voor komende boekingen van die kit (standaard bijwerken) en met
+ * "Ongedaan maken". De items bestaan nog niet in de geladen catalogus, dus
+ * geven we hun namen mee voor het venster en de melding.
+ */
+export function planAddToKit(items: { id: string; name: string }[], kit: { id: string; name: string }): Plan {
+  return {
+    steps: items.map(i => ({ op: 'move' as const, itemId: i.id, toKitId: kit.id, updateBookings: true })),
+    target: kit.name,
+    verb: 'Toegevoegd aan',
+    names: Object.fromEntries(items.map(i => [i.id, i.name])),
+  }
+}
+
+/** Serienummers vergelijken: zonder spaties rond, zonder hoofdlettergevoeligheid. */
+export function normalizeSerial(serial: string | null | undefined): string {
+  return (serial ?? '').trim().toLowerCase()
+}
+
+/** Andere items met hetzelfde serienummer (voor een waarschuwing; we blokkeren niet). */
+export function serialDuplicates(catalog: GearCatalog, serial: string | null | undefined, exceptItemId?: string): GearItem[] {
+  const s = normalizeSerial(serial)
+  if (!s) return []
+  return catalog.items.filter(i => i.id !== exceptItemId && normalizeSerial(i.serial_number) === s)
 }
 
 /** Is dit een stap die boekingen kan raken (en dus eerst een voorvertoning nodig heeft)? */

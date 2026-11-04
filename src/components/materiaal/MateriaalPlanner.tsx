@@ -7,6 +7,7 @@ import AddGearDialog from '@/components/materiaal/AddGearDialog'
 import BookingForm from '@/components/materiaal/BookingForm'
 import GearPanel, { type AddPrefill, type PanelTarget } from '@/components/materiaal/GearPanel'
 import { useGearActions } from '@/components/materiaal/useGearActions'
+import { planAddToKit } from '@/lib/gear/inventory'
 import DayList from '@/components/materiaal/DayList'
 import MaterialGrid, { type GridTarget } from '@/components/materiaal/MaterialGrid'
 import { ACCENT, ErrorLine, send } from '@/components/materiaal/ui'
@@ -233,6 +234,7 @@ export default function MateriaalPlanner({ userId, access }: { userId: string; a
       )}
       {add && catalog && (
         <AddGearDialog catalog={catalog} prefill={add} onClose={() => setAdd(null)}
+          onAddToKit={(items, kit) => actions.run(planAddToKit(items, kit))}
           onCreated={async t => { setAdd(null); await reloadCatalog(); if (t) setPanel(t) }} />
       )}
       {actions.ui}
