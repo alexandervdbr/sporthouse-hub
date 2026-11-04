@@ -6,7 +6,7 @@ import Toast, { type ToastData } from '@/components/materiaal/Toast'
 import { send } from '@/components/materiaal/ui'
 import { invertPlan, touchesBookings, undoLeftovers, type Plan, type Step } from '@/lib/gear/inventory'
 import { kitByItem } from '@/lib/gear/kits'
-import type { GearCatalog, GearMoveEffect, GearMoveResult } from '@/lib/gear/types'
+import type { GearCatalog, GearCategoryRestore, GearCategorySnapshot, GearMoveEffect, GearMoveResult } from '@/lib/gear/types'
 
 // Elke verhuis (slepen, "Verplaats naar…", bulk) loopt hierlangs:
 // 1. raakt hij komende boekingen? dan eerst het venster met wat er gebeurt;
@@ -129,6 +129,43 @@ export function useGearActions({ catalog, reload, onError }: {
     })
   }, [execute, reload, onError])
 
+  /**
+   * Een categorie verwijderen; de inhoud gaat naar `intoId`. Een fout gaat
+   * terug naar het venster (dat blijft open). Daarna een melding met
+   * "Ongedaan maken": dezelfde categorie terug, met wat er toen verhuisde.
+   */
+  const deleteCategory = useCallback(async (categoryId: string, intoId: string | null) => {
+    const cat = catalogRef.current
+    onError('')
+    let snap: GearCategorySnapshot
+    try { snap = await send<GearCategorySnapshot>('/api/materiaal/categories', 'DELETE', { id: categoryId, into: intoId }) }
+    catch (e) { await reload(); throw e }
+    await reload()
+    const into = cat?.categories.find(c => c.id === intoId)?.name
+    const moved = snap.kits.length + snap.items.length
+    setToast({
+      id: ++toastId,
+      message: `${snap.category.name} verwijderd${moved && into ? ` · inhoud naar ${into}` : ''}`,
+      action: {
+        label: 'Ongedaan maken',
+        onClick: async () => {
+          setToast(null)
+          setBusy(true)
+          let res: GearCategoryRestore | null = null
+          try { res = await send<GearCategoryRestore>('/api/materiaal/categories', 'POST', { restore: snap }) }
+          catch (e) { onError(e instanceof Error ? e.message : 'Terugzetten mislukt.') }
+          await reload()
+          setBusy(false)
+          if (res) setToast({
+            id: ++toastId,
+            message: res.skipped.length ? `${snap.category.name} teruggezet. Dit stond intussen elders en bleef daar:` : `${snap.category.name} teruggezet.`,
+            details: res.skipped, tone: res.skipped.length ? 'warn' : 'info', ms: 4000,
+          })
+        },
+      },
+    })
+  }, [reload, onError])
+
   const ui: ReactNode = (
     <>
       {dialog && <MoveDialog title={dialog.title} entries={dialog.entries} onCancel={() => dialog.resolve(null)} onConfirm={u => dialog.resolve(u)} />}
@@ -136,5 +173,5 @@ export function useGearActions({ catalog, reload, onError }: {
     </>
   )
 
-  return { run, busy, ui, notify: (message: string, tone: 'info' | 'warn' = 'info') => setToast({ id: ++toastId, message, tone, ms: 4000 }) }
+  return { run, deleteCategory, busy, ui, notify: (message: string, tone: 'info' | 'warn' = 'info') => setToast({ id: ++toastId, message, tone, ms: 4000 }) }
 }

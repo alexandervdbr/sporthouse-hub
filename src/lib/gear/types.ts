@@ -161,6 +161,22 @@ export interface GearMoveEffect {
   label?: string
 }
 
+/** Wat gear_delete_category teruggeeft; terugsturen om ongedaan te maken. */
+export interface GearCategorySnapshot {
+  category: GearCategory
+  into_id: string | null
+  kits: { id: string; sort_order: number }[]
+  items: { id: string; sort_order: number }[]
+}
+
+export interface GearCategoryRestore {
+  category_id: string
+  kits: number
+  items: number
+  /** Namen die intussen elders stonden en dus bleven staan. */
+  skipped: string[]
+}
+
 export interface GearMoveResult {
   updated: GearMoveEffect[]
   failed: GearMoveEffect[]

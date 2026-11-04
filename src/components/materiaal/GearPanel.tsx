@@ -4,10 +4,11 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { ArrowDown, ArrowUp, Check, Loader2, MoreHorizontal, Package, Plus, Search, Trash2, UserRound, Wrench, X } from 'lucide-react'
 import { SerialWarning } from '@/components/materiaal/AddGearDialog'
+import DeleteCategoryDialog from '@/components/materiaal/DeleteCategoryDialog'
 import { ItemBadges, KitBadges } from '@/components/materiaal/GearLabels'
 import { Button, ColorDots, ErrorLine, IconButton, ResponsiblePicker, Select, StatusBadge, formGap, inputCls, labelCls, send, textareaCls, type People } from '@/components/materiaal/ui'
 import type { GearAccess } from '@/lib/gear/access'
-import { planDrop, planMoveTo, planShift, type Plan } from '@/lib/gear/inventory'
+import { categoryContents, planDrop, planMoveTo, planShift, type Plan } from '@/lib/gear/inventory'
 import { kitByItem } from '@/lib/gear/kits'
 import { effectiveResponsible, responsibleLabel, responsibleName, RESPONSIBLE_NOTICE } from '@/lib/gear/responsible'
 import type { UnitStatus } from '@/lib/gear/status'
@@ -31,6 +32,8 @@ interface Props {
   onChange: (fn: (c: GearCatalog) => GearCatalog) => void
   reload: () => Promise<void>
   run: (plan: Plan | null) => Promise<void>
+  /** Categorie verwijderen, inhoud naar `intoId`; gooit bij een fout. */
+  deleteCategory: (categoryId: string, intoId: string | null) => Promise<void>
   onAdd: (prefill: AddPrefill) => void
 }
 
@@ -165,12 +168,10 @@ function MoveToSelect({ catalog, itemId, exceptKitId, onPick }: {
 
 // ─── Categorie ────────────────────────────────────────────────────────────────
 
-function CategoryForm({ category, catalog, access, onChange, persist, run, onAdd, reload, onClose }: FormProps & { category: GearCategory }) {
+function CategoryForm({ category, catalog, access, onChange, persist, run, onAdd, deleteCategory, onClose }: FormProps & { category: GearCategory }) {
   const edit = access.manageCatalog
-  const kitOf = useMemo(() => kitByItem(catalog.kits), [catalog.kits])
-  const kits = catalog.kits.filter(k => k.category_id === category.id)
-  const loose = catalog.items.filter(i => i.category_id === category.id && !kitOf.has(i.id))
-  const empty = kits.length === 0 && catalog.items.every(i => i.category_id !== category.id)
+  const { kits, loose, partsElsewhere } = categoryContents(catalog, category.id)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   async function patch(fields: Partial<GearCategory>) {
     const updated = await persist(() => send<GearCategory>('/api/materiaal/categories', 'PATCH', { id: category.id, ...fields }))
@@ -184,18 +185,21 @@ function CategoryForm({ category, catalog, access, onChange, persist, run, onAdd
         <span className={labelCls}>Kleur</span>
         {edit ? <ColorDots value={category.color} onChange={color => patch({ color })} /> : <span className="inline-block w-4 h-4 rounded-full" style={{ backgroundColor: category.color }} />}
       </div>
-      <p className="text-sm text-zinc-400">{kits.length} {kits.length === 1 ? 'kit' : 'kits'} · {loose.length} los</p>
+      <p className="text-sm text-zinc-400">
+        {kits.length} {kits.length === 1 ? 'kit' : 'kits'} · {loose.length} los
+        {partsElsewhere.length > 0 && ` · ${partsElsewhere.length} ${partsElsewhere.length === 1 ? 'onderdeel in een kit elders' : 'onderdelen in kits elders'}`}
+      </p>
       {edit && (
         <div className="flex flex-wrap gap-2">
           <SmallButton onClick={() => onAdd({ mode: 'item', categoryId: category.id })}><Plus size={12} /> Item</SmallButton>
           <SmallButton onClick={() => onAdd({ mode: 'kit', categoryId: category.id })}><Plus size={12} /> Kit</SmallButton>
           <ShiftButtons onShift={dir => run(planShift(catalog, { type: 'category', id: category.id }, dir))} />
-          {empty && (
-            <SmallButton danger onClick={async () => {
-              if (await persist(() => send('/api/materiaal/categories', 'DELETE', { id: category.id })) !== null) { await reload(); onClose() }
-            }}><Trash2 size={12} /> Categorie verwijderen</SmallButton>
-          )}
+          <SmallButton danger onClick={() => setConfirmDelete(true)}><Trash2 size={12} /> Verwijderen…</SmallButton>
         </div>
+      )}
+      {confirmDelete && (
+        <DeleteCategoryDialog category={category} catalog={catalog} onCancel={() => setConfirmDelete(false)}
+          onDelete={async into => { await deleteCategory(category.id, into); onClose() }} />
       )}
     </>
   )

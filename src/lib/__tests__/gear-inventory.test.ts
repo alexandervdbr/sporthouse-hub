@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildInventory, invertPlan, isFiltering, planAddToKit, planDrop, planMoveTo, planShift, serialDuplicates, touchesBookings, undoLeftovers, VIEW_LABEL } from '@/lib/gear/inventory'
+import { buildInventory, categoryContents, invertPlan, isFiltering, planAddToKit, planDrop, planMoveTo, planShift, serialDuplicates, touchesBookings, undoLeftovers, VIEW_LABEL } from '@/lib/gear/inventory'
 import { previewMove } from '@/lib/gear/kits'
 import type { GearCatalog, GearItem, GearKit } from '@/lib/gear/types'
 
@@ -235,5 +235,28 @@ describe('ongedaan maken', () => {
       'Bram Kreike (2026-11-13 – 2026-11-15) blijft zonder dit onderdeel',
       'NoStrezz (2026-11-20) houdt dit onderdeel',
     ])
+  })
+})
+
+describe('categoryContents', () => {
+  it('kits, losse items en onderdelen in kits van een andere categorie', () => {
+    const v = categoryContents(catalog, 'video')
+    expect(v.kits.map(k => k.id)).toEqual(['A', 'B'])
+    expect(v.loose.map(i => i.id)).toEqual(['fs7'])
+    expect(v.partsElsewhere).toEqual([])        // bodyA, lensA, bodyB zitten in kits van Video zelf
+    expect([v.count, v.empty]).toEqual([3, false])
+  })
+
+  it('een onderdeel in een kit elders telt mee, ook als er verder niets los staat', () => {
+    const b = categoryContents(catalog, 'bat')
+    expect(b.kits).toEqual([])
+    expect(b.loose.map(i => i.id)).toEqual(['bat3', 'bat4'])
+    expect(b.partsElsewhere.map(i => i.id)).toEqual(['batA'])
+    const onlyPart = { ...catalog, items: catalog.items.filter(i => i.id !== 'bat3' && i.id !== 'bat4') }
+    expect(categoryContents(onlyPart, 'bat')).toMatchObject({ count: 1, empty: false })
+  })
+
+  it('leeg', () => {
+    expect(categoryContents(catalog, 'drone')).toMatchObject({ count: 0, empty: true })
   })
 })
