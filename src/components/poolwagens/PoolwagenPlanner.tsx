@@ -9,7 +9,7 @@ import ReservationDetail from './ReservationDetail'
 import DamageDialog from './DamageDialog'
 import { ACCENT, ErrorLine, PoolNav, buttonCls, secondaryCls, send } from './ui'
 import type { PoolwagenAccess } from '@/lib/poolwagens/access'
-import { monthDays, todayInBrussels } from '@/lib/gear/dates'
+import { addDays, monthDays, todayInBrussels } from '@/lib/gear/dates'
 import { buildPoolGrid } from '@/lib/poolwagens/grid'
 import { brusselsDayStartISO, formatPeriod, isoToBrusselsLocal } from '@/lib/poolwagens/time'
 import { endangeredReservations, tripState } from '@/lib/poolwagens/trips'
@@ -66,7 +66,9 @@ export default function PoolwagenPlanner({ userId, access }: { userId: string; a
   const now = useMemo(() => (planning ? new Date(planning.now) : new Date()), [planning])
   const window_ = useMemo(() => ({
     startMs: Date.parse(brusselsDayStartISO(days[0])),
-    endMs: Date.parse(brusselsDayStartISO(days[days.length - 1])) + 24 * 3600_000,
+    // Middernacht van de dag ná de maand: ook juist in de maand van de
+    // wintertijd, waar die laatste zondag 25 uur telt.
+    endMs: Date.parse(brusselsDayStartISO(addDays(days[days.length - 1], 1))),
   }), [days])
   const rows = useMemo(() => (planning ? buildPoolGrid(planning, window_, userId, now) : []), [planning, window_, userId, now])
   const endangered = useMemo(() => (planning ? endangeredReservations(planning.reservations, now) : new Map()), [planning, now])
