@@ -1,4 +1,4 @@
-import { isEmail } from './mail'
+import { isEmail } from './email'
 import type { DamageSeverity, DamageStatus } from './types'
 
 // Invoer voor schademeldingen en de ontvangers van de schademail. Alleen de
