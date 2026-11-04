@@ -14,3 +14,82 @@ export interface PoolCar {
 
 export const CAR_COLUMNS =
   'id, name, license_plate, make_model, current_km, manual_block, manual_block_note, archived_at, created_at'
+
+export interface ProjectRef {
+  id: string
+  name: string
+}
+
+/** Een reservatie; vanaf het vertrek ook een rit. */
+export interface PoolReservation {
+  id: string
+  car_id: string
+  user_id: string | null
+  person_name: string
+  project: ProjectRef | null
+  start_at: string
+  end_at: string
+  note: string | null
+  departed_at: string | null
+  departure_km: number | null
+  arrived_at: string | null
+  arrival_km: number | null
+  driven_km: number | null
+  created_by: string | null
+}
+
+export const RESERVATION_COLUMNS =
+  'id, car_id, user_id, person_name, project_id, start_at, end_at, note, departed_at, departure_km, arrived_at, arrival_km, driven_km, created_by'
+
+export type DamageSeverity = 'licht' | 'ernstig'
+export type DamageStatus = 'gemeld' | 'in_behandeling' | 'hersteld'
+export type MailStatus = 'verstuurd' | 'mislukt' | 'niet_geconfigureerd' | 'geen_ontvangers'
+
+export interface DamagePhoto {
+  id: string
+  filename: string
+}
+
+export interface DamageReport {
+  id: string
+  car_id: string
+  reservation_id: string | null
+  description: string
+  severity: DamageSeverity
+  status: DamageStatus
+  reported_by: string | null
+  reported_by_name: string
+  created_at: string
+  status_changed_at: string | null
+  status_changed_by_name: string | null
+  block_lifted_at: string | null
+  block_lifted_by_name: string | null
+  /** Alleen voor beheer; voor anderen altijd null. */
+  mail_status: MailStatus | null
+  mail_error: string | null
+  photos: DamagePhoto[]
+}
+
+export const DAMAGE_COLUMNS =
+  'id, car_id, reservation_id, description, severity, status, reported_by, reported_by_name, created_at, status_changed_at, status_changed_by_name, block_lifted_at, block_lifted_by_name, mail_status, mail_error, pool_car_damage_photos(id, filename)'
+
+/** Alles wat het planningsoverzicht voor één maand nodig heeft, in één verzoek. */
+export interface PoolPlanning {
+  cars: PoolCar[]
+  reservations: PoolReservation[]
+  /** Ernstige meldingen die hun wagen nu blokkeren. */
+  blockingDamage: { id: string; car_id: string; created_at: string }[]
+  now: string
+}
+
+export interface PoolOptions {
+  projects: (ProjectRef & { client_id: string | null })[]
+  colleagues: { id: string; name: string }[]
+}
+
+export interface PoolSettingsResponse {
+  recipients: string[]
+  mailConfigured: boolean
+  pushConfigured: boolean
+  driveConfigured: boolean
+}
