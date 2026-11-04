@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { Camera, ChevronLeft, ChevronRight, Loader2, Plus, Search, Settings, X } from 'lucide-react'
+import AddGearDialog from '@/components/materiaal/AddGearDialog'
 import BookingForm from '@/components/materiaal/BookingForm'
+import GearPanel, { type AddPrefill, type PanelTarget } from '@/components/materiaal/GearPanel'
+import { useGearActions } from '@/components/materiaal/useGearActions'
 import DayList from '@/components/materiaal/DayList'
 import MaterialGrid, { type GridTarget } from '@/components/materiaal/MaterialGrid'
 import { ACCENT, ErrorLine, send } from '@/components/materiaal/ui'
@@ -24,11 +26,13 @@ type Dialog =
   | { kind: 'open'; booking: GearBooking }
 
 export default function MateriaalPlanner({ userId, access }: { userId: string; access: GearAccess }) {
-  const router = useRouter()
   const today = todayInBrussels()
   const [year, setYear] = useState(Number(today.slice(0, 4)))
   const [month, setMonth] = useState(Number(today.slice(5, 7)))
   const [catalog, setCatalog] = useState<GearCatalog | null>(null)
+  // Zijpaneel met de details van een categorie, kit of item (bewerken met Beheren).
+  const [panel, setPanel] = useState<PanelTarget | null>(null)
+  const [add, setAdd] = useState<AddPrefill | null>(null)
   const [options, setOptions] = useState<GearBookingOptions | null>(null)
   const [bookings, setBookings] = useState<GearBooking[]>([])
   const [loadingMonth, setLoadingMonth] = useState(true)
@@ -101,6 +105,16 @@ export default function MateriaalPlanner({ userId, access }: { userId: string; a
       setError(e instanceof Error ? e.message : 'De volgorde kon niet opgeslagen worden.')
     }
   }
+
+  const reloadCatalog = useCallback(async () => {
+    try { setCatalog(await send<GearCatalog>('/api/materiaal/catalog', 'GET')) }
+    catch (e) { setError(e instanceof Error ? e.message : 'Laden mislukt.') }
+  }, [])
+  const actions = useGearActions({ catalog, reload: reloadCatalog, onError: setError })
+  const people = useMemo(() => ({
+    colleagues: (options?.colleagues ?? []).map(c => ({ id: c.id, name: c.name })),
+    clients: [...new Map([...(catalog?.clients ?? []), ...(options?.clients ?? [])].map(c => [c.id, c])).values()],
+  }), [options, catalog])
 
   const toggle = (set: (fn: (s: Set<string>) => Set<string>) => void) => (id: string) =>
     set(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
@@ -188,8 +202,9 @@ export default function MateriaalPlanner({ userId, access }: { userId: string; a
                 canBook={access.book}
                 onSelectRange={onSelectRange}
                 onOpenBooking={openBooking}
-                onOpenItem={id => router.push(`/materiaal/item/${id}`)}
-                onOpenKit={id => router.push(`/materiaal/kit/${id}`)}
+                onOpenItem={id => setPanel({ type: 'item', id })}
+                onOpenKit={id => setPanel({ type: 'kit', id })}
+                onOpenCategory={id => setPanel({ type: 'category', id })}
                 canReorderCategories={access.manageCatalog}
                 onReorderCategory={reorderCategory}
               />
@@ -211,6 +226,16 @@ export default function MateriaalPlanner({ userId, access }: { userId: string; a
         </>
       )}
 
+      {panel && catalog && (
+        <GearPanel target={panel} catalog={catalog} people={people} access={access}
+          onClose={() => setPanel(null)} onOpen={setPanel} reload={reloadCatalog} run={actions.run} onAdd={setAdd}
+          onChange={fn => setCatalog(c => (c ? fn(c) : c))} />
+      )}
+      {add && catalog && (
+        <AddGearDialog catalog={catalog} prefill={add} onClose={() => setAdd(null)}
+          onCreated={async t => { setAdd(null); await reloadCatalog(); if (t) setPanel(t) }} />
+      )}
+      {actions.ui}
       {dialog && catalog && (
         <BookingForm
           key={dialog.kind === 'open' ? dialog.booking.id : `${dialog.kitIds.join()}-${dialog.itemIds.join()}-${dialog.start}-${dialog.end}`}
