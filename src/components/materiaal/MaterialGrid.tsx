@@ -206,7 +206,7 @@ function KitRow({ row, color, open, onToggle, days, today, cols, dayBg, selectio
         <span className="w-0.5 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
         <KitIcon />
         <button onClick={() => onOpenKit(kit.id)} title={[kit.name, kit.warning, kit.notes].filter(Boolean).join(' — ')}
-          className="text-[13px] font-medium text-zinc-100 truncate text-left hover:underline">
+          className="min-w-0 text-[13px] font-medium text-zinc-100 truncate text-left hover:underline">
           {kit.name}
         </button>
         <KitBadges kit={kit} parts={parts.map(p => p.item)} />

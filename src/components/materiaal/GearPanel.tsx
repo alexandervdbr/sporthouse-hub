@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { ArrowDown, ArrowUp, Check, Loader2, MoreHorizontal, Package, Plus, Search, Trash2, UserRound, Wrench, X } from 'lucide-react'
 import { SerialWarning } from '@/components/materiaal/AddGearDialog'
 import { ItemBadges, KitBadges } from '@/components/materiaal/GearLabels'
-import { ColorDots, ErrorLine, ResponsiblePicker, StatusBadge, inputCls, labelCls, send, type People } from '@/components/materiaal/ui'
+import { Button, ColorDots, ErrorLine, IconButton, ResponsiblePicker, Select, StatusBadge, formGap, inputCls, labelCls, send, textareaCls, type People } from '@/components/materiaal/ui'
 import type { GearAccess } from '@/lib/gear/access'
 import { planDrop, planMoveTo, planShift, type Plan } from '@/lib/gear/inventory'
 import { kitByItem } from '@/lib/gear/kits'
@@ -66,15 +66,15 @@ export default function GearPanel(props: Props) {
       <div className="flex items-start gap-3 px-5 py-4 border-b border-zinc-800">
         <div className="flex-1 min-w-0">
           <p className="text-[10px] uppercase tracking-widest text-zinc-500">{kind}</p>
-          <h2 className="text-sm font-semibold text-zinc-100 truncate">{title ?? 'Niet gevonden'}</h2>
+          <h2 className="text-sm font-semibold text-zinc-100 truncate" title={title}>{title ?? 'Niet gevonden'}</h2>
         </div>
         <span className="text-[11px] mt-1 flex-shrink-0">
           {save.state === 'saving' && <Loader2 size={12} className="animate-spin text-zinc-500" />}
           {save.state === 'saved' && <span className="text-emerald-400 flex items-center gap-1"><Check size={11} /> Opgeslagen</span>}
         </span>
-        <button onClick={onClose} aria-label="Sluiten" className="text-zinc-500 hover:text-zinc-200"><X size={16} /></button>
+        <IconButton label="Sluiten" onClick={onClose}><X size={16} /></IconButton>
       </div>
-      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+      <div className={`flex-1 overflow-y-auto px-5 py-4 ${formGap}`}>
         {save.state === 'error' && <ErrorLine>{save.message}</ErrorLine>}
         {!title && <p className="text-sm text-zinc-500">Dit bestaat niet (meer).</p>}
         {category && <CategoryForm {...props} category={category} persist={persist} />}
@@ -110,25 +110,19 @@ function InlineTextField({ label, value, placeholder, disabled, multiline, onSav
   const common = {
     value: v, disabled, placeholder: disabled ? '' : placeholder, 'aria-label': label,
     onChange: (e: { target: { value: string } }) => setV(e.target.value), onBlur: commit,
-    className: `${inputCls} ${disabled ? 'opacity-70 cursor-default' : ''}`,
+    className: inputCls,
   }
   return (
-    <label className="block">
+    <label className="block min-w-0">
       <span className={labelCls}>{label}</span>
-      {multiline ? <textarea rows={2} {...common} className={`${common.className} resize-y`} />
+      {multiline ? <textarea rows={2} {...common} className={textareaCls} />
         : <input {...common} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} />}
     </label>
   )
 }
 
 function SmallButton({ onClick, disabled, children, danger }: { onClick: () => void; disabled?: boolean; children: React.ReactNode; danger?: boolean }) {
-  return (
-    <button type="button" onClick={onClick} disabled={disabled}
-      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border disabled:opacity-40 ${danger
-        ? 'text-red-400 border-red-900/40 hover:bg-red-950/40' : 'text-zinc-300 border-zinc-700 hover:border-zinc-500'}`}>
-      {children}
-    </button>
-  )
+  return <Button size="sm" variant={danger ? 'danger' : 'secondary'} onClick={onClick} disabled={disabled}>{children}</Button>
 }
 
 function ShiftButtons({ onShift }: { onShift: (dir: -1 | 1) => void }) {
@@ -149,7 +143,7 @@ function MoveToSelect({ catalog, itemId, exceptKitId, onPick }: {
   const inKit = kitByItem(catalog.kits).has(itemId)
   const own = catalog.items.find(i => i.id === itemId)?.category_id
   return (
-    <select value="" aria-label="Verplaats naar…" className={inputCls}
+    <Select value="" aria-label="Verplaats naar…" 
       onChange={e => {
         const [kind, id] = e.target.value.split(':')
         if (kind === 'kit') onPick({ kitId: id })
@@ -165,7 +159,7 @@ function MoveToSelect({ catalog, itemId, exceptKitId, onPick }: {
           </optgroup>
         )
       })}
-    </select>
+    </Select>
   )
 }
 
@@ -239,10 +233,10 @@ function KitForm({ kit, catalog, people, access, onChange, persist, run, onOpen,
       <div className="grid grid-cols-2 gap-2">
         <label className="block">
           <span className={labelCls}>Categorie</span>
-          <select value={kit.category_id} disabled={!edit} className={inputCls}
+          <Select value={kit.category_id} disabled={!edit} 
             onChange={e => run(planDrop(catalog, { type: 'kit', id: kit.id }, { type: 'category', id: e.target.value }))}>
             {catalog.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          </Select>
         </label>
         <InlineText label="Labelkleur" value={kit.label_color} placeholder="bv. groen" disabled={!edit} onSave={label_color => patch({ label_color })} />
       </div>
@@ -264,7 +258,7 @@ function KitForm({ kit, catalog, people, access, onChange, persist, run, onOpen,
           {parts.map(p => (
             <li key={p.id} className="px-3 py-1.5">
               <div className="flex items-center gap-2 min-w-0">
-                <button onClick={() => onOpen({ type: 'item', id: p.id })} className="text-sm text-zinc-200 truncate text-left hover:underline">{p.name}</button>
+                <button onClick={() => onOpen({ type: 'item', id: p.id })} title={p.name} className="min-w-0 text-sm text-zinc-200 truncate text-left hover:underline">{p.name}</button>
                 <ItemBadges item={p} />
                 {edit && (
                   <button onClick={() => setMenu(m => (m === p.id ? null : p.id))} aria-label={`Acties voor ${p.name}`} aria-expanded={menu === p.id}
@@ -311,11 +305,11 @@ function KitForm({ kit, catalog, people, access, onChange, persist, run, onOpen,
         {confirmDissolve && (
           <span className="flex flex-wrap items-center gap-2 text-xs text-zinc-300">
             Alle {parts.length} onderdelen worden los; komende boekingen houden hun items. Zeker?
-            <button className="px-2 py-1 rounded bg-red-700 text-white" onClick={async () => {
+            <Button size="sm" variant="destructive" onClick={async () => {
               const ok = await persist(() => send(`/api/materiaal/kits/${kit.id}/dissolve`, 'POST'))
               if (ok !== null) { await reload(); onClose() }
-            }}>Ja, opheffen</button>
-            <button className="text-zinc-500" onClick={() => setConfirmDissolve(false)}>Nee</button>
+            }}>Ja, opheffen</Button>
+            <Button size="sm" variant="text" onClick={() => setConfirmDissolve(false)}>Nee</Button>
           </span>
         )}
         <Link href={`/materiaal/kit/${kit.id}`} className="ml-auto text-xs text-zinc-500 underline hover:text-zinc-300">Volledige pagina →</Link>
@@ -410,11 +404,11 @@ function ItemForm({ item, catalog, people, access, onChange, persist, run, onOpe
         {confirmDelete && (
           <span className="flex flex-wrap items-center gap-2 text-xs text-zinc-300">
             &ldquo;{item.name}&rdquo; definitief verwijderen?
-            <button className="px-2 py-1 rounded bg-red-700 text-white" onClick={async () => {
+            <Button size="sm" variant="destructive" onClick={async () => {
               const ok = await persist(() => send('/api/materiaal/items', 'DELETE', { id: item.id }))
               if (ok !== null) { await reload(); onClose() } else setConfirmDelete(false)
-            }}>Ja, verwijderen</button>
-            <button className="text-zinc-500" onClick={() => setConfirmDelete(false)}>Nee</button>
+            }}>Ja, verwijderen</Button>
+            <Button size="sm" variant="text" onClick={() => setConfirmDelete(false)}>Nee</Button>
           </span>
         )}
         <Link href={`/materiaal/item/${item.id}`} className="ml-auto text-xs text-zinc-500 underline hover:text-zinc-300">Volledige pagina (geschiedenis) →</Link>

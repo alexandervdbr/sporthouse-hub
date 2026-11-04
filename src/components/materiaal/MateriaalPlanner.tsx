@@ -10,7 +10,7 @@ import { useGearActions } from '@/components/materiaal/useGearActions'
 import { planAddToKit } from '@/lib/gear/inventory'
 import DayList from '@/components/materiaal/DayList'
 import MaterialGrid, { type GridTarget } from '@/components/materiaal/MaterialGrid'
-import { ACCENT, ErrorLine, send } from '@/components/materiaal/ui'
+import { Button, ErrorLine, IconButton, buttonCls, inputCls, send } from '@/components/materiaal/ui'
 import type { GearAccess } from '@/lib/gear/access'
 import { monthDays, todayInBrussels } from '@/lib/gear/dates'
 import { buildGrid } from '@/lib/gear/grid'
@@ -128,35 +128,32 @@ export default function MateriaalPlanner({ userId, access }: { userId: string; a
         <div className="flex items-center gap-4 min-w-0">
           <h1 className="text-base sm:text-lg font-semibold text-zinc-100">Materiaal</h1>
           <div className="flex items-center gap-1">
-            <button onClick={() => shiftMonth(-1)} aria-label="Vorige maand" className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800"><ChevronLeft size={16} /></button>
-            <span className="w-32 text-center text-sm font-medium text-zinc-200">{MONTHS[month - 1]} {year}</span>
-            <button onClick={() => shiftMonth(1)} aria-label="Volgende maand" className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800"><ChevronRight size={16} /></button>
-            {!isCurrentMonth && (
-              <button onClick={goToday} className="ml-1 px-2.5 py-1 text-xs text-zinc-400 border border-zinc-700 rounded-lg hover:bg-zinc-800">Vandaag</button>
-            )}
+            <IconButton label="Vorige maand" onClick={() => shiftMonth(-1)}><ChevronLeft size={16} /></IconButton>
+            <span className="w-32 text-center text-sm font-medium text-zinc-200 whitespace-nowrap">{MONTHS[month - 1]} {year}</span>
+            <IconButton label="Volgende maand" onClick={() => shiftMonth(1)}><ChevronRight size={16} /></IconButton>
+            {!isCurrentMonth && <Button size="sm" onClick={goToday} className="ml-1">Vandaag</Button>}
             {loadingMonth && <Loader2 size={14} className="ml-2 animate-spin text-zinc-600" />}
           </div>
         </div>
         <div className="flex items-center gap-2">
           {!noUnits && (
             <div className="relative hidden lg:block">
-              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Zoek materiaal of houder…" aria-label="Zoek materiaal"
-                className="pl-7 pr-7 py-1.5 w-56 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600" />
+                className={`${inputCls} !w-60 pl-9 pr-9`} />
               {search && (
-                <button onClick={() => setSearch('')} aria-label="Zoekopdracht wissen" className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500"><X size={11} /></button>
+                <span className="absolute right-0.5 top-1/2 -translate-y-1/2"><IconButton label="Zoekopdracht wissen" onClick={() => setSearch('')}><X size={12} /></IconButton></span>
               )}
             </div>
           )}
           {access.book && !noUnits && (
-            <button onClick={() => setDialog({ kind: 'new', kitIds: [], itemIds: [], start: today < window_.start ? window_.start : today, end: today < window_.start ? window_.start : today })}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-white rounded-lg hover:brightness-110" style={{ backgroundColor: ACCENT }}>
-              <Plus size={13} /> Boeken
-            </button>
+            <Button variant="primary" onClick={() => setDialog({ kind: 'new', kitIds: [], itemIds: [], start: today < window_.start ? window_.start : today, end: today < window_.start ? window_.start : today })}>
+              <Plus size={14} /> Boeken
+            </Button>
           )}
           {access.manageCatalog && (
-            <Link href="/materiaal/beheer" className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-zinc-400 border border-zinc-800 rounded-lg hover:text-zinc-200 hover:bg-zinc-900">
-              <Settings size={13} /> Beheer
+            <Link href="/materiaal/beheer" className={buttonCls('secondary')}>
+              <Settings size={14} /> Beheer
             </Link>
           )}
         </div>
@@ -179,7 +176,7 @@ export default function MateriaalPlanner({ userId, access }: { userId: string; a
                 : 'Zodra een beheerder het materiaal heeft ingegeven, kan je hier boeken.'}
             </p>
             {access.manageCatalog && (
-              <Link href="/materiaal/beheer" className="inline-flex mt-5 px-4 py-2 text-sm font-medium text-white rounded-lg" style={{ backgroundColor: ACCENT }}>
+              <Link href="/materiaal/beheer" className={`${buttonCls('primary')} mt-5`}>
                 Naar Beheer
               </Link>
             )}

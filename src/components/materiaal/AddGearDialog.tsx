@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { AlertTriangle, X } from 'lucide-react'
 import type { AddPrefill, PanelTarget } from '@/components/materiaal/GearPanel'
-import { ColorDots, ErrorLine, PALETTE, PrimaryButton, inputCls, labelCls, send } from '@/components/materiaal/ui'
+import { Button, ColorDots, ComboInput, ErrorLine, Field, IconButton, PALETTE, Segmented, Select, formGap, inputCls, labelCls, send } from '@/components/materiaal/ui'
 import { normalizeSerial, serialDuplicates } from '@/lib/gear/inventory'
 import { planNumbering } from '@/lib/gear/naming'
 import type { GearCatalog, GearCategory, GearItem, GearKit } from '@/lib/gear/types'
@@ -17,7 +17,9 @@ import type { GearCatalog, GearCategory, GearItem, GearKit } from '@/lib/gear/ty
 // waarschuwing, maar houdt niets tegen.
 
 type Mode = 'item' | 'many' | 'kit' | 'category'
-const MODE_LABEL: Record<Mode, string> = { item: 'Item', many: 'Meerdere identieke', kit: 'Kit', category: 'Categorie' }
+const MODE_OPTIONS: { value: Mode; label: string }[] = [
+  { value: 'item', label: 'Item' }, { value: 'many', label: 'Meerdere' }, { value: 'kit', label: 'Kit' }, { value: 'category', label: 'Categorie' },
+]
 
 export default function AddGearDialog({ catalog, prefill, onClose, onCreated, onAddToKit }: {
   catalog: GearCatalog
@@ -36,8 +38,8 @@ export default function AddGearDialog({ catalog, prefill, onClose, onCreated, on
   const [kitId, setKitId] = useState(prefill.kitId ?? '')
   const [color, setColor] = useState(PALETTE[0])
   const [serial, setSerial] = useState('')
-  // Bij "meerdere identieke": één serienummer per nummer (#n), op naam.
-  const [serials, setSerials] = useState<Record<string, string>>({})
+  // Bij "meerdere identieke": één serienummer per rij, in volgorde (#1, #2, …).
+  const [serials, setSerials] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const models = [...new Set(catalog.items.map(i => i.model).filter((m): m is string => !!m))].sort()
@@ -48,12 +50,14 @@ export default function AddGearDialog({ catalog, prefill, onClose, onCreated, on
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  // Dezelfde nummering als de server straks geeft, om per item een
-  // serienummer te kunnen ingeven.
-  const planned = useMemo(() => {
+  // Eén rij per item, zodra het aantal klopt. Met een model: dezelfde
+  // nummering als de server straks geeft (verder op wat er al is). Zonder
+  // model nog voorlopige nummers; de echte volgen zodra je het model typt.
+  const rows = useMemo(() => {
     const n = Number(count)
-    if (mode !== 'many' || !model.trim() || !Number.isInteger(n) || n < 1 || n > 50) return []
-    return planNumbering(model, catalog.items.map(i => i.name), n).names
+    if (mode !== 'many' || !Number.isInteger(n) || n < 1 || n > 50) return []
+    if (!model.trim()) return Array.from({ length: n }, (_, i) => `#${i + 1}`)
+    return planNumbering(model, catalog.items.map(i => i.name), n).names.map(x => x.name)
   }, [mode, model, count, catalog.items])
 
   const valid = mode === 'many' ? !!model.trim() && Number(count) >= 1 && !!categoryId : !!name.trim() && (mode === 'category' || !!categoryId)
@@ -77,7 +81,8 @@ export default function AddGearDialog({ catalog, prefill, onClose, onCreated, on
         target = { type: 'item', id: created[0].id }
       } else if (mode === 'many') {
         created = await send<GearItem[]>('/api/materiaal/items', 'POST', { category_id: categoryId, model, count })
-        await saveSerials(created, n => serials[n] ?? '')
+        // De server nummert in dezelfde volgorde als de rijen hier.
+        await saveSerials(created, n => serials[rows.indexOf(n)] ?? '')
         target = kit ? { type: 'kit', id: kit.id } : { type: 'category', id: categoryId }
       } else if (mode === 'kit') {
         const created = await send<GearKit>('/api/materiaal/kits', 'POST', { name, category_id: categoryId })
@@ -94,93 +99,85 @@ export default function AddGearDialog({ catalog, prefill, onClose, onCreated, on
   }
 
   const categorySelect = (
-    <label className="block">
-      <span className={labelCls}>Categorie</span>
-      <select value={categoryId} onChange={e => setCategoryId(e.target.value)} className={inputCls}>
+    <Field label="Categorie">
+      <Select value={categoryId} onChange={e => setCategoryId(e.target.value)}>
         {catalog.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-      </select>
-    </label>
+      </Select>
+    </Field>
   )
   const kitSelect = (
-    <label className="block">
-      <span className={labelCls}>In kit (optioneel)</span>
-      <select value={kitId} onChange={e => { setKitId(e.target.value); const k = catalog.kits.find(x => x.id === e.target.value); if (k) setCategoryId(k.category_id) }} className={inputCls}>
+    <Field label="In kit (optioneel)">
+      <Select value={kitId} onChange={e => { setKitId(e.target.value); const k = catalog.kits.find(x => x.id === e.target.value); if (k) setCategoryId(k.category_id) }}>
         <option value="">— Los —</option>
         {catalog.kits.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
-      </select>
-    </label>
+      </Select>
+    </Field>
   )
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div role="dialog" aria-modal="true" aria-labelledby="add-title" className="relative w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl">
-        <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
+        <div className="px-5 py-3 border-b border-zinc-800 flex items-center justify-between gap-3">
           <h2 id="add-title" className="text-sm font-semibold text-zinc-100">Toevoegen</h2>
-          <button onClick={onClose} aria-label="Sluiten" className="text-zinc-500 hover:text-zinc-200"><X size={15} /></button>
+          <IconButton label="Sluiten" onClick={onClose}><X size={15} /></IconButton>
         </div>
-        <div className="px-5 py-4 space-y-3">
-          <div className="flex p-0.5 rounded-lg bg-zinc-950 border border-zinc-800" role="tablist">
-            {(Object.keys(MODE_LABEL) as Mode[]).map(m => (
-              <button key={m} role="tab" aria-selected={mode === m} onClick={() => setMode(m)}
-                className={`flex-1 px-2 py-1.5 rounded-md text-xs font-medium ${mode === m ? 'bg-zinc-700 text-white' : 'text-zinc-400'}`}>
-                {MODE_LABEL[m]}
-              </button>
-            ))}
-          </div>
+        <div className={`px-5 py-4 ${formGap}`}>
+          <Segmented label="Wat toevoegen" value={mode} options={MODE_OPTIONS} onChange={setMode} />
           {mode === 'many' ? (
             <>
-              <div className="flex gap-2">
-                <label className="block flex-1"><span className={labelCls}>Model</span>
-                  <input autoFocus value={model} onChange={e => setModel(e.target.value)} list="add-models" placeholder="bv. Sony batterij" className={inputCls} />
-                </label>
-                <label className="block w-20"><span className={labelCls}>Aantal</span>
-                  <input type="number" min={1} max={50} value={count} onChange={e => setCount(e.target.value)} className={inputCls} />
-                </label>
+              <div className="grid grid-cols-[1fr_5.5rem] gap-3 items-end">
+                <Field label="Model">
+                  <ComboInput autoFocus value={model} onChange={e => setModel(e.target.value)} list="add-models" placeholder="bv. Sony batterij" />
+                </Field>
+                <Field label="Aantal">
+                  <input type="number" min={1} max={50} value={count} onChange={e => setCount(e.target.value)} className={`${inputCls} tabular-nums`} />
+                </Field>
               </div>
               <datalist id="add-models">{models.map(m => <option key={m} value={m} />)}</datalist>
-              {planned.length > 0 && (
+              {rows.length > 0 && (
                 <div>
                   <span className={labelCls}>Serienummers (optioneel)</span>
-                  <div className="max-h-48 overflow-y-auto space-y-1 pr-1">
-                    {planned.map(p => (
-                      <div key={p.name}>
-                        <div className="flex items-center gap-2">
-                          <span className="w-40 flex-shrink-0 text-xs text-zinc-300 truncate">{p.name}</span>
-                          <input value={serials[p.name] ?? ''} onChange={e => setSerials(prev => ({ ...prev, [p.name]: e.target.value }))}
-                            aria-label={`Serienummer ${p.name}`} placeholder="S/N" className={`${inputCls} py-1.5`} />
+                  {!model.trim() && <p className="mb-1.5 text-[11px] text-zinc-500">De nummers (#n) volgen zodra je het model invult.</p>}
+                  <div className="max-h-52 overflow-y-auto space-y-1.5 pr-1">
+                    {rows.map((label, i) => (
+                      <div key={i}>
+                        <div className="grid grid-cols-[minmax(0,10rem)_1fr] gap-3 items-center">
+                          <span className="text-sm text-zinc-300 truncate" title={label}>{label}</span>
+                          <input value={serials[i] ?? ''} onChange={e => setSerials(prev => { const n = [...prev]; n[i] = e.target.value; return n })}
+                            aria-label={`Serienummer ${label}`} placeholder="S/N" className={inputCls} />
                         </div>
-                        <SerialWarning catalog={catalog} serial={serials[p.name]}
-                          alsoIn={planned.filter(o => o.name !== p.name && normalizeSerial(serials[o.name]) === normalizeSerial(serials[p.name])).map(o => o.name)} />
+                        <SerialWarning catalog={catalog} serial={serials[i]}
+                          alsoIn={rows.filter((_, j) => j !== i && normalizeSerial(serials[j]) && normalizeSerial(serials[j]) === normalizeSerial(serials[i]))} />
                       </div>
                     ))}
                   </div>
                 </div>
               )}
-              {categorySelect}{kitSelect}
+              <div className="grid grid-cols-2 gap-3 items-end">{categorySelect}{kitSelect}</div>
             </>
           ) : (
             <>
-              <label className="block"><span className={labelCls}>Naam</span>
+              <Field label="Naam">
                 <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && valid) submit() }}
                   placeholder={mode === 'kit' ? 'bv. FX3 D' : mode === 'category' ? 'bv. AUDIO' : 'bv. Monitor Atomos Ninja'} className={inputCls} />
-              </label>
+              </Field>
               {mode === 'item' && (
-                <label className="block"><span className={labelCls}>Serienummer (optioneel)</span>
+                <Field label="Serienummer (optioneel)">
                   <input value={serial} onChange={e => setSerial(e.target.value)} placeholder="van de fabrikant" className={inputCls} />
                   <SerialWarning catalog={catalog} serial={serial} />
-                </label>
+                </Field>
               )}
-              {mode !== 'category' && categorySelect}
-              {mode === 'item' && kitSelect}
+              {mode === 'item' && <div className="grid grid-cols-2 gap-3 items-end">{categorySelect}{kitSelect}</div>}
+              {mode === 'kit' && categorySelect}
               {mode === 'category' && <div><span className={labelCls}>Kleur</span><ColorDots value={color} onChange={setColor} /></div>}
             </>
           )}
           {error && <ErrorLine>{error}</ErrorLine>}
         </div>
         <div className="px-5 py-3 border-t border-zinc-800 flex items-center justify-end gap-2">
-          <button onClick={onClose} className="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Annuleren</button>
-          <PrimaryButton onClick={submit} busy={busy} disabled={!valid}>Toevoegen</PrimaryButton>
+          <Button variant="text" onClick={onClose}>Annuleren</Button>
+          <Button variant="primary" onClick={submit} busy={busy} disabled={!valid}>Toevoegen</Button>
         </div>
       </div>
     </div>

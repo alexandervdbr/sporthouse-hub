@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { AlertTriangle, ChevronRight, Loader2, Package, UserRound, Wrench } from 'lucide-react'
-import { ErrorLine, StatusBadge, inputCls, send } from '@/components/materiaal/ui'
+import { Button, ErrorLine, StatusBadge, inputCls, send } from '@/components/materiaal/ui'
 import { barLabel } from '@/lib/gear/labels'
 import { kitByItem } from '@/lib/gear/kits'
 import { effectiveResponsible, responsibleLabel, RESPONSIBLE_NOTICE } from '@/lib/gear/responsible'
@@ -179,11 +179,9 @@ export default function ItemDetail({ itemId, access }: { itemId: string; access:
 
 function StatusButton({ onClick, busy, tone, children }: { onClick: () => void; busy: boolean; tone?: 'ok'; children: React.ReactNode }) {
   return (
-    <button type="button" onClick={onClick} disabled={busy}
-      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border disabled:opacity-50 ${
-        tone === 'ok' ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-zinc-300 border-zinc-700 hover:border-zinc-500'}`}>
-      {busy && <Loader2 size={12} className="animate-spin" />}
+    <Button size="sm" onClick={onClick} busy={busy}
+      className={tone === 'ok' ? '!text-emerald-400 !border-emerald-500/30 !bg-emerald-500/10 hover:!bg-emerald-500/20' : ''}>
       {children}
-    </button>
+    </Button>
   )
 }

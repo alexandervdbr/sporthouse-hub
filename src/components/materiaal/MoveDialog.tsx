@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { PrimaryButton } from '@/components/materiaal/ui'
+import { Button, PrimaryButton } from '@/components/materiaal/ui'
 
 // Wat een verhuis met komende boekingen doet, vóór je bevestigt. Eén venster,
 // ook als je meerdere items tegelijk verplaatst. Standaard gaan de boekingen
@@ -37,10 +37,10 @@ export default function MoveDialog({ title, entries, onCancel, onConfirm }: {
           <h2 id="move-title" className="text-sm font-semibold text-zinc-100">{title}</h2>
           <p className="text-xs text-zinc-500 mt-0.5">Dit raakt komende boekingen.</p>
         </div>
-        <div className="px-5 py-4 space-y-4 max-h-[60vh] overflow-y-auto">
+        <div className="px-5 py-4 space-y-3 max-h-[60vh] overflow-y-auto">
           {entries.map((e, i) => (
             <div key={i} className="space-y-2">
-              {entries.length > 1 && <p className="text-xs font-medium text-zinc-200">{e.itemName}</p>}
+              {entries.length > 1 && <p className="text-xs font-medium text-zinc-200 truncate" title={e.itemName}>{e.itemName}</p>}
               {e.preview.remove.length > 0 && (
                 <div>
                   <p className="text-xs text-zinc-400 mb-1">Komende boekingen van {e.fromName}:</p>
@@ -62,7 +62,7 @@ export default function MoveDialog({ title, entries, onCancel, onConfirm }: {
           {!update && <p className="text-xs text-zinc-500">De boekingen blijven dan zoals ze zijn.</p>}
         </div>
         <div className="px-5 py-3 border-t border-zinc-800 flex items-center justify-end gap-2">
-          <button onClick={onCancel} className="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Annuleren</button>
+          <Button variant="text" onClick={onCancel}>Annuleren</Button>
           <PrimaryButton onClick={() => onConfirm(update)}>Verplaatsen</PrimaryButton>
         </div>
       </div>

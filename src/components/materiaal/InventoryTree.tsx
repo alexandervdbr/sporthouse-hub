@@ -13,7 +13,7 @@ import BulkBar from '@/components/materiaal/BulkBar'
 import GearPanel, { type AddPrefill, type PanelTarget } from '@/components/materiaal/GearPanel'
 import { ItemBadges, KitBadges, KitIcon, ResponsiblePill, itemNameClass, itemTitle } from '@/components/materiaal/GearLabels'
 import { useGearActions } from '@/components/materiaal/useGearActions'
-import { ACCENT, ErrorLine, send, type People } from '@/components/materiaal/ui'
+import { Button, ErrorLine, Select, inputCls, send, type People } from '@/components/materiaal/ui'
 import type { GearAccess } from '@/lib/gear/access'
 import { INVENTORY_VIEWS, VIEW_LABEL, buildInventory, isFiltering, planAddToKit, planDrop, type DragRef, type InventoryFilters, type InventoryView } from '@/lib/gear/inventory'
 import { kitByItem } from '@/lib/gear/kits'
@@ -111,11 +111,7 @@ export default function InventoryTree({ access, initialKitId }: { access: GearAc
             <ChevronRight size={14} /><span className="text-zinc-200">Beheer</span>
             {actions.busy && <Loader2 size={13} className="animate-spin text-zinc-500" />}
           </div>
-          {edit && (
-            <button onClick={() => setAdd({})} className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-white rounded-lg hover:brightness-110" style={{ backgroundColor: ACCENT }}>
-              <Plus size={13} /> Toevoegen
-            </button>
-          )}
+          {edit && <Button variant="primary" size="sm" onClick={() => setAdd({})}><Plus size={13} /> Toevoegen</Button>}
         </div>
 
         {/* Zoeken + één weergave tegelijk ("Toon:"). Zoeken werkt binnen die weergave. */}
@@ -123,27 +119,19 @@ export default function InventoryTree({ access, initialKitId }: { access: GearAc
           <div className="relative flex-1 min-w-[14rem]">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
             <input value={filters.search ?? ''} onChange={e => setFilters(f => ({ ...f, search: e.target.value }))}
-              placeholder="Zoek naam, model, serienummer, kit…" aria-label="Zoeken"
-              className="w-full pl-9 pr-9 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600" />
+              placeholder="Zoek naam, model, serienummer, kit…" aria-label="Zoeken" className={`${inputCls} pl-9 pr-9`} />
             {filters.search && (
               <button onClick={() => setFilters(f => ({ ...f, search: '' }))} aria-label="Zoekopdracht wissen" className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500"><X size={13} /></button>
             )}
           </div>
-          {(filters.view ?? 'all') === 'all' ? (
-            <label className="flex items-center gap-1.5 text-xs text-zinc-400">
-              Toon:
-              <select value="all" onChange={e => setFilters(f => ({ ...f, view: e.target.value as InventoryView }))}
-                aria-label="Toon" className="px-2 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-zinc-200">
-                {INVENTORY_VIEWS.map(v => <option key={v} value={v}>{VIEW_LABEL[v]}</option>)}
-              </select>
-            </label>
-          ) : (
-            <span className="flex items-center gap-1 pl-3 pr-1.5 py-1.5 rounded-lg border border-emerald-500/50 bg-emerald-500/15 text-sm text-emerald-200">
-              Toon: {VIEW_LABEL[filters.view!]}
-              <button onClick={() => setFilters(f => ({ ...f, view: 'all' }))} aria-label="Weergave terugzetten op Alles" title="Terug naar Alles"
-                className="ml-1 w-6 h-6 flex items-center justify-center rounded text-emerald-300 hover:bg-emerald-500/20"><X size={13} /></button>
-            </span>
-          )}
+          {/* Eén weergave tegelijk; "Alles" zet terug. Opgelicht als er gefilterd wordt. */}
+          <label className="flex items-center gap-2 text-xs text-zinc-400 flex-shrink-0">
+            Toon
+            <Select value={filters.view ?? 'all'} onChange={e => setFilters(f => ({ ...f, view: e.target.value as InventoryView }))}
+              aria-label="Toon" wrapperClassName="w-52" highlighted={(filters.view ?? 'all') !== 'all'}>
+              {INVENTORY_VIEWS.map(v => <option key={v} value={v}>{VIEW_LABEL[v]}</option>)}
+            </Select>
+          </label>
         </div>
 
         {error && <div className="mb-3"><ErrorLine>{error}</ErrorLine></div>}
@@ -163,11 +151,11 @@ export default function InventoryTree({ access, initialKitId }: { access: GearAc
                         aria-label={isOpen ? `${category.name} dichtklappen` : `${category.name} openklappen`} className="flex-shrink-0">
                         {isOpen ? <ChevronDown size={13} style={{ color: category.color }} /> : <ChevronRight size={13} style={{ color: category.color }} />}
                       </button>
-                      <button onClick={() => setPanel({ type: 'category', id: category.id })}
-                        className="text-[11px] font-bold uppercase tracking-widest truncate hover:underline" style={{ color: category.color }}>
+                      <button onClick={() => setPanel({ type: 'category', id: category.id })} title={category.name}
+                        className="min-w-0 text-[11px] font-bold uppercase tracking-widest truncate hover:underline" style={{ color: category.color }}>
                         {category.name}
                       </button>
-                      <span className="text-[10px] text-zinc-500 flex-shrink-0">{kits.length} {kits.length === 1 ? 'kit' : 'kits'} · {loose.length} los</span>
+                      <span className="text-[10px] text-zinc-500 flex-shrink-0 whitespace-nowrap">{kits.length} {kits.length === 1 ? 'kit' : 'kits'} · {loose.length} los</span>
                       {edit && <AddButton label={`Toevoegen aan ${category.name}`} onClick={() => setAdd({ mode: 'item', categoryId: category.id })} />}
                     </TreeRow>
 
@@ -185,7 +173,7 @@ export default function InventoryTree({ access, initialKitId }: { access: GearAc
                                     {kitOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                                   </button>
                                   <KitIcon />
-                                  <button onClick={() => setPanel({ type: 'kit', id: kit.id })} className="text-[13px] font-medium text-zinc-100 truncate hover:underline min-w-0">
+                                  <button onClick={() => setPanel({ type: 'kit', id: kit.id })} title={kit.name} className="text-[13px] font-medium text-zinc-100 truncate text-left hover:underline min-w-0">
                                     {kit.name}
                                   </button>
                                   {kit.label_color && <span className="hidden md:inline text-[10px] text-zinc-600 flex-shrink-0">{kit.label_color}</span>}
