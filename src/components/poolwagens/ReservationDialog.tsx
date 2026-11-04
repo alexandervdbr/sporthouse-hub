@@ -28,7 +28,7 @@ export default function ReservationDialog({ mode, planning, options, onClose, on
   const [carId, setCarId] = useState(mode.kind === 'edit' ? mode.reservation.car_id : mode.carId)
   const [start, setStart] = useState(mode.kind === 'new' ? mode.start : mode.kind === 'edit' ? toLocal(mode.reservation.start_at) : '')
   const [end, setEnd] = useState(mode.kind === 'edit' ? toLocal(mode.reservation.end_at) : mode.end)
-  const [projectId, setProjectId] = useState(editing?.project?.id ?? '')
+  const [clientText, setClientText] = useState(editing?.client_name ?? '')
   const [note, setNote] = useState(editing?.note ?? '')
   const [kmValue, setKmValue] = useState('')
   const [busy, setBusy] = useState(false)
@@ -52,19 +52,23 @@ export default function ReservationDialog({ mode, planning, options, onClose, on
   const blockStops = block && (!editing || carId !== editing.car_id
     || (startISO && endISO && (Date.parse(startISO) < Date.parse(editing.start_at) || Date.parse(endISO) > Date.parse(editing.end_at))))
 
-  const projects = options?.projects ?? []
-  const projectMissing = editing?.project && !projects.some(p => p.id === editing.project!.id)
+  // Klant: een bestaande klant als de getypte naam er exact op past (zonder
+  // hoofdlettergevoeligheid), anders een vrij getypte naam. Leeg mag.
+  const clients = options?.clients ?? []
+  const typed = clientText.trim()
+  const matched = typed ? clients.find(c => c.name.trim().toLowerCase() === typed.toLowerCase()) ?? null : null
+  const client = { client_id: matched?.id ?? null, client_name: matched ? null : typed || null }
 
   async function save() {
     setBusy(true)
     setError('')
     try {
       if (mode.kind === 'now') {
-        await send('/api/poolwagens/reservations/now', 'POST', { car_id: carId, end, project_id: projectId, note, km: kmValue })
+        await send('/api/poolwagens/reservations/now', 'POST', { car_id: carId, end, ...client, note, km: kmValue })
       } else if (editing) {
-        await send(`/api/poolwagens/reservations/${editing.id}`, 'PATCH', { car_id: carId, start, end, project_id: projectId, note })
+        await send(`/api/poolwagens/reservations/${editing.id}`, 'PATCH', { car_id: carId, start, end, ...client, note })
       } else {
-        await send('/api/poolwagens/reservations', 'POST', { car_id: carId, start, end, project_id: projectId, note })
+        await send('/api/poolwagens/reservations', 'POST', { car_id: carId, start, end, ...client, note })
       }
       onSaved()
     } catch (e) {
@@ -79,7 +83,7 @@ export default function ReservationDialog({ mode, planning, options, onClose, on
     <Modal title={title} onClose={onClose} footer={
       <>
         <button onClick={onClose} className={secondaryCls}>Annuleren</button>
-        <button onClick={save} disabled={busy || !carId || !projectId || !end || (mode.kind !== 'now' && !start) || !!blockStops}
+        <button onClick={save} disabled={busy || !carId || !end || (mode.kind !== 'now' && !start) || !!blockStops}
           className={`${buttonCls} text-white`} style={{ backgroundColor: ACCENT }}>
           {busy ? <Loader2 size={14} className="animate-spin" /> : mode.kind === 'now' ? <Car size={14} /> : <Check size={14} />}
           {mode.kind === 'now' ? 'Vertrekken' : editing ? 'Opslaan' : 'Reserveren'}
@@ -110,12 +114,17 @@ export default function ReservationDialog({ mode, planning, options, onClose, on
       </div>
 
       <div>
-        <label className={labelCls}>Project</label>
-        <select className={inputCls} value={projectId} onChange={e => setProjectId(e.target.value)}>
-          <option value="">Kies een project…</option>
-          {projectMissing && <option value={editing!.project!.id}>{editing!.project!.name}</option>}
-          {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
+        <label className={labelCls}>Klant (optioneel)</label>
+        <input className={inputCls} list="poolwagens-klanten" value={clientText} onChange={e => setClientText(e.target.value)}
+          placeholder="Kies een klant of typ een naam" maxLength={200} autoComplete="off" />
+        <datalist id="poolwagens-klanten">
+          {clients.map(c => <option key={c.id} value={c.name} />)}
+        </datalist>
+        {typed && (
+          <p className="mt-1 text-[11px] text-zinc-500">
+            {matched ? 'Gekoppeld aan deze klant in de hub.' : 'Staat niet in de klantenlijst: wordt bewaard zoals getypt.'}
+          </p>
+        )}
       </div>
 
       {mode.kind === 'now' && (

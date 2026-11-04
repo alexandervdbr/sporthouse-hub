@@ -1,7 +1,7 @@
 import { requirePoolwagens, dbErrorResponse, readJson } from '@/lib/poolwagens/server'
 import { parseReservationInput } from '@/lib/poolwagens/reservation-input'
 
-// PATCH — een reservatie wijzigen (wagen, periode, project, notitie).
+// PATCH — een reservatie wijzigen (wagen, periode, klant, notitie).
 // DELETE — annuleren; blijft bewaard maar houdt niets meer bezet.
 // Eigen reservatie zolang de rit niet gestart is, of beheer: dat beslist de
 // database (pool_update_reservation, pool_cancel_reservation).

@@ -20,9 +20,10 @@ const state: {
 function builder(table: string) {
   const result = () => state.tables[table] ?? { data: null, error: null }
   const q: Record<string, unknown> = {}
-  for (const m of ['select', 'insert', 'update', 'eq', 'neq', 'is', 'not', 'in', 'lt', 'gt', 'gte', 'order', 'range', 'limit']) {
+  for (const m of ['select', 'insert', 'update', 'eq', 'neq', 'is', 'not', 'in', 'lt', 'gt', 'gte', 'order', 'range', 'limit', 'ilike']) {
     q[m] = () => { state.calls.push(`${table}.${m}`); return q }
   }
+  q.or = (filter: string) => { state.calls.push(`${table}.or:${filter}`); return q }
   q.single = async () => result()
   q.maybeSingle = async () => result()
   q.then = (resolve: (v: unknown) => void) => resolve({ data: [], error: null, ...result() })
@@ -72,9 +73,10 @@ const notify = await import('@/app/api/poolwagens/damage/[id]/notify/route')
 const settings = await import('@/app/api/poolwagens/settings/route')
 const mailTest = await import('@/app/api/poolwagens/mail-test/route')
 const planning = await import('@/app/api/poolwagens/planning/route')
+const history = await import('@/app/api/poolwagens/history/route')
 
 const CAR = '11111111-1111-4111-8111-111111111111'
-const PROJECT = '22222222-2222-4222-8222-222222222222'
+const CLIENT = '22222222-2222-4222-8222-222222222222'
 
 const user = (sections: string[] | null, extra: Record<string, unknown> = {}): FakeUser => ({
   id: 'u1',
@@ -93,7 +95,7 @@ const answer = async (r: Promise<Response | undefined>) => { const res = (await 
 const statusOf = async (r: Promise<Response | undefined>) => (await answer(r)).status
 
 const newCar = { name: 'Bus', license_plate: '1-ABC-234' }
-const booking = { car_id: CAR, start: '2026-12-01T08:00', end: '2026-12-01T17:00', project_id: PROJECT }
+const booking = { car_id: CAR, start: '2026-12-01T08:00', end: '2026-12-01T17:00' }
 
 beforeEach(() => {
   state.user = null; state.calls = []; state.rpcArgs = {}; state.rpc = {}; state.tables = {}
@@ -167,13 +169,27 @@ describe('schadestatus, blokkade en instellingen — alleen beheer', () => {
 })
 
 describe('reserveren', () => {
-  it('gaat naar pool_create_reservation met tijdstippen in UTC', async () => {
+  it('gaat naar pool_create_reservation met tijdstippen in UTC, zonder klant', async () => {
     state.user = user(USER)
     state.rpc.pool_create_reservation = { data: 'r1' }
     expect(await statusOf(reservations.POST(json('POST', booking)))).toBe(201)
     expect(state.rpcArgs.pool_create_reservation).toEqual({
-      p_car_id: CAR, p_start_at: '2026-12-01T07:00:00.000Z', p_end_at: '2026-12-01T16:00:00.000Z', p_project_id: PROJECT, p_note: null,
+      p_car_id: CAR, p_start_at: '2026-12-01T07:00:00.000Z', p_end_at: '2026-12-01T16:00:00.000Z', p_client_id: null, p_client_name: null, p_note: null,
     })
+  })
+
+  it('met een bestaande of een getypte klant', async () => {
+    state.user = user(USER)
+    expect(await statusOf(reservations.POST(json('POST', { ...booking, client_id: CLIENT })))).toBe(201)
+    expect(state.rpcArgs.pool_create_reservation).toMatchObject({ p_client_id: CLIENT, p_client_name: null })
+    expect(await statusOf(now.POST(json('POST', { car_id: CAR, end: '2099-01-01T10:00', client_name: 'Club X' })))).toBe(201)
+    expect(state.rpcArgs.pool_depart_now).toMatchObject({ p_client_id: null, p_client_name: 'Club X' })
+  })
+
+  it('een ongeldige klant: 400 vóór de database', async () => {
+    state.user = user(USER)
+    expect(await answer(reservations.POST(json('POST', { ...booking, client_id: 'x' })))).toEqual({ status: 400, text: 'Ongeldige klant.' })
+    expect(state.calls).toEqual([])
   })
 
   it('overlap: 409 met de melding van de database', async () => {
@@ -193,7 +209,7 @@ describe('reserveren', () => {
   it('geblokkeerde wagen: 400 met de reden', async () => {
     state.user = user(USER)
     state.rpc.pool_depart_now = { error: { code: '23514', message: 'Bus is geblokkeerd door ernstige schade en kan niet gereserveerd worden.' } }
-    expect(await answer(now.POST(json('POST', { car_id: CAR, end: '2099-01-01T10:00', project_id: PROJECT }))))
+    expect(await answer(now.POST(json('POST', { car_id: CAR, end: '2099-01-01T10:00' }))))
       .toEqual({ status: 400, text: 'Bus is geblokkeerd door ernstige schade en kan niet gereserveerd worden.' })
   })
 
@@ -268,5 +284,21 @@ describe('schademail — blokkeert de melding nooit', () => {
     state.tables.pool_car_damage_reports = report({ reported_by: 'iemand-anders' })
     expect(await statusOf(notify.POST(json('POST'), params('d1')))).toBe(409)
     expect(state.calls).not.toContain('rpc:pool_set_damage_mail_status')
+  })
+})
+
+describe('historiek — klantfilter', () => {
+  it('zoekt op de getypte naam en op gekoppelde klanten, zonder dat de zoekterm een filter wordt', async () => {
+    state.user = user(USER)
+    state.tables.clients = { data: [{ id: CLIENT }] }
+    expect(await statusOf(history.GET(json('GET', undefined, 'http://hub.test/api/poolwagens/history?klant=Croky),x.eq.(1')))).toBe(200)
+    expect(state.calls).toContain(`pool_car_reservations.or:client_name.ilike.*Croky x.eq. 1*,client_id.in.(${CLIENT})`)
+  })
+
+  it('zonder gekoppelde klant: alleen op de naam', async () => {
+    state.user = user(USER)
+    state.tables.clients = { data: [] }
+    expect(await statusOf(history.GET(json('GET', undefined, 'http://hub.test/api/poolwagens/history?klant=Club')))).toBe(200)
+    expect(state.calls).toContain('pool_car_reservations.or:client_name.ilike.*Club*')
   })
 })

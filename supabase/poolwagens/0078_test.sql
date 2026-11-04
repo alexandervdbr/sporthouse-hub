@@ -1,6 +1,9 @@
 -- Test van 0078. Draait volledig in begin … rollback: er blijft niets achter.
--- Schrijft alleen in pool_-tabellen. Bestaande accounts (twee collega's) en
--- een bestaand project worden alleen gelezen, als verwijzing.
+-- Schrijft alleen in pool_-tabellen. Twee bestaande collega-accounts worden
+-- alleen gelezen, als verwijzing; projecten of klanten zijn niet nodig.
+-- Draait vóór 0079: de ritten worden hier daarom als postgres rechtstreeks in
+-- de tabel gezet, en de blokkade wordt gecontroleerd met
+-- pool_car_block_reason() (dezelfde functie die reserveren tegenhoudt).
 --
 -- Verwacht: één rij "Alle tests van 0078 geslaagd".
 -- Bij een fout stopt het script met "TEST MISLUKT: …" (of "TEST KAN NIET
@@ -17,15 +20,11 @@ select set_config('pooltest.b', coalesce((
   select id::text from auth.users
    where not coalesce((raw_app_meta_data ->> 'freelancer')::boolean, false)
    order by created_at offset 1 limit 1), ''), true);
-select set_config('pooltest.project', coalesce((select id::text from public.projects order by created_at limit 1), ''), true);
 
 do $$
 begin
   if current_setting('pooltest.a') = '' or current_setting('pooltest.b') = '' then
     raise exception 'TEST KAN NIET DRAAIEN: er zijn minstens twee collega-accounts nodig.';
-  end if;
-  if current_setting('pooltest.project') = '' then
-    raise exception 'TEST KAN NIET DRAAIEN: er is minstens één project nodig.';
   end if;
 end $$;
 
@@ -44,23 +43,28 @@ insert into public.pool_cars (id, name, license_plate, current_km) values
 
 select set_config('pooltest.t', (date_trunc('day', now()) + interval '2 days 9 hours')::text, true);
 
+-- Een rit van A die onderweg is, en een geplande reservatie van A, op wagen 1.
+insert into public.pool_car_reservations
+  (id, car_id, user_id, person_name, start_at, end_at, departed_at, departure_km, created_by, created_by_name)
+values
+  ('00000000-0000-4000-8000-0000000000e1', '00000000-0000-4000-8000-0000000000c1', current_setting('pooltest.a')::uuid, 'Test A',
+   now() - interval '1 hour', now() + interval '1 hour', now() - interval '1 hour', 1000, current_setting('pooltest.a')::uuid, 'Test A');
+insert into public.pool_car_reservations
+  (id, car_id, user_id, person_name, start_at, end_at, created_by, created_by_name)
+values
+  ('00000000-0000-4000-8000-0000000000e2', '00000000-0000-4000-8000-0000000000c1', current_setting('pooltest.a')::uuid, 'Test A',
+   current_setting('pooltest.t')::timestamptz, current_setting('pooltest.t')::timestamptz + interval '2 hours', current_setting('pooltest.a')::uuid, 'Test A');
+
 set local role authenticated;
 
 -- ── 1. A meldt schade; foute invoer wordt geweigerd ─────────────────────────
 do $$
 declare
-  v_p    uuid := current_setting('pooltest.project')::uuid;
-  v_t    timestamptz := current_setting('pooltest.t')::timestamptz;
-  v_trip uuid;
-  v_plan uuid;
+  v_trip uuid := '00000000-0000-4000-8000-0000000000e1';
+  v_plan uuid := '00000000-0000-4000-8000-0000000000e2';
   v_id   uuid;
 begin
   perform set_config('request.jwt.claims', current_setting('pooltest.claims_a'), true);
-
-  v_trip := public.pool_create_reservation('00000000-0000-4000-8000-0000000000c1', now() - interval '1 hour', now() + interval '1 hour', v_p);
-  perform public.pool_register_departure(v_trip, now() - interval '1 hour', null);
-  v_plan := public.pool_create_reservation('00000000-0000-4000-8000-0000000000c1', v_t, v_t + interval '2 hours', v_p);
-  perform set_config('pooltest.plan', v_plan::text, true);
 
   begin
     perform public.pool_report_damage('00000000-0000-4000-8000-0000000000c1', v_plan, 'deuk', 'licht');
@@ -83,26 +87,31 @@ begin
   exception when invalid_parameter_value then null;
   end;
 
-  -- Lichte schade blokkeert niets.
+  -- Lichte schade (zonder rit).
   perform public.pool_report_damage('00000000-0000-4000-8000-0000000000c2', null, 'kras', 'licht');
-  perform public.pool_cancel_reservation(public.pool_create_reservation(
-    '00000000-0000-4000-8000-0000000000c2', v_t, v_t + interval '1 hour', v_p));
 
   -- Ernstige schade, bij de rit.
   v_id := public.pool_report_damage('00000000-0000-4000-8000-0000000000c1', v_trip, 'voorruit gebarsten', 'ernstig');
   perform set_config('pooltest.d1', v_id::text, true);
-
-  begin
-    perform public.pool_create_reservation('00000000-0000-4000-8000-0000000000c1', v_t + interval '1 day', v_t + interval '1 day 1 hour', v_p);
-    raise exception 'TEST MISLUKT: wagen met ernstige schade kon gereserveerd worden';
-  exception when check_violation then null;
-  end;
 
   -- De bestaande reservatie blijft staan.
   if not exists (select 1 from public.pool_car_reservations where id = v_plan and cancelled_at is null) then
     raise exception 'TEST MISLUKT: de blokkade annuleerde een bestaande reservatie';
   end if;
 end $$;
+
+-- Blokkeert de ernstige melding wagen 1, en de lichte wagen 2 niet?
+reset role;
+do $$
+begin
+  if public.pool_car_block_reason('00000000-0000-4000-8000-0000000000c1') is distinct from 'Testwagen 1 is geblokkeerd door ernstige schade' then
+    raise exception 'TEST MISLUKT: ernstige schade blokkeerde de wagen niet';
+  end if;
+  if public.pool_car_block_reason('00000000-0000-4000-8000-0000000000c2') is not null then
+    raise exception 'TEST MISLUKT: lichte schade blokkeerde de wagen';
+  end if;
+end $$;
+set local role authenticated;
 
 -- ── 2. Foto's: wie meldde (of beheer), hoogstens 10 ─────────────────────────
 do $$
@@ -148,9 +157,6 @@ end $$;
 do $$
 declare
   v_d uuid := current_setting('pooltest.d1')::uuid;
-  v_p uuid := current_setting('pooltest.project')::uuid;
-  v_t timestamptz := current_setting('pooltest.t')::timestamptz;
-  v_id uuid;
 begin
   perform set_config('request.jwt.claims', current_setting('pooltest.claims_a'), true);
   begin
@@ -170,18 +176,26 @@ begin
     raise exception 'TEST MISLUKT: onbekende status werd aanvaard';
   exception when invalid_parameter_value then null;
   end;
-
-  -- In behandeling: nog altijd geblokkeerd.
   perform public.pool_set_damage_status(v_d, 'in_behandeling');
-  begin
-    perform public.pool_create_reservation('00000000-0000-4000-8000-0000000000c1', v_t + interval '1 day', v_t + interval '1 day 1 hour', v_p);
-    raise exception 'TEST MISLUKT: in behandeling blokkeerde niet meer';
-  exception when check_violation then null;
-  end;
+end $$;
 
-  -- Blokkade opheffen: weer te reserveren, de melding blijft open.
+-- In behandeling: nog altijd geblokkeerd.
+reset role;
+do $$
+begin
+  if public.pool_car_block_reason('00000000-0000-4000-8000-0000000000c1') is null then
+    raise exception 'TEST MISLUKT: in behandeling blokkeerde niet meer';
+  end if;
+end $$;
+set local role authenticated;
+
+-- Blokkade opheffen: de melding blijft open.
+do $$
+declare
+  v_d uuid := current_setting('pooltest.d1')::uuid;
+begin
+  perform set_config('request.jwt.claims', current_setting('pooltest.claims_b_mgr'), true);
   perform public.pool_lift_damage_block(v_d);
-  perform public.pool_create_reservation('00000000-0000-4000-8000-0000000000c1', v_t + interval '1 day', v_t + interval '1 day 1 hour', v_p);
   if (select status from public.pool_car_damage_reports where id = v_d) <> 'in_behandeling' then
     raise exception 'TEST MISLUKT: blokkade opheffen veranderde de status';
   end if;
@@ -190,20 +204,50 @@ begin
     raise exception 'TEST MISLUKT: een opgeheven blokkade kon nog eens opgeheven worden';
   exception when invalid_parameter_value then null;
   end;
+end $$;
 
-  -- Nieuwe ernstige melding (door A), daarna hersteld door beheer.
+reset role;
+do $$
+begin
+  if public.pool_car_block_reason('00000000-0000-4000-8000-0000000000c1') is not null then
+    raise exception 'TEST MISLUKT: na het opheffen was de wagen nog geblokkeerd';
+  end if;
+end $$;
+set local role authenticated;
+
+-- Nieuwe ernstige melding (door A), daarna hersteld door beheer.
+do $$
+declare
+  v_id uuid;
+begin
   perform set_config('request.jwt.claims', current_setting('pooltest.claims_a'), true);
   v_id := public.pool_report_damage('00000000-0000-4000-8000-0000000000c1', null, 'band lek', 'ernstig');
-  begin
-    perform public.pool_create_reservation('00000000-0000-4000-8000-0000000000c1', v_t + interval '2 days', v_t + interval '2 days 1 hour', v_p);
-    raise exception 'TEST MISLUKT: tweede ernstige melding blokkeerde niet';
-  exception when check_violation then null;
-  end;
-  perform set_config('request.jwt.claims', current_setting('pooltest.claims_b_mgr'), true);
-  perform public.pool_set_damage_status(v_id, 'hersteld');
-  perform set_config('request.jwt.claims', current_setting('pooltest.claims_a'), true);
-  perform public.pool_create_reservation('00000000-0000-4000-8000-0000000000c1', v_t + interval '2 days', v_t + interval '2 days 1 hour', v_p);
+  perform set_config('pooltest.d2', v_id::text, true);
 end $$;
+
+reset role;
+do $$
+begin
+  if public.pool_car_block_reason('00000000-0000-4000-8000-0000000000c1') is null then
+    raise exception 'TEST MISLUKT: tweede ernstige melding blokkeerde niet';
+  end if;
+end $$;
+set local role authenticated;
+
+do $$
+begin
+  perform set_config('request.jwt.claims', current_setting('pooltest.claims_b_mgr'), true);
+  perform public.pool_set_damage_status(current_setting('pooltest.d2')::uuid, 'hersteld');
+end $$;
+
+reset role;
+do $$
+begin
+  if public.pool_car_block_reason('00000000-0000-4000-8000-0000000000c1') is not null then
+    raise exception 'TEST MISLUKT: hersteld hief de blokkade niet op';
+  end if;
+end $$;
+set local role authenticated;
 
 -- ── 4. Mailstatus: wie meldde één keer, beheer altijd ───────────────────────
 do $$

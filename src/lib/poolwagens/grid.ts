@@ -87,7 +87,7 @@ export function buildPoolGrid(
           continuesAfter: visibleEnd > window.endMs,
           lateLeft,
           lateWidth,
-          label: [short.get(r.person_name) ?? r.person_name, r.project?.name].filter(Boolean).join(' · '),
+          label: [short.get(r.person_name) ?? r.person_name, r.client_name].filter(Boolean).join(' · '),
           state,
           endangered: endangered.has(r.id),
           blocked: !!block && state !== 'teruggebracht' && visibleEnd >= now.getTime(),

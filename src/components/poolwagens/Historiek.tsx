@@ -9,16 +9,17 @@ import { isOpenTrip } from '@/lib/poolwagens/trips'
 import type { PoolCar, PoolOptions, PoolReservation } from '@/lib/poolwagens/types'
 
 // De historiek: alle ritten (vertrokken reservaties), nieuwste eerst, per 50.
-// Filterbaar op wagen, collega, project en periode, en op open ritten (niet
+// Filterbaar op wagen, collega, klant en periode, en op open ritten (niet
 // terug terwijl de geplande terugkomst voorbij is).
 
-interface Filters { car: string; user: string; project: string; from: string; to: string; open: boolean }
-const EMPTY: Filters = { car: '', user: '', project: '', from: '', to: '', open: false }
+interface Filters { car: string; user: string; client: string; from: string; to: string; open: boolean }
+const EMPTY: Filters = { car: '', user: '', client: '', from: '', to: '', open: false }
 
 export default function Historiek({ access }: { access: PoolwagenAccess }) {
   const [cars, setCars] = useState<PoolCar[]>([])
   const [options, setOptions] = useState<PoolOptions | null>(null)
   const [filters, setFilters] = useState<Filters>(EMPTY)
+  const [clientDraft, setClientDraft] = useState('')
   const [page, setPage] = useState(0)
   const [data, setData] = useState<{ trips: (PoolReservation & { car_name: string })[]; total: number; pageSize: number } | null>(null)
   const [loading, setLoading] = useState(true)
@@ -35,7 +36,7 @@ export default function Historiek({ access }: { access: PoolwagenAccess }) {
     const q = new URLSearchParams()
     if (filters.car) q.set('car', filters.car)
     if (filters.user) q.set('user', filters.user)
-    if (filters.project) q.set('project', filters.project)
+    if (filters.client.trim()) q.set('klant', filters.client.trim())
     if (filters.from) q.set('from', filters.from)
     if (filters.to) q.set('to', filters.to)
     if (filters.open) q.set('open', '1')
@@ -80,11 +81,15 @@ export default function Historiek({ access }: { access: PoolwagenAccess }) {
             </select>
           </div>
           <div>
-            <label className={labelCls}>Project</label>
-            <select className={inputCls} value={filters.project} onChange={e => set('project', e.target.value)}>
-              <option value="">Alle projecten</option>
-              {(options?.projects ?? []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+            <label className={labelCls}>Klant</label>
+            {/* Zoekt pas bij Enter of als je het veld verlaat: geen verzoek per toets. */}
+            <input className={inputCls} list="historiek-klanten" value={clientDraft} placeholder="Alle klanten" autoComplete="off"
+              onChange={e => setClientDraft(e.target.value)}
+              onBlur={() => { if (clientDraft !== filters.client) set('client', clientDraft) }}
+              onKeyDown={e => { if (e.key === 'Enter' && clientDraft !== filters.client) set('client', clientDraft) }} />
+            <datalist id="historiek-klanten">
+              {(options?.clients ?? []).map(c => <option key={c.id} value={c.name} />)}
+            </datalist>
           </div>
           <div>
             <label className={labelCls}>Vertrek vanaf</label>
@@ -99,7 +104,7 @@ export default function Historiek({ access }: { access: PoolwagenAccess }) {
               <input type="checkbox" checked={filters.open} onChange={e => set('open', e.target.checked)} /> Alleen open ritten
             </label>
             {JSON.stringify(filters) !== JSON.stringify(EMPTY) && (
-              <button onClick={() => { setLoading(true); setPage(0); setFilters(EMPTY) }} className="text-xs text-zinc-500 hover:text-zinc-300">Wissen</button>
+              <button onClick={() => { setLoading(true); setPage(0); setFilters(EMPTY); setClientDraft('') }} className="text-xs text-zinc-500 hover:text-zinc-300">Wissen</button>
             )}
           </div>
         </div>
@@ -110,7 +115,7 @@ export default function Historiek({ access }: { access: PoolwagenAccess }) {
           <table className="w-full text-sm">
             <thead className="bg-zinc-900/60 text-[10px] uppercase tracking-wider text-zinc-500">
               <tr>
-                {['Wagen', 'Wie', 'Project', 'Vertrek', 'Aankomst', 'Km vertrek', 'Km aankomst', 'Gereden'].map(h => (
+                {['Wagen', 'Wie', 'Klant', 'Vertrek', 'Aankomst', 'Km vertrek', 'Km aankomst', 'Gereden'].map(h => (
                   <th key={h} className="text-left font-medium px-3 py-2 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -122,7 +127,7 @@ export default function Historiek({ access }: { access: PoolwagenAccess }) {
                   <tr key={t.id} className="border-t border-zinc-900">
                     <td className="px-3 py-2 text-zinc-200 whitespace-nowrap">{t.car_name}</td>
                     <td className="px-3 py-2 text-zinc-300 whitespace-nowrap">{t.person_name}</td>
-                    <td className="px-3 py-2 text-zinc-300">{t.project?.name ?? '—'}</td>
+                    <td className="px-3 py-2 text-zinc-300">{t.client_name ?? '—'}</td>
                     <td className="px-3 py-2 text-zinc-300 whitespace-nowrap">{t.departed_at ? formatShort(t.departed_at) : '—'}</td>
                     <td className="px-3 py-2 whitespace-nowrap">
                       {t.arrived_at ? <span className="text-zinc-300">{formatShort(t.arrived_at)}</span>

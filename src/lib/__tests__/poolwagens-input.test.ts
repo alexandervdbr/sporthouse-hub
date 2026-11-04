@@ -1,37 +1,55 @@
 import { describe, it, expect } from 'vitest'
 import { parseArrivalInput, parseDepartNowInput, parseDepartureInput, parseReservationInput } from '@/lib/poolwagens/reservation-input'
 import { parseDamageInput, parseRecipients } from '@/lib/poolwagens/damage-input'
-import { parseHistoryFilters } from '@/lib/poolwagens/history'
+import { clientSearch, parseHistoryFilters } from '@/lib/poolwagens/history'
 
 const CAR = '11111111-1111-4111-8111-111111111111'
-const PROJECT = '22222222-2222-4222-8222-222222222222'
+const CLIENT = '22222222-2222-4222-8222-222222222222'
 
 describe('parseReservationInput', () => {
-  it('zet Brusselse kloktijden om naar tijdstippen', () => {
-    expect(parseReservationInput({ car_id: CAR, start: '2026-11-05T08:00', end: '2026-11-05T17:30', project_id: PROJECT, note: ' x ' })).toEqual({
-      args: { p_car_id: CAR, p_start_at: '2026-11-05T07:00:00.000Z', p_end_at: '2026-11-05T16:30:00.000Z', p_project_id: PROJECT, p_note: 'x' },
-    })
+  const base = { car_id: CAR, start: '2026-11-05T08:00', end: '2026-11-05T17:30' }
+  const times = { p_car_id: CAR, p_start_at: '2026-11-05T07:00:00.000Z', p_end_at: '2026-11-05T16:30:00.000Z' }
+
+  it('zet Brusselse kloktijden om naar tijdstippen; klant en notitie mogen leeg', () => {
+    expect(parseReservationInput(base)).toEqual({ args: { ...times, p_client_id: null, p_client_name: null, p_note: null } })
+    expect(parseReservationInput({ ...base, note: ' x ' })).toMatchObject({ args: { p_note: 'x' } })
+  })
+  it('een bestaande klant: het id telt, een getypte naam ernaast niet', () => {
+    expect(parseReservationInput({ ...base, client_id: CLIENT, client_name: 'iets anders' }))
+      .toMatchObject({ args: { p_client_id: CLIENT, p_client_name: null } })
+  })
+  it('een getypte klant', () => {
+    expect(parseReservationInput({ ...base, client_name: '  Club Zonder Account ' }))
+      .toMatchObject({ args: { p_client_id: null, p_client_name: 'Club Zonder Account' } })
+    expect(parseReservationInput({ ...base, client_id: '', client_name: '' }))
+      .toMatchObject({ args: { p_client_id: null, p_client_name: null } })
   })
   it('weigert ontbrekende of verkeerde invoer', () => {
-    expect(parseReservationInput({ start: '2026-11-05T08:00', end: '2026-11-05T09:00', project_id: PROJECT })).toEqual({ error: 'Kies een wagen.' })
-    expect(parseReservationInput({ car_id: CAR, start: '2026-11-05T08:00', project_id: PROJECT })).toEqual({ error: 'Kies een vertrek en een verwachte terugkomst.' })
-    expect(parseReservationInput({ car_id: CAR, start: '2026-11-05T08:00', end: '2026-11-05T08:00', project_id: PROJECT })).toEqual({ error: 'De terugkomst ligt na het vertrek.' })
-    expect(parseReservationInput({ car_id: CAR, start: '2026-11-05T08:00', end: '2026-11-05T09:00' })).toEqual({ error: 'Kies een project.' })
-    expect(parseReservationInput({ car_id: 'drop table', start: '2026-11-05T08:00', end: '2026-11-05T09:00', project_id: PROJECT })).toEqual({ error: 'Kies een wagen.' })
+    expect(parseReservationInput({ start: '2026-11-05T08:00', end: '2026-11-05T09:00' })).toEqual({ error: 'Kies een wagen.' })
+    expect(parseReservationInput({ car_id: CAR, start: '2026-11-05T08:00' })).toEqual({ error: 'Kies een vertrek en een verwachte terugkomst.' })
+    expect(parseReservationInput({ car_id: CAR, start: '2026-11-05T08:00', end: '2026-11-05T08:00' })).toEqual({ error: 'De terugkomst ligt na het vertrek.' })
+    expect(parseReservationInput({ car_id: 'drop table', start: '2026-11-05T08:00', end: '2026-11-05T09:00' })).toEqual({ error: 'Kies een wagen.' })
+    expect(parseReservationInput({ ...base, client_id: 'geen-uuid' })).toEqual({ error: 'Ongeldige klant.' })
+    expect(parseReservationInput({ ...base, client_name: 'x'.repeat(201) })).toEqual({ error: 'De klantnaam is hoogstens 200 tekens.' })
+  })
+  it('kent geen project meer', () => {
+    const r = parseReservationInput({ ...base, project_id: CLIENT })
+    expect(r).not.toHaveProperty('error')
+    expect(JSON.stringify(r)).not.toContain('project')
   })
 })
 
 describe('parseDepartNowInput', () => {
   const now = new Date('2026-11-05T07:00:00Z')
   it('terugkomst in de toekomst, km optioneel', () => {
-    expect(parseDepartNowInput({ car_id: CAR, end: '2026-11-05T12:00', project_id: PROJECT, km: '' }, now))
-      .toEqual({ args: { p_car_id: CAR, p_end_at: '2026-11-05T11:00:00.000Z', p_project_id: PROJECT, p_note: null, p_km: null } })
-    expect(parseDepartNowInput({ car_id: CAR, end: '2026-11-05T12:00', project_id: PROJECT, km: '45.120' }, now))
-      .toMatchObject({ args: { p_km: 45120 } })
+    expect(parseDepartNowInput({ car_id: CAR, end: '2026-11-05T12:00', km: '' }, now))
+      .toEqual({ args: { p_car_id: CAR, p_end_at: '2026-11-05T11:00:00.000Z', p_client_id: null, p_client_name: null, p_note: null, p_km: null } })
+    expect(parseDepartNowInput({ car_id: CAR, end: '2026-11-05T12:00', client_name: 'Croky', km: '45.120' }, now))
+      .toMatchObject({ args: { p_client_name: 'Croky', p_km: 45120 } })
   })
   it('weigert een terugkomst in het verleden of een foute km', () => {
-    expect(parseDepartNowInput({ car_id: CAR, end: '2026-11-05T07:30', project_id: PROJECT }, now)).toEqual({ error: 'De verwachte terugkomst ligt in de toekomst.' })
-    expect(parseDepartNowInput({ car_id: CAR, end: '2026-11-05T12:00', project_id: PROJECT, km: '-3' }, now)).toEqual({ error: 'De kilometerstand is een geheel getal vanaf 0.' })
+    expect(parseDepartNowInput({ car_id: CAR, end: '2026-11-05T07:30' }, now)).toEqual({ error: 'De verwachte terugkomst ligt in de toekomst.' })
+    expect(parseDepartNowInput({ car_id: CAR, end: '2026-11-05T12:00', km: '-3' }, now)).toEqual({ error: 'De kilometerstand is een geheel getal vanaf 0.' })
   })
 })
 
@@ -72,14 +90,21 @@ describe('parseRecipients', () => {
 
 describe('parseHistoryFilters', () => {
   it('filters uit de querystring, periode in Brusselse dagen', () => {
-    const f = parseHistoryFilters(new URLSearchParams({ car: CAR, project: PROJECT, from: '2026-11-01', to: '2026-11-30', open: '1', page: '2' }))
+    const f = parseHistoryFilters(new URLSearchParams({ car: CAR, klant: ' Croky ', from: '2026-11-01', to: '2026-11-30', open: '1', page: '2' }))
     expect(f).toEqual({
-      car: CAR, user: null, project: PROJECT,
+      car: CAR, user: null, client: 'Croky',
       fromISO: '2026-10-31T23:00:00.000Z', untilISO: '2026-11-30T23:00:00.000Z', open: true, page: 2,
     })
   })
   it('ongeldige waarden vallen weg', () => {
     expect(parseHistoryFilters(new URLSearchParams({ car: 'x', from: '2026-13-01', page: '-1' })))
-      .toEqual({ car: null, user: null, project: null, fromISO: null, untilISO: null, open: false, page: 0 })
+      .toEqual({ car: null, user: null, client: null, fromISO: null, untilISO: null, open: false, page: 0 })
+  })
+
+  it('een klantzoekterm kan geen ander filter worden', () => {
+    expect(clientSearch('Croky),client_id.eq.(x')).toBe('Croky client_id.eq. x')
+    expect(clientSearch('%*,')).toBeNull()
+    expect(clientSearch('F.C. Brugge')).toBe('F.C. Brugge')
+    expect(clientSearch('x'.repeat(150))).toHaveLength(100)
   })
 })

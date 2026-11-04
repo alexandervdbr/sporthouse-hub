@@ -1,4 +1,6 @@
 -- Controle na 0077. Alleen lezen. Verwacht: zes rijen, alle zes ok = true.
+-- Alleen geldig vóór 0079 (0079 verandert de signatuur van
+-- pool_create_reservation); daarna geldt 0079_controle.sql.
 
 select 'twee tabellen met RLS aan' as onderdeel,
        (select count(*) from pg_class

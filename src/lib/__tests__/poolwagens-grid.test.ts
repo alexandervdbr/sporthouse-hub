@@ -11,7 +11,7 @@ const car = (id: string, extra: Partial<PoolCar> = {}): PoolCar => ({
   manual_block: false, manual_block_note: null, archived_at: null, created_at: '2026-01-01T00:00:00Z', ...extra,
 })
 const res = (id: string, carId: string, start: string, end: string, extra: Partial<PoolReservation> = {}): PoolReservation => ({
-  id, car_id: carId, user_id: 'u2', person_name: 'Bram Peeters', project: { id: 'p', name: 'Croky' },
+  id, car_id: carId, user_id: 'u2', person_name: 'Bram Peeters', client_id: null, client_name: 'Croky',
   start_at: start, end_at: end, note: null, departed_at: null, departure_km: null, arrived_at: null, arrival_km: null,
   driven_km: null, created_by: 'u2', ...extra,
 })

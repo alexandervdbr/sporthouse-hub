@@ -38,22 +38,12 @@ export async function GET(req: Request) {
   const failed = [cars, inWindow, open, damage].find(r => r.error)
   if (failed?.error) return dbErrorResponse(failed.error)
 
-  type Row = Omit<PoolReservation, 'project'> & { project_id: string | null }
-  const rows = new Map<string, Row>()
-  for (const r of [...(inWindow.data ?? []), ...(open.data ?? [])] as Row[]) rows.set(r.id, r)
-
-  const projectIds = [...new Set([...rows.values()].map(r => r.project_id).filter((x): x is string => !!x))]
-  const projects = projectIds.length
-    ? await supabase.from('projects').select('id, name').in('id', projectIds)
-    : { data: [] as { id: string; name: string }[] }
-  const projectById = new Map((projects.data ?? []).map(p => [p.id, p]))
+  const rows = new Map<string, PoolReservation>()
+  for (const r of [...(inWindow.data ?? []), ...(open.data ?? [])] as PoolReservation[]) rows.set(r.id, r)
 
   const planning: PoolPlanning = {
     cars: cars.data ?? [],
-    reservations: [...rows.values()].map(({ project_id, ...r }) => ({
-      ...r,
-      project: project_id ? projectById.get(project_id) ?? { id: project_id, name: 'Project' } : null,
-    })),
+    reservations: [...rows.values()],
     blockingDamage: damage.data ?? [],
     now: new Date().toISOString(),
   }

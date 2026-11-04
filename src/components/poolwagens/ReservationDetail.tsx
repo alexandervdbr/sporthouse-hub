@@ -63,7 +63,7 @@ export default function ReservationDetail({ reservation: r, car, block, endanger
     <Modal title={car ? `${car.name} — ${car.license_plate}` : 'Reservatie'} onClose={onClose}>
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
         <dt className="text-zinc-500">Wie</dt><dd className="text-zinc-200">{r.person_name}</dd>
-        <dt className="text-zinc-500">Project</dt><dd className="text-zinc-200">{r.project?.name ?? '—'}</dd>
+        {r.client_name && (<><dt className="text-zinc-500">Klant</dt><dd className="text-zinc-200">{r.client_name}</dd></>)}
         <dt className="text-zinc-500">Gepland</dt><dd className="text-zinc-200">{formatPeriod(r.start_at, r.end_at)}</dd>
         <dt className="text-zinc-500">Status</dt><dd className="text-zinc-200">{STATE_LABEL[state]}</dd>
         {r.departed_at && (<><dt className="text-zinc-500">Vertrek</dt><dd className="text-zinc-200">{formatShort(r.departed_at)} · {km(r.departure_km)}</dd></>)}

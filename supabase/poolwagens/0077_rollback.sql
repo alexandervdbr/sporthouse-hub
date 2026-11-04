@@ -1,6 +1,6 @@
 -- Rollback van 0077_poolwagens_reservaties.sql. Verwijdert alleen wat 0077
--- aanmaakte, in omgekeerde volgorde. Draai eerst de rollback van 0078 als die
--- al gedraaid is: die hangt aan pool_car_damage_reports.
+-- aanmaakte, in omgekeerde volgorde. Draai eerst de rollback van 0079 en dan
+-- die van 0078, als die al gedraaid zijn: ze hangen aan deze tabellen.
 --
 -- LET OP: dit wist ook alle reservaties, ritten en schademeldingen.
 

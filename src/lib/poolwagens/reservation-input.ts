@@ -2,7 +2,7 @@ import { parseKm } from './car-input'
 import { brusselsLocalToISO } from './time'
 
 // Wat de formulieren insturen omzetten naar de argumenten van de functies in
-// de database (0077). Tijden komen als Brusselse kloktijd binnen
+// de database (0077, 0079). Tijden komen als Brusselse kloktijd binnen
 // ('YYYY-MM-DDTHH:mm'). Alleen de vorm wordt hier gecontroleerd; overlap,
 // blokkade, rechten en km-regels bewaakt de database.
 
@@ -11,6 +11,24 @@ type Body = Record<string, unknown>
 const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const uuid = (v: unknown) => (typeof v === 'string' && UUID_RE.test(v) ? v : null)
+
+export const MAX_CLIENT_NAME = 200
+
+/**
+ * Klant (optioneel): een bestaande klant (id) of een getypte naam. Met een id
+ * neemt de database de naam van die klant; een getypte naam ernaast telt dan
+ * niet.
+ */
+function client(b: Body): { p_client_id: string | null; p_client_name: string | null } | { error: string } {
+  if (b.client_id !== undefined && b.client_id !== null && b.client_id !== '') {
+    const id = uuid(b.client_id)
+    if (!id) return { error: 'Ongeldige klant.' }
+    return { p_client_id: id, p_client_name: null }
+  }
+  const name = text(b.client_name)
+  if (name && name.length > MAX_CLIENT_NAME) return { error: `De klantnaam is hoogstens ${MAX_CLIENT_NAME} tekens.` }
+  return { p_client_id: null, p_client_name: name }
+}
 
 function time(v: unknown): string | null {
   return typeof v === 'string' ? brusselsLocalToISO(v) : null
@@ -27,7 +45,8 @@ export interface ReservationArgs {
   p_car_id: string
   p_start_at: string
   p_end_at: string
-  p_project_id: string
+  p_client_id: string | null
+  p_client_name: string | null
   p_note: string | null
 }
 
@@ -39,15 +58,16 @@ export function parseReservationInput(body: unknown): { args: ReservationArgs } 
   const end = time(b.end)
   if (!start || !end) return { error: 'Kies een vertrek en een verwachte terugkomst.' }
   if (Date.parse(end) <= Date.parse(start)) return { error: 'De terugkomst ligt na het vertrek.' }
-  const project = uuid(b.project_id)
-  if (!project) return { error: 'Kies een project.' }
-  return { args: { p_car_id: car, p_start_at: start, p_end_at: end, p_project_id: project, p_note: text(b.note) } }
+  const c = client(b)
+  if ('error' in c) return c
+  return { args: { p_car_id: car, p_start_at: start, p_end_at: end, ...c, p_note: text(b.note) } }
 }
 
 export interface DepartNowArgs {
   p_car_id: string
   p_end_at: string
-  p_project_id: string
+  p_client_id: string | null
+  p_client_name: string | null
   p_note: string | null
   p_km: number | null
 }
@@ -60,11 +80,11 @@ export function parseDepartNowInput(body: unknown, now: Date = new Date()): { ar
   const end = time(b.end)
   if (!end) return { error: 'Kies een verwachte terugkomst.' }
   if (Date.parse(end) <= now.getTime()) return { error: 'De verwachte terugkomst ligt in de toekomst.' }
-  const project = uuid(b.project_id)
-  if (!project) return { error: 'Kies een project.' }
+  const c = client(b)
+  if ('error' in c) return c
   const km = optionalKm(b.km)
   if ('error' in km) return km
-  return { args: { p_car_id: car, p_end_at: end, p_project_id: project, p_note: text(b.note), p_km: km.km } }
+  return { args: { p_car_id: car, p_end_at: end, ...c, p_note: text(b.note), p_km: km.km } }
 }
 
 /** Vertrek: tijdstip en km-stand mogen ontbreken (nu, laatst bekende stand). */

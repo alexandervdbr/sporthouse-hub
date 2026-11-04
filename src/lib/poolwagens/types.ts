@@ -15,7 +15,7 @@ export interface PoolCar {
 export const CAR_COLUMNS =
   'id, name, license_plate, make_model, current_km, manual_block, manual_block_note, archived_at, created_at'
 
-export interface ProjectRef {
+export interface ClientRef {
   id: string
   name: string
 }
@@ -26,7 +26,10 @@ export interface PoolReservation {
   car_id: string
   user_id: string | null
   person_name: string
-  project: ProjectRef | null
+  /** Gekoppelde klant uit de hub, of null (ook bij een getypte naam). */
+  client_id: string | null
+  /** De klant zoals getoond: kopie van de naam, of zelf getypt. */
+  client_name: string | null
   start_at: string
   end_at: string
   note: string | null
@@ -39,7 +42,7 @@ export interface PoolReservation {
 }
 
 export const RESERVATION_COLUMNS =
-  'id, car_id, user_id, person_name, project_id, start_at, end_at, note, departed_at, departure_km, arrived_at, arrival_km, driven_km, created_by'
+  'id, car_id, user_id, person_name, client_id, client_name, start_at, end_at, note, departed_at, departure_km, arrived_at, arrival_km, driven_km, created_by'
 
 export type DamageSeverity = 'licht' | 'ernstig'
 export type DamageStatus = 'gemeld' | 'in_behandeling' | 'hersteld'
@@ -83,7 +86,7 @@ export interface PoolPlanning {
 }
 
 export interface PoolOptions {
-  projects: (ProjectRef & { client_id: string | null })[]
+  clients: ClientRef[]
   colleagues: { id: string; name: string }[]
 }
 
