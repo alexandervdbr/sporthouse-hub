@@ -7,7 +7,7 @@ import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { Client } from '@/types/database'
 import { PROJECTKALENDER_ENABLED, CHAT_ENABLED } from '@/lib/features'
-import { LayoutDashboard, KanbanSquare, CalendarDays, CalendarRange, Users, LogOut, Camera, UserCheck, MessageSquare, ShieldCheck, Lock, Layers, X, Star, Bookmark, Wrench } from 'lucide-react'
+import { LayoutDashboard, KanbanSquare, CalendarDays, CalendarRange, Users, LogOut, Camera, UserCheck, MessageSquare, ShieldCheck, Lock, Layers, X, Star, Bookmark, Wrench, Car } from 'lucide-react'
 import { useSidebar } from '@/contexts/SidebarContext'
 import { useFavorites } from '@/contexts/FavoritesContext'
 import { cn } from '@/lib/utils'
@@ -294,6 +294,7 @@ export default function Sidebar({ clients }: SidebarProps) {
             { href: '/planning',    icon: CalendarDays,    label: 'Planning',       section: 'planning',       external: false },
             ...(PROJECTKALENDER_ENABLED ? [{ href: '/events', icon: CalendarRange, label: 'Projectkalender', section: 'projectkalender', external: false }] : []),
             { href: '/materiaal',   icon: Camera,          label: 'Materiaal',      section: 'materiaal',      external: false },
+            { href: '/poolwagens',  icon: Car,             label: 'Poolwagens',     section: 'poolwagens',     external: false },
             { href: '/team',        icon: Users,           label: 'Team',           section: 'team',           external: false },
             { href: '/freelancers', icon: UserCheck,       label: 'Freelancers',    section: 'freelancers',    external: false },
             ...(CHAT_ENABLED ? [{ href: '/chat', icon: MessageSquare, label: 'Chat', section: 'chat', external: false }] : []),

@@ -28,6 +28,8 @@ const OUDE_VAKJES = [
   'administratie_bekijken', 'administratie_beheren',
   'stijlvoorbeelden',
   'mijn-gedacht', 'mijn_gedacht_types_beheren',
+  // Nieuw sinds de rollen (module Poolwagens).
+  'poolwagens', 'poolwagens_beheren',
 ]
 
 // Zolang een onderdeel in de koelkast staat (src/lib/features.ts), geeft geen niveau

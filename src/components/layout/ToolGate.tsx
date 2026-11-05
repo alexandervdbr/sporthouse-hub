@@ -46,7 +46,8 @@ export default function ToolGate({ scroll, children }: { scroll: 'auto' | 'hidde
         <div className="flex-shrink-0 flex items-center gap-2.5 px-4 py-2 text-xs font-medium"
           style={{ backgroundColor: '#431407', borderBottom: '1px solid #9a341260', color: '#fdba74' }}>
           <FlaskConical size={13} className="flex-shrink-0" />
-          <span className="flex-1 truncate">
+          {/* Op een gsm afbreken in plaats van afkappen; vanaf 768 px één regel zoals voorheen. */}
+          <span className="flex-1 min-w-0 leading-snug md:truncate">
             <span className="font-bold">{tool.label}</span> staat in ontwikkeling — alleen admins zien deze tool.
             {' '}<span className="opacity-70">Collega&apos;s krijgen een melding. Wat je hier doet, gebeurt wel in de live data.</span>
           </span>

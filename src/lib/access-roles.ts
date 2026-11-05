@@ -130,6 +130,15 @@ const ALL_MODULES: AccessModule[] = [
     ],
   },
   {
+    key: 'poolwagens', label: 'Poolwagens', group: 'Werkvloer',
+    hint: 'Gebruiken = planning bekijken, reserveren, ritten registreren en schade melden. Beheren = ook wagens beheren, schadestatus en blokkades, en reservaties van anderen.',
+    levels: [
+      { key: 'geen',      label: 'Geen',      adds: [] },
+      { key: 'gebruiken', label: 'Gebruiken', adds: ['poolwagens'] },
+      { key: 'beheren',   label: 'Beheren',   adds: ['poolwagens_beheren'] },
+    ],
+  },
+  {
     key: 'preassist', label: 'Pré-assist', group: 'Werkvloer',
     hint: 'Beheren = edities aanmaken, andermans content verwijderen en downloaden.',
     levels: [

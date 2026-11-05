@@ -39,6 +39,9 @@ export const DEV_TOOLS: DevTool[] = [
   // tool_status blijven, zodat er niets verschuift.
   { key: 'materiaal',    label: 'Materiaal (oud, in de koelkast)', path: '/equipment' },
   { key: 'materiaalplanner', label: 'Materiaal', path: '/materiaal' },
+  // Poolwagens: blijft in ontwikkeling tot de vrijgave; tot dan zien alleen
+  // admins het.
+  { key: 'poolwagens',   label: 'Poolwagens',    path: '/poolwagens' },
   { key: 'projecten',    label: 'Projecten',     path: '/projects' },
   { key: 'team',         label: 'Team',          path: '/team' },
   { key: 'freelancers',  label: 'Freelancers',   path: '/freelancers' },
