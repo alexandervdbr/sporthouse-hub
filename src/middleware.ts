@@ -1,7 +1,12 @@
-import { type NextRequest } from 'next/server'
+import { NextResponse, type NextRequest } from 'next/server'
 import { updateSession } from '@/lib/supabase/middleware'
+import { isLegacyEquipmentWrite, LEGACY_CLOSED_TEXT } from '@/lib/legacy-equipment'
 
 export async function middleware(request: NextRequest) {
+  // De oude materiaalplanner neemt geen wijzigingen meer aan (zie src/lib/legacy-equipment.ts).
+  if (isLegacyEquipmentWrite(request.method, request.nextUrl.pathname)) {
+    return new NextResponse(LEGACY_CLOSED_TEXT, { status: 410 })
+  }
   return await updateSession(request)
 }
 
