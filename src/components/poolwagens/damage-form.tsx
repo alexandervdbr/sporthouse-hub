@@ -4,14 +4,15 @@ import { ImagePlus, X } from 'lucide-react'
 import { inputCls, labelCls, send } from './ui'
 import { putFileToDrive } from '@/lib/drive-upload-client'
 import { MAX_PHOTOS } from '@/lib/poolwagens/damage-input'
-import { isAllowedPhoto, MAX_PHOTO_BYTES, MAX_PHOTO_LABEL, PHOTO_HINT } from '@/lib/poolwagens/photos'
+import { isAllowedPhoto, mapLimit, MAX_PHOTO_BYTES, MAX_PHOTO_LABEL, PARALLEL_UPLOADS, PHOTO_HINT } from '@/lib/poolwagens/photos'
 import type { DamageResult } from '@/lib/poolwagens/arrival-flow'
 import type { DamageSeverity } from '@/lib/poolwagens/types'
 
 // De velden en het opslaan van een schademelding, gedeeld door "Schade
 // melden" (DamageDialog) en het aankomstformulier (ReservationDetail).
 // Eerst wordt de melding opgeslagen; daarna gaan de foto's rechtstreeks naar
-// Drive (zoals Pré-assist), en tot slot de mail en de push. Lukt een foto of
+// Drive (zoals Pré-assist), met hoogstens drie tegelijk, en tot slot de mail
+// en de push. Lukt een foto of
 // de mail niet, dan blijft de melding gewoon bestaan.
 
 export interface DamageDraft {
@@ -116,20 +117,7 @@ export async function submitDamage({ carId, reservationId, draft, onProgress }: 
   }
 
   // Vanaf hier is de melding opgeslagen; wat volgt mag mislukken.
-  const failed: string[] = []
-  const files = draft.files
-  for (const [i, file] of files.entries()) {
-    try {
-      onProgress(`Foto ${i + 1} van ${files.length} uploaden…`)
-      const { uploadUrl } = await send<{ uploadUrl: string }>('/api/poolwagens/damage/upload-session', 'POST', {
-        report_id: reportId, filename: file.name, mimeType: file.type || 'application/octet-stream', fileSize: file.size,
-      })
-      await putFileToDrive(file, uploadUrl, pct => onProgress(`Foto ${i + 1} van ${files.length}: ${pct}%`))
-      await send('/api/poolwagens/damage/finalize', 'POST', { report_id: reportId, uploadUrl, fileSize: file.size })
-    } catch {
-      failed.push(file.name)
-    }
-  }
+  const failed = draft.files.length ? await uploadPhotos(reportId, draft.files, onProgress) : []
 
   onProgress('Verantwoordelijke verwittigen…')
   await send('/api/poolwagens/damage/' + reportId + '/notify', 'POST').catch(() => {})
@@ -143,4 +131,54 @@ export async function submitDamage({ carId, reservationId, draft, onProgress }: 
         ? 'Melding opgeslagen. De wagen is geblokkeerd voor nieuwe reservaties tot de schade hersteld is.'
         : 'Melding opgeslagen.',
   }
+}
+
+/**
+ * Alle foto's van een melding: één verzoek voor de uploadsessies, de bytes
+ * met hoogstens PARALLEL_UPLOADS tegelijk rechtstreeks naar Drive, en één
+ * verzoek om af te ronden. Geeft de namen van de foto's die niet aankwamen.
+ */
+async function uploadPhotos(reportId: string, files: File[], onProgress: (text: string) => void): Promise<string[]> {
+  const label = files.length === 1 ? 'Foto uploaden' : `${files.length} foto’s uploaden`
+  onProgress(`${label}…`)
+
+  let uploadUrls: string[]
+  try {
+    uploadUrls = (await send<{ uploadUrls: string[] }>('/api/poolwagens/damage/upload-session', 'POST', {
+      report_id: reportId,
+      files: files.map(f => ({ filename: f.name, mimeType: f.type || 'application/octet-stream', fileSize: f.size })),
+    })).uploadUrls
+  } catch {
+    return files.map(f => f.name)
+  }
+
+  // Voortgang over alle foto's samen, naar verhouding van hun grootte.
+  const total = files.reduce((n, f) => n + f.size, 0) || 1
+  const sent = files.map(() => 0)
+  const report = () => onProgress(`${label}: ${Math.round((sent.reduce((a, b) => a + b, 0) / total) * 100)}%`)
+
+  const arrived = await mapLimit(files, PARALLEL_UPLOADS, async (file, i) => {
+    try {
+      await putFileToDrive(file, uploadUrls[i], pct => { sent[i] = (file.size * pct) / 100; report() })
+      return true
+    } catch {
+      return false
+    }
+  })
+
+  const done = files.map((f, i) => ({ f, i })).filter(x => arrived[x.i])
+  const failed = files.filter((_, i) => !arrived[i]).map(f => f.name)
+  if (done.length === 0) return failed
+
+  onProgress('Foto’s opslaan…')
+  try {
+    const { results } = await send<{ results: { ok: boolean }[] }>('/api/poolwagens/damage/finalize', 'POST', {
+      report_id: reportId,
+      uploads: done.map(x => ({ uploadUrl: uploadUrls[x.i], fileSize: x.f.size })),
+    })
+    done.forEach((x, j) => { if (!results[j]?.ok) failed.push(x.f.name) })
+  } catch {
+    failed.push(...done.map(x => x.f.name))
+  }
+  return failed
 }
