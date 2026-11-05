@@ -246,6 +246,9 @@ export async function POST(request: NextRequest) {
     fetchPlanningMonth(supabase, curY, curM),
     fetchPlanningMonth(supabase, nxt.year, nxt.month),
     fetchRoster(),
+    // TODO(#237): leest nog de oude, bevroren materiaaltabellen (equipment,
+    // equipment_reservations, day_projects). Omzetten naar gear_*:
+    // https://github.com/alexandervdbr/sporthouse-hub/issues/237
     supabase.from('equipment').select('id, name, category').order('category').order('name'),
     supabase.from('equipment_reservations').select('equipment_id, date, reserved_by, project').gte('date', cur.start).lte('date', cur.end),
     supabase.from('equipment_reservations').select('equipment_id, date, reserved_by, project').gte('date', next.start).lte('date', next.end),

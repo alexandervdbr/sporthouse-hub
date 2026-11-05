@@ -22,6 +22,15 @@ const nextConfig = {
     // which is why large uploads go through the chunked path.
     proxyClientMaxBodySize: '2gb',
   },
+  // De oude materiaalplanner staat in de koelkast (src/lib/legacy-equipment.ts):
+  // elke /equipment-pagina gaat naar de nieuwe planner. Tijdelijk (307), niet
+  // permanent, zodat browsers het niet onthouden mocht hij ooit terugkomen.
+  async redirects() {
+    return [
+      { source: '/equipment', destination: '/materiaal', permanent: false },
+      { source: '/equipment/:path*', destination: '/materiaal', permanent: false },
+    ]
+  },
   images: {
     remotePatterns: supabaseHost
       ? [{ protocol: 'https', hostname: supabaseHost, pathname: '/storage/v1/object/public/**' }]
