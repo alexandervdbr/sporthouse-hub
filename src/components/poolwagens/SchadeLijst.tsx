@@ -135,9 +135,9 @@ export default function SchadeLijst({ access, highlight }: { access: PoolwagenAc
                       </div>
                       <p className="text-xs text-zinc-500">{formatShort(d.created_at)} · {d.reported_by_name}{d.reservation_id ? ' · bij een rit' : ''}</p>
                     </div>
-                    {/* De eerste foto als miniatuur, ook op een gsm. */}
+                    {/* Gsm: de eerste foto als miniatuur naast de tekst. Desktop: alle foto's samen op de rij eronder. */}
                     {thumb && (
-                      <a href={`/api/poolwagens/damage/photo/${thumb.id}`} target="_blank" rel="noreferrer" title={thumb.filename} className="flex-shrink-0">
+                      <a href={`/api/poolwagens/damage/photo/${thumb.id}`} target="_blank" rel="noreferrer" title={thumb.filename} className="flex-shrink-0 md:hidden">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={`/api/poolwagens/damage/photo/${thumb.id}?size=small`} alt={thumb.filename} loading="lazy"
                           className="w-16 h-16 md:w-20 md:h-20 object-cover rounded-lg border border-zinc-800 bg-zinc-950" />
@@ -153,10 +153,11 @@ export default function SchadeLijst({ access, highlight }: { access: PoolwagenAc
                     </p>
                   )}
 
-                  {d.photos.length > 1 && (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {d.photos.slice(1).map(p => (
-                        <a key={p.id} href={`/api/poolwagens/damage/photo/${p.id}`} target="_blank" rel="noreferrer" title={p.filename}>
+                  {d.photos.length > 0 && (
+                    <div className={`mt-3 flex-wrap gap-2 ${d.photos.length > 1 ? 'flex' : 'hidden md:flex'}`}>
+                      {d.photos.map((p, i) => (
+                        <a key={p.id} href={`/api/poolwagens/damage/photo/${p.id}`} target="_blank" rel="noreferrer" title={p.filename}
+                          className={i === 0 ? 'hidden md:block' : undefined}>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img src={`/api/poolwagens/damage/photo/${p.id}?size=small`} alt={p.filename} loading="lazy"
                             className="w-16 h-16 md:w-20 md:h-20 object-cover rounded-lg border border-zinc-800 bg-zinc-950" />
