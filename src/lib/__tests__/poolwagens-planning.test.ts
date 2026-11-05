@@ -6,11 +6,11 @@ import {
 import {
   DAY_SLOTS, columnIsPast, loadView, nowPercent, saveView, selectionToPeriod, shiftAnchor, slotLocal, viewWindow,
 } from '@/lib/poolwagens/views'
-import { carsInPeriod, carsNow, presetPeriod } from '@/lib/poolwagens/status'
+import { carsNow } from '@/lib/poolwagens/status'
 import { buildAgenda } from '@/lib/poolwagens/agenda'
 import { MAX_DAY_BLOCKS, barTime, buildPoolGrid } from '@/lib/poolwagens/grid'
 import { runArrival } from '@/lib/poolwagens/arrival-flow'
-import { reservationFormProblem } from '@/lib/poolwagens/reservation-form'
+import { NO_FREE_CAR_TEXT, carChoices, pickFreeCar, reservationFormProblem } from '@/lib/poolwagens/reservation-form'
 import { parsePlanningRange } from '@/lib/poolwagens/planning-range'
 import { DUPLICATE_NAME_TEXT, isDuplicateCarName } from '@/lib/poolwagens/car-input'
 import { parseDepartNowInput, parseReservationInput } from '@/lib/poolwagens/reservation-input'
@@ -277,43 +277,56 @@ describe('statuslijst "Nu"', () => {
   })
 })
 
-describe('beschikbaarheid in een periode', () => {
-  it('Straks is nu tot +3 uur, Morgen is 09:00–17:00', () => {
-    expect(presetPeriod('straks', NOW)).toEqual({ start: '2026-11-04T10:00', end: '2026-11-04T13:00' })
-    expect(presetPeriod('morgen', NOW)).toEqual({ start: '2026-11-05T09:00', end: '2026-11-05T17:00' })
-  })
+describe('wagenkeuze in het reserveerformulier', () => {
+  const choose = (startISO: string | null, endISO: string | null, editing: PoolReservation | null = null) =>
+    carChoices({ planning: planning(), startISO, endISO, editing, now: NOW })
 
   it('vrij, bezet of geblokkeerd, met de vrije bovenaan', () => {
     // Vandaag 10:00–13:00
-    const rows = carsInPeriod(planning(), '2026-11-04T09:00:00Z', '2026-11-04T12:00:00Z', 'u1', NOW)
+    const rows = choose('2026-11-04T09:00:00Z', '2026-11-04T12:00:00Z')!
     expect(rows.map(r => [r.car.id, r.kind])).toEqual([
       ['2', 'vrij'], ['4', 'vrij'], ['8', 'vrij'],
       ['1', 'bezet'], ['3', 'bezet'], ['5', 'bezet'],
       ['6', 'geblokkeerd'], ['7', 'geblokkeerd'],
     ])
     const by = new Map(rows.map(r => [r.car.id, r]))
-    expect(by.get('1')!.label).toBe('Bezet: Anna 10:00–11:00')
-    expect(by.get('3')!.label).toBe('Bezet: Bram 9:00–morgen 9:00')
-    expect(by.get('5')!.label).toBe('Bezet: Bram ma 2/11 8:00–vr 6/11 17:00')
-    expect(by.get('6')!.label).toBe('Geblokkeerd: onderhoud')
-    // Te laat terug, maar de geplande terugkomst is voorbij: zoals de server niet bezet.
-    expect(by.get('2')!.notBack).toBe(true)
+    expect(by.get('2')!.label).toBe('Vrij')
+    expect(by.get('1')!.label).toBe('Bezet door Anna tot 11:00')
+    expect(by.get('3')!.label).toBe('Bezet door Bram tot morgen 9:00')
+    expect(by.get('6')!.label).toBe('Geblokkeerd')
   })
 
-  it('de actie per regel', () => {
-    const by = new Map(carsInPeriod(planning(), '2026-11-04T09:00:00Z', '2026-11-04T12:00:00Z', 'u1', NOW).map(r => [r.car.id, r]))
-    expect(by.get('4')!.action).toEqual({ kind: 'reserveren' })
-    expect(by.get('1')!.action).toEqual({ kind: 'aankomst', reservationId: 'r1' }) // je eigen rit onderweg
-    expect(by.get('3')!.action).toEqual({ kind: 'details', reservationId: 'r3' })
-    expect(by.get('7')!.action).toEqual({ kind: 'geen' })
-    const noBooking = carsInPeriod(planning(), '2026-11-04T09:00:00Z', '2026-11-04T12:00:00Z', 'u1', NOW, false)
-    expect(noBooking.find(r => r.car.id === '4')!.action).toEqual({ kind: 'geen' })
+  it('pas zodra de periode geldig ingevuld is', () => {
+    expect(choose(null, '2026-11-04T12:00:00Z')).toBeNull()
+    expect(choose('2026-11-04T12:00:00Z', '2026-11-04T12:00:00Z')).toBeNull()
   })
 
-  it('morgen: aansluitend is vrij (halfopen), een overlap niet', () => {
-    const by = new Map(carsInPeriod(planning(), '2026-11-05T08:00:00Z', '2026-11-05T16:00:00Z', 'u1', NOW).map(r => [r.car.id, r]))
+  it('aansluitend is vrij (halfopen), een overlap niet', () => {
+    const by = new Map(choose('2026-11-05T08:00:00Z', '2026-11-05T16:00:00Z')!.map(r => [r.car.id, r]))
     expect(by.get('3')!.kind).toBe('vrij') // r3 eindigt morgen om 9:00
-    expect(by.get('4')!.label).toBe('Bezet: Jan morgen 9:00–17:00')
+    expect(by.get('4')!.label).toBe('Bezet door Jan tot morgen 17:00')
+  })
+
+  it('een reservatie die je wijzigt botst niet met zichzelf', () => {
+    const r1 = planning().reservations.find(r => r.id === 'r1')!
+    const by = new Map(choose('2026-11-04T09:00:00Z', '2026-11-04T12:00:00Z', r1)!.map(r => [r.car.id, r]))
+    expect(by.get('1')!.kind).toBe('vrij')
+  })
+
+  it('niet meer vrij na een andere periode: de eerste vrije wordt gekozen', () => {
+    const rows = choose('2026-11-04T09:00:00Z', '2026-11-04T12:00:00Z')!
+    expect(pickFreeCar(rows, '1')).toEqual({ carId: '2', switched: expect.objectContaining({ id: '1' }) })
+    expect(pickFreeCar(rows, '4')).toEqual({ carId: '4', switched: null }) // vrij: blijft
+    expect(pickFreeCar(null, '1')).toEqual({ carId: '1', switched: null }) // periode nog niet ingevuld
+  })
+
+  it('geen enkele wagen vrij: de keuze blijft, met een melding', () => {
+    const full = planning()
+    full.cars = full.cars.filter(c => ['1', '6'].includes(c.id))
+    const rows = carChoices({ planning: full, startISO: '2026-11-04T09:00:00Z', endISO: '2026-11-04T12:00:00Z', editing: null, now: NOW })!
+    expect(rows.some(r => r.kind === 'vrij')).toBe(false)
+    expect(pickFreeCar(rows, '1')).toEqual({ carId: '1', switched: null })
+    expect(NO_FREE_CAR_TEXT).toBe('Geen wagen vrij in deze periode.')
   })
 })
 

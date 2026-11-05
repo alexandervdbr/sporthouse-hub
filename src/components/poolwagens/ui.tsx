@@ -8,6 +8,8 @@ import { CheckCircle2, Loader2, X } from 'lucide-react'
 // uit de materiaalplanner (src/components/materiaal/ui.tsx); hier alleen wat
 // daar niet bestaat.
 
+import { inputCls } from '@/components/materiaal/ui'
+
 export { ACCENT, ErrorLine, inputCls, labelCls, send } from '@/components/materiaal/ui'
 
 /**
@@ -53,6 +55,19 @@ export const pageX = 'px-4 md:px-6'
 export const pageStack = 'space-y-4'
 /** Een blok (lijst, filter, kaart). */
 export const panelCls = 'rounded-xl border border-zinc-800 bg-zinc-900/30'
+/**
+ * De inhoud van een pagina: dezelfde breedte en marges als PoolHeader (de
+ * volle breedte), zodat de actieknop rechts gelijk valt met de inhoud.
+ */
+export const pageBody = `${pageX} py-4 ${pageStack}`
+/**
+ * Filters boven een lijst. Gsm: een kaart met de velden onder elkaar.
+ * Desktop: een compacte rij zonder kaart, elk veld op zijn natuurlijke
+ * breedte, die doorloopt op een volgende regel als ze niet past.
+ */
+export const filterBarCls = `${panelCls} p-3 grid grid-cols-1 gap-3 md:flex md:flex-wrap md:items-end md:gap-x-3 md:gap-y-2 md:p-0 md:border-0 md:rounded-none md:bg-transparent`
+/** Een veld in de filterrij: op desktop zo breed als de inhoud. */
+export const filterInputCls = `${inputCls} md:w-auto`
 
 type Tab = 'planning' | 'historiek' | 'schade' | 'beheer'
 

@@ -6,7 +6,7 @@ import { ACCENT, ErrorLine, inputCls, labelCls, send } from '@/components/materi
 import type { PoolCar } from '@/lib/poolwagens/types'
 import { DUPLICATE_NAME_TEXT, isDuplicateCarName } from '@/lib/poolwagens/car-input'
 import MailSettings from './MailSettings'
-import { EmptyState, PoolHeader, actionCls, buttonCls, pageStack, pageX, panelCls } from './ui'
+import { EmptyState, PoolHeader, actionCls, buttonCls, pageBody, panelCls } from './ui'
 
 // Beheer van de poolwagens: toevoegen, bewerken, handmatig niet beschikbaar
 // zetten en archiveren. Verwijderen bestaat niet, zodat de historiek blijft.
@@ -59,7 +59,7 @@ export default function PoolwagenBeheer() {
     <div className="min-h-full pb-8">
       <PoolHeader current="beheer" manage loading={!cars && !error} actions={cars ? addButton : undefined} />
 
-      <div className={`${pageX} py-4 ${pageStack} max-w-4xl`}>
+      <div className={pageBody}>
         <ErrorLine>{error}</ErrorLine>
 
         {cars && (

@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { Car, Check, Loader2 } from 'lucide-react'
 import { ACCENT, ErrorLine, Modal, inputCls, labelCls, secondaryCls, buttonCls, send } from './ui'
 import { blockFor } from '@/lib/poolwagens/status'
-import { reservationFormProblem } from '@/lib/poolwagens/reservation-form'
+import { NO_FREE_CAR_TEXT, carChoices, pickFreeCar, reservationFormProblem } from '@/lib/poolwagens/reservation-form'
 import { brusselsLocalToISO, isoToBrusselsLocal as toLocal } from '@/lib/poolwagens/time'
 import type { PoolOptions, PoolPlanning, PoolReservation } from '@/lib/poolwagens/types'
 
@@ -13,6 +13,12 @@ import type { PoolOptions, PoolPlanning, PoolReservation } from '@/lib/poolwagen
 // met wat de planner kent; de database beslist (en weigert ook wat hier niet
 // zichtbaar was). Er staat altijd hoogstens één melding: die van de server
 // vervangt die van het formulier, en verdwijnt zodra je iets aanpast.
+//
+// De wagenkeuze toont per wagen of hij in de gekozen periode vrij is, de
+// vrije bovenaan. Wordt de gekozen wagen onvrij door een andere periode, dan
+// springt de keuze naar de eerste vrije. Een wagen die je meebracht (klik in
+// het raster, Nu vertrekken) blijft bij het openen gewoon gekozen; zonder
+// wagen (carId '') begint het formulier op de eerste vrije.
 
 export type ReservationDialogMode =
   | { kind: 'new'; carId: string; start: string; end: string }
@@ -29,9 +35,19 @@ export default function ReservationDialog({ mode, planning, options, userId, man
   onSaved: () => void
 }) {
   const editing = mode.kind === 'edit' ? mode.reservation : null
-  const [carId, setCarId] = useState(mode.kind === 'edit' ? mode.reservation.car_id : mode.carId)
+  const now = useMemo(() => new Date(planning.now), [planning.now])
+  const choicesFor = (s: string, e: string) => carChoices({
+    planning, editing, now, startISO: mode.kind === 'now' ? planning.now : brusselsLocalToISO(s), endISO: brusselsLocalToISO(e),
+  })
   const [start, setStart] = useState(mode.kind === 'new' ? mode.start : mode.kind === 'edit' ? toLocal(mode.reservation.start_at) : '')
   const [end, setEnd] = useState(mode.kind === 'edit' ? toLocal(mode.reservation.end_at) : mode.end)
+  const [carId, setCarId] = useState(() => {
+    if (mode.kind === 'edit') return mode.reservation.car_id
+    if (mode.carId) return mode.carId
+    const first = choicesFor(start, end)?.find(c => c.kind === 'vrij') ?? null
+    return first?.car.id ?? planning.cars.find(c => !c.archived_at)?.id ?? ''
+  })
+  const [switchNote, setSwitchNote] = useState('')
   const [personId, setPersonId] = useState(userId)
   const [clientText, setClientText] = useState(editing?.client_name ?? '')
   const [note, setNote] = useState(editing?.note ?? '')
@@ -40,12 +56,29 @@ export default function ReservationDialog({ mode, planning, options, userId, man
   const [error, setError] = useState('')
 
   // Elke aanpassing wist de melding van de server: die ging over de vorige invoer.
-  const edit = <T,>(set: (v: T) => void) => (v: T) => { set(v); setError('') }
+  const edit = <T,>(set: (v: T) => void) => (v: T) => { set(v); setError(''); setSwitchNote('') }
 
   const started = !!editing?.departed_at
   const cars = planning.cars.filter(c => !c.archived_at)
   const car = cars.find(c => c.id === carId) ?? null
-  const now = useMemo(() => new Date(planning.now), [planning.now])
+  const choices = started ? null : choicesFor(start, end)
+  const noneFree = !!choices && !choices.some(c => c.kind === 'vrij')
+
+  // Een andere periode: is de gekozen wagen dan niet meer vrij, kies de eerste vrije.
+  function changePeriod(nextStart: string, nextEnd: string) {
+    setStart(nextStart)
+    setEnd(nextEnd)
+    setError('')
+    if (started) return
+    const pick = pickFreeCar(choicesFor(nextStart, nextEnd), carId)
+    if (pick.switched) {
+      setCarId(pick.carId)
+      const to = cars.find(c => c.id === pick.carId)
+      setSwitchNote(`${pick.switched.name} is dan niet vrij: ${to?.name ?? 'een andere wagen'} gekozen.`)
+    } else {
+      setSwitchNote('')
+    }
+  }
 
   const problem = reservationFormProblem({
     kind: mode.kind,
@@ -93,7 +126,7 @@ export default function ReservationDialog({ mode, planning, options, userId, man
   }
 
   const title = mode.kind === 'now' ? 'Nu vertrekken' : editing ? 'Reservatie wijzigen' : 'Poolwagen reserveren'
-  const message = error || problem
+  const message = error || (noneFree ? NO_FREE_CAR_TEXT : problem)
 
   return (
     <Modal title={title} onClose={onClose} footer={
@@ -109,10 +142,17 @@ export default function ReservationDialog({ mode, planning, options, userId, man
       <div>
         <label className={labelCls}>Wagen</label>
         <select className={inputCls} value={carId} onChange={e => edit(setCarId)(e.target.value)} disabled={started}>
-          {cars.map(c => (
+          {choices ? choices.map(c => (
+            // Bezet en geblokkeerd: grijs en niet te kiezen (behalve de wagen die al gekozen is).
+            <option key={c.car.id} value={c.car.id} disabled={c.kind !== 'vrij' && c.car.id !== carId}
+              className={c.kind === 'vrij' ? '' : 'text-zinc-500'}>
+              {c.car.name} — {c.car.license_plate} · {c.label}
+            </option>
+          )) : cars.map(c => (
             <option key={c.id} value={c.id}>{c.name} — {c.license_plate}{blockFor(c, planning) ? ' (niet beschikbaar)' : ''}</option>
           ))}
         </select>
+        {switchNote && <p role="status" className="mt-1 text-xs text-amber-300">{switchNote}</p>}
       </div>
 
       {editing ? (
@@ -132,12 +172,12 @@ export default function ReservationDialog({ mode, planning, options, userId, man
         {mode.kind !== 'now' && (
           <div>
             <label className={labelCls}>Vertrek</label>
-            <input type="datetime-local" className={inputCls} value={start} onChange={e => edit(setStart)(e.target.value)} />
+            <input type="datetime-local" className={inputCls} value={start} onChange={e => changePeriod(e.target.value, end)} />
           </div>
         )}
         <div className={mode.kind === 'now' ? 'sm:col-span-2' : ''}>
           <label className={labelCls}>Verwachte terugkomst</label>
-          <input type="datetime-local" className={inputCls} value={end} onChange={e => edit(setEnd)(e.target.value)} />
+          <input type="datetime-local" className={inputCls} value={end} onChange={e => changePeriod(start, e.target.value)} />
         </div>
       </div>
 

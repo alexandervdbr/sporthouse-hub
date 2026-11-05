@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Flag, Loader2, MailCheck, MailWarning, ShieldCheck, Unlock } from 'lucide-react'
 import DamageDialog from './DamageDialog'
 import {
-  EmptyState, ErrorLine, Notice, PoolHeader, actionCls, buttonCls, inputCls, labelCls, newNotice, pageStack, pageX, panelCls, secondaryCls, send,
+  EmptyState, ErrorLine, Notice, PoolHeader, actionCls, buttonCls, filterBarCls, filterInputCls, inputCls, labelCls, newNotice, pageBody, secondaryCls, send,
 } from './ui'
 import type { PoolwagenAccess } from '@/lib/poolwagens/access'
 import { isBlockingDamage } from '@/lib/poolwagens/blocking'
@@ -79,12 +79,12 @@ export default function SchadeLijst({ access, highlight }: { access: PoolwagenAc
     <div className="min-h-full pb-8">
       <PoolHeader current="schade" manage={access.manage} loading={!reports} actions={reportButton} />
 
-      <div className={`${pageX} py-4 ${pageStack} max-w-4xl`}>
-        {/* Filters: op een gsm onder elkaar, over de volle breedte. */}
-        <section aria-label="Filters" className={`${panelCls} p-3 md:p-4 grid grid-cols-1 md:grid-cols-[minmax(0,16rem)_auto] gap-3 md:items-end`}>
+      <div className={pageBody}>
+        {/* Filters: op een gsm onder elkaar; op desktop een compacte rij. */}
+        <section aria-label="Filters" className={filterBarCls}>
           <div>
             <label className={labelCls}>Wagen</label>
-            <select className={inputCls} value={car} onChange={e => setCar(e.target.value)}>
+            <select className={filterInputCls} value={car} onChange={e => setCar(e.target.value)}>
               <option value="">Alle wagens</option>
               {cars.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>

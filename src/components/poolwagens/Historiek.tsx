@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { History, Loader2 } from 'lucide-react'
 import {
-  ACCENT, EmptyState, ErrorLine, PoolHeader, actionCls, buttonCls, inputCls, km, labelCls, pageStack, pageX, panelCls, secondaryCls, send,
+  ACCENT, EmptyState, ErrorLine, PoolHeader, actionCls, buttonCls, filterBarCls, filterInputCls, km, labelCls, pageBody, panelCls, secondaryCls, send,
 } from './ui'
 import type { PoolwagenAccess } from '@/lib/poolwagens/access'
 import { formatShort } from '@/lib/poolwagens/time'
@@ -67,19 +67,19 @@ export default function Historiek({ access }: { access: PoolwagenAccess }) {
     <div className="min-h-full pb-8">
       <PoolHeader current="historiek" manage={access.manage} loading={loading} />
 
-      <div className={`${pageX} py-4 ${pageStack} max-w-6xl`}>
-        {/* Filters: op een gsm onder elkaar, over de volle breedte. */}
-        <section aria-label="Filters" className={`${panelCls} p-3 md:p-4 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3 md:items-end`}>
+      <div className={pageBody}>
+        {/* Filters: op een gsm onder elkaar; op desktop een compacte rij. */}
+        <section aria-label="Filters" className={filterBarCls}>
           <div>
             <label className={labelCls}>Wagen</label>
-            <select className={inputCls} value={filters.car} onChange={e => set('car', e.target.value)}>
+            <select className={filterInputCls} value={filters.car} onChange={e => set('car', e.target.value)}>
               <option value="">Alle wagens</option>
               {cars.map(c => <option key={c.id} value={c.id}>{c.name}{c.archived_at ? ' (gearchiveerd)' : ''}</option>)}
             </select>
           </div>
           <div>
             <label className={labelCls}>Collega</label>
-            <select className={inputCls} value={filters.user} onChange={e => set('user', e.target.value)}>
+            <select className={filterInputCls} value={filters.user} onChange={e => set('user', e.target.value)}>
               <option value="">Iedereen</option>
               {(options?.colleagues ?? []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
@@ -87,7 +87,7 @@ export default function Historiek({ access }: { access: PoolwagenAccess }) {
           <div>
             <label className={labelCls}>Klant</label>
             {/* Zoekt pas bij Enter of als je het veld verlaat: geen verzoek per toets. */}
-            <input className={inputCls} list="historiek-klanten" value={clientDraft} placeholder="Alle klanten" autoComplete="off"
+            <input className={filterInputCls} list="historiek-klanten" value={clientDraft} placeholder="Alle klanten" autoComplete="off"
               onChange={e => setClientDraft(e.target.value)}
               onBlur={() => { if (clientDraft !== filters.client) set('client', clientDraft) }}
               onKeyDown={e => { if (e.key === 'Enter' && clientDraft !== filters.client) set('client', clientDraft) }} />
@@ -97,11 +97,11 @@ export default function Historiek({ access }: { access: PoolwagenAccess }) {
           </div>
           <div>
             <label className={labelCls}>Vertrek vanaf</label>
-            <input type="date" className={inputCls} value={filters.from} onChange={e => set('from', e.target.value)} />
+            <input type="date" className={filterInputCls} value={filters.from} onChange={e => set('from', e.target.value)} />
           </div>
           <div>
             <label className={labelCls}>Vertrek tot en met</label>
-            <input type="date" className={inputCls} value={filters.to} onChange={e => set('to', e.target.value)} />
+            <input type="date" className={filterInputCls} value={filters.to} onChange={e => set('to', e.target.value)} />
           </div>
           <div className="flex items-center justify-between md:justify-start gap-3 min-h-11 md:min-h-0 md:pb-2">
             <label className="inline-flex items-center gap-2 text-sm text-zinc-300">

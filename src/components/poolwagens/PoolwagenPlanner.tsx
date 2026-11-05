@@ -7,9 +7,9 @@ import PoolwagenGrid, { STATE_COLOR, STATE_LABEL } from './PoolwagenGrid'
 import ReservationDialog, { type ReservationDialogMode } from './ReservationDialog'
 import ReservationDetail from './ReservationDetail'
 import DamageDialog from './DamageDialog'
-import Beschikbaarheid from './Beschikbaarheid'
+import NuStatus from './NuStatus'
 import AgendaList from './AgendaList'
-import { ACCENT, ErrorLine, Notice, PoolHeader, buttonCls, newNotice, pageStack, pageX, panelCls, secondaryCls, send } from './ui'
+import { ACCENT, ErrorLine, Notice, PoolHeader, buttonCls, newNotice, pageBody, panelCls, secondaryCls, send } from './ui'
 import type { PoolwagenAccess } from '@/lib/poolwagens/access'
 import { addDays, eachDay, todayInBrussels } from '@/lib/gear/dates'
 import { buildAgenda } from '@/lib/poolwagens/agenda'
@@ -26,7 +26,8 @@ import type { PoolOptions, PoolPlanning } from '@/lib/poolwagens/types'
 // De planningspagina, van boven naar onder, als blokken met dezelfde
 // tussenruimte (pageStack):
 //   1. "Mijn ritten";
-//   2. "Beschikbaarheid": een regel per wagen, nu of in een gekozen periode;
+//   2. "Nu": per wagen de toestand van dit moment, de volgende reservatie en
+//      één actie (vrije wagens zoeken gebeurt in het reserveerformulier);
 //   3. desktop: het raster in Dag, Week (standaard) of Maand;
 //      gsm (< 768 px): een agenda per dag, per week te bladeren, met een vaste
 //      balk onderaan voor Schade melden, Nu vertrekken en Reserveren.
@@ -116,7 +117,8 @@ export default function PoolwagenPlanner({ userId, access }: { userId: string; a
   }
 
   const firstFree = statusRows.find(r => r.kind === 'vrij')?.car.id ?? statusRows[0]?.car.id ?? ''
-  const newReservation = () => setDialog({ kind: 'form', mode: { kind: 'new', carId: firstFree, start: nextHourLocal(), end: nextHourLocal(new Date(), 3) } })
+  // Zonder wagen: het formulier kiest de eerste die in die periode vrij is.
+  const newReservation = () => setDialog({ kind: 'form', mode: { kind: 'new', carId: '', start: nextHourLocal(), end: nextHourLocal(new Date(), 3) } })
   const reportDamage = () => setDialog({ kind: 'damage', carId: firstFree, reservationId: null })
   const departNow = (carId = firstFree) => setDialog({ kind: 'form', mode: { kind: 'now', carId, end: nextHourLocal(new Date(), 3) } })
 
@@ -136,7 +138,7 @@ export default function PoolwagenPlanner({ userId, access }: { userId: string; a
         </div>
       )} />
 
-      <div className={`${pageX} py-4 ${pageStack}`}>
+      <div className={pageBody}>
       {(error || notice) && (
         <div className="space-y-2">
           <ErrorLine>{error}</ErrorLine>
@@ -178,9 +180,8 @@ export default function PoolwagenPlanner({ userId, access }: { userId: string; a
             </section>
           )}
 
-          <Beschikbaarheid planning={planning} userId={userId} canBook={access.use}
+          <NuStatus planning={planning} userId={userId} canBook={access.use}
             onDepart={carId => departNow(carId)}
-            onReserve={(carId, start, end) => setDialog({ kind: 'form', mode: { kind: 'new', carId, start, end } })}
             onArrive={id => setDialog({ kind: 'detail', id, initialForm: 'aankomst' })}
             onDetails={id => setDialog({ kind: 'detail', id })} />
 

@@ -5,7 +5,7 @@ import { brusselsDayStartISO } from './time'
 // beide inbegrepen) of een maand. Hoogstens 62 dagen, zodat één verzoek
 // klein blijft.
 
-export const MAX_RANGE_DAYS = 62
+const MAX_RANGE_DAYS = 62
 
 const MONTH_RE = /^(\d{4})-(0[1-9]|1[0-2])$/
 
