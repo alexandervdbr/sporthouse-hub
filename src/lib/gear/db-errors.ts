@@ -15,6 +15,7 @@ const STATUS_BY_CODE: Record<string, number> = {
   '23P01': 409, // overlapt met een boeking
   '23514': 400, // regel geschonden
   '22023': 400, // ongeldige invoer
+  'P0001': 409, // regel van een functie (bv. "minstens één categorie")
   'P0002': 404, // niet gevonden
   'PGRST116': 404, // .single() vond geen rij (bestaat niet, of RLS verbergt hem)
 }

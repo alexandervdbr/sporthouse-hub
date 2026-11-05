@@ -212,7 +212,7 @@ export default function InventoryTree({ access, initialKitId }: { access: GearAc
 
       {panel && (
         <GearPanel target={panel} catalog={catalog} people={peopleAll} access={access}
-          onClose={() => setPanel(null)} onOpen={setPanel} reload={reload} run={actions.run} onAdd={setAdd}
+          onClose={() => setPanel(null)} onOpen={setPanel} reload={reload} run={actions.run} deleteCategory={actions.deleteCategory} onAdd={setAdd}
           onChange={fn => setCatalog(c => (c ? fn(c) : c))} />
       )}
       {add && (

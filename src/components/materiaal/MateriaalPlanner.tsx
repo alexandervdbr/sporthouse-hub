@@ -226,7 +226,7 @@ export default function MateriaalPlanner({ userId, access }: { userId: string; a
 
       {panel && catalog && (
         <GearPanel target={panel} catalog={catalog} people={people} access={access}
-          onClose={() => setPanel(null)} onOpen={setPanel} reload={reloadCatalog} run={actions.run} onAdd={setAdd}
+          onClose={() => setPanel(null)} onOpen={setPanel} reload={reloadCatalog} run={actions.run} deleteCategory={actions.deleteCategory} onAdd={setAdd}
           onChange={fn => setCatalog(c => (c ? fn(c) : c))} />
       )}
       {add && catalog && (

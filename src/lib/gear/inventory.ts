@@ -327,3 +327,25 @@ export function serialDuplicates(catalog: GearCatalog, serial: string | null | u
 export function touchesBookings(s: Step): s is Extract<Step, { op: 'move' }> {
   return s.op === 'move' && s.updateBookings
 }
+
+/**
+ * Wat er in een categorie zit, zoals het verwijdervenster het toont: de kits
+ * (met hun onderdelen), de losse items, en de onderdelen die in een kit van
+ * een andere categorie zitten maar deze als eigen categorie hebben. Bij
+ * verwijderen gaat dat alles naar één andere categorie; die onderdelen blijven
+ * in hun kit. Opgeheven kits staan niet in de catalogus; de database neemt ze
+ * zelf mee.
+ */
+export function categoryContents(catalog: GearCatalog, categoryId: string) {
+  const kitOf = kitByItem(catalog.kits)
+  const own = catalog.items.filter(i => i.category_id === categoryId)
+  const kits = catalog.kits.filter(k => k.category_id === categoryId).sort(byOrder)
+  const loose = own.filter(i => !kitOf.has(i.id)).sort(byOrder)
+  const partsElsewhere = own.filter(i => { const k = kitOf.get(i.id); return !!k && k.category_id !== categoryId }).sort(byOrder)
+  return {
+    kits, loose, partsElsewhere,
+    /** Wat de gebruiker ziet verhuizen: kits, losse items en onderdelen elders. */
+    count: kits.length + loose.length + partsElsewhere.length,
+    empty: kits.length === 0 && own.length === 0,
+  }
+}
