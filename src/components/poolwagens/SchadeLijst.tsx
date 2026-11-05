@@ -1,9 +1,11 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Flag, Loader2, MailCheck, MailWarning, Unlock } from 'lucide-react'
+import { Flag, Loader2, MailCheck, MailWarning, ShieldCheck, Unlock } from 'lucide-react'
 import DamageDialog from './DamageDialog'
-import { ErrorLine, Notice, PoolNav, inputCls, labelCls, newNotice, secondaryCls, send } from './ui'
+import {
+  EmptyState, ErrorLine, Notice, PoolHeader, actionCls, buttonCls, inputCls, labelCls, newNotice, pageStack, pageX, panelCls, secondaryCls, send,
+} from './ui'
 import type { PoolwagenAccess } from '@/lib/poolwagens/access'
 import { isBlockingDamage } from '@/lib/poolwagens/blocking'
 import { DAMAGE_STATUSES, SEVERITY_LABEL, STATUS_LABEL } from '@/lib/poolwagens/damage-input'
@@ -67,17 +69,19 @@ export default function SchadeLijst({ access, highlight }: { access: PoolwagenAc
     }
   }
 
-  return (
-    <div className="h-full overflow-y-auto">
-      <div className="p-4 sm:p-8 max-w-4xl mx-auto">
-        <div className="flex flex-wrap items-center gap-4 mb-6">
-          <h1 className="text-lg font-semibold text-zinc-100">Poolwagens</h1>
-          <PoolNav current="schade" manage={access.manage} />
-          <button onClick={() => setReporting(true)} disabled={cars.length === 0}
-            className={`${secondaryCls} ml-auto`}><Flag size={13} /> Schade melden</button>
-        </div>
+  const canReport = cars.some(c => !c.archived_at)
+  const reportButton = (
+    <button onClick={() => setReporting(true)} disabled={!canReport}
+      className={`${buttonCls} ${actionCls} text-white bg-red-600 hover:bg-red-500`}><Flag size={13} /> Schade melden</button>
+  )
 
-        <div className="flex flex-wrap items-end gap-3 mb-4">
+  return (
+    <div className="min-h-full pb-8">
+      <PoolHeader current="schade" manage={access.manage} loading={!reports} actions={reportButton} />
+
+      <div className={`${pageX} py-4 ${pageStack} max-w-4xl`}>
+        {/* Filters: op een gsm onder elkaar, over de volle breedte. */}
+        <section aria-label="Filters" className={`${panelCls} p-3 md:p-4 grid grid-cols-1 md:grid-cols-[minmax(0,16rem)_auto] gap-3 md:items-end`}>
           <div>
             <label className={labelCls}>Wagen</label>
             <select className={inputCls} value={car} onChange={e => setCar(e.target.value)}>
@@ -85,81 +89,102 @@ export default function SchadeLijst({ access, highlight }: { access: PoolwagenAc
               {cars.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
-          <div className="flex p-0.5 rounded-lg bg-zinc-950 border border-zinc-800">
+          <div className="grid grid-cols-2 md:w-fit p-0.5 rounded-lg bg-zinc-950 border border-zinc-800">
             {(['open', 'all'] as const).map(s => (
-              <button key={s} onClick={() => setScope(s)}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium ${scope === s ? 'bg-zinc-700 text-white' : 'text-zinc-400'}`}>
+              <button key={s} onClick={() => setScope(s)} aria-pressed={scope === s}
+                className={`px-3 py-2 md:py-1.5 rounded-md text-xs font-medium ${scope === s ? 'bg-zinc-700 text-white' : 'text-zinc-400'}`}>
                 {s === 'open' ? 'Niet hersteld' : 'Alle'}
               </button>
             ))}
           </div>
-        </div>
+        </section>
 
-        <div className="space-y-2 mb-4">
-          <ErrorLine>{error}</ErrorLine>
-          <Notice notice={notice} onClose={() => setNotice(null)} />
-        </div>
+        {(error || notice) && (
+          <div className="space-y-2">
+            <ErrorLine>{error}</ErrorLine>
+            <Notice notice={notice} onClose={() => setNotice(null)} />
+          </div>
+        )}
 
-        {!reports ? <Loader2 size={18} className="animate-spin text-zinc-600" /> : reports.length === 0 ? (
-          <p className="text-sm text-zinc-500 py-6">Geen schademeldingen{scope === 'open' ? ' die nog open staan' : ''}.</p>
+        {!reports ? null : reports.length === 0 ? (
+          <EmptyState icon={<ShieldCheck size={18} />}
+            title={scope === 'open' ? 'Geen open schademeldingen' : 'Geen schademeldingen'}
+            text="Iets opgemerkt aan een poolwagen? Meld het hier, met foto’s."
+            action={canReport ? reportButton : undefined} />
         ) : (
           <div className="space-y-3">
             {reports.map(d => {
               const c = carById.get(d.car_id)
               const blocking = isBlockingDamage(d)
+              const thumb = d.photos[0]
               return (
                 <article key={d.id} id={d.id}
-                  className={`rounded-xl border p-4 ${d.id === highlight ? 'border-zinc-500 bg-zinc-900' : 'border-zinc-800 bg-zinc-900/40'}`}>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-medium text-zinc-100">{c?.name ?? 'Wagen'}</span>
-                    {c && <span className="px-1.5 py-0.5 rounded border border-zinc-700 text-[10px] font-mono text-zinc-300">{c.license_plate}</span>}
-                    <span className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold uppercase tracking-wide ${d.severity === 'ernstig' ? 'text-red-400 border-red-500/40 bg-red-500/10' : 'text-zinc-300 border-zinc-600 bg-zinc-800/60'}`}>
-                      {SEVERITY_LABEL[d.severity]}
-                    </span>
-                    <span className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold uppercase tracking-wide ${STATUS_STYLE[d.status]}`}>{STATUS_LABEL[d.status]}</span>
-                    {blocking && <span className="text-[10px] font-semibold uppercase tracking-wide text-red-400">Blokkeert de wagen</span>}
-                    {d.block_lifted_at && d.status !== 'hersteld' && (
-                      <span className="text-[10px] text-zinc-500">Blokkade opgeheven door {d.block_lifted_by_name}</span>
+                  className={`rounded-xl border p-3 md:p-4 ${d.id === highlight ? 'border-zinc-500 bg-zinc-900' : 'border-zinc-800 bg-zinc-900/40'}`}>
+                  <div className="flex gap-3">
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-medium text-zinc-100">{c?.name ?? 'Wagen'}</span>
+                        {c && <span className="px-1.5 py-0.5 rounded border border-zinc-700 text-[10px] font-mono text-zinc-300">{c.license_plate}</span>}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold uppercase tracking-wide ${d.severity === 'ernstig' ? 'text-red-400 border-red-500/40 bg-red-500/10' : 'text-zinc-300 border-zinc-600 bg-zinc-800/60'}`}>
+                          {SEVERITY_LABEL[d.severity]}
+                        </span>
+                        <span className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold uppercase tracking-wide ${STATUS_STYLE[d.status]}`}>{STATUS_LABEL[d.status]}</span>
+                        {blocking && <span className="text-[10px] font-semibold uppercase tracking-wide text-red-400">Blokkeert de wagen</span>}
+                      </div>
+                      <p className="text-xs text-zinc-500">{formatShort(d.created_at)} · {d.reported_by_name}{d.reservation_id ? ' · bij een rit' : ''}</p>
+                    </div>
+                    {/* De eerste foto als miniatuur, ook op een gsm. */}
+                    {thumb && (
+                      <a href={`/api/poolwagens/damage/photo/${thumb.id}`} target="_blank" rel="noreferrer" title={thumb.filename} className="flex-shrink-0">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={`/api/poolwagens/damage/photo/${thumb.id}?size=small`} alt={thumb.filename} loading="lazy"
+                          className="w-16 h-16 md:w-20 md:h-20 object-cover rounded-lg border border-zinc-800 bg-zinc-950" />
+                      </a>
                     )}
                   </div>
-                  <p className="mt-2 text-sm text-zinc-300 whitespace-pre-wrap">{d.description}</p>
-                  <p className="mt-1 text-xs text-zinc-500">
-                    Gemeld door {d.reported_by_name} op {formatShort(d.created_at)}{d.reservation_id ? ' · bij een rit' : ''}
-                    {d.status_changed_at && ` · ${STATUS_LABEL[d.status].toLowerCase()} gezet door ${d.status_changed_by_name} op ${formatShort(d.status_changed_at)}`}
-                  </p>
 
-                  {d.photos.length > 0 && (
+                  <p className="mt-2 text-sm text-zinc-300 whitespace-pre-wrap break-words">{d.description}</p>
+                  {(d.status_changed_at || (d.block_lifted_at && d.status !== 'hersteld')) && (
+                    <p className="mt-1 text-xs text-zinc-500">
+                      {d.status_changed_at && `${STATUS_LABEL[d.status]} gezet door ${d.status_changed_by_name} op ${formatShort(d.status_changed_at)}`}
+                      {d.block_lifted_at && d.status !== 'hersteld' && ` · blokkade opgeheven door ${d.block_lifted_by_name}`}
+                    </p>
+                  )}
+
+                  {d.photos.length > 1 && (
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {d.photos.map(p => (
+                      {d.photos.slice(1).map(p => (
                         <a key={p.id} href={`/api/poolwagens/damage/photo/${p.id}`} target="_blank" rel="noreferrer" title={p.filename}>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img src={`/api/poolwagens/damage/photo/${p.id}?size=small`} alt={p.filename} loading="lazy"
-                            className="w-20 h-20 object-cover rounded-lg border border-zinc-800 bg-zinc-950" />
+                            className="w-16 h-16 md:w-20 md:h-20 object-cover rounded-lg border border-zinc-800 bg-zinc-950" />
                         </a>
                       ))}
                     </div>
                   )}
 
                   {access.manage && (
-                    <div className="mt-3 pt-3 border-t border-zinc-800 flex flex-wrap items-center gap-2">
-                      <select className={`${inputCls} w-auto`} value={d.status} disabled={busy === d.id}
+                    <div className="mt-3 pt-3 border-t border-zinc-800 grid grid-cols-1 gap-2 md:flex md:flex-wrap md:items-center">
+                      <select className={`${inputCls} md:w-auto`} value={d.status} disabled={busy === d.id}
                         onChange={e => act(d.id, () => send(`/api/poolwagens/damage/${d.id}`, 'PATCH', { status: e.target.value }),
                           e.target.value === 'hersteld' && blocking ? 'Hersteld: de wagen is weer te reserveren.' : '')}>
                         {DAMAGE_STATUSES.map(s => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
                       </select>
                       {blocking && (
-                        <button disabled={busy === d.id} className={secondaryCls}
+                        <button disabled={busy === d.id} className={`${secondaryCls} ${actionCls}`}
                           onClick={() => { if (confirm('De blokkade opheffen? De wagen kan dan weer gereserveerd worden, ook al is de schade niet hersteld.')) act(d.id, () => send(`/api/poolwagens/damage/${d.id}/lift-block`, 'POST'), 'Blokkade opgeheven.') }}>
                           <Unlock size={13} /> Blokkade opheffen
                         </button>
                       )}
-                      <span className={`ml-auto inline-flex items-center gap-1 text-xs ${d.mail_status === 'verstuurd' ? 'text-emerald-400' : 'text-amber-300'}`}
+                      <span className={`md:ml-auto inline-flex items-center gap-1 text-xs ${d.mail_status === 'verstuurd' ? 'text-emerald-400' : 'text-amber-300'}`}
                         title={d.mail_error ?? undefined}>
                         {d.mail_status === 'verstuurd' ? <MailCheck size={13} /> : <MailWarning size={13} />}
                         {d.mail_status ? MAIL_LABEL[d.mail_status] : 'Mail nog niet verstuurd'}
                       </span>
                       {d.mail_status !== 'verstuurd' && (
-                        <button disabled={busy === d.id} className={secondaryCls}
+                        <button disabled={busy === d.id} className={`${secondaryCls} ${actionCls}`}
                           onClick={() => act(d.id, () => send(`/api/poolwagens/damage/${d.id}/notify`, 'POST'))}>
                           {busy === d.id ? <Loader2 size={13} className="animate-spin" /> : null} Opnieuw versturen
                         </button>

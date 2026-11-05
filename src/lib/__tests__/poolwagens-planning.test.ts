@@ -6,9 +6,10 @@ import {
 import {
   DAY_SLOTS, columnIsPast, loadView, nowPercent, saveView, selectionToPeriod, shiftAnchor, slotLocal, viewWindow,
 } from '@/lib/poolwagens/views'
-import { carsNow, freeCars } from '@/lib/poolwagens/status'
+import { carsInPeriod, carsNow, presetPeriod } from '@/lib/poolwagens/status'
 import { buildAgenda } from '@/lib/poolwagens/agenda'
-import { barTime, buildPoolGrid } from '@/lib/poolwagens/grid'
+import { MAX_DAY_BLOCKS, barTime, buildPoolGrid } from '@/lib/poolwagens/grid'
+import { runArrival } from '@/lib/poolwagens/arrival-flow'
 import { reservationFormProblem } from '@/lib/poolwagens/reservation-form'
 import { parsePlanningRange } from '@/lib/poolwagens/planning-range'
 import { DUPLICATE_NAME_TEXT, isDuplicateCarName } from '@/lib/poolwagens/car-input'
@@ -276,24 +277,43 @@ describe('statuslijst "Nu"', () => {
   })
 })
 
-describe('vind een vrije wagen', () => {
-  it('vrij in de hele periode en niet geblokkeerd', () => {
+describe('beschikbaarheid in een periode', () => {
+  it('Straks is nu tot +3 uur, Morgen is 09:00–17:00', () => {
+    expect(presetPeriod('straks', NOW)).toEqual({ start: '2026-11-04T10:00', end: '2026-11-04T13:00' })
+    expect(presetPeriod('morgen', NOW)).toEqual({ start: '2026-11-05T09:00', end: '2026-11-05T17:00' })
+  })
+
+  it('vrij, bezet of geblokkeerd, met de vrije bovenaan', () => {
     // Vandaag 10:00–13:00
-    const free = freeCars(planning(), '2026-11-04T09:00:00Z', '2026-11-04T12:00:00Z', NOW).map(f => f.car.id)
-    // 1 (tot 11:00), 3 en 5 bezet; 6 en 7 geblokkeerd. 2 is te laat, maar de
-    // geplande terugkomst is voorbij: zoals de server telt dat niet als bezet.
-    expect(free).toEqual(['2', '4', '8'])
-    expect(freeCars(planning(), '2026-11-04T09:00:00Z', '2026-11-04T12:00:00Z', NOW).find(f => f.car.id === '2')!.notBack).toBe(true)
+    const rows = carsInPeriod(planning(), '2026-11-04T09:00:00Z', '2026-11-04T12:00:00Z', 'u1', NOW)
+    expect(rows.map(r => [r.car.id, r.kind])).toEqual([
+      ['2', 'vrij'], ['4', 'vrij'], ['8', 'vrij'],
+      ['1', 'bezet'], ['3', 'bezet'], ['5', 'bezet'],
+      ['6', 'geblokkeerd'], ['7', 'geblokkeerd'],
+    ])
+    const by = new Map(rows.map(r => [r.car.id, r]))
+    expect(by.get('1')!.label).toBe('Bezet: Anna 10:00–11:00')
+    expect(by.get('3')!.label).toBe('Bezet: Bram 9:00–morgen 9:00')
+    expect(by.get('5')!.label).toBe('Bezet: Bram ma 2/11 8:00–vr 6/11 17:00')
+    expect(by.get('6')!.label).toBe('Geblokkeerd: onderhoud')
+    // Te laat terug, maar de geplande terugkomst is voorbij: zoals de server niet bezet.
+    expect(by.get('2')!.notBack).toBe(true)
   })
 
-  it('aansluitend is vrij (halfopen, zoals de database)', () => {
-    const free = freeCars(planning(), '2026-11-04T10:00:00Z', '2026-11-04T11:00:00Z', NOW).map(f => f.car.id)
-    expect(free).toContain('1')
+  it('de actie per regel', () => {
+    const by = new Map(carsInPeriod(planning(), '2026-11-04T09:00:00Z', '2026-11-04T12:00:00Z', 'u1', NOW).map(r => [r.car.id, r]))
+    expect(by.get('4')!.action).toEqual({ kind: 'reserveren' })
+    expect(by.get('1')!.action).toEqual({ kind: 'aankomst', reservationId: 'r1' }) // je eigen rit onderweg
+    expect(by.get('3')!.action).toEqual({ kind: 'details', reservationId: 'r3' })
+    expect(by.get('7')!.action).toEqual({ kind: 'geen' })
+    const noBooking = carsInPeriod(planning(), '2026-11-04T09:00:00Z', '2026-11-04T12:00:00Z', 'u1', NOW, false)
+    expect(noBooking.find(r => r.car.id === '4')!.action).toEqual({ kind: 'geen' })
   })
 
-  it('morgen 9:00 botst met de reservatie op wagen 4', () => {
-    const free = freeCars(planning(), '2026-11-05T07:00:00Z', '2026-11-05T09:00:00Z', NOW).map(f => f.car.id)
-    expect(free).not.toContain('4')
+  it('morgen: aansluitend is vrij (halfopen), een overlap niet', () => {
+    const by = new Map(carsInPeriod(planning(), '2026-11-05T08:00:00Z', '2026-11-05T16:00:00Z', 'u1', NOW).map(r => [r.car.id, r]))
+    expect(by.get('3')!.kind).toBe('vrij') // r3 eindigt morgen om 9:00
+    expect(by.get('4')!.label).toBe('Bezet: Jan morgen 9:00–17:00')
   })
 })
 
@@ -323,49 +343,101 @@ describe('agenda voor de gsm', () => {
   })
 })
 
-describe('balken in week en dag', () => {
-  it('label "<begin>–<einde> · <voornaam> · <klant>"', () => {
-    const w = viewWindow('week', TODAY, TODAY)
-    const rows = buildPoolGrid(planning(), w, 'u1', NOW, true)
-    const bar = rows.find(r => r.car.id === '3')!.bars[0]
-    expect(bar.label).toBe('wo 9:00–do 9:00 · Bram · Croky')
-    expect(rows.find(r => r.car.id === '1')!.bars[0].label).toBe('10:00–11:00 · Anna')
+describe('raster: blokjes binnen een dag, balken over meerdere dagen', () => {
+  const week = viewWindow('week', TODAY, TODAY)
+  const grid = (p: PoolPlanning, w = week) => buildPoolGrid(p, w, 'u1', NOW, { withTime: w.view !== 'maand', days: w.view === 'dag' ? undefined : w.days })
+
+  it('een rit van drie minuten blijft binnen zijn dag', () => {
+    const row = grid({ ...planning(), reservations: [res('k', '8', '2026-11-04T08:00:00Z', '2026-11-04T08:03:00Z')] }).find(r => r.car.id === '8')!
+    expect(row.bars).toEqual([])
+    expect(row.dayBlocks[2].map(b => b.label)).toEqual(['9:00–9:03 · Bram'])
+    expect(row.dayBlocks.filter(d => d.length).length).toBe(1)
+  })
+
+  it('blokje: "<begin>–<einde> · <voornaam>", de klant en de toestand in de tooltip', () => {
+    const rows = grid(planning())
+    const b = rows.find(r => r.car.id === '1')!.dayBlocks[2][0]
+    expect(b.label).toBe('10:00–11:00 · Anna')
+    expect(b.title).toBe('10:00–11:00 · Anna · Onderweg')
+    // Te laat: loopt door tot nu, nog altijd binnen dezelfde dag.
+    expect(rows.find(r => r.car.id === '2')!.dayBlocks[2][0]).toMatchObject({ label: '7:00–10:00 · Bram', state: 'te_laat' })
+  })
+
+  it('een rit tot middernacht hoort nog bij die dag', () => {
+    const row = grid({ ...planning(), reservations: [res('m', '8', '2026-11-04T22:00:00Z', '2026-11-04T23:00:00Z')] }).find(r => r.car.id === '8')!
+    expect(row.dayBlocks[2].map(b => b.label)).toEqual(['23:00–0:00 · Bram'])
+  })
+
+  it('over meerdere dagen: een balk op het juiste moment binnen de dag', () => {
+    const row = grid(planning()).find(r => r.car.id === '3')!
+    expect(row.dayBlocks.every(d => d.length === 0)).toBe(true)
+    expect(row.bars[0].label).toBe('wo 9:00–do 9:00 · Bram · Croky')
+    // Woensdag 9:00 = 2 dagen en 9 uur na maandag 0:00, op 168 uur.
+    expect(row.bars[0].left).toBeCloseTo((57 / 168) * 100)
+    expect(row.bars[0].width).toBeCloseTo((24 / 168) * 100)
     expect(barTime('2026-11-04T09:00:00Z', '2026-11-04T10:00:00Z')).toBe('10:00–11:00')
   })
 
-  it('in de dagweergave loopt een rit van vijf dagen aan beide randen door', () => {
+  it('meer dan drie op een dag: maxBlocks telt alles, het raster toont er drie en "+N meer"', () => {
+    const many = ['06', '08', '10', '12', '14'].map((h, i) => res(`x${i}`, '8', `2026-11-04T${h}:00:00Z`, `2026-11-04T${h}:30:00Z`))
+    const row = grid({ ...planning(), reservations: many }).find(r => r.car.id === '8')!
+    expect(row.dayBlocks[2]).toHaveLength(5)
+    expect(row.maxBlocks).toBe(5)
+    expect(MAX_DAY_BLOCKS).toBe(3)
+    expect(row.dayBlocks[2].map(b => b.label)[0]).toBe('7:00–7:30 · Bram')
+  })
+
+  it('maand: ook blokjes, zonder uur in het label van een balk', () => {
+    const month = viewWindow('maand', TODAY, TODAY)
+    const rows = grid(planning(), month)
+    expect(rows.find(r => r.car.id === '1')!.dayBlocks[3][0].label).toBe('10:00–11:00 · Anna')
+    expect(rows.find(r => r.car.id === '3')!.bars[0].label).toBe('Bram · Croky')
+  })
+
+  it('dag: alles is een balk op het uur; een rit van vijf dagen loopt aan beide randen door', () => {
     const d = viewWindow('dag', TODAY, TODAY)
-    const bar = buildPoolGrid(planning(), d, 'u1', NOW, true).find(r => r.car.id === '5')!.bars[0]
-    expect(bar).toMatchObject({ continuesBefore: true, continuesAfter: true, left: 0, width: 100 })
+    const rows = grid(planning(), d)
+    expect(rows.find(r => r.car.id === '5')!.bars[0]).toMatchObject({ continuesBefore: true, continuesAfter: true, left: 0, width: 100 })
+    expect(rows.find(r => r.car.id === '1')!.bars[0].label).toBe('10:00–11:00 · Anna')
+    expect(rows.every(r => r.dayBlocks.length === 0)).toBe(true)
+  })
+})
+
+describe('aankomst met schade', () => {
+  it('eerst de aankomst, dan de schade', async () => {
+    const order: string[] = []
+    const out = await runArrival({
+      arrivalDone: false,
+      saveArrival: async () => { order.push('aankomst') },
+      saveDamage: async () => { order.push('schade'); return { ok: true, message: 'Melding opgeslagen.' } },
+    })
+    expect(order).toEqual(['aankomst', 'schade'])
+    expect(out).toEqual({ stage: 'klaar', damageMessage: 'Melding opgeslagen.' })
   })
 
-  it('week: een rit van een uur is geen bolletje; twee korte ritten op één dag komen onder elkaar', () => {
-    const w = viewWindow('week', TODAY, TODAY)
-    const p = { ...planning(), reservations: [
-      res('a', '8', '2026-11-04T08:00:00Z', '2026-11-04T09:00:00Z'),
-      res('b', '8', '2026-11-04T10:00:00Z', '2026-11-04T11:00:00Z'),
-      res('c', '8', '2026-11-06T08:00:00Z', '2026-11-06T09:00:00Z'),
-    ] }
-    const min = (100 / 7) * 0.75
-    const row = buildPoolGrid(p, w, 'u1', NOW, true, min).find(r => r.car.id === '8')!
-    expect(row.bars.every(b => b.visualWidth >= min - 1e-9)).toBe(true)
-    expect(row.bars.find(b => b.reservationId === 'a')!.width).toBeCloseTo(100 / 168)
-    expect(row.bars.map(b => b.lane)).toEqual([0, 1, 0])
-    expect(row.lanes).toBe(2)
-    // Zonder minimumbreedte (maand, dag): alles op één baan.
-    expect(buildPoolGrid(p, w, 'u1', NOW, true).find(r => r.car.id === '8')!.lanes).toBe(1)
+  it('mislukt de aankomst, dan geen schade', async () => {
+    const damage = vi.fn()
+    const out = await runArrival({ arrivalDone: false, saveArrival: async () => { throw new Error('De aankomst ligt in de toekomst.') }, saveDamage: damage })
+    expect(out).toEqual({ stage: 'aankomst-mislukt', error: 'De aankomst ligt in de toekomst.' })
+    expect(damage).not.toHaveBeenCalled()
   })
 
-  it('een balk vlak voor het einde van de week loopt niet buiten het raster', () => {
-    const w = viewWindow('week', TODAY, TODAY)
-    const p = { ...planning(), reservations: [res('z', '8', '2026-11-08T21:00:00Z', '2026-11-08T22:00:00Z')] }
-    const bar = buildPoolGrid(p, w, 'u1', NOW, true, 10).find(r => r.car.id === '8')!.bars[0]
-    expect(bar.left + bar.visualWidth).toBeLessThanOrEqual(100 + 1e-9)
+  it('mislukt de schade, dan blijft de aankomst; opnieuw proberen slaat de aankomst over', async () => {
+    const arrival = vi.fn(async () => {})
+    const first = await runArrival({ arrivalDone: false, saveArrival: arrival, saveDamage: async () => ({ ok: false, error: 'Netwerkfout' }) })
+    expect(first).toEqual({ stage: 'schade-mislukt', error: 'Netwerkfout' })
+    const retry = await runArrival({ arrivalDone: true, saveArrival: arrival, saveDamage: async () => ({ ok: true, message: 'Melding opgeslagen.' }) })
+    expect(retry).toEqual({ stage: 'klaar', damageMessage: 'Melding opgeslagen.' })
+    expect(arrival).toHaveBeenCalledTimes(1)
   })
 
-  it('maand: zonder uur in het label', () => {
-    const m = viewWindow('maand', TODAY, TODAY)
-    expect(buildPoolGrid(planning(), m, 'u1', NOW).find(r => r.car.id === '1')!.bars[0].label).toBe('Anna')
+  it('een schade die een fout gooit, telt als mislukt (niet als crash)', async () => {
+    const out = await runArrival({ arrivalDone: false, saveArrival: async () => {}, saveDamage: async () => { throw new Error('kapot') } })
+    expect(out).toEqual({ stage: 'schade-mislukt', error: 'kapot' })
+  })
+
+  it('zonder schade: gewoon de aankomst', async () => {
+    expect(await runArrival({ arrivalDone: false, saveArrival: async () => {}, saveDamage: null })).toEqual({ stage: 'klaar', damageMessage: null })
   })
 })
 

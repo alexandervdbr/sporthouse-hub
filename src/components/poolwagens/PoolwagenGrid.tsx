@@ -2,7 +2,7 @@
 
 import { AlertTriangle, Ban, ChevronLeft, ChevronRight, Clock } from 'lucide-react'
 import { useGridSelection } from '@/components/materiaal/useGridSelection'
-import type { GridCarRow } from '@/lib/poolwagens/grid'
+import { MAX_DAY_BLOCKS, type GridBlock, type GridCarRow } from '@/lib/poolwagens/grid'
 import type { PoolView, ViewColumn } from '@/lib/poolwagens/views'
 
 // Het raster: wagens als rijen, de kolommen van de gekozen weergave (een half
@@ -14,8 +14,10 @@ import type { PoolView, ViewColumn } from '@/lib/poolwagens/views'
 const NAME_W = 200
 const COL_MIN: Record<PoolView, number> = { dag: 30, week: 112, maand: 34 }
 const ROW_H: Record<PoolView, number> = { dag: 44, week: 44, maand: 40 }
-/** Hoogte van één baan als een rij meer dan één baan heeft. */
+/** Hoogte van één baan voor een balk, en van één blokje in een dagkolom. */
 const LANE_H = 22
+const BLOCK_H = 20
+const PAD = 4
 
 const STATE_COLOR = {
   gepland:       '#3A913F',
@@ -42,9 +44,11 @@ interface Props {
   nowPct: number | null
   onSelectRange: (carId: string, fromIndex: number, toIndex: number) => void
   onOpenReservation: (id: string) => void
+  /** "+N meer": open de dagweergave van die kolom. */
+  onShowDay: (columnIndex: number) => void
 }
 
-export default function PoolwagenGrid({ view, columns, rows, canBook, isPast, nowPct, onSelectRange, onOpenReservation }: Props) {
+export default function PoolwagenGrid({ view, columns, rows, canBook, isPast, nowPct, onSelectRange, onOpenReservation, onShowDay }: Props) {
   const selection = useGridSelection(onSelectRange)
   const n = columns.length
   const cols = `${NAME_W}px repeat(${n}, minmax(${COL_MIN[view]}px, 1fr))`
@@ -75,11 +79,15 @@ export default function PoolwagenGrid({ view, columns, rows, canBook, isPast, no
         ))}
       </div>
 
-      {rows.map(({ car, block, bars, lanes }) => {
+      {rows.map(({ car, block, bars, lanes, dayBlocks, maxBlocks }) => {
         const bookable = canBook && !block
-        const rowH = lanes > 1 ? Math.max(ROW_H[view], lanes * LANE_H + 4) : ROW_H[view]
-        // Eén baan: de balk vult de rij. Meer banen: onder elkaar.
-        const laneStyle = (lane: number) => (lanes > 1 ? { top: 2 + lane * LANE_H, height: LANE_H - 2 } : { top: 4, bottom: 4 })
+        // Bovenaan de balken (ritten over meerdere dagen), daaronder de
+        // blokjes per dag. Eén balk zonder blokjes vult de rij zoals vroeger.
+        const blockRows = Math.min(maxBlocks, MAX_DAY_BLOCKS) + (maxBlocks > MAX_DAY_BLOCKS ? 1 : 0)
+        const barsH = lanes * LANE_H
+        const rowH = Math.max(ROW_H[view], PAD * 2 + barsH + blockRows * BLOCK_H)
+        const fill = lanes === 1 && blockRows === 0
+        const laneStyle = (lane: number) => (fill ? { top: PAD, bottom: PAD } : { top: PAD + lane * LANE_H, height: LANE_H - 2 })
         return (
           <div key={car.id} className="grid border-b border-zinc-900" style={{ gridTemplateColumns: cols, height: rowH }}>
             <div className="sticky left-0 z-10 bg-zinc-950 border-r border-zinc-800 flex items-center gap-2 pl-3 pr-2 min-w-0" style={{ gridColumn: 1, gridRow: 1 }}
@@ -95,18 +103,34 @@ export default function PoolwagenGrid({ view, columns, rows, canBook, isPast, no
             {columns.map((c, i) => {
               const free = bookable && !isPast(i)
               const selected = selection.isSelected(car.id, i)
+              const blocks = dayBlocks[i] ?? []
+              const more = blocks.length > MAX_DAY_BLOCKS ? blocks.length - MAX_DAY_BLOCKS : 0
               return (
                 <div key={c.key}
                   onPointerDown={free ? e => { if (e.button === 0) selection.start(car.id, i) } : undefined}
                   onPointerEnter={free ? () => selection.extend(car.id, i) : undefined}
-                  className={`border-r ${colBorder(i)} ${free ? 'cursor-pointer hover:bg-zinc-800/40' : ''}`}
+                  className={`relative min-w-0 border-r ${colBorder(i)} ${free ? 'cursor-pointer hover:bg-zinc-800/40' : ''}`}
                   style={{
                     gridColumn: i + 2, gridRow: 1,
                     background: selected ? 'rgba(58,145,63,0.35)'
                       : block ? 'repeating-linear-gradient(135deg, rgba(239,68,68,0.06) 0 6px, transparent 6px 12px)'
                       : colBg(c),
                   }}
-                />
+                >
+                  {/* Ritten binnen deze dag: nooit breder dan de kolom. */}
+                  {blocks.slice(0, more ? MAX_DAY_BLOCKS : blocks.length).map((b, k) => (
+                    <DayBlock key={b.reservationId} block={b} top={PAD + barsH + k * BLOCK_H} onOpen={onOpenReservation} />
+                  ))}
+                  {more > 0 && (
+                    <button type="button"
+                      onPointerDown={e => e.stopPropagation()}
+                      onClick={() => onShowDay(i)}
+                      className="absolute left-0.5 right-0.5 px-1 text-left text-[10px] font-medium text-zinc-400 hover:text-zinc-100 truncate"
+                      style={{ top: PAD + barsH + MAX_DAY_BLOCKS * BLOCK_H, height: BLOCK_H - 2 }}>
+                      +{more} meer
+                    </button>
+                  )}
+                </div>
               )
             })}
 
@@ -135,7 +159,7 @@ export default function PoolwagenGrid({ view, columns, rows, canBook, isPast, no
                       style={{
                         ...laneStyle(bar.lane),
                         left: `${bar.left}%`,
-                        width: `max(${bar.visualWidth}%, 6px)`,
+                        width: `max(${bar.width}%, 6px)`,
                         background: `${color}2e`,
                         border: warn ? '1.5px solid #ef4444' : `1px solid ${color}70`,
                         borderStyle: bar.endangered ? 'dashed' : 'solid',
@@ -156,7 +180,7 @@ export default function PoolwagenGrid({ view, columns, rows, canBook, isPast, no
                         className="absolute rounded-r"
                         title="Te laat: na de geplande terugkomst"
                         style={{
-                          ...(lanes > 1 ? { top: 2 + bar.lane * LANE_H + LANE_H / 2 - 2, height: 3 } : { top: '45%', height: '10%' }),
+                          ...(fill ? { top: '45%', height: '10%' } : { top: PAD + bar.lane * LANE_H + LANE_H / 2 - 2, height: 3 }),
                           left: `${bar.lateLeft}%`, width: `${bar.lateWidth}%`,
                           background: 'repeating-linear-gradient(90deg, #ef4444 0 4px, transparent 4px 7px)',
                         }}
@@ -170,6 +194,30 @@ export default function PoolwagenGrid({ view, columns, rows, canBook, isPast, no
         )
       })}
     </div>
+  )
+}
+
+/** Een rit binnen één dag: compact, ingekort, de volledige tekst als tooltip. */
+function DayBlock({ block: b, top, onOpen }: { block: GridBlock; top: number; onOpen: (id: string) => void }) {
+  const color = STATE_COLOR[b.state]
+  const warn = b.endangered || b.blocked
+  return (
+    <button type="button" title={b.title}
+      // Niet als begin van een sleepselectie op de dagkolom tellen.
+      onPointerDown={e => e.stopPropagation()}
+      onClick={() => onOpen(b.reservationId)}
+      className="absolute left-0.5 right-0.5 flex items-center gap-1 px-1 rounded overflow-hidden text-left hover:brightness-125"
+      style={{
+        top, height: BLOCK_H - 2,
+        background: `${color}2e`,
+        border: warn ? '1px solid #ef4444' : `1px solid ${color}70`,
+        borderStyle: b.endangered ? 'dashed' : 'solid',
+        opacity: b.state === 'teruggebracht' ? 0.6 : 1,
+        boxShadow: b.mine ? `inset 0 0 0 1px ${color}` : undefined,
+      }}>
+      {b.state === 'te_laat' && <Clock size={9} className="text-red-400 flex-shrink-0" />}
+      <span className="min-w-0 truncate text-[10px] font-semibold tabular-nums" style={{ color: b.state === 'teruggebracht' ? '#a1a1aa' : color }}>{b.label}</span>
+    </button>
   )
 }
 

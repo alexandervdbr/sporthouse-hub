@@ -7,10 +7,9 @@ import PoolwagenGrid, { STATE_COLOR, STATE_LABEL } from './PoolwagenGrid'
 import ReservationDialog, { type ReservationDialogMode } from './ReservationDialog'
 import ReservationDetail from './ReservationDetail'
 import DamageDialog from './DamageDialog'
-import StatusList from './StatusList'
-import FreeCarFinder from './FreeCarFinder'
+import Beschikbaarheid from './Beschikbaarheid'
 import AgendaList from './AgendaList'
-import { ACCENT, ErrorLine, Notice, PoolNav, buttonCls, newNotice, secondaryCls, send } from './ui'
+import { ACCENT, ErrorLine, Notice, PoolHeader, buttonCls, newNotice, pageStack, pageX, panelCls, secondaryCls, send } from './ui'
 import type { PoolwagenAccess } from '@/lib/poolwagens/access'
 import { addDays, eachDay, todayInBrussels } from '@/lib/gear/dates'
 import { buildAgenda } from '@/lib/poolwagens/agenda'
@@ -24,12 +23,13 @@ import {
 } from '@/lib/poolwagens/views'
 import type { PoolOptions, PoolPlanning } from '@/lib/poolwagens/types'
 
-// De planningspagina, van boven naar onder:
-//   1. "Mijn ritten" en de statuslijst "Nu" (een regel per wagen);
-//   2. "Vind een vrije wagen";
+// De planningspagina, van boven naar onder, als blokken met dezelfde
+// tussenruimte (pageStack):
+//   1. "Mijn ritten";
+//   2. "Beschikbaarheid": een regel per wagen, nu of in een gekozen periode;
 //   3. desktop: het raster in Dag, Week (standaard) of Maand;
 //      gsm (< 768 px): een agenda per dag, per week te bladeren, met een vaste
-//      balk onderaan voor Reserveren en Nu vertrekken.
+//      balk onderaan voor Schade melden, Nu vertrekken en Reserveren.
 // Eén verzoek per venster, en opnieuw na een wijziging — geen timer.
 
 type Dialog =
@@ -93,9 +93,9 @@ export default function PoolwagenPlanner({ userId, access }: { userId: string; a
   }, [from, to, reload])
 
   const now = useMemo(() => (planning ? new Date(planning.now) : new Date()), [planning])
-  // In de week minstens driekwart dag breed, zodat "10:00–11:00 · Anna" leesbaar is.
+  // Week en maand: een rit binnen één dag is een blokje in die dagkolom.
   const rows = useMemo(() => (planning
-    ? buildPoolGrid(planning, win, userId, now, view !== 'maand', view === 'week' ? (100 / 7) * 0.75 : 0)
+    ? buildPoolGrid(planning, win, userId, now, { withTime: view !== 'maand', days: view === 'dag' ? undefined : win.days })
     : []), [planning, win, userId, now, view])
   const statusRows = useMemo(() => (planning ? carsNow(planning, userId, now, access.use) : []), [planning, userId, now, access.use])
   const agenda = useMemo(() => (planning ? buildAgenda(planning, agendaDays, today, now, agendaCar || null) : []), [planning, agendaDays, today, now, agendaCar])
@@ -117,6 +117,7 @@ export default function PoolwagenPlanner({ userId, access }: { userId: string; a
 
   const firstFree = statusRows.find(r => r.kind === 'vrij')?.car.id ?? statusRows[0]?.car.id ?? ''
   const newReservation = () => setDialog({ kind: 'form', mode: { kind: 'new', carId: firstFree, start: nextHourLocal(), end: nextHourLocal(new Date(), 3) } })
+  const reportDamage = () => setDialog({ kind: 'damage', carId: firstFree, reservationId: null })
   const departNow = (carId = firstFree) => setDialog({ kind: 'form', mode: { kind: 'now', carId, end: nextHourLocal(new Date(), 3) } })
 
   const noCars = planning && planning.cars.length === 0
@@ -126,25 +127,18 @@ export default function PoolwagenPlanner({ userId, access }: { userId: string; a
 
   return (
     <div className="min-h-full pb-28 md:pb-8">
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-3 sm:py-4 border-b border-zinc-800">
-        <div className="flex flex-wrap items-center gap-3 sm:gap-4 min-w-0">
-          <h1 className="text-base sm:text-lg font-semibold text-zinc-100">Poolwagens</h1>
-          <PoolNav current="planning" manage={access.manage} />
-          {loading && <Loader2 size={14} className="animate-spin text-zinc-600" />}
+      <PoolHeader current="planning" manage={access.manage} loading={loading} actions={canAct && (
+        // Op een gsm staan deze in de vaste balk onderaan.
+        <div className="hidden md:flex items-center gap-2">
+          <button onClick={reportDamage} className={secondaryCls}><Flag size={13} /> Schade melden</button>
+          <button onClick={() => departNow()} className={secondaryCls}><Car size={13} /> Nu vertrekken</button>
+          <button onClick={newReservation} className={`${buttonCls} text-white`} style={{ backgroundColor: ACCENT }}><Plus size={13} /> Reserveren</button>
         </div>
-        {canAct && (
-          <div className="hidden md:flex items-center gap-2">
-            <button onClick={() => setDialog({ kind: 'damage', carId: firstFree, reservationId: null })} className={secondaryCls}>
-              <Flag size={13} /> Schade melden
-            </button>
-            <button onClick={() => departNow()} className={secondaryCls}><Car size={13} /> Nu vertrekken</button>
-            <button onClick={newReservation} className={`${buttonCls} text-white`} style={{ backgroundColor: ACCENT }}><Plus size={13} /> Reserveren</button>
-          </div>
-        )}
-      </div>
+      )} />
 
+      <div className={`${pageX} py-4 ${pageStack}`}>
       {(error || notice) && (
-        <div className="px-4 sm:px-6 pt-3 space-y-2">
+        <div className="space-y-2">
           <ErrorLine>{error}</ErrorLine>
           <Notice notice={notice} onClose={() => setNotice(null)} />
         </div>
@@ -164,10 +158,10 @@ export default function PoolwagenPlanner({ userId, access }: { userId: string; a
           </div>
         </div>
       ) : (
-        <div className="px-3 sm:px-6 pt-3 space-y-3">
+        <>
           {mine.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[10px] uppercase tracking-widest text-zinc-500 mr-1">Mijn ritten</span>
+            <section aria-label="Mijn ritten" className={`${panelCls} px-3 md:px-4 py-3 flex flex-wrap items-center gap-2`}>
+              <h2 className="w-full md:w-auto text-[10px] uppercase tracking-widest text-zinc-500 md:mr-2">Mijn ritten</h2>
               {mine.map(r => {
                 const state = tripState(r, now)
                 const car = planning.cars.find(c => c.id === r.car_id)
@@ -181,20 +175,17 @@ export default function PoolwagenPlanner({ userId, access }: { userId: string; a
                   </button>
                 )
               })}
-            </div>
+            </section>
           )}
 
-          <StatusList rows={statusRows}
+          <Beschikbaarheid planning={planning} userId={userId} canBook={access.use}
             onDepart={carId => departNow(carId)}
+            onReserve={(carId, start, end) => setDialog({ kind: 'form', mode: { kind: 'new', carId, start, end } })}
             onArrive={id => setDialog({ kind: 'detail', id, initialForm: 'aankomst' })}
             onDetails={id => setDialog({ kind: 'detail', id })} />
 
-          {access.use && (
-            <FreeCarFinder onReserve={(carId, start, end) => setDialog({ kind: 'form', mode: { kind: 'new', carId, start, end } })} />
-          )}
-
           {/* Desktop: het raster. */}
-          <section aria-label="Planning" className="hidden md:block rounded-xl border border-zinc-800 overflow-hidden">
+          <section aria-label="Planning" className={`hidden md:block ${panelCls} overflow-hidden`}>
             <div className="flex flex-wrap items-center gap-3 px-3 py-2 border-b border-zinc-800 bg-zinc-950">
               <div className="flex p-0.5 rounded-lg bg-zinc-900 border border-zinc-800" role="tablist" aria-label="Weergave">
                 {VIEWS.map(v => (
@@ -219,7 +210,8 @@ export default function PoolwagenPlanner({ userId, access }: { userId: string; a
               <PoolwagenGrid view={view} columns={win.columns} rows={rows} canBook={access.use}
                 isPast={i => columnIsPast(win, i, now, today)}
                 nowPct={view === 'maand' ? null : nowPercent(win, now)}
-                onSelectRange={onSelectRange} onOpenReservation={id => setDialog({ kind: 'detail', id })} />
+                onSelectRange={onSelectRange} onOpenReservation={id => setDialog({ kind: 'detail', id })}
+                onShowDay={i => { setView('dag'); go(win.days[i]) }} />
             </div>
           </section>
 
@@ -232,12 +224,17 @@ export default function PoolwagenPlanner({ userId, access }: { userId: string; a
               onToday={() => go(today)} showToday={!agendaDays.includes(today)}
               onOpen={id => setDialog({ kind: 'detail', id })} />
           </div>
-        </div>
+        </>
       )}
+      </div>
 
       {/* Gsm: Reserveren en Nu vertrekken altijd bij de hand. */}
       {canAct && (
         <div className="md:hidden fixed inset-x-0 bottom-0 z-30 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] flex gap-2">
+          <button onClick={reportDamage} aria-label="Schade melden"
+            className="flex-shrink-0 w-16 min-h-11 flex flex-col items-center justify-center gap-0.5 rounded-lg border border-zinc-700 text-red-300 active:bg-zinc-800">
+            <Flag size={15} /><span className="text-[10px] leading-none">Schade</span>
+          </button>
           <button onClick={() => departNow()} className={`${secondaryCls} flex-1 min-h-11 justify-center text-sm`}><Car size={15} /> Nu vertrekken</button>
           <button onClick={newReservation} className={`${buttonCls} flex-1 min-h-11 justify-center text-sm text-white`} style={{ backgroundColor: ACCENT }}><Plus size={15} /> Reserveren</button>
         </div>
@@ -262,7 +259,7 @@ export default function PoolwagenPlanner({ userId, access }: { userId: string; a
           onClose={() => setDialog(null)}
           onEdit={() => setDialog({ kind: 'form', mode: { kind: 'edit', reservation: open } })}
           onReportDamage={() => setDialog({ kind: 'damage', carId: open.car_id, reservationId: open.id })}
-          onChanged={() => { say('Opgeslagen.'); refresh() }}
+          onChanged={msg => { say(msg ?? 'Opgeslagen.'); refresh() }}
         />
       )}
       {planning && dialog?.kind === 'damage' && (

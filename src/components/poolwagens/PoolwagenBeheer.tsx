@@ -1,12 +1,12 @@
 'use client'
 
 import { useEffect, useState, type ChangeEvent, type ReactNode } from 'react'
-import { Archive, ArchiveRestore, Ban, Check, Loader2, Pencil, Plus, X } from 'lucide-react'
+import { Archive, ArchiveRestore, Ban, Car, Check, Loader2, Pencil, Plus, X } from 'lucide-react'
 import { ACCENT, ErrorLine, inputCls, labelCls, send } from '@/components/materiaal/ui'
 import type { PoolCar } from '@/lib/poolwagens/types'
 import { DUPLICATE_NAME_TEXT, isDuplicateCarName } from '@/lib/poolwagens/car-input'
 import MailSettings from './MailSettings'
-import { PoolNav } from './ui'
+import { EmptyState, PoolHeader, actionCls, buttonCls, pageStack, pageX, panelCls } from './ui'
 
 // Beheer van de poolwagens: toevoegen, bewerken, handmatig niet beschikbaar
 // zetten en archiveren. Verwijderen bestaat niet, zodat de historiek blijft.
@@ -45,85 +45,68 @@ export default function PoolwagenBeheer() {
     }
   }
 
-  if (!cars) {
-    return (
-      <div className="p-8">
-        {error ? <ErrorLine>{error}</ErrorLine> : <Loader2 size={20} className="animate-spin text-zinc-600" />}
-      </div>
-    )
-  }
+  const addButton = (
+    <button onClick={() => { setAdding(true); setError('') }} disabled={adding}
+      className={`${buttonCls} ${actionCls} text-white`} style={{ backgroundColor: ACCENT }}>
+      <Plus size={14} /> Wagen toevoegen
+    </button>
+  )
 
-  const active = cars.filter(c => !c.archived_at)
-  const archived = cars.filter(c => c.archived_at)
+  const active = (cars ?? []).filter(c => !c.archived_at)
+  const archived = (cars ?? []).filter(c => c.archived_at)
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="p-4 sm:p-8 max-w-4xl mx-auto">
-        <div className="flex flex-wrap items-center gap-4 mb-6">
-          <h1 className="text-lg font-semibold text-zinc-100">Poolwagens</h1>
-          <PoolNav current="beheer" manage />
-        </div>
+    <div className="min-h-full pb-8">
+      <PoolHeader current="beheer" manage loading={!cars && !error} actions={cars ? addButton : undefined} />
 
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold text-zinc-200">Wagens</h2>
-          {!adding && (
-            <button
-              onClick={() => { setAdding(true); setError('') }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white"
-              style={{ backgroundColor: ACCENT }}
-            >
-              <Plus size={14} /> Wagen toevoegen
-            </button>
-          )}
-        </div>
+      <div className={`${pageX} py-4 ${pageStack} max-w-4xl`}>
+        <ErrorLine>{error}</ErrorLine>
 
-        <div className="mb-4"><ErrorLine>{error}</ErrorLine></div>
-
-        {adding && (
-          <div className="mb-4">
-            <CarEditor
-              initial={EMPTY}
-              nameTaken={name => isDuplicateCarName(name, cars)}
-              submitLabel="Toevoegen"
-              onCancel={() => setAdding(false)}
-              onSubmit={async form => {
-                setError('')
-                try {
-                  const car = await send<PoolCar>('/api/poolwagens/cars', 'POST', form)
-                  setCars(cs => [...(cs ?? []), car].sort((a, b) => a.name.localeCompare(b.name, 'nl')))
-                  setAdding(false)
-                  return true
-                } catch (e) {
-                  setError((e as Error).message)
-                  return false
-                }
-              }}
-            />
-          </div>
-        )}
-
-        {active.length === 0 && !adding && (
-          <p className="text-sm text-zinc-500 py-6">Nog geen wagens. Voeg de eerste poolwagen toe.</p>
-        )}
-
-        <div className="space-y-2">
-          {active.map(car => <CarRow key={car.id} car={car} cars={cars} onPatch={body => patch(car.id, body)} />)}
-        </div>
-
-        {archived.length > 0 && (
-          <div className="mt-8">
-            <button onClick={() => setShowArchived(v => !v)} className="text-xs text-zinc-500 hover:text-zinc-300">
-              {showArchived ? 'Verberg' : 'Toon'} gearchiveerde wagens ({archived.length})
-            </button>
-            {showArchived && (
-              <div className="space-y-2 mt-3">
-                {archived.map(car => <CarRow key={car.id} car={car} cars={cars} onPatch={body => patch(car.id, body)} />)}
-              </div>
+        {cars && (
+          <>
+            {adding && (
+              <CarEditor
+                initial={EMPTY}
+                nameTaken={name => isDuplicateCarName(name, cars)}
+                submitLabel="Toevoegen"
+                onCancel={() => setAdding(false)}
+                onSubmit={async form => {
+                  setError('')
+                  try {
+                    const car = await send<PoolCar>('/api/poolwagens/cars', 'POST', form)
+                    setCars(cs => [...(cs ?? []), car].sort((a, b) => a.name.localeCompare(b.name, 'nl')))
+                    setAdding(false)
+                    return true
+                  } catch (e) {
+                    setError((e as Error).message)
+                    return false
+                  }
+                }}
+              />
             )}
-          </div>
-        )}
 
-        <MailSettings />
+            {active.length === 0 && !adding ? (
+              <EmptyState icon={<Car size={18} />} title="Nog geen wagens"
+                text="Voeg de eerste poolwagen toe; daarna kan iedereen hem reserveren." action={addButton} />
+            ) : (
+              <section aria-label="Wagens" className="space-y-2">
+                <h2 className="text-sm font-semibold text-zinc-200">Wagens</h2>
+                {active.map(car => <CarRow key={car.id} car={car} cars={cars} onPatch={body => patch(car.id, body)} />)}
+              </section>
+            )}
+
+            {archived.length > 0 && (
+              <section aria-label="Gearchiveerde wagens" className="space-y-2">
+                <button onClick={() => setShowArchived(v => !v)} className="text-xs text-zinc-500 hover:text-zinc-300 py-2">
+                  {showArchived ? 'Verberg' : 'Toon'} gearchiveerde wagens ({archived.length})
+                </button>
+                {showArchived && archived.map(car => <CarRow key={car.id} car={car} cars={cars} onPatch={body => patch(car.id, body)} />)}
+              </section>
+            )}
+
+            <MailSettings />
+          </>
+        )}
       </div>
     </div>
   )
@@ -159,35 +142,31 @@ function CarRow({ car, cars, onPatch }: { car: PoolCar; cars: PoolCar[]; onPatch
   }
 
   const archivedCar = !!car.archived_at
+  const state = archivedCar ? 'Gearchiveerd'
+    : car.manual_block ? `Niet beschikbaar${car.manual_block_note ? `: ${car.manual_block_note}` : ''}`
+    : 'Beschikbaar'
 
   return (
-    <div className={`rounded-xl border px-4 py-3 ${archivedCar ? 'border-zinc-900 bg-zinc-950/40 opacity-70' : 'border-zinc-800 bg-zinc-900/40'}`}>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+    <div className={`${panelCls} p-3 md:px-4 ${archivedCar ? 'opacity-70' : ''}`}>
+      <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4">
+        <div className="min-w-0 flex-1 space-y-0.5">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-medium text-zinc-100 truncate">{car.name}</span>
             <span className="px-1.5 py-0.5 rounded border border-zinc-700 text-[10px] font-mono text-zinc-300">{car.license_plate}</span>
-            {car.manual_block && !archivedCar && (
-              <span className="px-1.5 py-0.5 rounded border border-red-500/40 bg-red-500/10 text-[10px] font-semibold uppercase tracking-wide text-red-400">
-                Niet beschikbaar
-              </span>
-            )}
-            {archivedCar && <span className="text-[10px] uppercase tracking-wide text-zinc-500">Gearchiveerd</span>}
           </div>
-          <div className="text-xs text-zinc-500 mt-0.5">
-            {[car.make_model, `${km(car.current_km)} km`].filter(Boolean).join(' · ')}
-            {car.manual_block && car.manual_block_note && !archivedCar && <span className="text-red-400/80"> · {car.manual_block_note}</span>}
-          </div>
+          <div className="text-xs text-zinc-500">{[car.make_model, `${km(car.current_km)} km`].filter(Boolean).join(' · ')}</div>
+          <div className={`text-xs ${car.manual_block && !archivedCar ? 'text-red-400' : archivedCar ? 'text-zinc-500' : 'text-emerald-400'}`}>{state}</div>
         </div>
 
-        <div className="flex items-center gap-1">
+        {/* Op een gsm: knoppen met tekst over de volle breedte; op desktop iconen. */}
+        <div className="grid grid-cols-3 gap-2 md:flex md:gap-1">
           {!archivedCar && (
             <>
               <IconButton label="Bewerken" onClick={() => setEditing(true)} disabled={busy}><Pencil size={14} /></IconButton>
               {car.manual_block ? (
-                <IconButton label="Weer beschikbaar maken" onClick={() => run({ manual_block: false })} disabled={busy}><Check size={14} /></IconButton>
+                <IconButton label="Beschikbaar maken" onClick={() => run({ manual_block: false })} disabled={busy}><Check size={14} /></IconButton>
               ) : (
-                <IconButton label="Niet beschikbaar zetten" onClick={() => { setNote(''); setBlocking(true) }} disabled={busy}><Ban size={14} /></IconButton>
+                <IconButton label="Niet beschikbaar" onClick={() => { setNote(''); setBlocking(true) }} disabled={busy}><Ban size={14} /></IconButton>
               )}
               <IconButton label="Archiveren" onClick={() => { if (confirm(`${car.name} archiveren? De wagen verdwijnt uit de planning; de historiek blijft.`)) run({ archived: true }) }} disabled={busy}>
                 <Archive size={14} />
@@ -214,15 +193,15 @@ function CarRow({ car, cars, onPatch }: { car: PoolCar; cars: PoolCar[]; onPatch
             value={note}
             onChange={e => setNote(e.target.value)}
           />
-          <div className="flex gap-2">
+          <div className="grid grid-cols-2 gap-2 md:flex">
             <button
               disabled={busy}
               onClick={async () => { if (await run({ manual_block: true, manual_block_note: note })) setBlocking(false) }}
-              className="px-3 py-2 rounded-lg text-xs font-medium text-white bg-red-600 hover:bg-red-500 disabled:opacity-50 whitespace-nowrap"
+              className="min-h-11 md:min-h-0 px-3 py-2 rounded-lg text-xs font-medium text-white bg-red-600 hover:bg-red-500 disabled:opacity-50 whitespace-nowrap"
             >
               Niet beschikbaar
             </button>
-            <button onClick={() => setBlocking(false)} className="px-3 py-2 rounded-lg text-xs text-zinc-400 hover:text-zinc-200">Annuleren</button>
+            <button onClick={() => setBlocking(false)} className="min-h-11 md:min-h-0 px-3 py-2 rounded-lg text-xs text-zinc-400 border border-zinc-800 md:border-0 hover:text-zinc-200">Annuleren</button>
           </div>
         </div>
       )}
@@ -272,11 +251,11 @@ function CarEditor({ initial, nameTaken, submitLabel, onSubmit, onCancel }: {
           <input className={inputCls} value={form.current_km} onChange={set('current_km')} inputMode="numeric" placeholder="0" />
         </div>
       </div>
-      <div className="flex justify-end gap-2">
-        <button type="button" onClick={onCancel} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-zinc-400 hover:text-zinc-200">
+      <div className="grid grid-cols-2 gap-2 md:flex md:justify-end">
+        <button type="button" onClick={onCancel} className="min-h-11 md:min-h-0 inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs text-zinc-400 border border-zinc-800 md:border-0 hover:text-zinc-200">
           <X size={14} /> Annuleren
         </button>
-        <button type="submit" disabled={busy || duplicate} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-50" style={{ backgroundColor: ACCENT }}>
+        <button type="submit" disabled={busy || duplicate} className="min-h-11 md:min-h-0 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-50" style={{ backgroundColor: ACCENT }}>
           {busy ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} {submitLabel}
         </button>
       </div>
@@ -292,9 +271,10 @@ function IconButton({ label, onClick, disabled, children }: { label: string; onC
       aria-label={label}
       onClick={onClick}
       disabled={disabled}
-      className="p-2 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 disabled:opacity-40"
+      className="min-h-11 md:min-h-0 flex items-center justify-center gap-1.5 p-2 rounded-lg border border-zinc-800 md:border-0 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 disabled:opacity-40"
     >
       {children}
+      <span className="md:hidden text-xs truncate">{label}</span>
     </button>
   )
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, type ReactNode } from 'react'
 import Link from 'next/link'
-import { CheckCircle2, X } from 'lucide-react'
+import { CheckCircle2, Loader2, X } from 'lucide-react'
 
 // Bouwstenen voor de poolwagens. Invoervelden, kleuren, fouten en fetch komen
 // uit de materiaalplanner (src/components/materiaal/ui.tsx); hier alleen wat
@@ -43,8 +43,24 @@ export const buttonCls = 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-l
 export const secondaryCls = `${buttonCls} text-zinc-300 border border-zinc-700 hover:bg-zinc-800`
 export const dangerCls = `${buttonCls} text-red-300 border border-red-900/60 hover:bg-red-950/40`
 
-/** De tabs bovenaan elke poolwagenspagina. */
-export function PoolNav({ current, manage }: { current: 'planning' | 'historiek' | 'schade' | 'beheer'; manage: boolean }) {
+// ── Opbouw van een pagina ───────────────────────────────────────────────────
+// Dezelfde marges en tussenruimtes op elke poolwagenspagina (planning,
+// historiek, schade, beheer), op desktop en op een gsm.
+
+/** Zijmarge van een pagina. */
+export const pageX = 'px-4 md:px-6'
+/** Tussenruimte tussen de blokken van een pagina. */
+export const pageStack = 'space-y-4'
+/** Een blok (lijst, filter, kaart). */
+export const panelCls = 'rounded-xl border border-zinc-800 bg-zinc-900/30'
+
+type Tab = 'planning' | 'historiek' | 'schade' | 'beheer'
+
+/**
+ * De tabs bovenaan elke poolwagenspagina. Op een gsm een segmentbalk over de
+ * volle breedte, met gelijke breedte per tab.
+ */
+export function PoolNav({ current, manage }: { current: Tab; manage: boolean }) {
   const tabs = [
     { key: 'planning', label: 'Planning', href: '/poolwagens' },
     { key: 'historiek', label: 'Historiek', href: '/poolwagens/historiek' },
@@ -52,16 +68,56 @@ export function PoolNav({ current, manage }: { current: 'planning' | 'historiek'
     ...(manage ? [{ key: 'beheer', label: 'Beheer', href: '/poolwagens/beheer' }] : []),
   ] as const
   return (
-    <nav className="flex p-0.5 rounded-lg bg-zinc-950 border border-zinc-800 w-fit">
+    <nav className="grid w-full md:w-fit p-0.5 rounded-lg bg-zinc-950 border border-zinc-800"
+      style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}>
       {tabs.map(t => (
-        <Link key={t.key} href={t.href}
-          className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${current === t.key ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}>
+        <Link key={t.key} href={t.href} aria-current={current === t.key ? 'page' : undefined}
+          className={`px-3 py-2 md:py-1 rounded-md text-center text-xs font-medium truncate transition-colors ${current === t.key ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}>
           {t.label}
         </Link>
       ))}
     </nav>
   )
 }
+
+/**
+ * De kop van een pagina: titel, tabs, en de actieknoppen. Op een gsm staan
+ * de knoppen over de volle breedte onder de tabs; op desktop rechts.
+ */
+export function PoolHeader({ current, manage, loading, actions }: {
+  current: Tab
+  manage: boolean
+  loading?: boolean
+  actions?: ReactNode
+}) {
+  return (
+    <header className={`${pageX} py-3 md:py-4 border-b border-zinc-800 flex flex-col md:flex-row md:items-center md:justify-between gap-3`}>
+      <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 min-w-0">
+        <div className="flex items-center gap-2">
+          <h1 className="text-base md:text-lg font-semibold text-zinc-100">Poolwagens</h1>
+          {loading && <Loader2 size={14} className="animate-spin text-zinc-600" />}
+        </div>
+        <PoolNav current={current} manage={manage} />
+      </div>
+      {actions && <div className="grid grid-cols-1 gap-2 md:flex md:items-center">{actions}</div>}
+    </header>
+  )
+}
+
+/** Een lege lijst: kort, gecentreerd, met de bijhorende actie. */
+export function EmptyState({ icon, title, text, action }: { icon: ReactNode; title: string; text?: string; action?: ReactNode }) {
+  return (
+    <div className={`${panelCls} px-6 py-10 flex flex-col items-center text-center gap-2`}>
+      <div className="w-11 h-11 rounded-xl flex items-center justify-center border border-zinc-800 bg-zinc-900 text-zinc-500">{icon}</div>
+      <h2 className="text-sm font-semibold text-zinc-100">{title}</h2>
+      {text && <p className="text-sm text-zinc-500 max-w-sm">{text}</p>}
+      {action && <div className="mt-2">{action}</div>}
+    </div>
+  )
+}
+
+/** Een actieknop: op een gsm een groot aanraakdoel over de volle breedte. */
+export const actionCls = 'min-h-11 md:min-h-0 justify-center'
 
 export const km = (n: number | null | undefined) => (n === null || n === undefined ? '—' : `${n.toLocaleString('nl-BE')} km`)
 
