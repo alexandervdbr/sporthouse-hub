@@ -34,11 +34,11 @@ export interface DevTool {
 
 export const DEV_TOOLS: DevTool[] = [
   { key: 'planning',     label: 'Planning',      path: '/planning' },
-  { key: 'materiaal',    label: 'Materiaal',     path: '/equipment' },
-  // De nieuwe materiaalplanner, naast de oude tot de overstap. Staat in
-  // ontwikkeling tot we overschakelen; de zijbalk toont hem dan alleen aan
-  // admins (zie Sidebar.tsx).
-  { key: 'materiaalplanner', label: 'Materiaalplanner (nieuw)', path: '/materiaal' },
+  // De oude materiaalplanner: staat in de koelkast en stuurt door naar
+  // /materiaal (src/lib/legacy-equipment.ts). De sleutel en zijn rij in
+  // tool_status blijven, zodat er niets verschuift.
+  { key: 'materiaal',    label: 'Materiaal (oud, in de koelkast)', path: '/equipment' },
+  { key: 'materiaalplanner', label: 'Materiaal', path: '/materiaal' },
   // Poolwagens: blijft in ontwikkeling tot de vrijgave; tot dan zien alleen
   // admins het.
   { key: 'poolwagens',   label: 'Poolwagens',    path: '/poolwagens' },

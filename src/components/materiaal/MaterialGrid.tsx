@@ -1,16 +1,20 @@
 'use client'
 
-import { AlertTriangle, ChevronDown, ChevronRight, Package, UserRound } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { DndContext, type DragEndEvent, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
+import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { AlertTriangle, ChevronDown, ChevronRight, GripVertical } from 'lucide-react'
 import { useGridSelection } from '@/components/materiaal/useGridSelection'
-import { RESPONSIBLE_NOTICE, responsibleLabel } from '@/lib/gear/responsible'
-import { STATUS_LABEL } from '@/lib/gear/status'
+import { ItemBadges, KitBadges, KitIcon, ResponsiblePill, itemNameClass, itemTitle } from '@/components/materiaal/GearLabels'
 import type { GridBar, GridGroup, GridItemRow, GridKitRow } from '@/lib/gear/grid'
 
 // Het raster van de planner: rijen per categorie (eerst kits, dan losse
 // items), dagen als kolommen. Een kit is één rij die je openklapt naar zijn
 // onderdelen. Alleen tekenen — wat waar staat, rekent src/lib/gear/grid.ts uit.
 // Wil het team later dagen als rijen, dan komt er een ander rastercomponent
-// naast dit, met dezelfde invoer.
+// naast dit, met dezelfde invoer. Dezelfde component tekent de maand en de
+// week; in de week (`wide`) zijn de kolommen breed genoeg voor meer tekst.
 
 const NAME_W  = 268
 const DAY_MIN = 34
@@ -34,15 +38,24 @@ interface Props {
   onOpenBooking: (bookingId: string) => void
   onOpenItem: (itemId: string) => void
   onOpenKit: (kitId: string) => void
+  onOpenCategory?: (categoryId: string) => void
+  /** Alleen voor Beheren: een categorie met het greepje verslepen. */
+  canReorderCategories?: boolean
+  onReorderCategory?: (activeId: string, overId: string) => void
+  /** Weekweergave: brede dagen, met de maand in de kop en het project op de balk. */
+  wide?: boolean
 }
 
 function dayHeader(iso: string) {
   const d = new Date(`${iso}T12:00:00`)
-  return { weekday: d.toLocaleDateString('nl-BE', { weekday: 'short' }).slice(0, 2), day: d.getDate(), weekend: d.getDay() === 0 || d.getDay() === 6 }
+  return {
+    weekday: d.toLocaleDateString('nl-BE', { weekday: 'short' }).slice(0, 2), day: d.getDate(),
+    month: d.toLocaleDateString('nl-BE', { month: 'short' }).replace('.', ''), weekend: d.getDay() === 0 || d.getDay() === 6,
+  }
 }
 
 export default function MaterialGrid(props: Props) {
-  const { days, today, groups, collapsed, onToggleCategory, openKits, onToggleKit } = props
+  const { days, today, groups, collapsed, onToggleCategory, openKits, onToggleKit, wide } = props
   const selection = useGridSelection((rowId, from, to) => {
     const [kind, id] = rowId.split(':') as ['kit' | 'item', string]
     props.onSelectRange({ kind, id }, from, to)
@@ -54,6 +67,17 @@ export default function MaterialGrid(props: Props) {
     i === todayIdx ? 'rgba(58,145,63,0.10)' : headers[i].weekend ? 'rgba(255,255,255,0.025)' : 'transparent'
   const ctx = { ...props, cols, dayBg, selection }
 
+  // Categorieën verslepen (Beheren): alleen het greepje start een sleep, zodat
+  // klikken op de balk (open/dicht) en slepen om te boeken blijven werken.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+  const canReorder = !!props.canReorderCategories && !!props.onReorderCategory
+  function onDragEnd(e: DragEndEvent) {
+    if (e.over && e.active.id !== e.over.id) props.onReorderCategory?.(String(e.active.id), String(e.over.id))
+  }
+
   return (
     <div style={{ minWidth: NAME_W + days.length * DAY_MIN }} className={selection.selecting ? 'select-none' : ''}>
       <div className="sticky top-0 z-20 grid bg-zinc-950 border-b border-zinc-800" style={{ gridTemplateColumns: cols }}>
@@ -63,27 +87,40 @@ export default function MaterialGrid(props: Props) {
         {headers.map((h, i) => (
           <div key={days[i]} className="flex flex-col items-center pt-2 pb-1.5 border-r border-zinc-900" style={{ background: dayBg(i) }}>
             <span className={`text-[9px] uppercase tracking-wide ${h.weekend ? 'text-zinc-600' : 'text-zinc-500'}`}>{h.weekday}</span>
-            <span className="text-xs font-semibold tabular-nums w-6 h-6 flex items-center justify-center rounded-full"
-              style={i === todayIdx ? { backgroundColor: '#3A913F', color: '#fff' } : { color: h.weekend ? '#71717a' : '#d4d4d8' }}>
-              {h.day}
+            <span className="flex items-center gap-1">
+              <span className="text-xs font-semibold tabular-nums w-6 h-6 flex items-center justify-center rounded-full"
+                style={i === todayIdx ? { backgroundColor: '#3A913F', color: '#fff' } : { color: h.weekend ? '#71717a' : '#d4d4d8' }}>
+                {h.day}
+              </span>
+              {wide && <span className={`text-xs ${h.weekend ? 'text-zinc-600' : 'text-zinc-500'}`}>{h.month}</span>}
             </span>
           </div>
         ))}
       </div>
 
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+      <SortableContext items={groups.map(g => g.category.id)} strategy={verticalListSortingStrategy}>
       {groups.map(({ category, rows }) => {
         const isCollapsed = collapsed.has(category.id)
         const outOn = (i: number) => rows.filter(r => r.bars.some(b => i >= b.startIndex && i < b.startIndex + b.span)).length
         return (
-          <div key={category.id}>
+          <CategoryBlock key={category.id} id={category.id} name={category.name} enabled={canReorder}>
+            {handle => (<>
             <div className="grid border-b border-zinc-800/80" style={{ gridTemplateColumns: cols, height: CAT_H }}>
-              <button onClick={() => onToggleCategory(category.id)} aria-expanded={!isCollapsed}
-                className="sticky left-0 z-10 flex items-center gap-2 px-3 border-r border-zinc-800 text-left"
+              <div className="sticky left-0 z-10 flex items-stretch border-r border-zinc-800"
                 style={{ background: `linear-gradient(90deg, ${category.color}26 0%, #09090b 100%), #09090b` }}>
-                {isCollapsed ? <ChevronRight size={12} style={{ color: category.color }} /> : <ChevronDown size={12} style={{ color: category.color }} />}
-                <span className="text-[11px] font-bold uppercase tracking-widest truncate" style={{ color: category.color }}>{category.name}</span>
-                <span className="ml-auto text-[10px] text-zinc-600 flex-shrink-0">{rows.length}</span>
-              </button>
+                {handle}
+                <button onClick={() => onToggleCategory(category.id)} aria-expanded={!isCollapsed}
+                  aria-label={isCollapsed ? `${category.name} openklappen` : `${category.name} dichtklappen`}
+                  className={`flex-shrink-0 flex items-center ${handle ? 'pl-1' : 'pl-3'} pr-1.5`}>
+                  {isCollapsed ? <ChevronRight size={12} style={{ color: category.color }} /> : <ChevronDown size={12} style={{ color: category.color }} />}
+                </button>
+                <button onClick={() => props.onOpenCategory?.(category.id)} title={`${category.name} — details`}
+                  className="flex-1 min-w-0 flex items-center gap-2 pr-3 text-left">
+                  <span className="text-[11px] font-bold uppercase tracking-widest truncate hover:underline" style={{ color: category.color }}>{category.name}</span>
+                  <span className="ml-auto text-[10px] text-zinc-600 flex-shrink-0">{rows.length}</span>
+                </button>
+              </div>
               {days.map((iso, i) => {
                 const out = isCollapsed ? outOn(i) : 0
                 return (
@@ -104,9 +141,33 @@ export default function MaterialGrid(props: Props) {
             ) : (
               <ItemRow key={`item-${row.item.id}`} row={row} color={category.color} {...ctx} />
             ))}
-          </div>
+            </>)}
+          </CategoryBlock>
         )
       })}
+      </SortableContext>
+      </DndContext>
+    </div>
+  )
+}
+
+// Eén categorie met al haar rijen; verslepen verplaatst het hele blok. Het
+// greepje (alleen voor Beheren) gaat als `handle` naar de categoriebalk.
+function CategoryBlock({ id, name, enabled, children }: {
+  id: string; name: string; enabled: boolean; children: (handle: ReactNode) => ReactNode
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: !enabled })
+  const handle = enabled ? (
+    <button {...attributes} {...listeners} aria-label={`Categorie ${name} verslepen`} title="Sleep om de volgorde van de categorieën te wijzigen"
+      className="flex-shrink-0 pl-1.5 pr-0.5 flex items-center text-zinc-500 hover:text-zinc-200 cursor-grab active:cursor-grabbing touch-none">
+      <GripVertical size={13} />
+    </button>
+  ) : null
+  return (
+    <div ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition, position: 'relative', zIndex: isDragging ? 15 : undefined }}
+      className={isDragging ? 'opacity-80 shadow-2xl' : undefined}>
+      {children(handle)}
     </div>
   )
 }
@@ -117,12 +178,14 @@ function covers(bars: GridBar[], i: number) {
   return bars.some(b => i >= b.startIndex && i < b.startIndex + b.span)
 }
 
-function Bars({ bars, days, today, onOpenBooking, kitName }: { bars: GridBar[]; days: string[]; today: string; onOpenBooking: (id: string) => void; kitName?: string }) {
+function Bars({ bars, days, today, onOpenBooking, kitName, wide }: { bars: GridBar[]; days: string[]; today: string; onOpenBooking: (id: string) => void; kitName?: string; wide?: boolean }) {
   return (
     <>
-      {bars.map(bar => (
+      {bars.map(bar => {
+        const text = wide && bar.project ? `${bar.text} · ${bar.project}` : bar.text
+        return (
         <button key={bar.bookingId} onClick={() => onOpenBooking(bar.bookingId)}
-          title={bar.flagged ? `${bar.text} — let op: een onderdeel is defect of uit dienst` : kitName ? `${bar.text} — ${kitName}` : bar.text}
+          title={bar.flagged ? `${text} — let op: een onderdeel is defect of uit dienst` : kitName ? `${text} — ${kitName}` : text}
           className="relative z-[1] my-1 mx-px flex items-center px-2 overflow-hidden text-left hover:brightness-125 transition"
           style={{
             gridColumn: `${bar.startIndex + 2} / span ${bar.span}`, gridRow: 1,
@@ -132,28 +195,21 @@ function Bars({ bars, days, today, onOpenBooking, kitName }: { bars: GridBar[]; 
             opacity: days[bar.startIndex + bar.span - 1] < today ? 0.55 : 1,
           }}>
           {bar.flagged && <AlertTriangle size={10} className="text-red-400 mr-1 flex-shrink-0" />}
-          <span className="text-[11px] font-semibold truncate" style={{ color: bar.color }}>{bar.text}</span>
+          <span className="text-[11px] font-semibold truncate" style={{ color: bar.color }}>
+            {bar.text}
+            {wide && bar.project && <span className="font-normal opacity-75"> · {bar.project}</span>}
+          </span>
         </button>
-      ))}
+        )
+      })}
     </>
   )
 }
 
-function Responsible({ r }: { r: GridKitRow['responsible'] }) {
-  if (!r) return null
-  return (
-    <span title={`${RESPONSIBLE_NOTICE} ${responsibleLabel(r)}`}
-      className="ml-auto flex-shrink min-w-0 inline-flex items-center gap-0.5 px-1.5 rounded text-[10px] text-amber-300 border border-amber-500/30 bg-amber-500/10">
-      <UserRound size={9} className="flex-shrink-0" />
-      <span className="truncate">{r.name}</span>
-    </span>
-  )
-}
-
-function KitRow({ row, color, open, onToggle, days, today, cols, dayBg, selection, canBook, onOpenBooking, onOpenKit }: Ctx & {
+function KitRow({ row, color, open, onToggle, days, today, cols, dayBg, selection, canBook, onOpenBooking, onOpenKit, wide }: Ctx & {
   row: GridKitRow; color: string; open: boolean; onToggle: () => void
 }) {
-  const { kit, parts, bars, elsewhere, defectParts, limitedParts } = row
+  const { kit, parts, bars, elsewhere } = row
   const rowId = `kit:${kit.id}`
   return (
     <div className="grid border-b border-zinc-900 group/row" style={{ gridTemplateColumns: cols, height: ROW_H }}>
@@ -163,16 +219,13 @@ function KitRow({ row, color, open, onToggle, days, today, cols, dayBg, selectio
           {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         </button>
         <span className="w-0.5 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-        <Package size={12} className="text-zinc-500 flex-shrink-0" aria-hidden />
+        <KitIcon />
         <button onClick={() => onOpenKit(kit.id)} title={[kit.name, kit.warning, kit.notes].filter(Boolean).join(' — ')}
-          className="text-[13px] font-medium text-zinc-100 truncate text-left hover:underline">
+          className="min-w-0 text-[13px] font-medium text-zinc-100 truncate text-left hover:underline">
           {kit.name}
         </button>
-        <span className="text-[10px] text-zinc-600 flex-shrink-0">{parts.length}</span>
-        {defectParts > 0 && <span className="flex-shrink-0 px-1 rounded text-[9px] font-bold text-red-400 border border-red-500/40 bg-red-500/10" title={`${defectParts} onderdeel defect of uit dienst`}>{defectParts} defect</span>}
-        {limitedParts > 0 && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" title={`${limitedParts} onderdeel beperkt bruikbaar`} />}
-        {kit.warning && <AlertTriangle size={11} className="text-amber-400/80 flex-shrink-0" aria-label={kit.warning} />}
-        <Responsible r={row.responsible} />
+        <KitBadges kit={kit} parts={parts.map(p => p.item)} />
+        <ResponsiblePill r={row.responsible} />
       </div>
 
       {days.map((iso, i) => {
@@ -196,12 +249,12 @@ function KitRow({ row, color, open, onToggle, days, today, cols, dayBg, selectio
         )
       })}
 
-      <Bars bars={bars} days={days} today={today} onOpenBooking={onOpenBooking} kitName={kit.name} />
+      <Bars bars={bars} days={days} today={today} onOpenBooking={onOpenBooking} kitName={kit.name} wide={wide} />
     </div>
   )
 }
 
-function ItemRow({ row, color, part, days, today, cols, dayBg, selection, canBook, onOpenBooking, onOpenItem }: Ctx & {
+function ItemRow({ row, color, part, days, today, cols, dayBg, selection, canBook, onOpenBooking, onOpenItem, wide }: Ctx & {
   row: GridItemRow; color: string; part?: boolean
 }) {
   const { item, bars } = row
@@ -212,17 +265,12 @@ function ItemRow({ row, color, part, days, today, cols, dayBg, selection, canBoo
       <div className={`sticky left-0 z-10 border-r border-zinc-800 flex items-center gap-1.5 pr-2 min-w-0 ${part ? 'bg-[#0b0b0d] pl-9' : 'bg-zinc-950 pl-3'}`}
         style={{ gridColumn: 1, gridRow: 1 }}>
         {!part && <span className="w-0.5 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />}
-        <button onClick={() => onOpenItem(item.id)}
-          title={[item.name, item.serial_number && `S/N ${item.serial_number}`, item.warning,
-            item.status !== 'ok' ? `${STATUS_LABEL[item.status]}${item.status_note ? `: ${item.status_note}` : ''}` : null].filter(Boolean).join(' — ')}
-          className={`${part ? 'text-[12px]' : 'text-[13px]'} truncate text-left hover:underline ${unavailable ? 'line-through text-zinc-600' : part ? 'text-zinc-400' : 'text-zinc-200'}`}>
+        <button onClick={() => onOpenItem(item.id)} title={itemTitle(item)} className={`${itemNameClass(item, part)} hover:underline`}>
           {item.name}
         </button>
-        {item.status === 'beperkt' && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" title={`Beperkt bruikbaar${item.status_note ? `: ${item.status_note}` : ''}`} />}
-        {item.status === 'defect' && <span className="flex-shrink-0 px-1 rounded text-[9px] font-bold uppercase text-red-400 border border-red-500/40 bg-red-500/10">defect</span>}
-        {item.warning && <AlertTriangle size={11} className="text-amber-400/80 flex-shrink-0" aria-label={item.warning} />}
+        <ItemBadges item={item} />
         {/* Bij een onderdeel staat de verantwoordelijke van de kit al op de kit-rij. */}
-        {(!part || (row.responsible && !row.responsible.viaKit)) && <Responsible r={row.responsible} />}
+        {(!part || (row.responsible && !row.responsible.viaKit)) && <ResponsiblePill r={row.responsible} />}
       </div>
 
       {days.map((iso, i) => {
@@ -239,7 +287,7 @@ function ItemRow({ row, color, part, days, today, cols, dayBg, selection, canBoo
         )
       })}
 
-      <Bars bars={bars} days={days} today={today} onOpenBooking={onOpenBooking} />
+      <Bars bars={bars} days={days} today={today} onOpenBooking={onOpenBooking} wide={wide} />
     </div>
   )
 }
