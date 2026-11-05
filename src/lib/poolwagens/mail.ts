@@ -1,32 +1,36 @@
-import { google } from 'googleapis'
 import { isEmail } from './email'
 import type { MailStatus } from './types'
 
-// Mail versturen via de Gmail API, met het bestaande googleapis-pakket.
+// Mail versturen via een Google Apps Script ("mail-worker", de code staat in
+// apps-script/poolwagens-mail/Code.gs). Het script draait onder een bestaand
+// Workspace-account en verstuurt met MailApp; de hub stuurt het alleen de
+// ontvangers, het onderwerp en de tekst, met een gedeeld geheim. Er is geen
+// service account en geen domain-wide delegation nodig.
 //
-// Een eigen service account met domain-wide delegation, en alleen de scope
-// gmail.send: het mag mailen, niets lezen. Het verstuurt uitsluitend als het
-// afzenderadres uit POOLWAGENS_MAIL_AFZENDER (een apart Workspace-account) —
-// de afzender komt nooit uit een verzoek.
+// De URL moet een Apps Script-webapp zijn: zo kan een verkeerd ingestelde
+// env-var het geheim nooit naar een ander adres sturen.
 //
 // Ontbreekt de configuratie, dan wordt er niets verstuurd en zegt de status
 // dat ('niet_geconfigureerd'). Een mislukte mail gooit nooit door naar de
 // aanroeper: de schademelding is dan al opgeslagen.
 
-export const GMAIL_SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send'
-
 export interface MailConfig {
-  sender: string
-  serviceAccountEmail: string
-  privateKey: string
+  url: string
+  secret: string
 }
 
+// Ook de Workspace-vorm: https://script.google.com/a/macros/<domein>/s/<id>/exec
+const WORKER_URL = /^https:\/\/script\.google\.com\/(?:a\/macros\/[\w.-]+|macros)\/s\/[\w-]+\/exec$/
+/** Minimale lengte van het geheim (ook gecontroleerd in het script). */
+export const MIN_SECRET_LENGTH = 32
+/** Hoe lang de hub op het script wacht. */
+const TIMEOUT_MS = 20_000
+
 export function mailConfig(env: Record<string, string | undefined> = process.env): MailConfig | null {
-  const sender = env.POOLWAGENS_MAIL_AFZENDER?.trim()
-  const serviceAccountEmail = env.POOLWAGENS_MAIL_SERVICE_ACCOUNT_EMAIL?.trim()
-  const privateKey = env.POOLWAGENS_MAIL_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, '\n')
-  if (!sender || !serviceAccountEmail || !privateKey) return null
-  return { sender, serviceAccountEmail, privateKey }
+  const url = env.POOLWAGENS_MAIL_WORKER_URL?.trim()
+  const secret = env.POOLWAGENS_MAIL_WORKER_SECRET?.trim()
+  if (!url || !secret || !WORKER_URL.test(url) || secret.length < MIN_SECRET_LENGTH) return null
+  return { url, secret }
 }
 
 export { isEmail }
@@ -38,66 +42,44 @@ export interface MailMessage {
   html: string
 }
 
-/** Geen regeleinden in een header: anders kan een waarde extra headers toevoegen. */
-function headerValue(value: string): string {
+/** Geen regeleinden in een onderwerp of adres: anders kan een waarde extra headers toevoegen. */
+export function headerValue(value: string): string {
   return value.replace(/[\r\n]+/g, ' ').trim()
 }
 
-/** Een onderwerp met é, ë, … volgens RFC 2047. */
-export function encodeHeader(value: string): string {
-  const clean = headerValue(value)
-  return /^[\x20-\x7e]*$/.test(clean) ? clean : `=?UTF-8?B?${Buffer.from(clean, 'utf8').toString('base64')}?=`
-}
-
-function base64Lines(value: string): string {
-  return (Buffer.from(value, 'utf8').toString('base64').match(/.{1,76}/g) ?? []).join('\r\n')
-}
-
-/** Het volledige bericht, base64url zoals de Gmail API het wil (veld raw). */
-export function buildRawMessage(from: string, msg: MailMessage, boundary = 'poolwagens-boundary'): string {
+/** Wat de hub naar het script stuurt (zonder het geheim). */
+export function workerPayload(msg: MailMessage): MailMessage {
   const to = msg.to.map(headerValue).filter(isEmail)
   if (to.length === 0) throw new Error('Geen geldige ontvangers.')
-  if (!isEmail(headerValue(from))) throw new Error('Ongeldig afzenderadres.')
-  const lines = [
-    `From: ${headerValue(from)}`,
-    `To: ${to.join(', ')}`,
-    `Subject: ${encodeHeader(msg.subject)}`,
-    'MIME-Version: 1.0',
-    `Content-Type: multipart/alternative; boundary="${boundary}"`,
-    '',
-    `--${boundary}`,
-    'Content-Type: text/plain; charset="UTF-8"',
-    'Content-Transfer-Encoding: base64',
-    '',
-    base64Lines(msg.text),
-    `--${boundary}`,
-    'Content-Type: text/html; charset="UTF-8"',
-    'Content-Transfer-Encoding: base64',
-    '',
-    base64Lines(msg.html),
-    `--${boundary}--`,
-    '',
-  ]
-  return Buffer.from(lines.join('\r\n'), 'utf8').toString('base64url')
+  return { to, subject: headerValue(msg.subject).slice(0, 250), text: msg.text, html: msg.html }
 }
 
-export async function sendMail(config: MailConfig, msg: MailMessage): Promise<void> {
-  const auth = new google.auth.JWT({
-    email: config.serviceAccountEmail,
-    key: config.privateKey,
-    scopes: [GMAIL_SEND_SCOPE],
-    subject: config.sender,
+export async function sendMail(config: MailConfig, msg: MailMessage, fetchFn: typeof fetch = fetch): Promise<void> {
+  // Apps Script antwoordt met een doorverwijzing naar het eigenlijke
+  // antwoord; fetch volgt die. Het script zegt altijd 200, met { ok, error }.
+  const res = await fetchFn(config.url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ secret: config.secret, ...workerPayload(msg) }),
+    redirect: 'follow',
+    signal: AbortSignal.timeout(TIMEOUT_MS),
   })
-  const gmail = google.gmail({ version: 'v1', auth })
-  await gmail.users.messages.send({ userId: 'me', requestBody: { raw: buildRawMessage(config.sender, msg) } })
+  if (!res.ok) throw new Error(`Mail-worker antwoordde ${res.status}.`)
+  let body: { ok?: boolean; error?: string }
+  try {
+    body = await res.json()
+  } catch {
+    throw new Error('Mail-worker antwoordde niet zoals verwacht. Staat de toegang van de webapp op "Iedereen"?')
+  }
+  if (!body.ok) throw new Error(body.error || 'Mail-worker weigerde de mail.')
 }
 
-/** Een foutmelding van Google kort en zonder geheimen, voor de schadelijst. */
-export function mailErrorText(err: unknown): string {
-  const e = err as { message?: string; response?: { data?: { error?: string; error_description?: string } } }
-  const google_ = e?.response?.data
-  const text = google_?.error_description || google_?.error || e?.message || 'Onbekende fout'
-  return String(text).replace(/-----BEGIN[\s\S]*?-----END[^-]*-----/g, '[sleutel]').slice(0, 300)
+/** Een foutmelding kort en zonder geheimen, voor de schadelijst. */
+export function mailErrorText(err: unknown, secret?: string): string {
+  const e = err as { name?: string; message?: string }
+  let text = e?.name === 'TimeoutError' ? 'Mail-worker antwoordde niet op tijd.' : String(e?.message || 'Onbekende fout')
+  if (secret) text = text.split(secret).join('[geheim]')
+  return text.replace(/-----BEGIN[\s\S]*?-----END[^-]*-----/g, '[sleutel]').slice(0, 300)
 }
 
 /**
@@ -117,7 +99,7 @@ export async function trySendMail(
     await send(config, { ...msg, to })
     return { status: 'verstuurd', error: null }
   } catch (err) {
-    const error = mailErrorText(err)
+    const error = mailErrorText(err, config.secret)
     console.error('Poolwagens: mail niet verstuurd:', error)
     return { status: 'mislukt', error }
   }

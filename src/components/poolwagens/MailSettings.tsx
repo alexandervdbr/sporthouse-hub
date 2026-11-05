@@ -61,7 +61,7 @@ export default function MailSettings() {
       <p className="text-xs text-zinc-500 mb-4">Wie hier staat, krijgt een mail bij elke nieuwe schademelding. Beheerders krijgen daarnaast een push.</p>
 
       <div className="space-y-2 mb-4">
-        {!settings.mailConfigured && <Warn>Mail niet geconfigureerd. Meldingen worden wel opgeslagen, maar er vertrekt geen mail tot de Gmail-koppeling ingesteld is.</Warn>}
+        {!settings.mailConfigured && <Warn>Mail niet geconfigureerd. Meldingen worden wel opgeslagen, maar er vertrekt geen mail tot de mail-worker ingesteld is.</Warn>}
         {settings.mailConfigured && settings.recipients.length === 0 && <Warn>Geen ontvangers ingesteld: bij een schademelding vertrekt er geen mail.</Warn>}
         {!settings.pushConfigured && <Warn>Push niet geconfigureerd (VAPID-sleutels ontbreken): er vertrekken geen pushmeldingen.</Warn>}
         {!settings.driveConfigured && <Warn>Google Drive niet geconfigureerd: foto’s bij een schademelding kunnen niet opgeslagen worden.</Warn>}

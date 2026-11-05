@@ -1,39 +1,50 @@
 import { describe, it, expect, vi } from 'vitest'
-import { buildRawMessage, damageMail, encodeHeader, mailConfig, mailErrorText, trySendMail, type MailConfig } from '@/lib/poolwagens/mail'
+import { damageMail, mailConfig, mailErrorText, sendMail, trySendMail, workerPayload, type MailConfig } from '@/lib/poolwagens/mail'
 
-const decode = (raw: string) => Buffer.from(raw, 'base64url').toString('utf8')
-const CONFIG: MailConfig = { sender: 'poolwagens@sporthousegroup.com', serviceAccountEmail: 'sa@x.iam.gserviceaccount.com', privateKey: 'k' }
+const SECRET = 's'.repeat(40)
+const URL_OK = 'https://script.google.com/macros/s/AKfycbx-abc_123/exec'
+const CONFIG: MailConfig = { url: URL_OK, secret: SECRET }
 const MSG = { subject: 'Test', text: 'Hallo', html: '<p>Hallo</p>' }
 
 describe('mailConfig', () => {
-  it('pas geconfigureerd met alle drie de env-vars', () => {
+  it('pas geconfigureerd met een Apps Script-URL en een lang geheim', () => {
     expect(mailConfig({})).toBeNull()
-    expect(mailConfig({ POOLWAGENS_MAIL_AFZENDER: 'a@b.be', POOLWAGENS_MAIL_SERVICE_ACCOUNT_EMAIL: 'x' })).toBeNull()
-    expect(mailConfig({
-      POOLWAGENS_MAIL_AFZENDER: ' a@b.be ', POOLWAGENS_MAIL_SERVICE_ACCOUNT_EMAIL: 'sa@x', POOLWAGENS_MAIL_SERVICE_ACCOUNT_PRIVATE_KEY: 'line1\\nline2',
-    })).toEqual({ sender: 'a@b.be', serviceAccountEmail: 'sa@x', privateKey: 'line1\nline2' })
+    expect(mailConfig({ POOLWAGENS_MAIL_WORKER_URL: URL_OK })).toBeNull()
+    expect(mailConfig({ POOLWAGENS_MAIL_WORKER_URL: URL_OK, POOLWAGENS_MAIL_WORKER_SECRET: 'kort' })).toBeNull()
+    expect(mailConfig({ POOLWAGENS_MAIL_WORKER_URL: ` ${URL_OK} `, POOLWAGENS_MAIL_WORKER_SECRET: ` ${SECRET} ` })).toEqual(CONFIG)
+    const workspace = 'https://script.google.com/a/macros/sporthousegroup.com/s/AKfy-1/exec'
+    expect(mailConfig({ POOLWAGENS_MAIL_WORKER_URL: workspace, POOLWAGENS_MAIL_WORKER_SECRET: SECRET })?.url).toBe(workspace)
+  })
+
+  it('het geheim gaat nooit naar een ander adres dan een Apps Script-webapp', () => {
+    for (const url of ['https://example.com/exec', 'http://script.google.com/macros/s/x/exec', 'https://script.google.com.evil.com/macros/s/x/exec', 'https://script.google.com/macros/s/x/dev']) {
+      expect(mailConfig({ POOLWAGENS_MAIL_WORKER_URL: url, POOLWAGENS_MAIL_WORKER_SECRET: SECRET })).toBeNull()
+    }
   })
 })
 
-describe('buildRawMessage', () => {
-  it('maakt een geldig bericht van de vaste afzender', () => {
-    const m = decode(buildRawMessage(CONFIG.sender, { ...MSG, to: ['a@example.com', 'b@example.com'] }))
-    expect(m).toContain('From: poolwagens@sporthousegroup.com\r\n')
-    expect(m).toContain('To: a@example.com, b@example.com\r\n')
-    expect(m).toContain('Subject: Test\r\n')
-    expect(m).toContain('Content-Type: multipart/alternative')
+describe('workerPayload en sendMail', () => {
+  it('alleen geldige ontvangers, geen regeleinden in het onderwerp', () => {
+    expect(workerPayload({ ...MSG, subject: 'Hoi\r\nBcc: aanvaller@example.com', to: ['a@example.com', 'fout'] }))
+      .toEqual({ ...MSG, subject: 'Hoi Bcc: aanvaller@example.com', to: ['a@example.com'] })
+    expect(() => workerPayload({ ...MSG, to: ['geen-adres'] })).toThrow('Geen geldige ontvangers.')
   })
 
-  it('geen extra headers via een regeleinde', () => {
-    const m = decode(buildRawMessage(CONFIG.sender, { ...MSG, subject: 'Hoi\r\nBcc: aanvaller@example.com', to: ['a@example.com'] }))
-    expect(m).not.toMatch(/^Bcc:/m)
-    expect(m).toContain('Subject: Hoi Bcc: aanvaller@example.com\r\n')
+  const answer = (body: unknown, init: ResponseInit = {}) => vi.fn().mockResolvedValue(new Response(typeof body === 'string' ? body : JSON.stringify(body), init))
+
+  it('stuurt geheim en bericht als JSON naar de worker', async () => {
+    const fetchFn = answer({ ok: true })
+    await sendMail(CONFIG, { ...MSG, to: ['a@example.com'] }, fetchFn)
+    const [url, init] = fetchFn.mock.calls[0]
+    expect(url).toBe(URL_OK)
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body)).toEqual({ secret: SECRET, ...MSG, to: ['a@example.com'] })
   })
 
-  it('codeert een onderwerp met accenten, en weigert zonder geldige ontvanger', () => {
-    expect(encodeHeader('Schade gemeld: Peugeot')).toBe('Schade gemeld: Peugeot')
-    expect(encodeHeader('Schade aan de wagen van Zoë')).toMatch(/^=\?UTF-8\?B\?.+\?=$/)
-    expect(() => buildRawMessage(CONFIG.sender, { ...MSG, to: ['geen-adres'] })).toThrow('Geen geldige ontvangers.')
+  it('een weigering of een loginpagina wordt een fout', async () => {
+    await expect(sendMail(CONFIG, { ...MSG, to: ['a@example.com'] }, answer({ ok: false, error: 'Geen toegang.' }))).rejects.toThrow('Geen toegang.')
+    await expect(sendMail(CONFIG, { ...MSG, to: ['a@example.com'] }, answer('<html>Inloggen</html>'))).rejects.toThrow('Iedereen')
+    await expect(sendMail(CONFIG, { ...MSG, to: ['a@example.com'] }, answer('x', { status: 500 }))).rejects.toThrow('500')
   })
 })
 
@@ -56,15 +67,17 @@ describe('trySendMail (een mislukte mail blokkeert nooit)', () => {
     expect(send).toHaveBeenCalledWith(CONFIG, { ...MSG, to: ['a@example.com'] })
   })
 
-  it('een fout van Google wordt een status, geen exception', async () => {
+  it('een fout van de worker wordt een status, geen exception', async () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const send = vi.fn().mockRejectedValue({ response: { data: { error: 'unauthorized_client', error_description: 'Client is unauthorized' } } })
-    expect(await trySendMail(['a@example.com'], MSG, CONFIG, send)).toEqual({ status: 'mislukt', error: 'Client is unauthorized' })
+    const send = vi.fn().mockRejectedValue(new Error('Geen toegang.'))
+    expect(await trySendMail(['a@example.com'], MSG, CONFIG, send)).toEqual({ status: 'mislukt', error: 'Geen toegang.' })
     spy.mockRestore()
   })
 
-  it('een sleutel komt nooit in de foutmelding', () => {
+  it('het geheim of een sleutel komt nooit in de foutmelding', () => {
+    expect(mailErrorText(new Error(`fout bij ${SECRET}`), SECRET)).toBe('fout bij [geheim]')
     expect(mailErrorText(new Error('bad -----BEGIN PRIVATE KEY-----abc-----END PRIVATE KEY-----'))).toBe('bad [sleutel]')
+    expect(mailErrorText(Object.assign(new Error('x'), { name: 'TimeoutError' }))).toBe('Mail-worker antwoordde niet op tijd.')
   })
 })
 

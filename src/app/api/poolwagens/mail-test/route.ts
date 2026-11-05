@@ -2,7 +2,7 @@ import { requirePoolwagens } from '@/lib/poolwagens/server'
 import { mailConfig, trySendMail } from '@/lib/poolwagens/mail'
 
 // POST — één testmail naar jezelf (het adres van je eigen account), om de
-// Gmail-setup te controleren. Alleen beheer. Verstuurt niets naar anderen.
+// mail-worker (Apps Script) te controleren. Alleen beheer. Verstuurt niets naar anderen.
 export async function POST() {
   const auth = await requirePoolwagens('manage')
   if ('error' in auth) return auth.error
@@ -14,8 +14,8 @@ export async function POST() {
 
   const outcome = await trySendMail([user.email], {
     subject: 'Testmail van Poolwagens',
-    text: `Dit is een testmail van de module Poolwagens in de Sporthouse Hub.\n\nVerstuurd als ${config.sender}. Komt deze aan, dan werkt de Gmail-koppeling.`,
-    html: `<p>Dit is een testmail van de module Poolwagens in de Sporthouse Hub.</p><p>Komt deze aan, dan werkt de Gmail-koppeling.</p>`,
+    text: `Dit is een testmail van de module Poolwagens in de Sporthouse Hub.\n\nKomt deze aan, dan werkt de mail-worker.`,
+    html: `<p>Dit is een testmail van de module Poolwagens in de Sporthouse Hub.</p><p>Komt deze aan, dan werkt de mail-worker.</p>`,
   }, config)
   return Response.json({ ...outcome, to: user.email })
 }

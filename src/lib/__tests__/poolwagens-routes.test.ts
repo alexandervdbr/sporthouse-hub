@@ -50,15 +50,10 @@ vi.mock('@/lib/supabase/server', () => ({
   createAdminClient: () => client(),
 }))
 
-// Gmail: elke verzendpoging faalt, zoals bij een verkeerd ingestelde
-// delegation. De melding moet dan gewoon blijven bestaan.
-vi.mock('googleapis', () => ({
-  google: {
-    auth: { JWT: class { constructor() {} } },
-    gmail: () => ({ users: { messages: { send: async () => { throw new Error('unauthorized_client') } } } }),
-    drive: () => ({}),
-  },
-}))
+// De mail-worker weigert elke verzendpoging, zoals bij een verkeerd geheim.
+// De melding moet dan gewoon blijven bestaan.
+vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ ok: false, error: 'Geen toegang.' })))
+vi.mock('googleapis', () => ({ google: { auth: { JWT: class { constructor() {} } }, drive: () => ({}) } }))
 
 const cars = await import('@/app/api/poolwagens/cars/route')
 const car = await import('@/app/api/poolwagens/cars/[id]/route')
@@ -270,7 +265,7 @@ describe('schademail — blokkeert de melding nooit', () => {
       mail_attempted_at: null, pool_cars: { name: 'Bus', license_plate: '1-ABC-234' }, pool_car_damage_photos: [{ id: 'p1' }], ...extra,
     },
   })
-  const ENV = ['POOLWAGENS_MAIL_AFZENDER', 'POOLWAGENS_MAIL_SERVICE_ACCOUNT_EMAIL', 'POOLWAGENS_MAIL_SERVICE_ACCOUNT_PRIVATE_KEY'] as const
+  const ENV = ['POOLWAGENS_MAIL_WORKER_URL', 'POOLWAGENS_MAIL_WORKER_SECRET'] as const
   afterEach(() => { for (const k of ENV) delete process.env[k] })
 
   it('zonder mail-env-vars: 200, en de status "niet geconfigureerd" wordt opgeslagen', async () => {
@@ -281,23 +276,21 @@ describe('schademail — blokkeert de melding nooit', () => {
     expect(state.rpcArgs.pool_set_damage_mail_status).toEqual({ p_id: 'd1', p_status: 'niet_geconfigureerd', p_error: null })
   })
 
-  it('Gmail weigert: 200, status "mislukt" met de fout, niets gegooid', async () => {
-    process.env.POOLWAGENS_MAIL_AFZENDER = 'poolwagens@example.com'
-    process.env.POOLWAGENS_MAIL_SERVICE_ACCOUNT_EMAIL = 'sa@example.iam.gserviceaccount.com'
-    process.env.POOLWAGENS_MAIL_SERVICE_ACCOUNT_PRIVATE_KEY = 'k'
+  it('de mail-worker weigert: 200, status "mislukt" met de fout, niets gegooid', async () => {
+    process.env.POOLWAGENS_MAIL_WORKER_URL = 'https://script.google.com/macros/s/test/exec'
+    process.env.POOLWAGENS_MAIL_WORKER_SECRET = 'g'.repeat(40)
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     state.user = user(USER)
     state.tables.pool_car_damage_reports = report()
     state.tables.pool_settings = { data: { damage_mail_recipients: ['vloot@example.com'] } }
     expect(await answer(notify.POST(json('POST'), params('d1')))).toEqual({ status: 200, text: JSON.stringify({ mail_status: 'mislukt' }) })
-    expect(state.rpcArgs.pool_set_damage_mail_status).toEqual({ p_id: 'd1', p_status: 'mislukt', p_error: 'unauthorized_client' })
+    expect(state.rpcArgs.pool_set_damage_mail_status).toEqual({ p_id: 'd1', p_status: 'mislukt', p_error: 'Geen toegang.' })
     spy.mockRestore()
   })
 
   it('geen ontvangers ingesteld: status "geen ontvangers"', async () => {
-    process.env.POOLWAGENS_MAIL_AFZENDER = 'poolwagens@example.com'
-    process.env.POOLWAGENS_MAIL_SERVICE_ACCOUNT_EMAIL = 'sa@example.iam.gserviceaccount.com'
-    process.env.POOLWAGENS_MAIL_SERVICE_ACCOUNT_PRIVATE_KEY = 'k'
+    process.env.POOLWAGENS_MAIL_WORKER_URL = 'https://script.google.com/macros/s/test/exec'
+    process.env.POOLWAGENS_MAIL_WORKER_SECRET = 'g'.repeat(40)
     state.user = user(USER)
     state.tables.pool_car_damage_reports = report()
     state.tables.pool_settings = { data: { damage_mail_recipients: [] } }
