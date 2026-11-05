@@ -13,7 +13,8 @@ import type { GridBar, GridGroup, GridItemRow, GridKitRow } from '@/lib/gear/gri
 // items), dagen als kolommen. Een kit is één rij die je openklapt naar zijn
 // onderdelen. Alleen tekenen — wat waar staat, rekent src/lib/gear/grid.ts uit.
 // Wil het team later dagen als rijen, dan komt er een ander rastercomponent
-// naast dit, met dezelfde invoer.
+// naast dit, met dezelfde invoer. Dezelfde component tekent de maand en de
+// week; in de week (`wide`) zijn de kolommen breed genoeg voor meer tekst.
 
 const NAME_W  = 268
 const DAY_MIN = 34
@@ -41,15 +42,20 @@ interface Props {
   /** Alleen voor Beheren: een categorie met het greepje verslepen. */
   canReorderCategories?: boolean
   onReorderCategory?: (activeId: string, overId: string) => void
+  /** Weekweergave: brede dagen, met de maand in de kop en het project op de balk. */
+  wide?: boolean
 }
 
 function dayHeader(iso: string) {
   const d = new Date(`${iso}T12:00:00`)
-  return { weekday: d.toLocaleDateString('nl-BE', { weekday: 'short' }).slice(0, 2), day: d.getDate(), weekend: d.getDay() === 0 || d.getDay() === 6 }
+  return {
+    weekday: d.toLocaleDateString('nl-BE', { weekday: 'short' }).slice(0, 2), day: d.getDate(),
+    month: d.toLocaleDateString('nl-BE', { month: 'short' }).replace('.', ''), weekend: d.getDay() === 0 || d.getDay() === 6,
+  }
 }
 
 export default function MaterialGrid(props: Props) {
-  const { days, today, groups, collapsed, onToggleCategory, openKits, onToggleKit } = props
+  const { days, today, groups, collapsed, onToggleCategory, openKits, onToggleKit, wide } = props
   const selection = useGridSelection((rowId, from, to) => {
     const [kind, id] = rowId.split(':') as ['kit' | 'item', string]
     props.onSelectRange({ kind, id }, from, to)
@@ -81,9 +87,12 @@ export default function MaterialGrid(props: Props) {
         {headers.map((h, i) => (
           <div key={days[i]} className="flex flex-col items-center pt-2 pb-1.5 border-r border-zinc-900" style={{ background: dayBg(i) }}>
             <span className={`text-[9px] uppercase tracking-wide ${h.weekend ? 'text-zinc-600' : 'text-zinc-500'}`}>{h.weekday}</span>
-            <span className="text-xs font-semibold tabular-nums w-6 h-6 flex items-center justify-center rounded-full"
-              style={i === todayIdx ? { backgroundColor: '#3A913F', color: '#fff' } : { color: h.weekend ? '#71717a' : '#d4d4d8' }}>
-              {h.day}
+            <span className="flex items-center gap-1">
+              <span className="text-xs font-semibold tabular-nums w-6 h-6 flex items-center justify-center rounded-full"
+                style={i === todayIdx ? { backgroundColor: '#3A913F', color: '#fff' } : { color: h.weekend ? '#71717a' : '#d4d4d8' }}>
+                {h.day}
+              </span>
+              {wide && <span className={`text-xs ${h.weekend ? 'text-zinc-600' : 'text-zinc-500'}`}>{h.month}</span>}
             </span>
           </div>
         ))}
@@ -169,12 +178,14 @@ function covers(bars: GridBar[], i: number) {
   return bars.some(b => i >= b.startIndex && i < b.startIndex + b.span)
 }
 
-function Bars({ bars, days, today, onOpenBooking, kitName }: { bars: GridBar[]; days: string[]; today: string; onOpenBooking: (id: string) => void; kitName?: string }) {
+function Bars({ bars, days, today, onOpenBooking, kitName, wide }: { bars: GridBar[]; days: string[]; today: string; onOpenBooking: (id: string) => void; kitName?: string; wide?: boolean }) {
   return (
     <>
-      {bars.map(bar => (
+      {bars.map(bar => {
+        const text = wide && bar.project ? `${bar.text} · ${bar.project}` : bar.text
+        return (
         <button key={bar.bookingId} onClick={() => onOpenBooking(bar.bookingId)}
-          title={bar.flagged ? `${bar.text} — let op: een onderdeel is defect of uit dienst` : kitName ? `${bar.text} — ${kitName}` : bar.text}
+          title={bar.flagged ? `${text} — let op: een onderdeel is defect of uit dienst` : kitName ? `${text} — ${kitName}` : text}
           className="relative z-[1] my-1 mx-px flex items-center px-2 overflow-hidden text-left hover:brightness-125 transition"
           style={{
             gridColumn: `${bar.startIndex + 2} / span ${bar.span}`, gridRow: 1,
@@ -184,14 +195,18 @@ function Bars({ bars, days, today, onOpenBooking, kitName }: { bars: GridBar[]; 
             opacity: days[bar.startIndex + bar.span - 1] < today ? 0.55 : 1,
           }}>
           {bar.flagged && <AlertTriangle size={10} className="text-red-400 mr-1 flex-shrink-0" />}
-          <span className="text-[11px] font-semibold truncate" style={{ color: bar.color }}>{bar.text}</span>
+          <span className="text-[11px] font-semibold truncate" style={{ color: bar.color }}>
+            {bar.text}
+            {wide && bar.project && <span className="font-normal opacity-75"> · {bar.project}</span>}
+          </span>
         </button>
-      ))}
+        )
+      })}
     </>
   )
 }
 
-function KitRow({ row, color, open, onToggle, days, today, cols, dayBg, selection, canBook, onOpenBooking, onOpenKit }: Ctx & {
+function KitRow({ row, color, open, onToggle, days, today, cols, dayBg, selection, canBook, onOpenBooking, onOpenKit, wide }: Ctx & {
   row: GridKitRow; color: string; open: boolean; onToggle: () => void
 }) {
   const { kit, parts, bars, elsewhere } = row
@@ -234,12 +249,12 @@ function KitRow({ row, color, open, onToggle, days, today, cols, dayBg, selectio
         )
       })}
 
-      <Bars bars={bars} days={days} today={today} onOpenBooking={onOpenBooking} kitName={kit.name} />
+      <Bars bars={bars} days={days} today={today} onOpenBooking={onOpenBooking} kitName={kit.name} wide={wide} />
     </div>
   )
 }
 
-function ItemRow({ row, color, part, days, today, cols, dayBg, selection, canBook, onOpenBooking, onOpenItem }: Ctx & {
+function ItemRow({ row, color, part, days, today, cols, dayBg, selection, canBook, onOpenBooking, onOpenItem, wide }: Ctx & {
   row: GridItemRow; color: string; part?: boolean
 }) {
   const { item, bars } = row
@@ -272,7 +287,7 @@ function ItemRow({ row, color, part, days, today, cols, dayBg, selection, canBoo
         )
       })}
 
-      <Bars bars={bars} days={days} today={today} onOpenBooking={onOpenBooking} />
+      <Bars bars={bars} days={days} today={today} onOpenBooking={onOpenBooking} wide={wide} />
     </div>
   )
 }

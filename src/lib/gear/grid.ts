@@ -12,6 +12,8 @@ import type { GearBooking, GearCatalog, GearCategory, GearItem, GearKit } from '
 export interface GridBar extends Bar, BarLabel {
   /** Iets in deze boeking is defect of uit dienst terwijl ze loopt of nog komt. */
   flagged: boolean
+  /** Project van de boeking; de weekweergave heeft plaats om het te tonen. */
+  project: string | null
 }
 
 export interface GridItemRow {
@@ -74,7 +76,7 @@ export function buildGrid(
     bars: buildBars((byItem.get(item.id) ?? []).map(b => ({ bookingId: b.id, range: { start: b.start_date, end: b.end_date }, cancelled: false })), window)
       .map(bar => {
         const b = bookings.find(x => x.id === bar.bookingId)!
-        return { ...bar, ...label(b), flagged: unavailable(item) && b.end_date >= today }
+        return { ...bar, ...label(b), flagged: unavailable(item) && b.end_date >= today, project: b.project?.name ?? null }
       }),
   })
 
@@ -85,7 +87,7 @@ export function buildGrid(
       .map(bar => {
         const b = via.find(x => x.id === bar.bookingId)!
         const flagged = b.end_date >= today && b.lines.some(l => l.via_kit_id === kit.id && unavailable(itemById.get(l.item_id)))
-        return { ...bar, ...label(b), flagged }
+        return { ...bar, ...label(b), flagged, project: b.project?.name ?? null }
       })
     const partIds = new Set(kit.item_ids)
     const elsewhere = days.map(d => {

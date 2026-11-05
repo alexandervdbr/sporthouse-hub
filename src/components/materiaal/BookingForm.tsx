@@ -392,7 +392,7 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
               {holderError && kind !== 'collega' && <p className="text-xs text-amber-300">{HOLDER_ERROR_TEXT[holderError]}</p>}
               {kind === 'collega' && !userIdFor && <p className="text-xs text-amber-300">Kies een collega.</p>}
               {inPast && <p className="text-xs text-amber-300">Boeken in het verleden kan alleen een beheerder.</p>}
-              {outsideWindow && <p className="text-xs text-zinc-500">Een deel valt buiten deze maand; botsingen daar meldt de planner bij het opslaan.</p>}
+              {outsideWindow && <p className="text-xs text-zinc-500">Een deel valt buiten de getoonde periode; botsingen daar meldt de planner bij het opslaan.</p>}
             </div>
           )}
           {error && <ErrorLine>{error}</ErrorLine>}

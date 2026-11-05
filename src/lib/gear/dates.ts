@@ -59,3 +59,8 @@ export function monthDays(year: number, month: number): string[] {
 export function todayInBrussels(now: Date = new Date()): string {
   return now.toLocaleDateString('en-CA', { timeZone: 'Europe/Brussels' })
 }
+
+/** Dag van de week: 0 = maandag … 6 = zondag (in België begint de week op maandag). */
+export function weekdayIndex(iso: string): number {
+  return (toUTC(iso).getUTCDay() + 6) % 7
+}
