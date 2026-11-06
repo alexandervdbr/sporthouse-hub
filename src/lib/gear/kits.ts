@@ -1,4 +1,4 @@
-import { findConflicts, type BookedUnit, type Conflict, type DateRange } from './ranges'
+import { findConflicts, type BookedUnit, type Conflict, type TimedRange } from './ranges'
 import { effectiveResponsible, ownResponsible, type EffectiveResponsible } from './responsible'
 import type { GearBooking, GearCatalog, GearItem, GearKit } from './types'
 
@@ -19,7 +19,7 @@ export function bookedLines(bookings: GearBooking[]): BookedUnit[] {
   return bookings.flatMap(b => b.lines.map(l => ({
     bookingId: b.id,
     unitId: l.item_id,
-    range: { start: b.start_date, end: b.end_date },
+    range: { start: b.start_date, end: b.end_date, startTime: b.start_time, endTime: b.end_time },
     cancelled: false,
     holderLabel: [b.person_name, b.client?.name].filter(Boolean).join(' · ') || 'onbekend',
   })))
@@ -38,7 +38,7 @@ export interface PartCheck {
 export function checkKitParts(
   kit: GearKit,
   items: Map<string, GearItem>,
-  range: DateRange,
+  range: TimedRange,
   booked: BookedUnit[],
   ignoreBookingId?: string,
 ): PartCheck[] {

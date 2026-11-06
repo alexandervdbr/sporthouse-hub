@@ -7,22 +7,22 @@ const november = { start: '2026-11-01', end: '2026-11-30' }
 describe('buildBars', () => {
   it('zet een boeking binnen de maand op de juiste kolommen', () => {
     expect(buildBars([{ bookingId: 'b1', range: { start: '2026-11-03', end: '2026-11-05' }, cancelled: false }], november))
-      .toEqual([{ bookingId: 'b1', startIndex: 2, span: 3, continuesBefore: false, continuesAfter: false }])
+      .toEqual([{ bookingId: 'b1', startIndex: 2, span: 3, continuesBefore: false, continuesAfter: false, startFrac: 0, endFrac: 1 }])
   })
 
   it('knipt een boeking die in de vorige maand begon', () => {
     expect(buildBars([{ bookingId: 'b1', range: { start: '2026-10-28', end: '2026-11-02' }, cancelled: false }], november))
-      .toEqual([{ bookingId: 'b1', startIndex: 0, span: 2, continuesBefore: true, continuesAfter: false }])
+      .toEqual([{ bookingId: 'b1', startIndex: 0, span: 2, continuesBefore: true, continuesAfter: false, startFrac: 0, endFrac: 1 }])
   })
 
   it('knipt een boeking die doorloopt in de volgende maand', () => {
     expect(buildBars([{ bookingId: 'b1', range: { start: '2026-11-29', end: '2026-12-03' }, cancelled: false }], november))
-      .toEqual([{ bookingId: 'b1', startIndex: 28, span: 2, continuesBefore: false, continuesAfter: true }])
+      .toEqual([{ bookingId: 'b1', startIndex: 28, span: 2, continuesBefore: false, continuesAfter: true, startFrac: 0, endFrac: 1 }])
   })
 
   it('tekent een boeking die de hele maand overspant als één balk', () => {
     expect(buildBars([{ bookingId: 'b1', range: { start: '2026-10-01', end: '2026-12-31' }, cancelled: false }], november))
-      .toEqual([{ bookingId: 'b1', startIndex: 0, span: 30, continuesBefore: true, continuesAfter: true }])
+      .toEqual([{ bookingId: 'b1', startIndex: 0, span: 30, continuesBefore: true, continuesAfter: true, startFrac: 0, endFrac: 1 }])
   })
 
   it('laat geannuleerde en niet-zichtbare boekingen weg', () => {
@@ -61,5 +61,19 @@ describe('rangeFromSelection', () => {
   })
   it('geeft null zonder dagen', () => {
     expect(rangeFromSelection([], 0, 0)).toBeNull()
+  })
+})
+
+describe('buildBars met uren', () => {
+  it('begint en eindigt midden in een dag: tot 10:00 en vanaf 14:00 in dezelfde dagcel', () => {
+    const tot10 = { bookingId: 'a', range: { start: '2026-11-03', end: '2026-11-05' }, cancelled: false, slot: { start: '2026-11-03T00:00', end: '2026-11-05T10:00' } }
+    const vanaf14 = { bookingId: 'b', range: { start: '2026-11-05', end: '2026-11-05' }, cancelled: false, slot: { start: '2026-11-05T14:00', end: '2026-11-06T00:00' } }
+    const [a, b] = buildBars([tot10, vanaf14], november)
+    expect(a).toMatchObject({ startIndex: 2, span: 3, startFrac: 0, endFrac: 10 / 24 })
+    expect(b).toMatchObject({ startIndex: 4, span: 1, startFrac: 14 / 24, endFrac: 1 })
+  })
+  it('buiten het venster: de knip is een hele dag', () => {
+    const [a] = buildBars([{ bookingId: 'a', range: { start: '2026-10-30', end: '2026-12-02' }, cancelled: false, slot: { start: '2026-10-30T14:00', end: '2026-12-02T10:00' } }], november)
+    expect(a).toMatchObject({ startFrac: 0, endFrac: 1, continuesBefore: true, continuesAfter: true })
   })
 })

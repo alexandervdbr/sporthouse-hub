@@ -1,4 +1,6 @@
 import { addDays } from './dates'
+import { MAIL_LOGO_CID } from './mail-logo'
+import { bookingSlot, slotLabel } from './times'
 import { periodLabel } from './views'
 
 // Mails van de materiaalplanner, via een eigen Google Apps Script
@@ -60,12 +62,16 @@ export function shouldConfirm(endDate: string, today: string): boolean {
 }
 
 /** Sleutel in het logboek: nieuwe data geven een nieuwe bevestiging, dezelfde data nooit twee keer. */
-export const confirmationKey = (start: string, end: string) => `${start}|${end}`
+export const confirmationKey = (start: string, end: string, startTime?: string | null, endTime?: string | null) =>
+  `${start}${startTime ? `T${startTime}` : ''}|${end}${endTime ? `T${endTime}` : ''}`
 
 export interface MailBooking {
   id: string
   start: string
   end: string
+  /** 'HH:MM' of null (hele dag). */
+  startTime?: string | null
+  endTime?: string | null
   /** Voor wie: "Bram Kreike", of null bij alleen een klant. */
   person: string | null
   client: string | null
@@ -95,6 +101,12 @@ export function whatShort(b: Pick<MailBooking, 'kits' | 'loose'>, max = 2): stri
   return names.length <= max ? names.join(', ') : `${names.slice(0, max).join(', ')} +${names.length - max}`
 }
 
+/** "3–7 nov 2026", of met uren "5 nov 14:00 – 7 nov 10:00 (2026)". */
+export function mailPeriod(b: Pick<MailBooking, 'start' | 'end' | 'startTime' | 'endTime'>): string {
+  if (!b.startTime && !b.endTime) return periodLabel(b.start, b.end, true)
+  return `${slotLabel(bookingSlot(b.start, b.startTime, b.end, b.endTime))} ${b.end.slice(0, 4)}`
+}
+
 function forWhom(b: MailBooking): string {
   return [b.person, b.client].filter(Boolean).join(' · ') || 'onbekend'
 }
@@ -112,7 +124,7 @@ function lines(b: MailBooking): { text: string[]; html: string } {
 
 function details(b: MailBooking): { text: string[]; html: string } {
   const rows: [string, string][] = [
-    ['Periode', periodLabel(b.start, b.end, true)],
+    ['Periode', mailPeriod(b)],
     ['Voor', forWhom(b)],
     ...(b.project ? [['Project', b.project] as [string, string]] : []),
     ...(b.note ? [['Notitie', b.note] as [string, string]] : []),
@@ -133,15 +145,22 @@ function warnings(b: MailBooking): { text: string[]; html: string } {
   }
 }
 
+/** Kop van elke mail: het beeldmerk (inline, cid:logo) met "Sporthouse Materiaal" ernaast. */
+export const MAIL_HEADER =
+  `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 18px;border-collapse:collapse"><tr>` +
+  `<td style="padding:0 10px 0 0;vertical-align:middle"><img src="cid:${MAIL_LOGO_CID}" width="40" height="40" alt="Sporthouse" style="display:block;border:0"></td>` +
+  `<td style="vertical-align:middle;font-size:16px;font-weight:600;color:#18181b;letter-spacing:.2px">Sporthouse Materiaal</td>` +
+  `</tr></table>`
+
 function wrap(body: string): string {
-  return `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;color:#18181b;max-width:560px">${body}` +
+  return `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;color:#18181b;max-width:560px">${MAIL_HEADER}${body}` +
     `<p style="margin-top:20px;color:#a1a1aa;font-size:12px">Sporthouse Materiaal — automatische mail uit de materiaalplanner.</p></div>`
 }
 
 /** Bevestiging bij een nieuwe boeking, of bij een boeking met nieuwe data. */
 export function confirmationMail(b: MailBooking, changed: boolean): MailContent {
   const what = whatShort(b)
-  const period = periodLabel(b.start, b.end, true)
+  const period = mailPeriod(b)
   const subject = oneLine(`${changed ? 'Boeking gewijzigd' : 'Materiaal geboekt'}: ${what} · ${period}`)
   const intro = changed ? 'De data van deze boeking zijn gewijzigd.' : 'Dit materiaal is voor je geboekt.'
   const l = lines(b), d = details(b), w = warnings(b)
@@ -155,7 +174,7 @@ export function confirmationMail(b: MailBooking, changed: boolean): MailContent 
 
 /** Annulering: zelfde ontvangers als de bevestiging; het agenda-item verdwijnt via de bijlage. */
 export function cancellationMail(b: MailBooking): MailContent {
-  const subject = oneLine(`Geannuleerd: ${whatShort(b)} · ${periodLabel(b.start, b.end, true)}`)
+  const subject = oneLine(`Geannuleerd: ${whatShort(b)} · ${mailPeriod(b)}`)
   const intro = 'Deze boeking is geannuleerd. Het materiaal is weer vrij.'
   const l = lines(b), d = details(b)
   return {
@@ -169,7 +188,9 @@ export function cancellationMail(b: MailBooking): MailContent {
 export function reminderMail(b: MailBooking): MailContent {
   const what = whatShort(b)
   const subject = oneLine(`Vandaag terugbrengen: ${what}`)
-  const intro = 'Vandaag is de laatste dag van deze boeking. Breng het materiaal vandaag terug.'
+  const intro = b.endTime
+    ? `Vandaag is de laatste dag van deze boeking. Breng het materiaal vandaag terug, om ${b.endTime}.`
+    : 'Vandaag is de laatste dag van deze boeking. Breng het materiaal vandaag terug.'
   const l = lines(b), d = details(b)
   return {
     subject,
@@ -191,6 +212,26 @@ function fold(line: string): string {
   return out.join('\r\n')
 }
 const icsDate = (iso: string) => iso.replace(/-/g, '')
+
+/** Brusselse tijdzone in de .ics, zodat een agenda de kloktijd juist toont (ook rond de wissel). */
+const VTIMEZONE_BRUSSELS = [
+  'BEGIN:VTIMEZONE', 'TZID:Europe/Brussels',
+  'BEGIN:DAYLIGHT', 'TZOFFSETFROM:+0100', 'TZOFFSETTO:+0200', 'TZNAME:CEST', 'DTSTART:19700329T020000', 'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU', 'END:DAYLIGHT',
+  'BEGIN:STANDARD', 'TZOFFSETFROM:+0200', 'TZOFFSETTO:+0100', 'TZNAME:CET', 'DTSTART:19701025T030000', 'RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU', 'END:STANDARD',
+  'END:VTIMEZONE',
+]
+
+/**
+ * Wanneer: zonder uren een item over hele dagen (DTEND = de dag ná het
+ * einde); met een uur een item op Brusselse kloktijd (TZID), waarbij een
+ * leeg uur middernacht is — net als de bezetting in de planner.
+ */
+function icsWhen(b: Pick<MailBooking, 'start' | 'end' | 'startTime' | 'endTime'>): string[] {
+  if (!b.startTime && !b.endTime) return [`DTSTART;VALUE=DATE:${icsDate(b.start)}`, `DTEND;VALUE=DATE:${icsDate(addDays(b.end, 1))}`]
+  const s = bookingSlot(b.start, b.startTime, b.end, b.endTime)
+  const local = (m: string) => `${icsDate(m.slice(0, 10))}T${m.slice(11, 13)}${m.slice(14, 16)}00`
+  return [`DTSTART;TZID=Europe/Brussels:${local(s.start)}`, `DTEND;TZID=Europe/Brussels:${local(s.end)}`]
+}
 
 export type IcsMethod = 'REQUEST' | 'CANCEL'
 
@@ -224,6 +265,7 @@ export function icsFile(b: MailBooking, o: IcsOptions): string {
   const description = [`Voor: ${forWhom(b)}`, b.project ? `Project: ${b.project}` : null, ...b.responsibleWarnings, b.link].filter(Boolean).join('\n')
   return [
     'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Sporthouse//Materiaal//NL', 'CALSCALE:GREGORIAN', `METHOD:${o.method}`,
+    ...(b.startTime || b.endTime ? VTIMEZONE_BRUSSELS : []),
     'BEGIN:VEVENT',
     `UID:materiaal-${b.id}@sporthouse`,
     `DTSTAMP:${stamp}`,
@@ -231,8 +273,7 @@ export function icsFile(b: MailBooking, o: IcsOptions): string {
     ...(o.organizer ? [`ORGANIZER;CN=Sporthouse Materiaal:mailto:${o.organizer}`] : []),
     ...(o.attendee ? [`ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;RSVP=FALSE:mailto:${o.attendee}`] : []),
     `STATUS:${o.method === 'CANCEL' ? 'CANCELLED' : 'CONFIRMED'}`,
-    `DTSTART;VALUE=DATE:${icsDate(b.start)}`,
-    `DTEND;VALUE=DATE:${icsDate(addDays(b.end, 1))}`,
+    ...icsWhen(b),
     `SUMMARY:${icsText(summary)}`,
     `DESCRIPTION:${icsText(description)}`,
     `URL:${b.link}`,

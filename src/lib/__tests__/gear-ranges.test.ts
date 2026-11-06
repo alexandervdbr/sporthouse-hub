@@ -66,8 +66,8 @@ describe('findConflicts', () => {
   it('vindt botsingen per unit met alleen de botsende dagen', () => {
     const c = findConflicts(['fx3a', 'fx3b'], { start: '2026-11-04', end: '2026-11-06' }, booked)
     expect(c).toEqual([
-      { unitId: 'fx3a', bookingId: 'b1', holderLabel: 'Bram',     days: { start: '2026-11-04', end: '2026-11-05' } },
-      { unitId: 'fx3b', bookingId: 'b2', holderLabel: 'NoStrezz', days: { start: '2026-11-04', end: '2026-11-04' } },
+      { unitId: 'fx3a', bookingId: 'b1', holderLabel: 'Bram',     days: { start: '2026-11-04', end: '2026-11-05' }, slot: { start: '2026-11-03T00:00', end: '2026-11-06T00:00' } },
+      { unitId: 'fx3b', bookingId: 'b2', holderLabel: 'NoStrezz', days: { start: '2026-11-04', end: '2026-11-04' }, slot: { start: '2026-11-04T00:00', end: '2026-11-05T00:00' } },
     ])
   })
 
@@ -91,9 +91,31 @@ describe('findConflicts', () => {
 describe('conflictDays', () => {
   it('somt elke botsende dag één keer op', () => {
     const days = conflictDays([
-      { unitId: 'a', bookingId: 'b1', holderLabel: 'x', days: { start: '2026-11-04', end: '2026-11-05' } },
-      { unitId: 'b', bookingId: 'b2', holderLabel: 'y', days: { start: '2026-11-05', end: '2026-11-06' } },
+      { unitId: 'a', bookingId: 'b1', holderLabel: 'x', days: { start: '2026-11-04', end: '2026-11-05' }, slot: { start: '2026-11-04T00:00', end: '2026-11-06T00:00' } },
+      { unitId: 'b', bookingId: 'b2', holderLabel: 'y', days: { start: '2026-11-05', end: '2026-11-06' }, slot: { start: '2026-11-05T00:00', end: '2026-11-07T00:00' } },
     ])
     expect([...days].sort()).toEqual(['2026-11-04', '2026-11-05', '2026-11-06'])
+  })
+})
+
+describe('findConflicts met uren', () => {
+  const booked: BookedUnit[] = [
+    { bookingId: 'tot10', unitId: 'fx3', range: { start: '2026-11-05', end: '2026-11-05', endTime: '10:00' }, cancelled: false, holderLabel: 'Bram' },
+    { bookingId: 'vanaf14', unitId: 'fx3', range: { start: '2026-11-05', end: '2026-11-07', startTime: '14:00', endTime: '10:00' }, cancelled: false, holderLabel: 'Jan' },
+  ]
+  it('overdracht op dezelfde dag botst niet (10:00 → 10:00)', () => {
+    expect(findConflicts(['fx3'], { start: '2026-11-05', end: '2026-11-05', startTime: '10:00', endTime: '14:00' }, booked)).toEqual([])
+  })
+  it('overlappende uren botsen, met de andere boeking en haar uren', () => {
+    const c = findConflicts(['fx3'], { start: '2026-11-05', end: '2026-11-05', startTime: '09:45', endTime: '11:00' }, booked)
+    expect(c.map(x => x.bookingId)).toEqual(['tot10'])
+    expect(c[0].slot).toEqual({ start: '2026-11-05T00:00', end: '2026-11-05T10:00' })
+  })
+  it('een hele dag botst met alles op die dag', () => {
+    expect(findConflicts(['fx3'], { start: '2026-11-05', end: '2026-11-05' }, booked).map(x => x.bookingId)).toEqual(['tot10', 'vanaf14'])
+  })
+  it('meerdere dagen met uren: vóór het ophalen en na het terugbrengen is vrij', () => {
+    expect(findConflicts(['fx3'], { start: '2026-11-07', end: '2026-11-08', startTime: '10:00' }, booked)).toEqual([])
+    expect(findConflicts(['fx3'], { start: '2026-11-06', end: '2026-11-06', startTime: '06:00', endTime: '07:00' }, booked).map(x => x.bookingId)).toEqual(['vanaf14'])
   })
 })

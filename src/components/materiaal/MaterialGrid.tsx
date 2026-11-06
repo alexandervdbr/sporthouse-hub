@@ -9,6 +9,7 @@ import { useGridSelection } from '@/components/materiaal/useGridSelection'
 import { ItemBadges, KitBadges, KitIcon, ResponsiblePill, itemNameClass, itemTitle } from '@/components/materiaal/GearLabels'
 import { freeStretches, type GridBar, type GridGroup, type GridItemRow, type GridKitRow } from '@/lib/gear/grid'
 import { responsibleBand, RESPONSIBLE_NOTICE, type EffectiveResponsible } from '@/lib/gear/responsible'
+import { dayFullyBusy, slotLabel } from '@/lib/gear/times'
 
 // Het raster van de planner: rijen per categorie (eerst kits, dan losse
 // items), dagen als kolommen. Een kit is één rij die je openklapt naar zijn
@@ -175,32 +176,49 @@ function CategoryBlock({ id, name, enabled, children }: {
 
 type Ctx = Props & { cols: string; dayBg: (i: number) => string; selection: ReturnType<typeof useGridSelection> }
 
-function covers(bars: GridBar[], i: number) {
-  return bars.some(b => i >= b.startIndex && i < b.startIndex + b.span)
+/** Is de dag helemaal bezet? Een deels bezette dag blijft klikbaar (de uren vult het formulier in). */
+function fullDay(bars: GridBar[], day: string) {
+  return dayFullyBusy(day, bars.map(b => b.slot))
 }
 
+/**
+ * De balken van een rij. Met uren beginnen of eindigen ze midden in een dag:
+ * een omhulsel over de hele dagen, met de balk erin op de juiste fractie. Zo
+ * staan een boeking tot 10:00 en een vanaf 14:00 samen in dezelfde dagcel, en
+ * blijft het vrije stuk van de cel klikbaar (het omhulsel laat klikken door).
+ */
 function Bars({ bars, days, today, onOpenBooking, kitName, wide }: { bars: GridBar[]; days: string[]; today: string; onOpenBooking: (id: string) => void; kitName?: string; wide?: boolean }) {
   return (
     <>
       {bars.map(bar => {
         const text = wide && bar.project ? `${bar.text} · ${bar.project}` : bar.text
+        const when = slotLabel(bar.slot)
+        const partialStart = bar.startFrac > 0, partialEnd = bar.endFrac < 1
+        const r = (cut: boolean) => (cut ? 0 : 6)
         return (
-        <button key={bar.bookingId} onClick={() => onOpenBooking(bar.bookingId)}
-          title={bar.flagged ? `${text} — let op: een onderdeel is defect of uit dienst` : kitName ? `${text} — ${kitName}` : text}
-          className="relative z-[1] my-1 mx-px flex items-center px-2 overflow-hidden text-left hover:brightness-125 transition"
-          style={{
-            gridColumn: `${bar.startIndex + 2} / span ${bar.span}`, gridRow: 1,
-            background: `${bar.color}2e`,
-            border: bar.flagged ? '1px solid #ef4444' : `1px solid ${bar.color}70`,
-            borderRadius: `${bar.continuesBefore ? 0 : 6}px ${bar.continuesAfter ? 0 : 6}px ${bar.continuesAfter ? 0 : 6}px ${bar.continuesBefore ? 0 : 6}px`,
-            opacity: days[bar.startIndex + bar.span - 1] < today ? 0.55 : 1,
-          }}>
-          {bar.flagged && <AlertTriangle size={10} className="text-red-400 mr-1 flex-shrink-0" />}
-          <span className="text-[11px] font-semibold truncate" style={{ color: bar.color }}>
-            {bar.text}
-            {wide && bar.project && <span className="font-normal opacity-75"> · {bar.project}</span>}
-          </span>
-        </button>
+          <div key={bar.bookingId} className="relative z-[1] my-1 mx-px pointer-events-none"
+            style={{ gridColumn: `${bar.startIndex + 2} / span ${bar.span}`, gridRow: 1 }}>
+            <button onClick={() => onOpenBooking(bar.bookingId)}
+              title={`${text} · ${when}${bar.flagged ? ' — let op: een onderdeel is defect of uit dienst' : kitName ? ` — ${kitName}` : ''}`}
+              className="pointer-events-auto absolute inset-y-0 flex items-center px-1.5 overflow-hidden text-left hover:brightness-125 transition"
+              style={{
+                left: `${(bar.startFrac / bar.span) * 100}%`,
+                right: `${((1 - bar.endFrac) / bar.span) * 100}%`,
+                minWidth: 4,
+                background: `${bar.color}2e`,
+                border: bar.flagged ? '1px solid #ef4444' : `1px solid ${bar.color}70`,
+                borderRadius: `${r(bar.continuesBefore)}px ${r(bar.continuesAfter)}px ${r(bar.continuesAfter)}px ${r(bar.continuesBefore)}px`,
+                opacity: bar.slot.end <= `${today}T00:00` || days[bar.startIndex + bar.span - 1] < today ? 0.55 : 1,
+              }}>
+              {bar.flagged && <AlertTriangle size={10} className="text-red-400 mr-1 flex-shrink-0" />}
+              <span className="text-[11px] font-semibold truncate" style={{ color: bar.color }}>
+                {wide && partialStart && <span className="font-normal opacity-75">{bar.slot.start.slice(11, 16)} </span>}
+                {bar.text}
+                {wide && bar.project && <span className="font-normal opacity-75"> · {bar.project}</span>}
+                {wide && partialEnd && <span className="font-normal opacity-75"> → {bar.slot.end.slice(11, 16)}</span>}
+              </span>
+            </button>
+          </div>
         )
       })}
     </>
@@ -255,7 +273,7 @@ function KitRow({ row, color, open, onToggle, days, today, cols, dayBg, selectio
       </div>
 
       {days.map((iso, i) => {
-        const free = canBook && iso >= today && !covers(bars, i)
+        const free = canBook && iso >= today && !fullDay(bars, iso)
         const selected = selection.isSelected(rowId, i)
         const out = elsewhere[i]
         return (
@@ -303,7 +321,7 @@ function ItemRow({ row, color, part, days, today, cols, dayBg, selection, canBoo
       </div>
 
       {days.map((iso, i) => {
-        const free = canBook && !unavailable && iso >= today && !covers(bars, i)
+        const free = canBook && !unavailable && iso >= today && !fullDay(bars, iso)
         const selected = selection.isSelected(rowId, i)
         if (kitId) return (
           <div key={iso} onClick={free ? () => onSelectRange({ kind: 'kit', id: kitId }, i, i) : undefined}

@@ -103,3 +103,26 @@ describe('buildDayList', () => {
     expect(mon.holder?.text).toBe('Studio X')
   })
 })
+
+describe('dagweergave met uren', () => {
+  const tot10 = booking('t', [['mon', null]], '2026-11-03', day, { person_name: 'Bram Kreike', end_time: '10:00' })
+  const vanaf14 = booking('v', [['mon', null]], day, '2026-11-07', { person_name: 'Jan Peeters', start_time: '14:00' })
+  const mon = (bs: GearBooking[], f: Parameters<typeof buildDayList>[4] = 'all') =>
+    flat(buildDayList(catalog, bs, day, day, f)).find(e => e.kind === 'item' && e.row.item.name === 'Monitor') as DayItemEntry | undefined
+
+  it('overdracht: "tot 10:00", vrij 10:00–14:00, "vanaf 14:00", in volgorde', () => {
+    const e = mon([vanaf14, tot10])!
+    expect(e.state).toBe('deels')
+    expect(e.holders.map(h => [h.holder.text, h.holder.when])).toEqual([['Bram Kreike', 'tot 10:00'], ['Jan Peeters', 'vanaf 14:00']])
+    expect(e.gaps).toEqual([{ start: `${day}T10:00`, end: `${day}T14:00` }])
+  })
+  it('deels weg telt bij "Alleen weg" én bij "Alleen vrij"', () => {
+    expect(mon([tot10], 'out')).toBeDefined()
+    expect(mon([tot10], 'free')).toBeDefined()
+  })
+  it('de hele dag weg: niet bij "Alleen vrij"', () => {
+    const heel = booking('h', [['mon', null]], day, day, { person_name: 'X' })
+    expect(mon([heel])!.state).toBe('weg')
+    expect(mon([heel], 'free')).toBeUndefined()
+  })
+})

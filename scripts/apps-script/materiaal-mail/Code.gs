@@ -2,7 +2,8 @@
  * Sporthouse Materiaal — mailscript (los van de poolwagenmail).
  *
  * 1. doPost: de hub stuurt hier een mail naartoe (JSON met het gedeelde
- *    geheim); het script verstuurt die met MailApp als "Sporthouse Materiaal"
+ *    geheim, met bijlagen en inline-afbeeldingen zoals het logo); het script
+ *    verstuurt die met MailApp als "Sporthouse Materiaal"
  *    (alleen versturen; geen toegang tot de mailbox)
  *    en antwoordt met { ok: true } of { ok: false, error }.
  * 2. dagelijks: een tijdgestuurde trigger (elke dag rond 07:00, Brussel)
@@ -55,11 +56,18 @@ function doPost(e) {
     var attachments = [].concat(body.attachments || []).map(function (a) {
       return Utilities.newBlob(Utilities.base64Decode(a.base64), a.mimeType || 'application/octet-stream', a.name || 'bijlage');
     });
+    // Inline-afbeeldingen (het logo): in de html als <img src="cid:logo">.
+    var inlineImages = {};
+    [].concat(body.inlineImages || []).forEach(function (img) {
+      if (!img || !/^[a-z0-9_-]{1,40}$/i.test(img.cid || '')) return;
+      inlineImages[img.cid] = Utilities.newBlob(Utilities.base64Decode(img.base64), img.mimeType || 'image/png', img.name || img.cid);
+    });
 
     MailApp.sendEmail(to.join(','), subject, String(body.text || ''), {
       htmlBody: String(body.html || ''),
       name: SENDER_NAME,
       attachments: attachments,
+      inlineImages: inlineImages,
     });
     return json_({ ok: true });
   } catch (err) {
