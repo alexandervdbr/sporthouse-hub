@@ -32,6 +32,18 @@ as $$
                        and extract(second from t) = 0)
 $$;
 
+-- Het einde van een bezetting: het terugbrenguur, of zonder uur middernacht
+-- na de laatste dag. Een aparte functie: in een PL/pgSQL-IF zou het eerste
+-- THEN van een CASE de voorwaarde afsluiten.
+create or replace function public.gear_slot_end(p_end date, p_end_time time)
+returns timestamp
+language sql
+immutable
+set search_path = ''
+as $$
+  select case when p_end_time is null then (p_end + 1) + time '00:00' else p_end + p_end_time end
+$$;
+
 -- De bezetting in Brusselse kloktijd: [ophalen, terugbrengen).
 create or replace function public.gear_slot(p_start date, p_start_time time, p_end date, p_end_time time)
 returns tsrange
@@ -39,9 +51,7 @@ language sql
 immutable
 set search_path = ''
 as $$
-  select tsrange(p_start + coalesce(p_start_time, time '00:00'),
-                 case when p_end_time is null then (p_end + 1) + time '00:00' else p_end + p_end_time end,
-                 '[)')
+  select tsrange(p_start + coalesce(p_start_time, time '00:00'), public.gear_slot_end(p_end, p_end_time), '[)')
 $$;
 
 alter table public.gear_bookings
@@ -51,8 +61,7 @@ alter table public.gear_bookings
 alter table public.gear_bookings drop constraint if exists gear_bookings_times;
 alter table public.gear_bookings add constraint gear_bookings_times check (
   public.gear_valid_time(start_time) and public.gear_valid_time(end_time)
-  and start_date + coalesce(start_time, time '00:00')
-      < case when end_time is null then (end_date + 1) + time '00:00' else end_date + end_time end
+  and start_date + coalesce(start_time, time '00:00') < public.gear_slot_end(end_date, end_time)
 );
 
 -- ── 2. Bezetting per regel ──────────────────────────────────────────────────
@@ -187,8 +196,7 @@ begin
   if not public.gear_valid_time(p_start_time) or not public.gear_valid_time(p_end_time) then
     raise exception 'Kies een uur per kwartier tussen 06:00 en 23:45.' using errcode = '22023';
   end if;
-  if p_start + coalesce(p_start_time, time '00:00')
-     >= case when p_end_time is null then (p_end + 1) + time '00:00' else p_end + p_end_time end then
+  if p_start + coalesce(p_start_time, time '00:00') >= public.gear_slot_end(p_end, p_end_time) then
     raise exception 'Het terugbrengen moet na het ophalen liggen.' using errcode = '22023';
   end if;
 end $$;
