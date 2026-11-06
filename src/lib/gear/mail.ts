@@ -6,7 +6,10 @@ import { periodLabel } from './views'
 // stuurt die met een gedeeld geheim naar het script, dat verstuurt met Gmail
 // als "Sporthouse Materiaal". Los van de poolwagenmail.
 //
-// - bevestiging: bij een nieuwe boeking of nieuwe data, met een .ics-bestand
+// - bevestiging: bij een nieuwe boeking of nieuwe data, met een uitnodiging
+//   (.ics, METHOD:REQUEST); nieuwe data = zelfde UID, hogere SEQUENCE, zodat
+//   het bestaande agenda-item verschuift
+// - annulering: zelfde UID met METHOD:CANCEL, zodat het item verdwijnt
 // - herinnering: de ochtend van de terugbrengdag
 //
 // Alles hier is puur (geen database, geen netwerk); mail-server.ts haalt de
@@ -15,6 +18,12 @@ import { periodLabel } from './views'
 export interface MailConfig {
   url: string
   secret: string
+  /**
+   * Het adres waarmee het script verstuurt (MATERIAAL_MAIL_FROM). Komt als
+   * ORGANIZER in de uitnodiging; agenda's als Gmail en Outlook verwerken een
+   * wijziging of annulering pas automatisch als die klopt met de afzender.
+   */
+  from: string | null
 }
 
 // Ook de Workspace-vorm: https://script.google.com/a/macros/<domein>/s/<id>/exec
@@ -30,7 +39,8 @@ export function mailConfig(env: Record<string, string | undefined> = process.env
   const url = env.MATERIAAL_MAIL_WEBHOOK_URL?.trim()
   const secret = env.MATERIAAL_MAIL_SECRET?.trim()
   if (!url || !secret || !SCRIPT_URL.test(url) || secret.length < MIN_SECRET_LENGTH) return null
-  return { url, secret }
+  const from = env.MATERIAAL_MAIL_FROM?.trim()
+  return { url, secret, from: isEmail(from) ? from.toLowerCase() : null }
 }
 
 const EMAIL_RE = /^[a-z0-9._%+'-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/i
@@ -143,6 +153,18 @@ export function confirmationMail(b: MailBooking, changed: boolean): MailContent 
   }
 }
 
+/** Annulering: zelfde ontvangers als de bevestiging; het agenda-item verdwijnt via de bijlage. */
+export function cancellationMail(b: MailBooking): MailContent {
+  const subject = oneLine(`Geannuleerd: ${whatShort(b)} · ${periodLabel(b.start, b.end, true)}`)
+  const intro = 'Deze boeking is geannuleerd. Het materiaal is weer vrij.'
+  const l = lines(b), d = details(b)
+  return {
+    subject,
+    text: [intro, '', ...l.text, '', ...d.text, '', 'Het agenda-item in de bijlage haalt de afspraak uit je agenda.'].join('\n'),
+    html: wrap(`<p style="margin:0 0 12px">${esc(intro)}</p>${l.html}${d.html}`),
+  }
+}
+
 /** Herinnering op de ochtend van de terugbrengdag. */
 export function reminderMail(b: MailBooking): MailContent {
   const what = whatShort(b)
@@ -170,21 +192,45 @@ function fold(line: string): string {
 }
 const icsDate = (iso: string) => iso.replace(/-/g, '')
 
+export type IcsMethod = 'REQUEST' | 'CANCEL'
+
+export interface IcsOptions {
+  method: IcsMethod
+  /** Hoger bij elke nieuwe versie; zie icsSequence. */
+  sequence: number
+  now?: Date
+  /** Afzender (MailConfig.from); zonder blijft het een uitnodiging zonder organisator. */
+  organizer?: string | null
+  /** De ontvanger van deze mail: één uitnodiging per ontvanger. */
+  attendee?: string | null
+}
+
+/**
+ * Volgnummer van een versie: de seconden sinds 1970. Elke nieuwe mail (nieuwe
+ * data, annulering) heeft er dus een hoger dan de vorige, zonder dat we het
+ * ergens moeten bijhouden. Past tot 2038 in een 32-bit getal.
+ */
+export const icsSequence = (now: Date = new Date()) => Math.floor(now.getTime() / 1000)
+
 /**
  * Agenda-item over hele dagen: van de ophaaldag tot en met de terugbrengdag
- * (DTEND is in .ics de dag ná het einde). Dezelfde UID bij nieuwe data, zodat
- * een agenda het item bijwerkt in plaats van een tweede te maken.
+ * (DTEND is in .ics de dag ná het einde). Altijd dezelfde UID per boeking:
+ * met een hogere SEQUENCE verschuift het bestaande item (REQUEST) of
+ * verdwijnt het (CANCEL), in plaats van dat er een tweede bijkomt.
  */
-export function icsFile(b: MailBooking, now: Date = new Date(), sequence = 0): string {
-  const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
+export function icsFile(b: MailBooking, o: IcsOptions): string {
+  const stamp = (o.now ?? new Date()).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
   const summary = `Materiaal: ${whatShort(b, 3)}`
   const description = [`Voor: ${forWhom(b)}`, b.project ? `Project: ${b.project}` : null, ...b.responsibleWarnings, b.link].filter(Boolean).join('\n')
   return [
-    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Sporthouse//Materiaal//NL', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Sporthouse//Materiaal//NL', 'CALSCALE:GREGORIAN', `METHOD:${o.method}`,
     'BEGIN:VEVENT',
     `UID:materiaal-${b.id}@sporthouse`,
     `DTSTAMP:${stamp}`,
-    `SEQUENCE:${sequence}`,
+    `SEQUENCE:${o.sequence}`,
+    ...(o.organizer ? [`ORGANIZER;CN=Sporthouse Materiaal:mailto:${o.organizer}`] : []),
+    ...(o.attendee ? [`ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;RSVP=FALSE:mailto:${o.attendee}`] : []),
+    `STATUS:${o.method === 'CANCEL' ? 'CANCELLED' : 'CONFIRMED'}`,
     `DTSTART;VALUE=DATE:${icsDate(b.start)}`,
     `DTEND;VALUE=DATE:${icsDate(addDays(b.end, 1))}`,
     `SUMMARY:${icsText(summary)}`,

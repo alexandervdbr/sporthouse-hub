@@ -1,13 +1,14 @@
 import { after } from 'next/server'
 import { requireGear, dbErrorResponse, needsResponsibleAck, RESPONSIBLE_ACK_TEXT } from '@/lib/gear/server'
-import { datesChanged, sendBookingConfirmation } from '@/lib/gear/mail-server'
+import { datesChanged, sendBookingCancellation, sendBookingConfirmation } from '@/lib/gear/mail-server'
 import { parseBookingInput } from '@/lib/gear/booking-input'
 
 // PATCH — een boeking wijzigen (periode, units, voor wie, klant, project,
 // notitie) in één keer. DELETE — annuleren: de boeking blijft bewaard voor
 // de geschiedenis, maar houdt niets meer bezet. Wie wat mag, controleert
 // de database (eigen boekingen, of Beheren voor die van iedereen). Nieuwe
-// data geven, los van het antwoord, een nieuwe bevestigingsmail.
+// data geven, los van het antwoord, een nieuwe bevestigingsmail (het
+// agenda-item verschuift); annuleren een annuleringsmail (het item verdwijnt).
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireGear('book')
@@ -37,5 +38,6 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
 
   const { error } = await supabase.rpc('gear_cancel_booking', { p_booking_id: id })
   if (error) return dbErrorResponse(error)
+  after(() => sendBookingCancellation(id))
   return new Response(null, { status: 204 })
 }
