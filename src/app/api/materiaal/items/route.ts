@@ -1,11 +1,11 @@
-import { requireGear, dbErrorResponse, optionalText, responsibleFields, saveOrder } from '@/lib/gear/server'
+import { requireGear, contactFields, dbErrorResponse, optionalText, responsibleFields, saveOrder } from '@/lib/gear/server'
 import { planNumbering } from '@/lib/gear/naming'
 
 // Items: elk fysiek voorwerp. Alleen voor wie de catalogus beheert. De status
 // wijzig je via /items/[id]/status, zodat alles in het logboek komt; in een
 // kit zetten via /kits/[id]/members, zodat de geschiedenis klopt.
 
-const COLUMNS = 'id, category_id, name, model, number, serial_number, sort_order, label_color, nd_size, warning, notes, status, status_note, responsible_client_id, responsible_user_id, responsible_name'
+const COLUMNS = 'id, category_id, name, model, number, serial_number, sort_order, label_color, nd_size, warning, notes, status, status_note, responsible_client_id, responsible_user_id, responsible_name, contact_user_id, contact_name'
 
 function countOf(value: unknown): number | null {
   const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
@@ -97,6 +97,8 @@ export async function PATCH(req: Request) {
   const resp = responsibleFields(body)
   if (resp && 'error' in resp) return new Response(resp.error, { status: 400 })
   if (resp) Object.assign(update, resp.fields)
+  const contact = contactFields(body)
+  if (contact) Object.assign(update, contact)
 
   const { data, error } = await supabase.from('gear_items').update(update).eq('id', body.id).select(COLUMNS).single()
   if (error) return dbErrorResponse(error)

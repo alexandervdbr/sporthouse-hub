@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { bookedLines, bookingSelection, checkKitParts, kitByItem, selectionFromBooking } from '@/lib/gear/kits'
+import { bookedLines, bookingSelection, checkKitParts, kitByItem, partsToKits, selectionFromBooking, selectionResponsibles } from '@/lib/gear/kits'
 import { planNumbering } from '@/lib/gear/naming'
-import { effectiveResponsible, responsibleLabel, responsibleName, RESPONSIBLE_NOTICE } from '@/lib/gear/responsible'
-import type { GearBooking, GearItem, GearKit } from '@/lib/gear/types'
+import { discussWith, effectiveResponsible, responsibleBand, responsibleLabel, responsibleName, responsibleWarning, RESPONSIBLE_NOTICE } from '@/lib/gear/responsible'
+import type { GearBooking, GearCatalog, GearItem, GearKit } from '@/lib/gear/types'
 
 const none = { responsible_client_id: null, responsible_user_id: null, responsible_name: null }
 const item = (id: string, name: string, extra: Partial<GearItem> = {}): GearItem => ({
@@ -100,9 +100,9 @@ describe('verantwoordelijke', () => {
 
   it('het item gaat voor op de kit; anders "via kit"', () => {
     const k = kit('k', 'Sony A7R', [], { responsible_client_id: 'spor' })
-    expect(effectiveResponsible(none, k, clients)).toEqual({ name: 'Sporting Hasselt', viaKit: 'Sony A7R' })
+    expect(effectiveResponsible(none, k, clients)).toMatchObject({ name: 'Sporting Hasselt', viaKit: 'Sony A7R' })
     expect(effectiveResponsible({ ...none, responsible_user_id: 'u', responsible_name: 'Bram' }, k, clients))
-      .toEqual({ name: 'Bram', viaKit: null })
+      .toMatchObject({ name: 'Bram', viaKit: null })
     expect(effectiveResponsible(none, null, clients)).toBeNull()
   })
 
@@ -140,5 +140,43 @@ describe('previewMove', () => {
     expect(previewMove('lens', 'A', null, [a1, b1], today).add).toEqual([])
     expect(previewMove('bat', null, 'A', [a1, b1], today).remove).toEqual([])
     expect(previewMove('bat', null, 'A', [a1, b1], today).add.map(s => s.booking.id)).toEqual(['a1'])
+  })
+})
+
+describe('onderdelen alleen via hun kit', () => {
+  const kits = [kit('k1', 'FX3 A', ['body', 'lens'])]
+  it('een voorselectie met een onderdeel wordt de kit; losse items blijven los', () => {
+    expect(partsToKits(['body', 'mic'], [], kits)).toEqual({ itemIds: ['mic'], kitIds: ['k1'] })
+    expect(partsToKits(['body', 'lens'], ['k1'], kits)).toEqual({ itemIds: [], kitIds: ['k1'] })
+  })
+})
+
+describe('verantwoordelijken van een boeking', () => {
+  const it_ = (id: string, extra: Partial<GearItem> = {}): GearItem => ({
+    id, category_id: 'c', name: id, model: null, number: null, serial_number: null, sort_order: 0, label_color: null, nd_size: null,
+    warning: null, notes: null, status: 'ok', status_note: null, ...none, ...extra,
+  })
+  const catalog: GearCatalog = {
+    categories: [{ id: 'c', name: 'C', color: '#000', sort_order: 1 }],
+    items: [it_('body'), it_('lens', { responsible_user_id: 'u', responsible_name: 'Bram' }), it_('mic'), it_('flash', { responsible_client_id: 'spor' })],
+    kits: [kit('k1', 'FX3 A', ['body', 'lens'], { responsible_client_id: 'spor', contact_name: 'Jan Peeters' })],
+    clients: [{ id: 'spor', name: 'Sporting Hasselt', color: '#6d28d9' }],
+  }
+  it('van de kit, van een onderdeel dat meegaat, en van losse items; elk één keer', () => {
+    const r = selectionResponsibles(['flash', 'mic'], ['k1'], new Set(), catalog)
+    expect(r.map(x => [x.name, x.contact ?? null])).toEqual([['Sporting Hasselt', 'Jan Peeters'], ['Bram', null], ['Sporting Hasselt', null]])
+  })
+  it('een weggelaten onderdeel telt niet', () => {
+    expect(selectionResponsibles([], ['k1'], new Set(['lens']), catalog).map(x => x.name)).toEqual(['Sporting Hasselt'])
+  })
+  it('waarschuwing, band en met wie bespreken', () => {
+    const [r] = selectionResponsibles([], ['k1'], new Set(['lens']), catalog)
+    expect(responsibleWarning(r)).toBe('Dit materiaal valt onder Jan Peeters (Sporting Hasselt). Bespreek dit eerst.')
+    expect(responsibleBand(r)).toBe('Jan Peeters · Sporting Hasselt')
+    expect(discussWith(r)).toBe('Jan Peeters')
+    expect(r.color).toBe('#6d28d9')
+    const noContact = { name: 'Sporting Hasselt', viaKit: null }
+    expect(responsibleWarning(noContact)).toBe('Dit materiaal valt onder Sporting Hasselt. Bespreek dit eerst.')
+    expect(discussWith(noContact)).toBe('Sporting Hasselt')
   })
 })

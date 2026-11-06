@@ -1,10 +1,10 @@
-import { requireGear, dbErrorResponse, optionalText, responsibleFields, saveOrder } from '@/lib/gear/server'
+import { requireGear, contactFields, dbErrorResponse, optionalText, responsibleFields, saveOrder } from '@/lib/gear/server'
 
 // Kits aanmaken en aanpassen (naam, categorie, labelkleur, waarschuwing,
-// notitie, verantwoordelijke, volgorde). Onderdelen gaan via
+// notitie, verantwoordelijke en contactpersoon, volgorde). Onderdelen gaan via
 // /kits/[id]/members, opheffen via /kits/[id]/dissolve.
 
-const COLUMNS = 'id, category_id, name, label_color, warning, notes, sort_order, responsible_client_id, responsible_user_id, responsible_name'
+const COLUMNS = 'id, category_id, name, label_color, warning, notes, sort_order, responsible_client_id, responsible_user_id, responsible_name, contact_user_id, contact_name'
 
 function kitFields(body: Record<string, unknown>): Record<string, unknown> | { error: string } {
   const update: Record<string, unknown> = {}
@@ -24,6 +24,8 @@ function kitFields(body: Record<string, unknown>): Record<string, unknown> | { e
   const resp = responsibleFields(body)
   if (resp && 'error' in resp) return { error: resp.error }
   if (resp) Object.assign(update, resp.fields)
+  const contact = contactFields(body)
+  if (contact) Object.assign(update, contact)
   return update
 }
 

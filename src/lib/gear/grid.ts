@@ -2,7 +2,7 @@ import { buildBars, type Bar } from './bars'
 import { eachDay } from './dates'
 import { barLabel, shortNames, type BarLabel } from './labels'
 import type { DateRange } from './ranges'
-import { effectiveResponsible, responsibleName, type EffectiveResponsible } from './responsible'
+import { effectiveResponsible, ownResponsible, type EffectiveResponsible } from './responsible'
 import type { GearBooking, GearCatalog, GearCategory, GearItem, GearKit } from './types'
 
 // Catalogus + boekingen → wat het raster tekent. Per categorie eerst de kits
@@ -19,6 +19,8 @@ export interface GridBar extends Bar, BarLabel {
 export interface GridItemRow {
   kind: 'item'
   item: GearItem
+  /** De kit waar het item nu in zit: dan is het alleen via die kit te boeken. */
+  kitId: string | null
   responsible: EffectiveResponsible | null
   bars: GridBar[]
 }
@@ -72,6 +74,7 @@ export function buildGrid(
   const itemRow = (item: GearItem): GridItemRow => ({
     kind: 'item',
     item,
+    kitId: kitOf.get(item.id)?.id ?? null,
     responsible: effectiveResponsible(item, kitOf.get(item.id) ?? null, clients),
     bars: buildBars((byItem.get(item.id) ?? []).map(b => ({ bookingId: b.id, range: { start: b.start_date, end: b.end_date }, cancelled: false })), window)
       .map(bar => {
@@ -101,7 +104,7 @@ export function buildGrid(
     return {
       kind: 'kit',
       kit,
-      responsible: (() => { const name = responsibleName(kit, clients); return name ? { name, viaKit: null } : null })(),
+      responsible: ownResponsible(kit, clients),
       parts: parts.map(itemRow),
       bars,
       elsewhere,
@@ -133,4 +136,22 @@ export function buildGrid(
       return { category, rows: [...kits, ...loose] as GridRow[] }
     })
     .filter(g => g.rows.length > 0)
+}
+
+/**
+ * De stukken van een rij zonder boeking, als [begin, aantal] in kolommen: daar
+ * tekent het raster de band van de verantwoordelijke, zodat echte boekingen
+ * erbovenop blijven staan en de naam op elk vrij stuk leesbaar is.
+ */
+export function freeStretches(bars: Bar[], days: number): { startIndex: number; span: number }[] {
+  const taken = new Array<boolean>(days).fill(false)
+  for (const b of bars) for (let i = b.startIndex; i < b.startIndex + b.span && i < days; i++) taken[i] = true
+  const out: { startIndex: number; span: number }[] = []
+  for (let i = 0; i < days; i++) {
+    if (taken[i]) continue
+    const last = out[out.length - 1]
+    if (last && last.startIndex + last.span === i) last.span++
+    else out.push({ startIndex: i, span: 1 })
+  }
+  return out
 }

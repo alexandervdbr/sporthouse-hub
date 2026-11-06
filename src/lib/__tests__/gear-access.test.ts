@@ -6,16 +6,16 @@ const withSections = (sections: string[]) => ({ app_metadata: { permissions: { s
 
 describe('gearAccess', () => {
   it('niet ingelogd mag niets', () => {
-    expect(gearAccess(null)).toEqual({ view: false, book: false, manageBookings: false, manageCatalog: false })
+    expect(gearAccess(null)).toEqual({ view: false, book: false, manageBookings: false, manageCatalog: false, reorderCategories: false })
   })
 
   it('volgt de niveaus van de module Materiaal', () => {
     expect(gearAccess(withSections(['materiaal']))).toEqual(
-      { view: true, book: false, manageBookings: false, manageCatalog: false })
+      { view: true, book: false, manageBookings: false, manageCatalog: false, reorderCategories: false })
     expect(gearAccess(withSections(['materiaal', 'materiaal_reserveren']))).toEqual(
-      { view: true, book: true, manageBookings: false, manageCatalog: false })
+      { view: true, book: true, manageBookings: false, manageCatalog: false, reorderCategories: false })
     expect(gearAccess(withSections(['materiaal', 'materiaal_reserveren', 'reservering_verwijderen', 'materiaal_toevoegen']))).toEqual(
-      { view: true, book: true, manageBookings: true, manageCatalog: true })
+      { view: true, book: true, manageBookings: true, manageCatalog: true, reorderCategories: false })
   })
 
   it('een account zonder ingestelde rechten mag alles, zoals pré-assist', () => {
@@ -26,9 +26,15 @@ describe('gearAccess', () => {
     expect(gearAccess(withSections(['beheer'])).manageBookings).toBe(true)
   })
 
+  it('categorieën herschikken: alleen platformbeheerders (beheer), niet het niveau Beheren', () => {
+    expect(gearAccess(withSections(['materiaal', 'materiaal_reserveren', 'reservering_verwijderen', 'materiaal_toevoegen'])).reorderCategories).toBe(false)
+    expect(gearAccess(withSections(['beheer'])).reorderCategories).toBe(true)
+    expect(gearAccess({ app_metadata: {} }).reorderCategories).toBe(false)
+  })
+
   it('een freelancer-account mag niets, ook zonder rechten-object', () => {
     expect(gearAccess({ app_metadata: { freelancer: true } })).toEqual(
-      { view: false, book: false, manageBookings: false, manageCatalog: false })
+      { view: false, book: false, manageBookings: false, manageCatalog: false, reorderCategories: false })
   })
 })
 

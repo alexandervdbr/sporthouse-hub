@@ -1,5 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/server'
-import { requireGear, dbErrorResponse } from '@/lib/gear/server'
+import { after } from 'next/server'
+import { requireGear, dbErrorResponse, needsResponsibleAck, RESPONSIBLE_ACK_TEXT } from '@/lib/gear/server'
+import { sendBookingConfirmation } from '@/lib/gear/mail-server'
 import { isISODate } from '@/lib/gear/dates'
 import { parseBookingInput } from '@/lib/gear/booking-input'
 import type { GearBooking } from '@/lib/gear/types'
@@ -7,6 +9,8 @@ import type { GearBooking } from '@/lib/gear/types'
 // GET ?start=&end= — de niet-geannuleerde boekingen die dat venster raken
 // (de planner vraagt één maand tegelijk, niet de hele tabel).
 // POST — boeken via gear_create_booking; de database controleert alles.
+// Daarna, los van het antwoord, de bevestigingsmail (een mislukte mail houdt
+// de boeking nooit tegen).
 
 export async function GET(req: Request) {
   const auth = await requireGear('view')
@@ -60,10 +64,15 @@ export async function POST(req: Request) {
   if ('error' in auth) return auth.error
   const { supabase } = auth
 
-  const parsed = parseBookingInput(await req.json())
+  const body = await req.json()
+  const parsed = parseBookingInput(body)
   if ('error' in parsed) return new Response(parsed.error, { status: 400 })
+  if (body?.responsible_ack !== true && await needsResponsibleAck(supabase, parsed.args)) {
+    return new Response(RESPONSIBLE_ACK_TEXT, { status: 400 })
+  }
 
   const { data, error } = await supabase.rpc('gear_create_booking', parsed.args)
   if (error) return dbErrorResponse(error)
+  after(() => sendBookingConfirmation(data as string, false))
   return Response.json({ id: data }, { status: 201 })
 }

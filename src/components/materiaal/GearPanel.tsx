@@ -6,7 +6,7 @@ import { ArrowDown, ArrowUp, Check, Loader2, MoreHorizontal, Package, Plus, Sear
 import { SerialWarning } from '@/components/materiaal/AddGearDialog'
 import DeleteCategoryDialog from '@/components/materiaal/DeleteCategoryDialog'
 import { ItemBadges, KitBadges } from '@/components/materiaal/GearLabels'
-import { Button, ColorDots, ErrorLine, IconButton, ResponsiblePicker, Select, StatusBadge, formGap, inputCls, labelCls, send, textareaCls, type People } from '@/components/materiaal/ui'
+import { Button, ColorDots, ContactPicker, ErrorLine, IconButton, ResponsiblePicker, Select, StatusBadge, formGap, inputCls, labelCls, send, textareaCls, type People } from '@/components/materiaal/ui'
 import type { GearAccess } from '@/lib/gear/access'
 import { categoryContents, planDrop, planMoveTo, planShift, type Plan } from '@/lib/gear/inventory'
 import { kitByItem } from '@/lib/gear/kits'
@@ -34,6 +34,10 @@ interface Props {
   run: (plan: Plan | null) => Promise<void>
   /** Categorie verwijderen, inhoud naar `intoId`; gooit bij een fout. */
   deleteCategory: (categoryId: string, intoId: string | null) => Promise<void>
+  /** Kit opheffen (met ongedaan maken); gooit bij een fout. */
+  dissolveKit: (kitId: string, kitName: string) => Promise<void>
+  /** Status zetten (met ongedaan maken); geeft de nieuwe status terug, gooit bij een fout. */
+  setItemStatus: (item: GearItem, status: UnitStatus, note: string) => Promise<{ id: string; status: UnitStatus; status_note: string | null }>
   onAdd: (prefill: AddPrefill) => void
 }
 
@@ -193,7 +197,7 @@ function CategoryForm({ category, catalog, access, onChange, persist, run, onAdd
         <div className="flex flex-wrap gap-2">
           <SmallButton onClick={() => onAdd({ mode: 'item', categoryId: category.id })}><Plus size={12} /> Item</SmallButton>
           <SmallButton onClick={() => onAdd({ mode: 'kit', categoryId: category.id })}><Plus size={12} /> Kit</SmallButton>
-          <ShiftButtons onShift={dir => run(planShift(catalog, { type: 'category', id: category.id }, dir))} />
+          {access.reorderCategories && <ShiftButtons onShift={dir => run(planShift(catalog, { type: 'category', id: category.id }, dir))} />}
           <SmallButton danger onClick={() => setConfirmDelete(true)}><Trash2 size={12} /> Verwijderen…</SmallButton>
         </div>
       )}
@@ -207,7 +211,7 @@ function CategoryForm({ category, catalog, access, onChange, persist, run, onAdd
 
 // ─── Kit ──────────────────────────────────────────────────────────────────────
 
-function KitForm({ kit, catalog, people, access, onChange, persist, run, onOpen, reload, onClose }: FormProps & { kit: GearKit }) {
+function KitForm({ kit, catalog, people, access, onChange, persist, run, onOpen, dissolveKit, onClose }: FormProps & { kit: GearKit }) {
   const edit = access.manageCatalog
   const items = useMemo(() => new Map(catalog.items.map(i => [i.id, i])), [catalog.items])
   const kitOf = useMemo(() => kitByItem(catalog.kits), [catalog.kits])
@@ -250,6 +254,7 @@ function KitForm({ kit, catalog, people, access, onChange, persist, run, onOpen,
           ? <ResponsiblePicker people={people} value={{ client: kit.responsible_client_id, user: kit.responsible_user_id, name: kit.responsible_name }} onChange={v => patch(v)} />
           : <p className="text-sm text-zinc-300">{resp ?? '— Geen —'}</p>}
       </label>
+      {resp && <ContactField r={kit} people={people} edit={edit} onSave={patch} />}
       <InlineText label="Waarschuwing" value={kit.warning} disabled={!edit} onSave={warning => patch({ warning })} />
       <InlineText label="Notitie" value={kit.notes} placeholder="bv. Duo-lader blijft bij FoS" disabled={!edit} onSave={notes => patch({ notes })} />
 
@@ -310,8 +315,8 @@ function KitForm({ kit, catalog, people, access, onChange, persist, run, onOpen,
           <span className="flex flex-wrap items-center gap-2 text-xs text-zinc-300">
             Alle {parts.length} onderdelen worden los; komende boekingen houden hun items. Zeker?
             <Button size="sm" variant="destructive" onClick={async () => {
-              const ok = await persist(() => send(`/api/materiaal/kits/${kit.id}/dissolve`, 'POST'))
-              if (ok !== null) { await reload(); onClose() }
+              const ok = await persist(async () => { await dissolveKit(kit.id, kit.name); return true })
+              if (ok !== null) onClose()
             }}>Ja, opheffen</Button>
             <Button size="sm" variant="text" onClick={() => setConfirmDissolve(false)}>Nee</Button>
           </span>
@@ -324,7 +329,7 @@ function KitForm({ kit, catalog, people, access, onChange, persist, run, onOpen,
 
 // ─── Item ─────────────────────────────────────────────────────────────────────
 
-function ItemForm({ item, catalog, people, access, onChange, persist, run, onOpen, reload, onClose }: FormProps & { item: GearItem }) {
+function ItemForm({ item, catalog, people, access, onChange, persist, run, onOpen, reload, onClose, setItemStatus }: FormProps & { item: GearItem }) {
   const edit = access.manageCatalog
   const kit = useMemo(() => kitByItem(catalog.kits).get(item.id) ?? null, [catalog.kits, item.id])
   const clients = useMemo(() => new Map(catalog.clients.map(c => [c.id, c])), [catalog.clients])
@@ -338,7 +343,7 @@ function ItemForm({ item, catalog, people, access, onChange, persist, run, onOpe
   }
 
   async function setStatus(status: UnitStatus) {
-    const updated = await persist(() => send<{ id: string; status: UnitStatus; status_note: string | null }>(`/api/materiaal/items/${item.id}/status`, 'POST', { status, note }))
+    const updated = await persist(() => setItemStatus(item, status, note))
     if (updated) { onChange(c => ({ ...c, items: c.items.map(i => (i.id === item.id ? { ...i, ...updated } : i)) })); setNote('') }
   }
   const needsNote = (s: UnitStatus) => (s === 'defect' || s === 'beperkt') && !note.trim()
@@ -388,6 +393,8 @@ function ItemForm({ item, catalog, people, access, onChange, persist, run, onOpe
           ? <ResponsiblePicker people={people} value={{ client: item.responsible_client_id, user: item.responsible_user_id, name: item.responsible_name }} onChange={v => patch(v)} />
           : <p className="text-sm text-zinc-300">{resp ? responsibleLabel(resp).replace('Verantwoordelijke: ', '') : '— Geen —'}</p>}
       </label>
+      {/* Contactpersoon bij een eigen verantwoordelijke; die van de kit staat bij de kit. */}
+      {(item.responsible_client_id || item.responsible_user_id) && <ContactField r={item} people={people} edit={edit} onSave={patch} />}
 
       <div className="rounded-xl border border-zinc-800 p-3 space-y-2">
         <p className="text-sm text-zinc-300 flex items-center gap-1.5">
@@ -418,6 +425,21 @@ function ItemForm({ item, catalog, people, access, onChange, persist, run, onOpe
         <Link href={`/materiaal/item/${item.id}`} className="ml-auto text-xs text-zinc-500 underline hover:text-zinc-300">Volledige pagina (geschiedenis) →</Link>
       </div>
     </>
+  )
+}
+
+/** Contactpersoon bij de verantwoordelijke: met wie je het bespreekt voor je boekt. */
+function ContactField({ r, people, edit, onSave }: {
+  r: GearItem | GearKit; people: People; edit: boolean; onSave: (fields: Record<string, unknown>) => void
+}) {
+  return (
+    <div>
+      <span className={labelCls}>Contactpersoon</span>
+      {edit
+        ? <ContactPicker key={`${r.contact_user_id ?? ''}|${r.contact_name ?? ''}`} people={people}
+            value={{ user: r.contact_user_id ?? null, name: r.contact_name ?? null }} onChange={onSave} />
+        : <p className="text-sm text-zinc-300">{r.contact_name ?? '— Geen —'}</p>}
+    </div>
   )
 }
 

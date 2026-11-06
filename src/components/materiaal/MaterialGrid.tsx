@@ -7,7 +7,8 @@ import { CSS } from '@dnd-kit/utilities'
 import { AlertTriangle, ChevronDown, ChevronRight, GripVertical } from 'lucide-react'
 import { useGridSelection } from '@/components/materiaal/useGridSelection'
 import { ItemBadges, KitBadges, KitIcon, ResponsiblePill, itemNameClass, itemTitle } from '@/components/materiaal/GearLabels'
-import type { GridBar, GridGroup, GridItemRow, GridKitRow } from '@/lib/gear/grid'
+import { freeStretches, type GridBar, type GridGroup, type GridItemRow, type GridKitRow } from '@/lib/gear/grid'
+import { responsibleBand, RESPONSIBLE_NOTICE, type EffectiveResponsible } from '@/lib/gear/responsible'
 
 // Het raster van de planner: rijen per categorie (eerst kits, dan losse
 // items), dagen als kolommen. Een kit is één rij die je openklapt naar zijn
@@ -206,6 +207,31 @@ function Bars({ bars, days, today, onOpenBooking, kitName, wide }: { bars: GridB
   )
 }
 
+/**
+ * De verantwoordelijke als band over de vrije dagen van de rij (gearceerd, in
+ * de kleur van de klant), met de echte boekingen erbovenop. Klikken gaat
+ * erdoorheen naar de dag eronder.
+ */
+function ResponsibleBand({ r, bars, days }: { r: EffectiveResponsible; bars: GridBar[]; days: number }) {
+  const c = r.color ?? '#f59e0b'
+  const text = responsibleBand(r)
+  return (
+    <>
+      {freeStretches(bars, days).map(s => (
+        <div key={s.startIndex} aria-hidden title={`${text} — ${RESPONSIBLE_NOTICE}`}
+          className="pointer-events-none relative my-1.5 mx-px flex items-center px-2 overflow-hidden rounded-md"
+          style={{
+            gridColumn: `${s.startIndex + 2} / span ${s.span}`, gridRow: 1,
+            background: `repeating-linear-gradient(135deg, ${c}24 0 4px, transparent 4px 9px)`,
+            border: `1px dashed ${c}66`,
+          }}>
+          <span className="text-[10px] font-medium truncate" style={{ color: `${c}cc` }}>{text}</span>
+        </div>
+      ))}
+    </>
+  )
+}
+
 function KitRow({ row, color, open, onToggle, days, today, cols, dayBg, selection, canBook, onOpenBooking, onOpenKit, wide }: Ctx & {
   row: GridKitRow; color: string; open: boolean; onToggle: () => void
 }) {
@@ -249,17 +275,20 @@ function KitRow({ row, color, open, onToggle, days, today, cols, dayBg, selectio
         )
       })}
 
+      {row.responsible && <ResponsibleBand r={row.responsible} bars={bars} days={days.length} />}
       <Bars bars={bars} days={days} today={today} onOpenBooking={onOpenBooking} kitName={kit.name} wide={wide} />
     </div>
   )
 }
 
-function ItemRow({ row, color, part, days, today, cols, dayBg, selection, canBook, onOpenBooking, onOpenItem, wide }: Ctx & {
+function ItemRow({ row, color, part, days, today, cols, dayBg, selection, canBook, onOpenBooking, onOpenItem, onSelectRange, wide }: Ctx & {
   row: GridItemRow; color: string; part?: boolean
 }) {
   const { item, bars } = row
   const unavailable = item.status === 'defect' || item.status === 'uit_dienst'
   const rowId = `item:${item.id}`
+  // Een onderdeel boek je alleen via zijn kit: een klik op een vrije dag biedt de hele kit aan.
+  const kitId = row.kitId
   return (
     <div className={`grid border-b border-zinc-900 group/row ${part ? 'bg-zinc-950/60' : ''}`} style={{ gridTemplateColumns: cols, height: part ? PART_H : ROW_H }}>
       <div className={`sticky left-0 z-10 border-r border-zinc-800 flex items-center gap-1.5 pr-2 min-w-0 ${part ? 'bg-[#0b0b0d] pl-9' : 'bg-zinc-950 pl-3'}`}
@@ -276,17 +305,27 @@ function ItemRow({ row, color, part, days, today, cols, dayBg, selection, canBoo
       {days.map((iso, i) => {
         const free = canBook && !unavailable && iso >= today && !covers(bars, i)
         const selected = selection.isSelected(rowId, i)
+        if (kitId) return (
+          <div key={iso} onClick={free ? () => onSelectRange({ kind: 'kit', id: kitId }, i, i) : undefined}
+            title={free ? 'Onderdelen boek je via de kit: klik om de hele kit te boeken' : undefined}
+            className={`border-r border-zinc-900 group/cell flex items-center justify-center ${free ? 'cursor-pointer hover:bg-zinc-800/50' : ''}`}
+            style={{ gridColumn: i + 2, gridRow: 1, background: dayBg(i) }}>
+            {free && <span className="text-[9px] text-zinc-500 opacity-0 group-hover/cell:opacity-100 whitespace-nowrap">+ kit</span>}
+          </div>
+        )
         return (
           <div key={iso}
             onPointerDown={free ? e => { if (e.button === 0) selection.start(rowId, i) } : undefined}
             onPointerEnter={free ? () => selection.extend(rowId, i) : undefined}
             className={`border-r border-zinc-900 group/cell flex items-center justify-center ${free ? 'cursor-pointer hover:bg-zinc-800/50' : ''}`}
-            style={{ gridColumn: i + 2, gridRow: 1, background: selected ? 'rgba(58,145,63,0.35)' : row.responsible && free ? 'rgba(245,158,11,0.05)' : dayBg(i) }}>
+            style={{ gridColumn: i + 2, gridRow: 1, background: selected ? 'rgba(58,145,63,0.35)' : dayBg(i) }}>
             {free && !selected && <span className="text-xs text-zinc-500 opacity-0 group-hover/cell:opacity-100">+</span>}
           </div>
         )
       })}
 
+      {/* Bij een onderdeel staat de band van de kit al op de kit-rij. */}
+      {row.responsible && (!part || !row.responsible.viaKit) && <ResponsibleBand r={row.responsible} bars={bars} days={days.length} />}
       <Bars bars={bars} days={days} today={today} onOpenBooking={onOpenBooking} wide={wide} />
     </div>
   )
