@@ -50,6 +50,18 @@ export function bookingWho(b: { person_name: string | null; client_name?: string
   return [b.person_name, b.client_name].filter(Boolean).join(' · ') || 'onbekend'
 }
 
+/**
+ * Contactpersoon uit een formulier: een collega (id; de naam vult de database
+ * zelf in) of, zonder account, een vrije naam.
+ */
+export function contactFields(body: Record<string, unknown>):
+  | { contact_user_id: string | null; contact_name: string | null }
+  | null {
+  if (!('contact_user_id' in body) && !('contact_name' in body)) return null
+  const user = optionalText(body.contact_user_id)
+  return { contact_user_id: user, contact_name: user ? null : optionalText(body.contact_name) }
+}
+
 /** Verantwoordelijke uit een formulier: een klant óf een collega, nooit allebei. */
 export function responsibleFields(body: Record<string, unknown>):
   | { fields: { responsible_client_id: string | null; responsible_user_id: string | null } }
@@ -61,3 +73,29 @@ export function responsibleFields(body: Record<string, unknown>):
   if (client && user) return { error: 'Kies een klant óf een collega als verantwoordelijke.' }
   return { fields: { responsible_client_id: client, responsible_user_id: user } }
 }
+
+const HAS_RESPONSIBLE = 'responsible_client_id.not.is.null,responsible_user_id.not.is.null'
+
+/**
+ * Valt iets van deze boeking onder een verantwoordelijke? Dan moet het
+ * formulier bevestigen dat het besproken is (responsible_ack). Zelfde vraag
+ * als het formulier stelt: de gekozen kits, de onderdelen die meegaan, en de
+ * losse items (met de verantwoordelijke van hun kit).
+ */
+export async function needsResponsibleAck(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  args: { p_item_ids: string[]; p_kit_ids: string[]; p_excluded_item_ids: string[] },
+): Promise<boolean> {
+  const { data: members } = await supabase.from('gear_kit_members').select('kit_id, item_id').is('removed_at', null)
+    .or(`kit_id.in.(${args.p_kit_ids.join(',') || '00000000-0000-0000-0000-000000000000'}),item_id.in.(${args.p_item_ids.join(',') || '00000000-0000-0000-0000-000000000000'})`)
+  const excluded = new Set(args.p_excluded_item_ids)
+  const kitIds = [...new Set([...args.p_kit_ids, ...(members ?? []).filter(m => args.p_item_ids.includes(m.item_id)).map(m => m.kit_id)])]
+  const itemIds = [...new Set([...args.p_item_ids, ...(members ?? []).filter(m => args.p_kit_ids.includes(m.kit_id) && !excluded.has(m.item_id)).map(m => m.item_id)])]
+  const [kits, items] = await Promise.all([
+    kitIds.length ? supabase.from('gear_kits').select('id').in('id', kitIds).or(HAS_RESPONSIBLE).limit(1) : Promise.resolve({ data: [] }),
+    itemIds.length ? supabase.from('gear_items').select('id').in('id', itemIds).or(HAS_RESPONSIBLE).limit(1) : Promise.resolve({ data: [] }),
+  ])
+  return (kits.data?.length ?? 0) + (items.data?.length ?? 0) > 0
+}
+
+export const RESPONSIBLE_ACK_TEXT = 'Dit materiaal valt onder een verantwoordelijke. Bevestig dat je het besproken hebt.'

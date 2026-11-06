@@ -58,9 +58,12 @@ export async function updateSession(request: NextRequest) {
   // zelf en leidt eruit af om wiens rij het gaat. Zie
   // supabase/migrations/0052_planning_links.sql.
   const isPlanningLinkPage = pathname.startsWith('/p/') || pathname.startsWith('/api/planning/mine')
+  // De dagelijkse herinneringen van de materiaalplanner: aangeroepen door een
+  // Apps Script-trigger zonder login; de route controleert zelf het gedeelde geheim.
+  const isMaterialMailPage = pathname === '/api/materiaal/mail/due'
 
   // Unauthenticated → login (API routes get a 401 instead of a redirect)
-  if (!user && !isLoginPage && !isCallbackPage && !isSaveReelApiPage && !isPrivacyPage && !isSharePage && !isPlanningLinkPage) {
+  if (!user && !isLoginPage && !isCallbackPage && !isSaveReelApiPage && !isPrivacyPage && !isSharePage && !isPlanningLinkPage && !isMaterialMailPage) {
     if (isApiPage) {
       return new NextResponse(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,

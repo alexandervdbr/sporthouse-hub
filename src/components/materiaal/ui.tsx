@@ -1,6 +1,6 @@
 'use client'
 
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react'
+import { useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from 'react'
 import { AlertCircle, ChevronDown, Loader2 } from 'lucide-react'
 import { STATUS_LABEL, type UnitStatus } from '@/lib/gear/status'
 import type { GearClientRef } from '@/lib/gear/types'
@@ -225,5 +225,46 @@ export function ResponsiblePicker({ value, onChange, people, disabled }: {
         {!knownUser && <option value={`user:${value.user}`}>{value.name ?? 'Collega'}</option>}
       </optgroup>
     </Select>
+  )
+}
+
+/**
+ * Contactpersoon bij de verantwoordelijke: een collega met een account, of —
+ * als die er (nog) geen heeft — een naam als vrije tekst.
+ */
+export function ContactPicker({ value, onChange, people, disabled }: {
+  value: { user: string | null; name: string | null }
+  onChange: (v: { contact_user_id: string | null; contact_name: string | null }) => void
+  people: People
+  disabled?: boolean
+}) {
+  const freeText = !value.user && !!value.name
+  const [typing, setTyping] = useState(freeText)
+  const [name, setName] = useState(freeText ? value.name ?? '' : '')
+  const knownUser = !value.user || people.colleagues.some(c => c.id === value.user)
+  const current = value.user ? `user:${value.user}` : typing ? 'vrij' : ''
+  return (
+    <div className="space-y-1.5">
+      <Select value={current} disabled={disabled} aria-label="Contactpersoon"
+        onChange={e => {
+          const v = e.target.value
+          if (v === 'vrij') { setTyping(true); return }
+          setTyping(false); setName('')
+          onChange({ contact_user_id: v ? v.slice(5) : null, contact_name: null })
+        }}>
+        <option value="">— Geen —</option>
+        <optgroup label="Collega's">
+          {people.colleagues.map(c => <option key={c.id} value={`user:${c.id}`}>{c.name}</option>)}
+          {!knownUser && <option value={`user:${value.user}`}>{value.name ?? 'Collega'}</option>}
+        </optgroup>
+        <option value="vrij">Iemand zonder account…</option>
+      </Select>
+      {typing && !value.user && (
+        <input value={name} disabled={disabled} onChange={e => setName(e.target.value)} placeholder="Naam van de contactpersoon"
+          aria-label="Naam van de contactpersoon" className={inputCls}
+          onBlur={() => { if (name.trim() !== (value.name ?? '')) onChange({ contact_user_id: null, contact_name: name.trim() || null }) }}
+          onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} />
+      )}
+    </div>
   )
 }

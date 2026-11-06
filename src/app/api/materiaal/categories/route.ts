@@ -38,7 +38,11 @@ export async function PATCH(req: Request) {
   const { supabase } = auth
 
   const body = await req.json()
-  if ('order' in body) return saveOrder(supabase, 'gear_categories', body.order)
+  // De volgorde van de categorieën: alleen platformbeheerders (admin), niet het niveau Beheren.
+  if ('order' in body) {
+    if (!auth.access.reorderCategories) return new Response('Alleen een beheerder van het platform kan de categorieën herschikken.', { status: 403 })
+    return saveOrder(supabase, 'gear_categories', body.order)
+  }
 
   if (typeof body.id !== 'string') return new Response('ID ontbreekt', { status: 400 })
   const update: Record<string, string> = {}

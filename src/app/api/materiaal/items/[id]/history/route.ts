@@ -14,7 +14,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     supabase.from('gear_status_log').select('id, old_status, new_status, note, changed_by_name, changed_at')
       .eq('item_id', id).order('changed_at', { ascending: false }),
     supabase.from('gear_booking_items')
-      .select('via_kit_name, gear_bookings(id, start_date, end_date, person_name, client_id, note, created_by_name, cancelled_at)')
+      .select('via_kit_name, gear_bookings(id, start_date, end_date, person_name, client_id, note, created_by_name, created_at, cancelled_at)')
       .eq('item_id', id),
     supabase.from('gear_kit_members').select('kit_id, added_at, added_by_name, removed_at, removed_by_name, gear_kits(name)')
       .eq('item_id', id).order('added_at', { ascending: false }),

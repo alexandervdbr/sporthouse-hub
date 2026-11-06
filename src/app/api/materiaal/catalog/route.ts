@@ -6,8 +6,8 @@ import type { GearCatalog, GearItem, GearKit } from '@/lib/gear/types'
 // verzoek: categorieën, items, kits met hun onderdelen (in volgorde), en de
 // namen van de klanten die verantwoordelijke zijn.
 
-const ITEM_COLUMNS = 'id, category_id, name, model, number, serial_number, sort_order, label_color, nd_size, warning, notes, status, status_note, responsible_client_id, responsible_user_id, responsible_name'
-const KIT_COLUMNS = 'id, category_id, name, label_color, warning, notes, sort_order, responsible_client_id, responsible_user_id, responsible_name'
+const ITEM_COLUMNS = 'id, category_id, name, model, number, serial_number, sort_order, label_color, nd_size, warning, notes, status, status_note, responsible_client_id, responsible_user_id, responsible_name, contact_user_id, contact_name'
+const KIT_COLUMNS = 'id, category_id, name, label_color, warning, notes, sort_order, responsible_client_id, responsible_user_id, responsible_name, contact_user_id, contact_name'
 
 export async function GET() {
   const auth = await requireGear('view')

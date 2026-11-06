@@ -64,3 +64,11 @@ export function todayInBrussels(now: Date = new Date()): string {
 export function weekdayIndex(iso: string): number {
   return (toUTC(iso).getUTCDay() + 6) % 7
 }
+
+/**
+ * Achteraf ingevoerd: de boeking werd (in Brussel) pas aangemaakt na haar
+ * begindatum — iemand vergat te boeken. Afgeleid, geen eigen kolom.
+ */
+export function enteredAfterwards(startDate: string, createdAt: string | null | undefined): boolean {
+  return !!createdAt && todayInBrussels(new Date(createdAt)) > startDate
+}

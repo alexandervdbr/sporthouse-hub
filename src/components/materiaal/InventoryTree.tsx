@@ -145,7 +145,8 @@ export default function InventoryTree({ access, initialKitId }: { access: GearAc
                 const isOpen = filtering || !collapsed.has(category.id)
                 return (
                   <div key={category.id} className="rounded-xl border border-zinc-800/80 overflow-hidden">
-                    <TreeRow id={`category:${category.id}`} depth={0} draggable={edit} header color={category.color}
+                    {/* Categorieën verslepen: alleen platformbeheerders; kits en items erop loslaten kan elke beheerder. */}
+                    <TreeRow id={`category:${category.id}`} depth={0} draggable={edit && access.reorderCategories} droppable={edit} header color={category.color}
                       active={panel?.type === 'category' && panel.id === category.id}>
                       <button onClick={() => toggle(setCollapsed, category.id)} aria-expanded={isOpen}
                         aria-label={isOpen ? `${category.name} dichtklappen` : `${category.name} openklappen`} className="flex-shrink-0">
@@ -212,7 +213,7 @@ export default function InventoryTree({ access, initialKitId }: { access: GearAc
 
       {panel && (
         <GearPanel target={panel} catalog={catalog} people={peopleAll} access={access}
-          onClose={() => setPanel(null)} onOpen={setPanel} reload={reload} run={actions.run} deleteCategory={actions.deleteCategory} onAdd={setAdd}
+          onClose={() => setPanel(null)} onOpen={setPanel} reload={reload} run={actions.run} deleteCategory={actions.deleteCategory} dissolveKit={actions.dissolveKit} setItemStatus={actions.setItemStatus} onAdd={setAdd}
           onChange={fn => setCatalog(c => (c ? fn(c) : c))} />
       )}
       {add && (
@@ -244,10 +245,11 @@ function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
  * rest van de rij blijft klikbaar. Een rij is ook een plek om iets op los te
  * laten: dan licht ze op.
  */
-function TreeRow({ id, depth, draggable, header, color, active, children }: {
-  id: string; depth: 0 | 1 | 2; draggable: boolean; header?: boolean; color?: string; active?: boolean; children: ReactNode
+function TreeRow({ id, depth, draggable, droppable = draggable, header, color, active, children }: {
+  id: string; depth: 0 | 1 | 2; draggable: boolean; droppable?: boolean; header?: boolean; color?: string; active?: boolean; children: ReactNode
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver, active: dragging } = useSortable({ id, disabled: !draggable })
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver, active: dragging } =
+    useSortable({ id, disabled: { draggable: !draggable, droppable: !droppable } })
   const dropHere = isOver && dragging && dragging.id !== id
   return (
     <div ref={setNodeRef}

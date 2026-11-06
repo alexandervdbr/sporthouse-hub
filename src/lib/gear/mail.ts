@@ -1,0 +1,204 @@
+import { addDays } from './dates'
+import { periodLabel } from './views'
+
+// Mails van de materiaalplanner, via een eigen Google Apps Script
+// (scripts/apps-script/materiaal-mail/Code.gs): de hub maakt de inhoud en
+// stuurt die met een gedeeld geheim naar het script, dat verstuurt met Gmail
+// als "Sporthouse Materiaal". Los van de poolwagenmail.
+//
+// - bevestiging: bij een nieuwe boeking of nieuwe data, met een .ics-bestand
+// - herinnering: de ochtend van de terugbrengdag
+//
+// Alles hier is puur (geen database, geen netwerk); mail-server.ts haalt de
+// gegevens op, houdt het logboek bij en verstuurt.
+
+export interface MailConfig {
+  url: string
+  secret: string
+}
+
+// Ook de Workspace-vorm: https://script.google.com/a/macros/<domein>/s/<id>/exec
+const SCRIPT_URL = /^https:\/\/script\.google\.com\/(?:a\/macros\/[\w.-]+|macros)\/s\/[\w-]+\/exec$/
+export const MIN_SECRET_LENGTH = 32
+
+/**
+ * De instellingen uit Vercel. Ontbreekt er iets, of is de URL geen Apps
+ * Script-webapp (zodat het geheim nooit naar een ander adres gaat), dan
+ * wordt er niets verstuurd.
+ */
+export function mailConfig(env: Record<string, string | undefined> = process.env): MailConfig | null {
+  const url = env.MATERIAAL_MAIL_WEBHOOK_URL?.trim()
+  const secret = env.MATERIAAL_MAIL_SECRET?.trim()
+  if (!url || !secret || !SCRIPT_URL.test(url) || secret.length < MIN_SECRET_LENGTH) return null
+  return { url, secret }
+}
+
+const EMAIL_RE = /^[a-z0-9._%+'-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/i
+
+export function isEmail(value: string | null | undefined): value is string {
+  return typeof value === 'string' && EMAIL_RE.test(value.trim())
+}
+
+/** Geldige adressen, in kleine letters, elk één keer. Zonder adres: overslaan, geen fout. */
+export function mailRecipients(addresses: (string | null | undefined)[]): string[] {
+  return [...new Set(addresses.filter(isEmail).map(a => a.trim().toLowerCase()))]
+}
+
+/** Een bevestiging alleen als de boeking nog loopt of komt; achteraf ingevoerd en al voorbij: geen mail. */
+export function shouldConfirm(endDate: string, today: string): boolean {
+  return endDate >= today
+}
+
+/** Sleutel in het logboek: nieuwe data geven een nieuwe bevestiging, dezelfde data nooit twee keer. */
+export const confirmationKey = (start: string, end: string) => `${start}|${end}`
+
+export interface MailBooking {
+  id: string
+  start: string
+  end: string
+  /** Voor wie: "Bram Kreike", of null bij alleen een klant. */
+  person: string | null
+  client: string | null
+  project: string | null
+  note: string | null
+  kits: { name: string; parts: string[] }[]
+  loose: string[]
+  /** "Dit materiaal valt onder … Bespreek dit eerst." per verantwoordelijke. */
+  responsibleWarnings: string[]
+  /** Link naar de dag in de planner. */
+  link: string
+}
+
+export interface MailContent {
+  subject: string
+  html: string
+  text: string
+}
+
+const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+/** Geen regeleinden in een onderwerp: anders kan een waarde extra headers toevoegen. */
+const oneLine = (s: string) => s.replace(/[\r\n]+/g, ' ').trim()
+
+/** Kort wat er geboekt is: "FX3 A-kit, Sony 24-70mm #1" (en "+3" als het veel is). */
+export function whatShort(b: Pick<MailBooking, 'kits' | 'loose'>, max = 2): string {
+  const names = [...b.kits.map(k => k.name), ...b.loose]
+  return names.length <= max ? names.join(', ') : `${names.slice(0, max).join(', ')} +${names.length - max}`
+}
+
+function forWhom(b: MailBooking): string {
+  return [b.person, b.client].filter(Boolean).join(' · ') || 'onbekend'
+}
+
+function lines(b: MailBooking): { text: string[]; html: string } {
+  const text: string[] = []
+  const html: string[] = []
+  for (const k of b.kits) {
+    text.push(`- ${k.name}${k.parts.length ? ` (${k.parts.join(', ')})` : ''}`)
+    html.push(`<li><strong>${esc(k.name)}</strong>${k.parts.length ? `<br><span style="color:#71717a">${esc(k.parts.join(', '))}</span>` : ''}</li>`)
+  }
+  for (const n of b.loose) { text.push(`- ${n}`); html.push(`<li>${esc(n)}</li>`) }
+  return { text, html: `<ul style="margin:4px 0 12px;padding-left:18px">${html.join('')}</ul>` }
+}
+
+function details(b: MailBooking): { text: string[]; html: string } {
+  const rows: [string, string][] = [
+    ['Periode', periodLabel(b.start, b.end, true)],
+    ['Voor', forWhom(b)],
+    ...(b.project ? [['Project', b.project] as [string, string]] : []),
+    ...(b.note ? [['Notitie', b.note] as [string, string]] : []),
+  ]
+  return {
+    text: rows.map(([k, v]) => `${k}: ${v}`),
+    html: `<table style="border-collapse:collapse;margin:0 0 12px">${rows.map(([k, v]) =>
+      `<tr><td style="padding:2px 12px 2px 0;color:#71717a">${esc(k)}</td><td style="padding:2px 0">${esc(v)}</td></tr>`).join('')}</table>`,
+  }
+}
+
+function warnings(b: MailBooking): { text: string[]; html: string } {
+  if (!b.responsibleWarnings.length) return { text: [], html: '' }
+  return {
+    text: ['', ...b.responsibleWarnings.map(w => `Let op: ${w}`)],
+    html: b.responsibleWarnings.map(w =>
+      `<p style="margin:0 0 12px;padding:8px 12px;border:1px solid #f59e0b;border-radius:8px;background:#fffbeb;color:#92400e">${esc(w)}</p>`).join(''),
+  }
+}
+
+function wrap(body: string): string {
+  return `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;color:#18181b;max-width:560px">${body}` +
+    `<p style="margin-top:20px;color:#a1a1aa;font-size:12px">Sporthouse Materiaal — automatische mail uit de materiaalplanner.</p></div>`
+}
+
+/** Bevestiging bij een nieuwe boeking, of bij een boeking met nieuwe data. */
+export function confirmationMail(b: MailBooking, changed: boolean): MailContent {
+  const what = whatShort(b)
+  const period = periodLabel(b.start, b.end, true)
+  const subject = oneLine(`${changed ? 'Boeking gewijzigd' : 'Materiaal geboekt'}: ${what} · ${period}`)
+  const intro = changed ? 'De data van deze boeking zijn gewijzigd.' : 'Dit materiaal is voor je geboekt.'
+  const l = lines(b), d = details(b), w = warnings(b)
+  return {
+    subject,
+    text: [intro, '', ...l.text, '', ...d.text, ...w.text, '', `Bekijk in de planner: ${b.link}`, '', 'In de bijlage zit een agenda-item (.ics).'].join('\n'),
+    html: wrap(`<p style="margin:0 0 12px">${esc(intro)}</p>${l.html}${d.html}${w.html}` +
+      `<p style="margin:0"><a href="${esc(b.link)}" style="color:#3A913F">Bekijk in de planner</a></p>`),
+  }
+}
+
+/** Herinnering op de ochtend van de terugbrengdag. */
+export function reminderMail(b: MailBooking): MailContent {
+  const what = whatShort(b)
+  const subject = oneLine(`Vandaag terugbrengen: ${what}`)
+  const intro = 'Vandaag is de laatste dag van deze boeking. Breng het materiaal vandaag terug.'
+  const l = lines(b), d = details(b)
+  return {
+    subject,
+    text: [intro, '', ...l.text, '', ...d.text, '', `Bekijk in de planner: ${b.link}`].join('\n'),
+    html: wrap(`<p style="margin:0 0 12px">${esc(intro)}</p>${l.html}${d.html}` +
+      `<p style="margin:0"><a href="${esc(b.link)}" style="color:#3A913F">Bekijk in de planner</a></p>`),
+  }
+}
+
+/** Tekst in een .ics-veld: komma's, puntkomma's en regeleinden ontsnappen; regels van max 75 tekens. */
+function icsText(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n')
+}
+function fold(line: string): string {
+  const out: string[] = []
+  let rest = line
+  while (rest.length > 75) { out.push(rest.slice(0, 75)); rest = ` ${rest.slice(75)}` }
+  out.push(rest)
+  return out.join('\r\n')
+}
+const icsDate = (iso: string) => iso.replace(/-/g, '')
+
+/**
+ * Agenda-item over hele dagen: van de ophaaldag tot en met de terugbrengdag
+ * (DTEND is in .ics de dag ná het einde). Dezelfde UID bij nieuwe data, zodat
+ * een agenda het item bijwerkt in plaats van een tweede te maken.
+ */
+export function icsFile(b: MailBooking, now: Date = new Date(), sequence = 0): string {
+  const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
+  const summary = `Materiaal: ${whatShort(b, 3)}`
+  const description = [`Voor: ${forWhom(b)}`, b.project ? `Project: ${b.project}` : null, ...b.responsibleWarnings, b.link].filter(Boolean).join('\n')
+  return [
+    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Sporthouse//Materiaal//NL', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+    'BEGIN:VEVENT',
+    `UID:materiaal-${b.id}@sporthouse`,
+    `DTSTAMP:${stamp}`,
+    `SEQUENCE:${sequence}`,
+    `DTSTART;VALUE=DATE:${icsDate(b.start)}`,
+    `DTEND;VALUE=DATE:${icsDate(addDays(b.end, 1))}`,
+    `SUMMARY:${icsText(summary)}`,
+    `DESCRIPTION:${icsText(description)}`,
+    `URL:${b.link}`,
+    'TRANSP:TRANSPARENT',
+    'END:VEVENT', 'END:VCALENDAR',
+  ].map(fold).join('\r\n') + '\r\n'
+}
+
+/** Een foutmelding kort en zonder het geheim, voor het logboek. */
+export function mailErrorText(err: unknown, secret?: string): string {
+  const e = err as { name?: string; message?: string }
+  let text = e?.name === 'TimeoutError' ? 'Het mailscript antwoordde niet op tijd.' : String(e?.message || 'Onbekende fout')
+  if (secret) text = text.split(secret).join('[geheim]')
+  return text.slice(0, 300)
+}

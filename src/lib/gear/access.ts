@@ -1,4 +1,4 @@
-import { hasOpenSection } from '@/lib/auth-permissions'
+import { hasOpenSection, isAdminUser } from '@/lib/auth-permissions'
 
 // Wat iemand mag in de materiaalplanner, met de sleutels van de module
 // Materiaal (src/lib/access-roles.ts). Zelfde regels als gear_can() in de
@@ -18,9 +18,11 @@ export interface GearAccess {
   manageBookings: boolean
   /** Catalogus beheren, herstellen, uit dienst nemen. */
   manageCatalog: boolean
+  /** De volgorde van de categorieën slepen: alleen platformbeheerders (admin), niet het niveau Beheren. */
+  reorderCategories: boolean
 }
 
-const NONE: GearAccess = { view: false, book: false, manageBookings: false, manageCatalog: false }
+const NONE: GearAccess = { view: false, book: false, manageBookings: false, manageCatalog: false, reorderCategories: false }
 
 export function gearAccess(user: User): GearAccess {
   if (!user) return NONE
@@ -30,6 +32,7 @@ export function gearAccess(user: User): GearAccess {
     book:           hasOpenSection(user, 'materiaal_reserveren'),
     manageBookings: hasOpenSection(user, 'reservering_verwijderen'),
     manageCatalog:  hasOpenSection(user, 'materiaal_toevoegen'),
+    reorderCategories: isAdminUser(user),
   }
 }
 

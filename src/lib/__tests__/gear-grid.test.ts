@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildGrid, type GridItemRow, type GridKitRow } from '@/lib/gear/grid'
+import { buildGrid, freeStretches, type GridItemRow, type GridKitRow } from '@/lib/gear/grid'
 import { canChangeBooking, type GearAccess } from '@/lib/gear/access'
 import type { GearBooking, GearCatalog, GearItem, GearKit } from '@/lib/gear/types'
 
@@ -64,9 +64,9 @@ describe('buildGrid', () => {
   it('verantwoordelijke: eigen op het item, of via de kit', () => {
     const g = buildGrid(catalog, [], nov, '2026-11-03')
     const a7r = g[1].rows[0] as GridKitRow
-    expect(a7r.responsible).toEqual({ name: 'Friends of Sports', viaKit: null })
-    expect(a7r.parts[0].responsible).toEqual({ name: 'Friends of Sports', viaKit: 'Sony A7R' })
-    expect((g[1].rows[2] as GridItemRow).responsible).toEqual({ name: 'Sporting Hasselt', viaKit: null })
+    expect(a7r.responsible).toMatchObject({ name: 'Friends of Sports', viaKit: null })
+    expect(a7r.parts[0].responsible).toMatchObject({ name: 'Friends of Sports', viaKit: 'Sony A7R' })
+    expect((g[1].rows[2] as GridItemRow).responsible).toMatchObject({ name: 'Sporting Hasselt', viaKit: null })
   })
 
   it('een boeking via de kit is een balk op de kit-rij én op elk geboekt onderdeel', () => {
@@ -102,9 +102,9 @@ describe('buildGrid', () => {
 })
 
 describe('canChangeBooking', () => {
-  const res: GearAccess = { view: true, book: true, manageBookings: false, manageCatalog: false }
-  const man: GearAccess = { view: true, book: true, manageBookings: true, manageCatalog: true }
-  const view: GearAccess = { view: true, book: false, manageBookings: false, manageCatalog: false }
+  const res: GearAccess = { view: true, book: true, manageBookings: false, manageCatalog: false, reorderCategories: false }
+  const man: GearAccess = { view: true, book: true, manageBookings: true, manageCatalog: true, reorderCategories: false }
+  const view: GearAccess = { view: true, book: false, manageBookings: false, manageCatalog: false, reorderCategories: false }
   const b = { created_by: 'me', booked_for_user_id: null, end_date: '2026-11-10' }
 
   it('eigen boeking (gemaakt door of voor jou) zolang ze niet voorbij is', () => {
@@ -118,5 +118,22 @@ describe('canChangeBooking', () => {
   })
   it('kijkers wijzigen niets', () => {
     expect(canChangeBooking(b, 'me', view, '2026-11-03')).toBe(false)
+  })
+})
+
+describe('freeStretches (band van de verantwoordelijke)', () => {
+  const bar = (startIndex: number, span: number) => ({ bookingId: 'b', startIndex, span, continuesBefore: false, continuesAfter: false })
+  it('de vrije stukken tussen de boekingen', () => {
+    expect(freeStretches([bar(2, 3)], 7)).toEqual([{ startIndex: 0, span: 2 }, { startIndex: 5, span: 2 }])
+    expect(freeStretches([], 3)).toEqual([{ startIndex: 0, span: 3 }])
+    expect(freeStretches([bar(0, 7)], 7)).toEqual([])
+  })
+})
+
+describe('onderdeel weet in welke kit het zit', () => {
+  it('kitId op een onderdeel, null op een los item', () => {
+    const g = buildGrid(catalog, [], nov, '2026-11-03')
+    expect((g[0].rows[0] as GridKitRow).parts[0].kitId).toBe('fx3a')
+    expect((g[1].rows[1] as GridItemRow).kitId).toBeNull()
   })
 })

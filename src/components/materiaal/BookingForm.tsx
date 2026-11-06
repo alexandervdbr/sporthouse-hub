@@ -4,11 +4,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Calendar, Package, Search, UserRound, X } from 'lucide-react'
 import { Button, ErrorLine, Field, IconButton, Segmented, Select, formGap, inputCls, labelCls, send } from '@/components/materiaal/ui'
 import { canChangeBooking, type GearAccess } from '@/lib/gear/access'
-import { eachDay } from '@/lib/gear/dates'
+import { eachDay, enteredAfterwards } from '@/lib/gear/dates'
 import { HOLDER_ERROR_TEXT, validateHolder } from '@/lib/gear/holder'
-import { bookedLines, bookingSelection, checkKitParts, kitByItem, selectionFromBooking, type PartCheck } from '@/lib/gear/kits'
+import { bookedLines, bookingSelection, checkKitParts, kitByItem, partsToKits, selectionFromBooking, selectionResponsibles, type PartCheck } from '@/lib/gear/kits'
 import { conflictDays, findConflicts, rangeLength, validateRange, type Conflict, type DateRange } from '@/lib/gear/ranges'
-import { effectiveResponsible, responsibleLabel, responsibleName, RESPONSIBLE_NOTICE } from '@/lib/gear/responsible'
+import { discussWith, responsibleWarning } from '@/lib/gear/responsible'
 import { isBookable, STATUS_LABEL } from '@/lib/gear/status'
 import type { GearBooking, GearBookingInput, GearBookingOptions, GearCatalog, GearItem, GearKit } from '@/lib/gear/types'
 
@@ -59,18 +59,19 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
   const items = useMemo(() => new Map(catalog.items.map(i => [i.id, i])), [catalog.items])
   const kits = useMemo(() => new Map(catalog.kits.map(k => [k.id, k])), [catalog.kits])
   const kitOf = useMemo(() => kitByItem(catalog.kits), [catalog.kits])
-  const clients = useMemo(() => new Map(catalog.clients.map(c => [c.id, c])), [catalog.clients])
   const categories = useMemo(() => new Map(catalog.categories.map(c => [c.id, c])), [catalog.categories])
 
   const start0 = booking ? selectionFromBooking(booking, kits) : null
+  // Een onderdeel boek je alleen via zijn kit: een voorselectie met onderdelen wordt de kit.
+  const pre = initial ? partsToKits(initial.itemIds, initial.kitIds, catalog.kits) : null
   const initialKind: PersonKind = booking
     ? booking.booked_for_user_id ? 'collega' : booking.freelancer_id ? 'freelancer' : booking.person_name ? 'extern' : 'geen'
     : 'collega'
 
   const [start, setStart] = useState(booking?.start_date ?? initial?.start ?? today)
   const [end, setEnd] = useState(booking?.end_date ?? initial?.end ?? today)
-  const [kitIds, setKitIds] = useState<string[]>(start0?.kitIds ?? initial?.kitIds ?? [])
-  const [looseIds, setLooseIds] = useState<string[]>(start0?.looseItemIds ?? initial?.itemIds ?? [])
+  const [kitIds, setKitIds] = useState<string[]>(start0?.kitIds ?? pre?.kitIds ?? [])
+  const [looseIds, setLooseIds] = useState<string[]>(start0?.looseItemIds ?? pre?.itemIds ?? [])
   const [excluded, setExcluded] = useState<Set<string>>(start0?.excluded ?? new Set())
   const [kind, setKind] = useState<PersonKind>(initialKind)
   const [userIdFor, setUserIdFor] = useState(booking?.booked_for_user_id ?? (booking ? '' : userId))
@@ -83,6 +84,8 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
   const [saving, setSaving] = useState(false)
   const [confirmCancel, setConfirmCancel] = useState(false)
   const [error, setError] = useState('')
+  // Met wie het besproken is (per contactpersoon of verantwoordelijke).
+  const [discussed, setDiscussed] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -130,21 +133,31 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
   const includedCount = includedParts.length + looseIds.length
   const clashDays = conflictDays([...includedParts.flatMap(p => p.conflicts), ...looseChecks.flatMap(l => l.conflicts)])
   const outsideWindow = !rangeError && (start < loadedWindow.start || end > loadedWindow.end)
-  const inPast = !rangeError && start < today && !access.manageBookings && start !== booking?.start_date
+  // Achteraf boeken mag voor iedereen die boekt; een bestaande boeking naar het verleden verplaatsen blijft Beheren.
+  const inPast = !!booking && !rangeError && start < today && !access.manageBookings && start !== booking.start_date
+  const afterwards = !rangeError && start < today && !inPast
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return { kits: [] as GearKit[], items: [] as GearItem[] }
     const catName = (id: string) => (categories.get(id)?.name ?? '').toLowerCase()
+    const itemHit = (i: GearItem | undefined) => !!i && (i.name.toLowerCase().includes(q) || (i.model ?? '').toLowerCase().includes(q))
     return {
-      kits: catalog.kits.filter(k => !kitIds.includes(k.id) && (k.name.toLowerCase().includes(q) || catName(k.category_id).includes(q))).slice(0, 5),
+      // Ook de kit van een onderdeel dat matcht: onderdelen boek je via hun kit.
+      kits: catalog.kits.filter(k => !kitIds.includes(k.id)
+        && (k.name.toLowerCase().includes(q) || catName(k.category_id).includes(q) || k.item_ids.some(id => itemHit(items.get(id))))).slice(0, 5),
       items: catalog.items
         .filter(i => !looseIds.includes(i.id) && isBookable(i.status))
-        .filter(i => !(kitOf.get(i.id) && kitIds.includes(kitOf.get(i.id)!.id) && !excluded.has(i.id)))
+        // Geen onderdelen van kits; alleen een weggelaten onderdeel van een gekozen kit kan terug mee.
+        .filter(i => { const k = kitOf.get(i.id); return !k || (kitIds.includes(k.id) && excluded.has(i.id)) })
         .filter(i => i.name.toLowerCase().includes(q) || (i.model ?? '').toLowerCase().includes(q) || catName(i.category_id).includes(q))
         .slice(0, 8),
     }
-  }, [query, catalog.kits, catalog.items, kitIds, looseIds, excluded, kitOf, categories])
+  }, [query, catalog.kits, catalog.items, items, kitIds, looseIds, excluded, kitOf, categories])
+
+  const responsibles = useMemo(() => selectionResponsibles(looseIds, kitIds, excluded, catalog), [looseIds, kitIds, excluded, catalog])
+  const discussNames = [...new Set(responsibles.map(discussWith))]
+  const allDiscussed = discussNames.every(n => discussed.has(n))
 
   function addItem(id: string) {
     const kit = kitOf.get(id)
@@ -159,7 +172,7 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
 
   const projects = (options?.projects ?? []).filter(p => !clientId || !p.client_id || p.client_id === clientId)
   const canSave = editing && editable && !saving && includedCount > 0 && !rangeError && !holderError
-    && unresolved.length === 0 && looseProblems.length === 0 && !inPast
+    && unresolved.length === 0 && looseProblems.length === 0 && !inPast && allDiscussed
 
   async function save() {
     setSaving(true); setError('')
@@ -168,6 +181,7 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
       ...bookingSelection(looseIds, kitIds, excluded, kits),
       user_id: holderInput.userId, freelancer_id: holderInput.freelancerId, external_name: holderInput.externalName,
       client_id: clientId || null, project_id: projectId || null, note,
+      responsible_ack: responsibles.length > 0 && allDiscussed,
     }
     try {
       await send(booking ? `/api/materiaal/bookings/${booking.id}` : '/api/materiaal/bookings', booking ? 'PATCH' : 'POST', body)
@@ -203,7 +217,7 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
           <div className="grid grid-cols-2 gap-3">
             <label className="block min-w-0">
               <span className={labelCls}><Calendar size={10} className="inline mr-1" />Ophalen</span>
-              <input type="date" value={start} disabled={readOnly} min={access.manageBookings ? undefined : today}
+              <input type="date" value={start} disabled={readOnly} min={booking && !access.manageBookings ? today : undefined}
                 onChange={e => { setStart(e.target.value); if (end < e.target.value) setEnd(e.target.value) }} className={inputCls} />
             </label>
             <label className="block min-w-0">
@@ -228,7 +242,6 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
             const kit = kits.get(id)
             if (!kit) return null
             const parts = kitChecks.get(id) ?? []
-            const resp = responsibleName(kit, clients)
             const included = parts.filter(p => !excluded.has(p.item.id)).length
             return (
               <div key={id} className={`rounded-xl border ${parts.some(p => p.blocking && !excluded.has(p.item.id)) ? 'border-red-500/40' : 'border-zinc-800'} bg-zinc-950/40`}>
@@ -242,13 +255,11 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
                   )}
                 </div>
                 <div className="px-3 py-2 space-y-1">
-                  {resp && <Notice icon="user">{RESPONSIBLE_NOTICE} {responsibleLabel({ name: resp, viaKit: null })}</Notice>}
                   {kit.warning && <Notice icon="warn">{kit.warning}</Notice>}
                   {kit.notes && <p className="text-[11px] text-zinc-500">{kit.notes}</p>}
                   <ul className="mt-1 space-y-0.5">
                     {parts.map(p => {
                       const out = excluded.has(p.item.id)
-                      const own = effectiveResponsible(p.item, null, clients)
                       return (
                         <li key={p.item.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
                           <input type="checkbox" checked={!out} disabled={readOnly || (p.blocking && out)}
@@ -259,7 +270,6 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
                           {(p.state === 'defect' || p.state === 'uit_dienst') && <span className="text-[11px] text-red-400">{PART_REASON[p.state]}{p.item.status_note ? `: ${p.item.status_note}` : ''}</span>}
                           {p.state === 'beperkt' && <span className="text-[11px] text-amber-300">Beperkt{p.item.status_note ? `: ${p.item.status_note}` : ''}</span>}
                           {p.item.warning && <span className="text-[11px] text-amber-300">⚠ {p.item.warning}</span>}
-                          {own && <span className="text-[11px] text-amber-300">{responsibleLabel(own)}</span>}
                           {p.blocking && !out && !readOnly && (
                             <button type="button" onClick={() => toggleExcluded(p.item.id, true)} title={`Zonder ${p.item.name}`}
                               className="max-w-[14rem] h-6 px-2 rounded-md border border-red-500/40 text-[11px] text-red-300 whitespace-nowrap truncate hover:bg-red-500/10 focus:outline-none focus-visible:ring-1 focus-visible:ring-red-400">
@@ -281,7 +291,6 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
             <div className="space-y-1.5">
               {looseChecks.map(({ id, item, conflicts, unavailable }) => {
                 if (!item) return null
-                const resp = effectiveResponsible(item, kitOf.get(item.id) ?? null, clients)
                 return (
                   <div key={id} className={`rounded-lg border pl-3 pr-1.5 py-1 ${conflicts.length || unavailable ? 'border-red-500/40 bg-red-500/5' : 'border-zinc-800 bg-zinc-950/40'}`}>
                     <div className="flex items-center gap-2 min-h-8">
@@ -296,7 +305,6 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
                     {unavailable && <p className="mt-1 text-[11px] text-red-400">{STATUS_LABEL[item.status]}{item.status_note ? `: ${item.status_note}` : ''}</p>}
                     {item.status === 'beperkt' && <p className="mt-1 text-[11px] text-amber-300">Beperkt bruikbaar{item.status_note ? `: ${item.status_note}` : ''}</p>}
                     {item.warning && <Notice icon="warn">{item.warning}</Notice>}
-                    {resp && <Notice icon="user">{RESPONSIBLE_NOTICE} {responsibleLabel(resp)}</Notice>}
                   </div>
                 )
               })}
@@ -329,6 +337,25 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Verantwoordelijke: eerst bespreken; boeken mag, maar pas na het vinkje. */}
+          {responsibles.length > 0 && (
+            <div className="rounded-xl border border-amber-500/50 bg-amber-500/10 px-3 py-2.5 space-y-2">
+              {responsibles.map(r => (
+                <p key={`${r.name}|${r.contact ?? ''}`} className="flex items-start gap-2 text-sm text-amber-100">
+                  <UserRound size={14} className="mt-0.5 flex-shrink-0 text-amber-400" />
+                  <span>{responsibleWarning(r)}</span>
+                </p>
+              ))}
+              {editing && editable && discussNames.map(n => (
+                <label key={n} className="flex items-center gap-2 text-sm text-zinc-100 cursor-pointer">
+                  <input type="checkbox" checked={discussed.has(n)} className="accent-[#3A913F] w-4 h-4"
+                    onChange={e => setDiscussed(prev => { const s = new Set(prev); if (e.target.checked) s.add(n); else s.delete(n); return s })} />
+                  Ik heb dit besproken met {n}
+                </label>
+              ))}
             </div>
           )}
 
@@ -382,7 +409,11 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
             <input value={note} disabled={readOnly} onChange={e => setNote(e.target.value)} placeholder="bv. shoot Pro League" className={inputCls} />
           </Field>
 
-          {booking && <p className="text-[11px] text-zinc-500">Ingegeven door {booking.created_by_name}</p>}
+          {booking && (
+            <p className="text-[11px] text-zinc-500">
+              Ingegeven door {booking.created_by_name}{enteredAfterwards(booking.start_date, booking.created_at) && ' · achteraf ingevoerd'}
+            </p>
+          )}
 
           {editing && (
             <div className="space-y-1.5">
@@ -391,7 +422,9 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
               )}
               {holderError && kind !== 'collega' && <p className="text-xs text-amber-300">{HOLDER_ERROR_TEXT[holderError]}</p>}
               {kind === 'collega' && !userIdFor && <p className="text-xs text-amber-300">Kies een collega.</p>}
-              {inPast && <p className="text-xs text-amber-300">Boeken in het verleden kan alleen een beheerder.</p>}
+              {inPast && <p className="text-xs text-amber-300">Een boeking naar het verleden verplaatsen kan alleen een beheerder.</p>}
+              {afterwards && !booking && <p className="text-xs text-zinc-400">Je boekt achteraf. Dit wordt zo geregistreerd.</p>}
+              {!allDiscussed && <p className="text-xs text-amber-300">Vink aan dat je het besproken hebt met {discussNames.filter(n => !discussed.has(n)).join(' en ')}.</p>}
               {outsideWindow && <p className="text-xs text-zinc-500">Een deel valt buiten de getoonde periode; botsingen daar meldt de planner bij het opslaan.</p>}
             </div>
           )}

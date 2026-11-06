@@ -10,11 +10,16 @@ export interface GearCategory {
   sort_order: number
 }
 
-/** Verantwoordelijke: een klant óf een collega (met naamkopie). */
+/**
+ * Verantwoordelijke: een klant óf een collega (met naamkopie), en eventueel
+ * een contactpersoon: een collega (account, met naamkopie) of een vrije naam.
+ */
 export interface GearResponsible {
   responsible_client_id: string | null
   responsible_user_id: string | null
   responsible_name: string | null
+  contact_user_id?: string | null
+  contact_name?: string | null
 }
 
 /** Eén fysiek voorwerp: body, lens, batterij, kabel, … */
@@ -93,6 +98,7 @@ export interface GearItemBooking {
   client: GearClientRef | null
   note: string | null
   created_by_name: string
+  created_at?: string
   cancelled_at: string | null
   via_kit_name: string | null
 }
@@ -125,6 +131,7 @@ export interface GearBooking {
   note: string | null
   created_by: string | null
   created_by_name: string
+  created_at?: string
 }
 
 export interface GearBookingOptions {
@@ -148,6 +155,8 @@ export interface GearBookingInput {
   client_id?: string | null
   project_id?: string | null
   note?: string | null
+  /** Bevestigd dat het besproken is met de verantwoordelijke(n), als die er zijn. */
+  responsible_ack?: boolean
 }
 
 /** Wat een verhuis met komende boekingen doet of zou doen. */

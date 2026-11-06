@@ -132,8 +132,9 @@ export default function MateriaalPlanner({ userId, access, initialView, initialD
   }, [days])
   const onBookDay = (target: GridTarget) => onSelectRange(target, 0, 0)
 
-  // Categorie verslepen in het raster (Beheren): meteen tonen, dan opslaan via
-  // dezelfde route als Beheer → Categorieën; bij een fout terugzetten.
+  // Categorie verslepen in het raster (alleen admins): meteen tonen, dan
+  // opslaan via dezelfde route als Beheer; bij een fout terugzetten. Komt op
+  // de stapel van Ctrl+Z.
   async function reorderCategory(activeId: string, overId: string) {
     if (!catalog) return
     const previous = catalog.categories
@@ -141,8 +142,10 @@ export default function MateriaalPlanner({ userId, access, initialView, initialD
     if (!next) return
     setCatalog(c => (c ? { ...c, categories: next } : c))
     setError('')
+    const save = (cats: typeof previous) => send('/api/materiaal/categories', 'PATCH', { order: cats.map(c => c.id) })
     try {
-      await send('/api/materiaal/categories', 'PATCH', { order: next.map(c => c.id) })
+      await save(next)
+      actions.record({ label: `${previous.find(c => c.id === activeId)?.name ?? 'Categorie'} verplaatst`, undo: () => save(previous).then(() => {}), redo: () => save(next).then(() => {}) })
     } catch (e) {
       setCatalog(c => (c ? { ...c, categories: previous } : c))
       setError(e instanceof Error ? e.message : 'De volgorde kon niet opgeslagen worden.')
@@ -268,7 +271,7 @@ export default function MateriaalPlanner({ userId, access, initialView, initialD
                 onOpenItem={id => setPanel({ type: 'item', id })}
                 onOpenKit={id => setPanel({ type: 'kit', id })}
                 onOpenCategory={id => setPanel({ type: 'category', id })}
-                canReorderCategories={access.manageCatalog}
+                canReorderCategories={access.reorderCategories}
                 onReorderCategory={reorderCategory}
                 wide={shown === 'week'}
               />
@@ -278,7 +281,7 @@ export default function MateriaalPlanner({ userId, access, initialView, initialD
 
       {panel && catalog && (
         <GearPanel target={panel} catalog={catalog} people={people} access={access}
-          onClose={() => setPanel(null)} onOpen={setPanel} reload={reloadCatalog} run={actions.run} deleteCategory={actions.deleteCategory} onAdd={setAdd}
+          onClose={() => setPanel(null)} onOpen={setPanel} reload={reloadCatalog} run={actions.run} deleteCategory={actions.deleteCategory} dissolveKit={actions.dissolveKit} setItemStatus={actions.setItemStatus} onAdd={setAdd}
           onChange={fn => setCatalog(c => (c ? fn(c) : c))} />
       )}
       {add && catalog && (

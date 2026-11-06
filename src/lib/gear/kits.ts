@@ -1,5 +1,6 @@
 import { findConflicts, type BookedUnit, type Conflict, type DateRange } from './ranges'
-import type { GearBooking, GearItem, GearKit } from './types'
+import { effectiveResponsible, ownResponsible, type EffectiveResponsible } from './responsible'
+import type { GearBooking, GearCatalog, GearItem, GearKit } from './types'
 
 // Een kit boeken = de items boeken die er nu in zitten. Per onderdeel kan dat
 // niet lukken: defect, uit dienst, of op die dagen al elders weg. Zo'n
@@ -121,4 +122,49 @@ export interface MoveStep {
   booking: GearBooking
   ok: boolean
   reason?: string
+}
+
+/**
+ * Alle verantwoordelijken van wat er geboekt wordt: van de gekozen kits, van
+ * de onderdelen die meegaan (eigen verantwoordelijke), en van de losse items
+ * (eigen, anders die van hun kit). Eén keer per persoon of klant.
+ */
+export function selectionResponsibles(
+  looseItemIds: string[],
+  kitIds: string[],
+  excluded: Set<string>,
+  catalog: GearCatalog,
+): EffectiveResponsible[] {
+  const clients = new Map(catalog.clients.map(c => [c.id, c]))
+  const items = new Map(catalog.items.map(i => [i.id, i]))
+  const kitOf = kitByItem(catalog.kits)
+  const out = new Map<string, EffectiveResponsible>()
+  const add = (r: EffectiveResponsible | null) => { if (r) { const k = `${r.name}|${r.contact ?? ''}`; if (!out.has(k)) out.set(k, r) } }
+  for (const kid of kitIds) {
+    const kit = catalog.kits.find(k => k.id === kid)
+    if (!kit) continue
+    add(ownResponsible(kit, clients))
+    for (const id of kit.item_ids) if (!excluded.has(id) && items.get(id)) add(ownResponsible(items.get(id)!, clients))
+  }
+  for (const id of looseItemIds) {
+    const item = items.get(id)
+    if (item) add(effectiveResponsible(item, kitOf.get(id) ?? null, clients))
+  }
+  return [...out.values()]
+}
+
+/**
+ * Een voorselectie (uit het raster of een link) met onderdelen van een kit:
+ * die worden de kit zelf, want een onderdeel boek je alleen via zijn kit.
+ */
+export function partsToKits(itemIds: string[], kitIds: string[], kits: GearKit[]): { itemIds: string[]; kitIds: string[] } {
+  const kitOf = kitByItem(kits)
+  const outKits = [...kitIds]
+  const outItems: string[] = []
+  for (const id of itemIds) {
+    const kit = kitOf.get(id)
+    if (!kit) outItems.push(id)
+    else if (!outKits.includes(kit.id)) outKits.push(kit.id)
+  }
+  return { itemIds: outItems, kitIds: outKits }
 }

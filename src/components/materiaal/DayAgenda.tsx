@@ -5,6 +5,7 @@ import { ItemBadges, KitBadges, KitIcon, ResponsiblePill, itemNameClass, itemTit
 import type { GridTarget } from '@/components/materiaal/MaterialGrid'
 import { Select } from '@/components/materiaal/ui'
 import { DAY_FILTERS, DAY_FILTER_LABEL, type DayEntry, type DayFilter, type DayGroup, type DayHolder, type DayItemEntry } from '@/lib/gear/day-list'
+import { responsibleBand, RESPONSIBLE_NOTICE } from '@/lib/gear/responsible'
 import { STATUS_LABEL } from '@/lib/gear/status'
 import { periodLabel } from '@/lib/gear/views'
 
@@ -95,7 +96,9 @@ function Row({ entry, color, part, day, today, canBook, openKits, onToggleKit, o
   entry: DayEntry; color: string; part?: boolean
 }) {
   const bookable = canBook && day >= today && entry.state === 'vrij'
-  const target: GridTarget = entry.kind === 'kit' ? { kind: 'kit', id: entry.row.kit.id } : { kind: 'item', id: entry.row.item.id }
+  // Een onderdeel boek je alleen via zijn kit.
+  const target: GridTarget = entry.kind === 'kit' ? { kind: 'kit', id: entry.row.kit.id }
+    : entry.row.kitId ? { kind: 'kit', id: entry.row.kitId } : { kind: 'item', id: entry.row.item.id }
 
   const name = entry.kind === 'kit' ? (() => {
     const { kit, parts } = entry.row
@@ -141,7 +144,7 @@ function Row({ entry, color, part, day, today, canBook, openKits, onToggleKit, o
       <span className="ml-auto flex-shrink-0 text-xs text-zinc-400 tabular-nums">{periodLabel(entry.holder.start, entry.holder.end)}</span>
     </button>
   ) : (
-    <Free entry={entry} bookable={bookable} onBook={() => onBook(target)} cls={statusCls} />
+    <Free entry={entry} bookable={bookable} bookKit={target.kind === 'kit' && entry.kind === 'item'} onBook={() => onBook(target)} cls={statusCls} />
   )
 
   return (
@@ -153,7 +156,10 @@ function Row({ entry, color, part, day, today, canBook, openKits, onToggleKit, o
 }
 
 /** Vrij, onbeschikbaar, en bij een kit: wat er elders weg is. */
-function Free({ entry, bookable, onBook, cls }: { entry: DayEntry; bookable: boolean; onBook: () => void; cls: string }) {
+function Free({ entry, bookable, bookKit, onBook, cls }: { entry: DayEntry; bookable: boolean; bookKit: boolean; onBook: () => void; cls: string }) {
+  // De verantwoordelijke als gearceerd label, zoals de band in het raster (bij een onderdeel staat ze op de kit).
+  const r = entry.row.responsible && !(entry.kind === 'item' && entry.row.kitId && entry.row.responsible.viaKit) ? entry.row.responsible : null
+  const rc = r?.color ?? '#f59e0b'
   const off = entry.state === 'onbeschikbaar'
   const label = !off ? 'Vrij'
     : entry.kind === 'kit' ? 'Geen onderdeel vrij'
@@ -169,7 +175,13 @@ function Free({ entry, bookable, onBook, cls }: { entry: DayEntry; bookable: boo
           {elsewhere}
         </span>
       )}
-      {bookable && <span className="ml-auto flex-shrink-0 flex items-center gap-1 text-xs text-zinc-500 group-hover/free:text-zinc-200"><Plus size={12} /> Boeken</span>}
+      {r && (
+        <span title={`${responsibleBand(r)} — ${RESPONSIBLE_NOTICE}`} className="min-w-0 truncate px-1.5 rounded text-[11px] font-medium"
+          style={{ color: `${rc}cc`, border: `1px dashed ${rc}66`, background: `repeating-linear-gradient(135deg, ${rc}24 0 4px, transparent 4px 9px)` }}>
+          {responsibleBand(r)}
+        </span>
+      )}
+      {bookable && <span className="ml-auto flex-shrink-0 flex items-center gap-1 text-xs text-zinc-500 group-hover/free:text-zinc-200"><Plus size={12} /> {bookKit ? 'Kit boeken' : 'Boeken'}</span>}
     </>
   )
   return bookable ? (
