@@ -1,7 +1,7 @@
 # Mailscript materiaalplanner
 
 Een eigen Google Apps Script-project, los van de poolwagenmail. Het verstuurt
-de mails van de materiaalplanner met Gmail als **Sporthouse Materiaal**:
+de mails van de materiaalplanner met MailApp (alleen versturen, geen toegang tot de mailbox) als **Sporthouse Materiaal**:
 
 - **bevestiging** bij een nieuwe boeking of nieuwe data (met `.ics`), naar de
   persoon, de maker (als die iemand anders is) en de contactpersoon van
@@ -19,7 +19,7 @@ niemand een mail twee keer krijgt. Een mislukte mail houdt een boeking nooit teg
 4. Onder **Scripteigenschappen** voeg je toe:
    - `SECRET`: een willekeurige tekst van minstens 32 tekens (bv. `openssl rand -hex 32`);
    - `PLATFORM_URL`: het adres van de hub, zonder `/` op het einde.
-5. **Uitvoeren → `testMail`**, en geef toestemming (Gmail en externe verzoeken). Je krijgt een testmail.
+5. **Uitvoeren → `testMail`**, en geef toestemming (e-mail versturen en externe verzoeken). Je krijgt een testmail.
 6. **Implementeren → Nieuwe implementatie → Web-app**: *Uitvoeren als:* ik, *Wie heeft toegang:* Iedereen. Kopieer de URL die op `/exec` eindigt.
 7. In Vercel (Settings → Environment Variables, Production):
    - `MATERIAAL_MAIL_WEBHOOK_URL` = die `/exec`-URL;

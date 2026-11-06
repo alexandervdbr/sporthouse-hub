@@ -2,7 +2,8 @@
  * Sporthouse Materiaal — mailscript (los van de poolwagenmail).
  *
  * 1. doPost: de hub stuurt hier een mail naartoe (JSON met het gedeelde
- *    geheim); het script verstuurt die met Gmail als "Sporthouse Materiaal"
+ *    geheim); het script verstuurt die met MailApp als "Sporthouse Materiaal"
+ *    (alleen versturen; geen toegang tot de mailbox)
  *    en antwoordt met { ok: true } of { ok: false, error }.
  * 2. dagelijks: een tijdgestuurde trigger (elke dag rond 07:00, Brussel)
  *    vraagt de hub om de herinneringen van vandaag te versturen. De hub
@@ -55,7 +56,7 @@ function doPost(e) {
       return Utilities.newBlob(Utilities.base64Decode(a.base64), a.mimeType || 'application/octet-stream', a.name || 'bijlage');
     });
 
-    GmailApp.sendEmail(to.join(','), subject, String(body.text || ''), {
+    MailApp.sendEmail(to.join(','), subject, String(body.text || ''), {
       htmlBody: String(body.html || ''),
       name: SENDER_NAME,
       attachments: attachments,
@@ -90,5 +91,5 @@ function installeerTrigger() {
 
 /** Om te testen (Uitvoeren → testMail): stuurt een mail naar jezelf. */
 function testMail() {
-  GmailApp.sendEmail(Session.getActiveUser().getEmail(), 'Test Sporthouse Materiaal', 'Het mailscript werkt.', { name: SENDER_NAME });
+  MailApp.sendEmail(Session.getActiveUser().getEmail(), 'Test Sporthouse Materiaal', 'Het mailscript werkt.', { name: SENDER_NAME });
 }
