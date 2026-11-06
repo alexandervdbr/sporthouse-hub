@@ -44,6 +44,11 @@ export function mailRecipients(addresses: (string | null | undefined)[]): string
   return [...new Set(addresses.filter(isEmail).map(a => a.trim().toLowerCase()))]
 }
 
+/** Een bevestiging alleen als de boeking nog loopt of komt; achteraf ingevoerd en al voorbij: geen mail. */
+export function shouldConfirm(endDate: string, today: string): boolean {
+  return endDate >= today
+}
+
 /** Sleutel in het logboek: nieuwe data geven een nieuwe bevestiging, dezelfde data nooit twee keer. */
 export const confirmationKey = (start: string, end: string) => `${start}|${end}`
 

@@ -24,7 +24,7 @@ export async function GET(req: Request) {
 
   const { data, error } = await supabase
     .from('gear_bookings')
-    .select('id, start_date, end_date, booked_for_user_id, freelancer_id, external_name, person_name, client_id, project_id, note, created_by, created_by_name, gear_booking_items(item_id, via_kit_id, via_kit_name)')
+    .select('id, start_date, end_date, booked_for_user_id, freelancer_id, external_name, person_name, client_id, project_id, note, created_by, created_by_name, created_at, gear_booking_items(item_id, via_kit_id, via_kit_name)')
     .is('cancelled_at', null)
     .lte('start_date', end)
     .gte('end_date', start)

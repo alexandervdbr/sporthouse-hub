@@ -98,6 +98,7 @@ export interface GearItemBooking {
   client: GearClientRef | null
   note: string | null
   created_by_name: string
+  created_at?: string
   cancelled_at: string | null
   via_kit_name: string | null
 }
@@ -130,6 +131,7 @@ export interface GearBooking {
   note: string | null
   created_by: string | null
   created_by_name: string
+  created_at?: string
 }
 
 export interface GearBookingOptions {

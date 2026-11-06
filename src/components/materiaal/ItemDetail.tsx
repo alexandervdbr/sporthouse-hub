@@ -7,6 +7,7 @@ import { Button, ErrorLine, StatusBadge, inputCls, send } from '@/components/mat
 import { barLabel } from '@/lib/gear/labels'
 import { kitByItem } from '@/lib/gear/kits'
 import { effectiveResponsible, responsibleLabel, RESPONSIBLE_NOTICE } from '@/lib/gear/responsible'
+import { enteredAfterwards } from '@/lib/gear/dates'
 import { STATUS_LABEL, type UnitStatus } from '@/lib/gear/status'
 import type { GearCatalog, GearItemHistory } from '@/lib/gear/types'
 import type { GearAccess } from '@/lib/gear/access'
@@ -152,6 +153,7 @@ export default function ItemDetail({ itemId, access }: { itemId: string; access:
                       <span className="text-zinc-300">{barLabel({ personName: t.b.person_name, clientName: t.b.client?.name, clientColor: t.b.client?.color }).text}</span>
                       {t.b.via_kit_name && <span className="text-xs text-zinc-500">via kit {t.b.via_kit_name}</span>}
                       {t.b.note && <span className="text-xs text-zinc-500">· {t.b.note}</span>}
+                      {enteredAfterwards(t.b.start_date, t.b.created_at) && <span className="text-xs text-zinc-500">· achteraf ingevoerd</span>}
                       {t.b.cancelled_at && <span className="text-xs no-underline">(geannuleerd)</span>}
                     </>}
                     {t.kind === 'status' && <>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { confirmationKey, confirmationMail, icsFile, isEmail, mailConfig, mailErrorText, mailRecipients, reminderMail, whatShort, type MailBooking } from '@/lib/gear/mail'
+import { confirmationKey, confirmationMail, icsFile, isEmail, mailConfig, mailErrorText, mailRecipients, reminderMail, shouldConfirm, whatShort, type MailBooking } from '@/lib/gear/mail'
 
 const b: MailBooking = {
   id: 'abc', start: '2026-11-03', end: '2026-11-07', person: 'Bram Kreike', client: 'NoStrezz', project: 'Teaser',
@@ -82,5 +82,13 @@ describe('icsFile', () => {
 describe('mailErrorText', () => {
   it('haalt het geheim uit een fout', () => {
     expect(mailErrorText(new Error(`fout met ${secret}`), secret)).toBe('fout met [geheim]')
+  })
+})
+
+describe('shouldConfirm (achteraf boeken)', () => {
+  it('geen bevestiging voor een boeking die al voorbij is; wel als ze tot vandaag of later loopt', () => {
+    expect(shouldConfirm('2026-11-04', '2026-11-06')).toBe(false)
+    expect(shouldConfirm('2026-11-06', '2026-11-06')).toBe(true)
+    expect(shouldConfirm('2026-11-09', '2026-11-06')).toBe(true)
   })
 })

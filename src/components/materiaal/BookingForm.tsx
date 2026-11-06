@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Calendar, Package, Search, UserRound, X } from 'lucide-react'
 import { Button, ErrorLine, Field, IconButton, Segmented, Select, formGap, inputCls, labelCls, send } from '@/components/materiaal/ui'
 import { canChangeBooking, type GearAccess } from '@/lib/gear/access'
-import { eachDay } from '@/lib/gear/dates'
+import { eachDay, enteredAfterwards } from '@/lib/gear/dates'
 import { HOLDER_ERROR_TEXT, validateHolder } from '@/lib/gear/holder'
 import { bookedLines, bookingSelection, checkKitParts, kitByItem, partsToKits, selectionFromBooking, selectionResponsibles, type PartCheck } from '@/lib/gear/kits'
 import { conflictDays, findConflicts, rangeLength, validateRange, type Conflict, type DateRange } from '@/lib/gear/ranges'
@@ -133,7 +133,9 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
   const includedCount = includedParts.length + looseIds.length
   const clashDays = conflictDays([...includedParts.flatMap(p => p.conflicts), ...looseChecks.flatMap(l => l.conflicts)])
   const outsideWindow = !rangeError && (start < loadedWindow.start || end > loadedWindow.end)
-  const inPast = !rangeError && start < today && !access.manageBookings && start !== booking?.start_date
+  // Achteraf boeken mag voor iedereen die boekt; een bestaande boeking naar het verleden verplaatsen blijft Beheren.
+  const inPast = !!booking && !rangeError && start < today && !access.manageBookings && start !== booking.start_date
+  const afterwards = !rangeError && start < today && !inPast
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -215,7 +217,7 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
           <div className="grid grid-cols-2 gap-3">
             <label className="block min-w-0">
               <span className={labelCls}><Calendar size={10} className="inline mr-1" />Ophalen</span>
-              <input type="date" value={start} disabled={readOnly} min={access.manageBookings ? undefined : today}
+              <input type="date" value={start} disabled={readOnly} min={booking && !access.manageBookings ? today : undefined}
                 onChange={e => { setStart(e.target.value); if (end < e.target.value) setEnd(e.target.value) }} className={inputCls} />
             </label>
             <label className="block min-w-0">
@@ -407,7 +409,11 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
             <input value={note} disabled={readOnly} onChange={e => setNote(e.target.value)} placeholder="bv. shoot Pro League" className={inputCls} />
           </Field>
 
-          {booking && <p className="text-[11px] text-zinc-500">Ingegeven door {booking.created_by_name}</p>}
+          {booking && (
+            <p className="text-[11px] text-zinc-500">
+              Ingegeven door {booking.created_by_name}{enteredAfterwards(booking.start_date, booking.created_at) && ' · achteraf ingevoerd'}
+            </p>
+          )}
 
           {editing && (
             <div className="space-y-1.5">
@@ -416,7 +422,8 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
               )}
               {holderError && kind !== 'collega' && <p className="text-xs text-amber-300">{HOLDER_ERROR_TEXT[holderError]}</p>}
               {kind === 'collega' && !userIdFor && <p className="text-xs text-amber-300">Kies een collega.</p>}
-              {inPast && <p className="text-xs text-amber-300">Boeken in het verleden kan alleen een beheerder.</p>}
+              {inPast && <p className="text-xs text-amber-300">Een boeking naar het verleden verplaatsen kan alleen een beheerder.</p>}
+              {afterwards && !booking && <p className="text-xs text-zinc-400">Je boekt achteraf. Dit wordt zo geregistreerd.</p>}
               {!allDiscussed && <p className="text-xs text-amber-300">Vink aan dat je het besproken hebt met {discussNames.filter(n => !discussed.has(n)).join(' en ')}.</p>}
               {outsideWindow && <p className="text-xs text-zinc-500">Een deel valt buiten de getoonde periode; botsingen daar meldt de planner bij het opslaan.</p>}
             </div>

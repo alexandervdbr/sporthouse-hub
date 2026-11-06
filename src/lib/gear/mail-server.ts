@@ -1,7 +1,8 @@
 import { createAdminClient } from '@/lib/supabase/server'
+import { todayInBrussels } from './dates'
 import { effectiveResponsible, ownResponsible, responsibleWarning, type EffectiveResponsible } from './responsible'
 import {
-  confirmationKey, confirmationMail, icsFile, mailConfig, mailErrorText, mailRecipients, reminderMail,
+  confirmationKey, confirmationMail, icsFile, mailConfig, mailErrorText, mailRecipients, reminderMail, shouldConfirm,
   type MailBooking, type MailConfig, type MailContent,
 } from './mail'
 import type { GearClientRef, GearResponsible } from './types'
@@ -166,7 +167,7 @@ export async function sendBookingConfirmation(bookingId: string, changed: boolea
     if (!config) return
     const admin = createAdminClient()
     const l = await loadBooking(admin, bookingId)
-    if (!l || l.cancelled) return
+    if (!l || l.cancelled || !shouldConfirm(l.mail.end, todayInBrussels())) return
     const contacts = await Promise.all(l.contactUserIds.map(id => emailOf(admin, id)))
     const to = mailRecipients([...(await holderEmails(admin, l)), ...contacts])
     const content = confirmationMail(l.mail, changed)

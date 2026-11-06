@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { addDays, diffDays, eachDay, isISODate, isWeekend, monthDays, todayInBrussels } from '@/lib/gear/dates'
+import { addDays, diffDays, eachDay, enteredAfterwards, isISODate, isWeekend, monthDays, todayInBrussels } from '@/lib/gear/dates'
 
 // Hele dagen zonder uren: de klassieke fouten zijn maandgrenzen, schrikkeljaren
 // en de wissel naar zomer-/wintertijd — die laatste verschoof in de oude
@@ -77,5 +77,20 @@ describe('todayInBrussels', () => {
     // 23:30 UTC op 3 november is al 4 november in Brussel.
     expect(todayInBrussels(new Date('2026-11-03T23:30:00Z'))).toBe('2026-11-04')
     expect(todayInBrussels(new Date('2026-11-03T10:00:00Z'))).toBe('2026-11-03')
+  })
+})
+
+describe('enteredAfterwards (achteraf ingevoerd)', () => {
+  it('aangemaakt na de begindatum, in Brussel', () => {
+    expect(enteredAfterwards('2026-11-03', '2026-11-05T09:00:00Z')).toBe(true)
+    expect(enteredAfterwards('2026-11-05', '2026-11-05T09:00:00Z')).toBe(false)
+    expect(enteredAfterwards('2026-11-10', '2026-11-05T09:00:00Z')).toBe(false)
+  })
+  it('rekent in Brussel: 23:30 UTC is in de winter al de volgende dag', () => {
+    expect(enteredAfterwards('2026-11-05', '2026-11-05T23:30:00Z')).toBe(true)
+    expect(enteredAfterwards('2026-11-05', '2026-11-05T22:30:00Z')).toBe(false)
+  })
+  it('zonder aanmaakmoment: niet', () => {
+    expect(enteredAfterwards('2026-11-03', undefined)).toBe(false)
   })
 })
