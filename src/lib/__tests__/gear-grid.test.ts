@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildGrid, freeStretches, type GridItemRow, type GridKitRow } from '@/lib/gear/grid'
+import { buildGrid, busyFor, freeStretches, type GridItemRow, type GridKitRow } from '@/lib/gear/grid'
 import { canChangeBooking, type GearAccess } from '@/lib/gear/access'
 import type { GearBooking, GearCatalog, GearItem, GearKit } from '@/lib/gear/types'
 
@@ -122,7 +122,7 @@ describe('canChangeBooking', () => {
 })
 
 describe('freeStretches (band van de verantwoordelijke)', () => {
-  const bar = (startIndex: number, span: number) => ({ bookingId: 'b', startIndex, span, continuesBefore: false, continuesAfter: false })
+  const bar = (startIndex: number, span: number) => ({ bookingId: 'b', startIndex, span, continuesBefore: false, continuesAfter: false, startFrac: 0, endFrac: 1 })
   it('de vrije stukken tussen de boekingen', () => {
     expect(freeStretches([bar(2, 3)], 7)).toEqual([{ startIndex: 0, span: 2 }, { startIndex: 5, span: 2 }])
     expect(freeStretches([], 3)).toEqual([{ startIndex: 0, span: 3 }])
@@ -135,5 +135,16 @@ describe('onderdeel weet in welke kit het zit', () => {
     const g = buildGrid(catalog, [], nov, '2026-11-03')
     expect((g[0].rows[0] as GridKitRow).parts[0].kitId).toBe('fx3a')
     expect((g[1].rows[1] as GridItemRow).kitId).toBeNull()
+  })
+})
+
+describe('busyFor (uren voorstellen bij klik of sleep)', () => {
+  const bs = [
+    booking('k', [['body', 'fx3a'], ['lens', 'fx3a']], '2026-11-05', '2026-11-05', { end_time: '10:00' }),
+    booking('l', [['lens', null]], '2026-11-06', '2026-11-06', { start_time: '14:00' }),
+  ]
+  it('een kit: de boekingen via de kit; een item: al zijn boekingen', () => {
+    expect(busyFor({ kind: 'kit', id: 'fx3a' }, bs)).toEqual([{ start: '2026-11-05T00:00', end: '2026-11-05T10:00' }])
+    expect(busyFor({ kind: 'item', id: 'lens' }, bs)).toHaveLength(2)
   })
 })

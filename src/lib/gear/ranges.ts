@@ -1,4 +1,5 @@
 import { diffDays, eachDay, isISODate } from './dates'
+import { bookingSlot, slotDays, slotsOverlap, type Slot } from './times'
 
 // Een boeking loopt over hele dagen, begin en einde inbegrepen: van 3 tot 5
 // november is drie dagen. Dat is dezelfde betekenis als de daterange '[ ]' die
@@ -9,6 +10,14 @@ export interface DateRange {
   start: string
   end: string
 }
+
+/** Een periode met (optioneel) uren: zonder uur is het de hele dag (0085). */
+export interface TimedRange extends DateRange {
+  startTime?: string | null
+  endTime?: string | null
+}
+
+export const rangeSlot = (r: TimedRange): Slot => bookingSlot(r.start, r.startTime, r.end, r.endTime)
 
 export type RangeError = 'ongeldige_datum' | 'einde_voor_begin'
 
@@ -40,7 +49,7 @@ export function intersectRanges(a: DateRange, b: DateRange): DateRange | null {
 export interface BookedUnit {
   bookingId: string
   unitId: string
-  range: DateRange
+  range: TimedRange
   cancelled: boolean
   /** Voor de melding: bij wie of welke klant het materiaal dan is. */
   holderLabel: string
@@ -52,6 +61,8 @@ export interface Conflict {
   holderLabel: string
   /** De dagen waarop het botst, niet de hele andere boeking. */
   days: DateRange
+  /** De andere boeking, met uren: "Al weg tot 10:00". */
+  slot: Slot
 }
 
 /**
@@ -64,7 +75,7 @@ export interface Conflict {
  */
 export function findConflicts(
   unitIds: string[],
-  range: DateRange,
+  range: TimedRange,
   booked: BookedUnit[],
   ignoreBookingId?: string,
 ): Conflict[] {
@@ -72,8 +83,12 @@ export function findConflicts(
   const out: Conflict[] = []
   for (const b of booked) {
     if (b.cancelled || !wanted.has(b.unitId) || b.bookingId === ignoreBookingId) continue
-    const days = intersectRanges(range, b.range)
-    if (days) out.push({ unitId: b.unitId, bookingId: b.bookingId, holderLabel: b.holderLabel, days })
+    // Per uur (half open): terugbrengen om 10:00 en ophalen om 10:00 botst niet.
+    const mine = rangeSlot(range), other = rangeSlot(b.range)
+    if (!slotsOverlap(mine, other)) continue
+    const shared = { start: mine.start > other.start ? mine.start : other.start, end: mine.end < other.end ? mine.end : other.end }
+    const d = slotDays(shared)
+    out.push({ unitId: b.unitId, bookingId: b.bookingId, holderLabel: b.holderLabel, days: { start: d[0], end: d[d.length - 1] }, slot: other })
   }
   return out.sort((x, y) => x.unitId.localeCompare(y.unitId) || x.days.start.localeCompare(y.days.start))
 }

@@ -1,5 +1,6 @@
 import { buildBars, type Bar } from './bars'
 import { eachDay } from './dates'
+import { bookingSlot, type Slot } from './times'
 import { barLabel, shortNames, type BarLabel } from './labels'
 import type { DateRange } from './ranges'
 import { effectiveResponsible, ownResponsible, type EffectiveResponsible } from './responsible'
@@ -14,6 +15,8 @@ export interface GridBar extends Bar, BarLabel {
   flagged: boolean
   /** Project van de boeking; de weekweergave heeft plaats om het te tonen. */
   project: string | null
+  /** De bezetting met uren (Brusselse kloktijd). */
+  slot: Slot
 }
 
 export interface GridItemRow {
@@ -68,6 +71,8 @@ export function buildGrid(
   const label = (b: GearBooking) => barLabel({ personName: bookingPersonLabel(b, short), clientName: b.client?.name, clientColor: b.client?.color })
   const unavailable = (i: GearItem | undefined) => !!i && (i.status === 'defect' || i.status === 'uit_dienst')
 
+  const barInput = (b: GearBooking) => ({ bookingId: b.id, range: { start: b.start_date, end: b.end_date }, cancelled: false, slot: slotOf(b) })
+
   const byItem = new Map<string, GearBooking[]>()
   for (const b of bookings) for (const l of b.lines) byItem.set(l.item_id, [...(byItem.get(l.item_id) ?? []), b])
 
@@ -76,21 +81,21 @@ export function buildGrid(
     item,
     kitId: kitOf.get(item.id)?.id ?? null,
     responsible: effectiveResponsible(item, kitOf.get(item.id) ?? null, clients),
-    bars: buildBars((byItem.get(item.id) ?? []).map(b => ({ bookingId: b.id, range: { start: b.start_date, end: b.end_date }, cancelled: false })), window)
+    bars: buildBars((byItem.get(item.id) ?? []).map(barInput), window)
       .map(bar => {
         const b = bookings.find(x => x.id === bar.bookingId)!
-        return { ...bar, ...label(b), flagged: unavailable(item) && b.end_date >= today, project: b.project?.name ?? null }
+        return { ...bar, ...label(b), flagged: unavailable(item) && b.end_date >= today, project: b.project?.name ?? null, slot: slotOf(b) }
       }),
   })
 
   const kitRow = (kit: GearKit): GridKitRow => {
     const parts = kit.item_ids.map(id => itemById.get(id)).filter((i): i is GearItem => !!i)
     const via = bookings.filter(b => b.lines.some(l => l.via_kit_id === kit.id))
-    const bars = buildBars(via.map(b => ({ bookingId: b.id, range: { start: b.start_date, end: b.end_date }, cancelled: false })), window)
+    const bars = buildBars(via.map(barInput), window)
       .map(bar => {
         const b = via.find(x => x.id === bar.bookingId)!
         const flagged = b.end_date >= today && b.lines.some(l => l.via_kit_id === kit.id && unavailable(itemById.get(l.item_id)))
-        return { ...bar, ...label(b), flagged, project: b.project?.name ?? null }
+        return { ...bar, ...label(b), flagged, project: b.project?.name ?? null, slot: slotOf(b) }
       })
     const partIds = new Set(kit.item_ids)
     const elsewhere = days.map(d => {
@@ -154,4 +159,16 @@ export function freeStretches(bars: Bar[], days: number): { startIndex: number; 
     else out.push({ startIndex: i, span: 1 })
   }
   return out
+}
+
+export const slotOf = (b: GearBooking): Slot => bookingSlot(b.start_date, b.start_time, b.end_date, b.end_time)
+
+/**
+ * Wat een rij bezet houdt, voor de uren die een klik of sleep voorstelt: een
+ * item heeft alle boekingen waar het in zit, een kit die "via" de kit.
+ */
+export function busyFor(target: { kind: 'kit' | 'item'; id: string }, bookings: GearBooking[]): Slot[] {
+  return bookings
+    .filter(b => b.lines.some(l => (target.kind === 'kit' ? l.via_kit_id === target.id : l.item_id === target.id)))
+    .map(slotOf)
 }

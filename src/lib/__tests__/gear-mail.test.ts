@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { cancellationMail, confirmationKey, confirmationMail, icsFile, icsSequence, isEmail, mailConfig, mailErrorText, mailRecipients, reminderMail, shouldConfirm, whatShort, type MailBooking } from '@/lib/gear/mail'
+import { MAIL_HEADER, mailPeriod, cancellationMail, confirmationKey, confirmationMail, icsFile, icsSequence, isEmail, mailConfig, mailErrorText, mailRecipients, reminderMail, shouldConfirm, whatShort, type MailBooking } from '@/lib/gear/mail'
 
 const b: MailBooking = {
   id: 'abc', start: '2026-11-03', end: '2026-11-07', person: 'Bram Kreike', client: 'NoStrezz', project: 'Teaser',
@@ -143,5 +143,40 @@ describe('cancellationMail', () => {
   it('geen annuleringsmail voor een boeking die al voorbij was (zelfde regel als de bevestiging)', () => {
     expect(shouldConfirm('2026-11-05', '2026-11-06')).toBe(false)
     expect(shouldConfirm('2026-11-06', '2026-11-06')).toBe(true)
+  })
+})
+
+describe('uren in mail en .ics', () => {
+  const timed = { ...b, startTime: '14:00', endTime: '10:00' }
+  it('periode met uren', () => {
+    expect(mailPeriod(timed)).toBe('3 nov 14:00 – 7 nov 10:00 2026')
+    expect(mailPeriod(b)).toBe('3–7 nov 2026')
+    expect(confirmationMail(timed, false).subject).toContain('3 nov 14:00 – 7 nov 10:00 2026')
+  })
+  it('.ics met uren: TZID Europe/Brussels en een VTIMEZONE; zonder uren hele dagen', () => {
+    const ics = icsFile(timed, { method: 'REQUEST', sequence: 1 })
+    expect(ics).toContain('DTSTART;TZID=Europe/Brussels:20261103T140000')
+    expect(ics).toContain('DTEND;TZID=Europe/Brussels:20261107T100000')
+    expect(ics).toContain('BEGIN:VTIMEZONE')
+    expect(ics).not.toContain('VALUE=DATE')
+    const allDay = icsFile(b, { method: 'REQUEST', sequence: 1 })
+    expect(allDay).toContain('DTSTART;VALUE=DATE:20261103')
+    expect(allDay).not.toContain('VTIMEZONE')
+  })
+  it('alleen een ophaaluur: eindigt om middernacht na de laatste dag', () => {
+    expect(icsFile({ ...b, startTime: '14:00' }, { method: 'REQUEST', sequence: 1 })).toContain('DTEND;TZID=Europe/Brussels:20261108T000000')
+  })
+  it('herinnering met het uur van terugbrengen', () => {
+    expect(reminderMail({ ...b, endTime: '17:00' }).text).toContain('om 17:00')
+  })
+  it('nieuwe uren = nieuwe bevestiging (andere sleutel)', () => {
+    expect(confirmationKey('2026-11-03', '2026-11-07', '14:00', null)).not.toBe(confirmationKey('2026-11-03', '2026-11-07'))
+  })
+  it('elke mail begint met het logo (cid:logo) en "Sporthouse Materiaal"', () => {
+    for (const m of [confirmationMail(b, false), cancellationMail(b), reminderMail(b)]) {
+      expect(m.html.startsWith(`<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;color:#18181b;max-width:560px">${MAIL_HEADER}`)).toBe(true)
+    }
+    expect(MAIL_HEADER).toContain('src="cid:logo"')
+    expect(MAIL_HEADER).toContain('Sporthouse Materiaal')
   })
 })

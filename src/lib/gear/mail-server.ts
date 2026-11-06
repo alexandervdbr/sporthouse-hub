@@ -1,5 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/server'
+import { MAIL_LOGO_CID, MAIL_LOGO_PNG_BASE64 } from './mail-logo'
 import { todayInBrussels } from './dates'
+import { normalizeTime } from './times'
 import { effectiveResponsible, ownResponsible, responsibleWarning, type EffectiveResponsible } from './responsible'
 import {
   cancellationMail, confirmationKey, confirmationMail, icsFile, icsSequence, mailConfig, mailErrorText, mailRecipients, reminderMail, shouldConfirm,
@@ -45,7 +47,7 @@ interface Loaded {
 /** Een boeking met alles wat de mail nodig heeft: namen, onderdelen, verantwoordelijken. */
 async function loadBooking(admin: Admin, bookingId: string): Promise<Loaded | null> {
   const { data: b } = await admin.from('gear_bookings')
-    .select('id, start_date, end_date, person_name, external_name, booked_for_user_id, freelancer_id, client_id, project_id, note, created_by, cancelled_at, gear_booking_items(item_id, via_kit_id, via_kit_name)')
+    .select('id, start_date, end_date, start_time, end_time, person_name, external_name, booked_for_user_id, freelancer_id, client_id, project_id, note, created_by, cancelled_at, gear_booking_items(item_id, via_kit_id, via_kit_name)')
     .eq('id', bookingId).maybeSingle()
   if (!b) return null
   const lines = (b.gear_booking_items ?? []) as { item_id: string; via_kit_id: string | null; via_kit_name: string | null }[]
@@ -94,7 +96,7 @@ async function loadBooking(admin: Admin, bookingId: string): Promise<Loaded | nu
   const client = b.client_id ? clientMap.get(b.client_id)?.name ?? null : null
   return {
     mail: {
-      id: b.id, start: b.start_date, end: b.end_date,
+      id: b.id, start: b.start_date, end: b.end_date, startTime: normalizeTime(b.start_time), endTime: normalizeTime(b.end_time),
       person: b.external_name ?? b.person_name, client, project: (project.data as { name: string } | null)?.name ?? null, note: b.note,
       kits: kitsOut, loose,
       responsibleWarnings: [...resp.values()].map(x => responsibleWarning(x.r)),
@@ -127,6 +129,8 @@ async function post(config: MailConfig, to: string, content: MailContent, invite
       secret: config.secret, to, subject: content.subject, html: content.html, text: content.text,
       // method= in het type: zo herkennen Gmail en Outlook het als uitnodiging of annulering.
       attachments: invite ? [{ name: 'materiaal.ics', mimeType: `text/calendar; charset=utf-8; method=${invite.method}`, base64: Buffer.from(invite.ics).toString('base64') }] : [],
+      // Het logo bovenaan, als inline-afbeelding (cid:logo in de html).
+      inlineImages: [{ cid: MAIL_LOGO_CID, name: 'sporthouse.png', mimeType: 'image/png', base64: MAIL_LOGO_PNG_BASE64 }],
     }),
     redirect: 'follow',
     signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -187,7 +191,7 @@ export async function sendBookingConfirmation(bookingId: string, changed: boolea
     const content = confirmationMail(l.mail, changed)
     const now = new Date()
     for (const r of await bookingRecipients(admin, l)) {
-      await sendOnce(admin, config, l.mail.id, 'bevestiging', confirmationKey(l.mail.start, l.mail.end), r, content, invite(config, l.mail, 'REQUEST', r, now))
+      await sendOnce(admin, config, l.mail.id, 'bevestiging', confirmationKey(l.mail.start, l.mail.end, l.mail.startTime, l.mail.endTime), r, content, invite(config, l.mail, 'REQUEST', r, now))
     }
   } catch (e) {
     console.error('Materiaal: bevestiging mislukt:', e instanceof Error ? e.message : e)
@@ -239,7 +243,11 @@ export async function sendDueReminders(today: string): Promise<{ verstuurd: numb
   return out
 }
 
-/** Bij wijzigen: alleen een nieuwe bevestiging als de data veranderden. */
-export function datesChanged(before: { start_date: string; end_date: string } | null, after: { p_start_date: string; p_end_date: string }): boolean {
-  return !!before && (before.start_date !== after.p_start_date || before.end_date !== after.p_end_date)
+/** Bij wijzigen: alleen een nieuwe bevestiging als de data of de uren veranderden. */
+export function datesChanged(
+  before: { start_date: string; end_date: string; start_time?: string | null; end_time?: string | null } | null,
+  after: { p_start_date: string; p_end_date: string; p_start_time?: string | null; p_end_time?: string | null },
+): boolean {
+  return !!before && (before.start_date !== after.p_start_date || before.end_date !== after.p_end_date
+    || normalizeTime(before.start_time) !== (after.p_start_time ?? null) || normalizeTime(before.end_time) !== (after.p_end_time ?? null))
 }

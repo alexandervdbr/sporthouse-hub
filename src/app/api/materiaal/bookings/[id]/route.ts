@@ -23,7 +23,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return new Response(RESPONSIBLE_ACK_TEXT, { status: 400 })
   }
 
-  const { data: before } = await supabase.from('gear_bookings').select('start_date, end_date').eq('id', id).maybeSingle()
+  const { data: before } = await supabase.from('gear_bookings').select('start_date, end_date, start_time, end_time').eq('id', id).maybeSingle()
   const { error } = await supabase.rpc('gear_update_booking', { p_booking_id: id, ...parsed.args })
   if (error) return dbErrorResponse(error)
   if (datesChanged(before, parsed.args)) after(() => sendBookingConfirmation(id, true))

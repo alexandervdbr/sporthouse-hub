@@ -94,6 +94,8 @@ export interface GearItemBooking {
   id: string
   start_date: string
   end_date: string
+  start_time?: string | null
+  end_time?: string | null
   person_name: string | null
   client: GearClientRef | null
   note: string | null
@@ -120,6 +122,9 @@ export interface GearBooking {
   id: string
   start_date: string
   end_date: string
+  /** 'HH:MM' of null (hele dag); zie times.ts. */
+  start_time?: string | null
+  end_time?: string | null
   lines: GearBookingLine[]
   booked_for_user_id: string | null
   freelancer_id: string | null
@@ -145,6 +150,9 @@ export interface GearBookingOptions {
 export interface GearBookingInput {
   start_date: string
   end_date: string
+  /** 'HH:MM' per kwartier (06:00–23:45), of null voor de hele dag. */
+  start_time?: string | null
+  end_time?: string | null
   item_ids: string[]
   kit_ids: string[]
   /** Onderdelen van gekozen kits die bewust niet meegaan ("zonder …"). */

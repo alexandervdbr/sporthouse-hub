@@ -7,7 +7,8 @@ import { canChangeBooking, type GearAccess } from '@/lib/gear/access'
 import { eachDay, enteredAfterwards } from '@/lib/gear/dates'
 import { HOLDER_ERROR_TEXT, validateHolder } from '@/lib/gear/holder'
 import { bookedLines, bookingSelection, checkKitParts, kitByItem, partsToKits, selectionFromBooking, selectionResponsibles, type PartCheck } from '@/lib/gear/kits'
-import { conflictDays, findConflicts, rangeLength, validateRange, type Conflict, type DateRange } from '@/lib/gear/ranges'
+import { conflictDays, findConflicts, rangeLength, rangeSlot, validateRange, type Conflict, type DateRange } from '@/lib/gear/ranges'
+import { TIME_OPTIONS, isEmptySlot, normalizeTime, slotLabel } from '@/lib/gear/times'
 import { discussWith, responsibleWarning } from '@/lib/gear/responsible'
 import { isBookable, STATUS_LABEL } from '@/lib/gear/status'
 import type { GearBooking, GearBookingInput, GearBookingOptions, GearCatalog, GearItem, GearKit } from '@/lib/gear/types'
@@ -33,7 +34,7 @@ interface Props {
   userId: string
   access: GearAccess
   /** Nieuwe boeking: voorgekozen kits, items en dagen. */
-  initial?: { kitIds: string[]; itemIds: string[]; start: string; end: string }
+  initial?: { kitIds: string[]; itemIds: string[]; start: string; end: string; startTime?: string | null; endTime?: string | null }
   /** Bestaande boeking openen. */
   booking?: GearBooking
   onClose: () => void
@@ -44,8 +45,14 @@ function fmt(iso: string) {
   return new Date(`${iso}T12:00:00`).toLocaleDateString('nl-BE', { weekday: 'short', day: 'numeric', month: 'short' })
 }
 
-function clashText(c: Conflict) {
-  return `Al weg ${fmt(c.days.start)}${c.days.end !== c.days.start ? ` – ${fmt(c.days.end)}` : ''} · ${c.holderLabel}`
+/**
+ * "Al weg tot 10:00 · Bram" als je één dag boekt; anders de hele andere
+ * boeking met uren: "Al weg 5 nov 14:00 – 7 nov 10:00 · Bram".
+ */
+function clashText(c: Conflict, oneDay: string | null) {
+  const rel = oneDay ? slotLabel(c.slot, oneDay) : null
+  const when = rel && rel !== 'hele dag' ? rel : slotLabel(c.slot)
+  return `Al weg ${when} · ${c.holderLabel}`
 }
 
 const PART_REASON: Record<PartCheck['state'], string> = {
@@ -70,6 +77,9 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
 
   const [start, setStart] = useState(booking?.start_date ?? initial?.start ?? today)
   const [end, setEnd] = useState(booking?.end_date ?? initial?.end ?? today)
+  // Uren (leeg = de hele dag), Brusselse kloktijd als 'HH:MM'.
+  const [startTime, setStartTime] = useState(normalizeTime(booking?.start_time) ?? initial?.startTime ?? '')
+  const [endTime, setEndTime] = useState(normalizeTime(booking?.end_time) ?? initial?.endTime ?? '')
   const [kitIds, setKitIds] = useState<string[]>(start0?.kitIds ?? pre?.kitIds ?? [])
   const [looseIds, setLooseIds] = useState<string[]>(start0?.looseItemIds ?? pre?.itemIds ?? [])
   const [excluded, setExcluded] = useState<Set<string>>(start0?.excluded ?? new Set())
@@ -93,8 +103,9 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  const range = { start, end }
-  const rangeError = validateRange(range)
+  const range = { start, end, startTime: startTime || null, endTime: endTime || null }
+  const rangeError = validateRange(range) ?? (isEmptySlot(rangeSlot(range)) ? 'einde_voor_begin' : null)
+  const oneDay = start === end ? start : null
   const holderInput = {
     userId: kind === 'collega' ? userIdFor : null,
     freelancerId: kind === 'freelancer' ? freelancerId : null,
@@ -109,23 +120,25 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
 
   // Per gekozen kit: elk onderdeel met zijn toestand op deze dagen.
   const kitChecks = useMemo(() => {
-    if (validateRange({ start, end })) return new Map<string, PartCheck[]>()
+    const r = { start, end, startTime: startTime || null, endTime: endTime || null }
+    if (validateRange(r) || isEmptySlot(rangeSlot(r))) return new Map<string, PartCheck[]>()
     return new Map(kitIds.map(id => {
       const kit = kits.get(id)
-      return [id, kit ? checkKitParts(kit, items, { start, end }, booked, bookingId) : []]
+      return [id, kit ? checkKitParts(kit, items, r, booked, bookingId) : []]
     }))
-  }, [kitIds, kits, items, start, end, booked, bookingId])
+  }, [kitIds, kits, items, start, end, startTime, endTime, booked, bookingId])
 
   const looseChecks = useMemo(() => {
-    const valid = !validateRange({ start, end })
+    const r = { start, end, startTime: startTime || null, endTime: endTime || null }
+    const valid = !validateRange(r) && !isEmptySlot(rangeSlot(r))
     const already = new Set(bookingLines?.map(l => l.item_id) ?? [])
     return looseIds.map(id => {
       const item = items.get(id)
-      const conflicts = valid && item ? findConflicts([id], { start, end }, booked, bookingId) : []
+      const conflicts = valid && item ? findConflicts([id], r, booked, bookingId) : []
       const unavailable = !!item && !isBookable(item.status) && !already.has(id)
       return { id, item, conflicts, unavailable }
     })
-  }, [looseIds, items, start, end, booked, bookingId, bookingLines])
+  }, [looseIds, items, start, end, startTime, endTime, booked, bookingId, bookingLines])
 
   const unresolved = [...kitChecks.values()].flat().filter(p => p.blocking && !excluded.has(p.item.id))
   const looseProblems = looseChecks.filter(l => l.conflicts.length || l.unavailable)
@@ -177,7 +190,7 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
   async function save() {
     setSaving(true); setError('')
     const body: GearBookingInput = {
-      start_date: start, end_date: end,
+      start_date: start, end_date: end, start_time: startTime || null, end_time: endTime || null,
       ...bookingSelection(looseIds, kitIds, excluded, kits),
       user_id: holderInput.userId, freelancer_id: holderInput.freelancerId, external_name: holderInput.externalName,
       client_id: clientId || null, project_id: projectId || null, note,
@@ -217,12 +230,18 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
           <div className="grid grid-cols-2 gap-3">
             <label className="block min-w-0">
               <span className={labelCls}><Calendar size={10} className="inline mr-1" />Ophalen</span>
-              <input type="date" value={start} disabled={readOnly} min={booking && !access.manageBookings ? today : undefined}
-                onChange={e => { setStart(e.target.value); if (end < e.target.value) setEnd(e.target.value) }} className={inputCls} />
+              <span className="grid grid-cols-[minmax(0,1fr)_6.5rem] gap-1.5">
+                <input type="date" value={start} disabled={readOnly} min={booking && !access.manageBookings ? today : undefined}
+                  onChange={e => { setStart(e.target.value); if (end < e.target.value) setEnd(e.target.value) }} className={inputCls} />
+                <TimeSelect value={startTime} onChange={setStartTime} disabled={readOnly} label="Uur ophalen" />
+              </span>
             </label>
             <label className="block min-w-0">
               <span className={labelCls}><Calendar size={10} className="inline mr-1" />Terugbrengen</span>
-              <input type="date" value={end} min={start} disabled={readOnly} onChange={e => setEnd(e.target.value)} className={inputCls} />
+              <span className="grid grid-cols-[minmax(0,1fr)_6.5rem] gap-1.5">
+                <input type="date" value={end} min={start} disabled={readOnly} onChange={e => setEnd(e.target.value)} className={inputCls} />
+                <TimeSelect value={endTime} onChange={setEndTime} disabled={readOnly} label="Uur terugbrengen" />
+              </span>
             </label>
           </div>
           {!rangeError && (
@@ -266,7 +285,7 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
                             onChange={e => toggleExcluded(p.item.id, !e.target.checked)}
                             aria-label={`${p.item.name} meenemen`} className="accent-[#3A913F]" />
                           <span title={p.item.name} className={`min-w-0 max-w-full truncate ${out ? 'text-zinc-600 line-through' : p.blocking ? 'text-red-300' : 'text-zinc-300'}`}>{p.item.name}</span>
-                          {p.state === 'elders' && p.conflicts.map(c => <span key={c.bookingId} className="text-[11px] text-red-400">{clashText(c)}</span>)}
+                          {p.state === 'elders' && p.conflicts.map(c => <span key={c.bookingId} className="text-[11px] text-red-400">{clashText(c, oneDay)}</span>)}
                           {(p.state === 'defect' || p.state === 'uit_dienst') && <span className="text-[11px] text-red-400">{PART_REASON[p.state]}{p.item.status_note ? `: ${p.item.status_note}` : ''}</span>}
                           {p.state === 'beperkt' && <span className="text-[11px] text-amber-300">Beperkt{p.item.status_note ? `: ${p.item.status_note}` : ''}</span>}
                           {p.item.warning && <span className="text-[11px] text-amber-300">⚠ {p.item.warning}</span>}
@@ -301,7 +320,7 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
                         <span className="ml-auto"><IconButton label={`${item.name} weghalen`} onClick={() => setLooseIds(ids => ids.filter(x => x !== id))}><X size={13} /></IconButton></span>
                       )}
                     </div>
-                    {conflicts.map(c => <p key={c.bookingId} className="mt-1 text-[11px] text-red-400">{clashText(c)}</p>)}
+                    {conflicts.map(c => <p key={c.bookingId} className="mt-1 text-[11px] text-red-400">{clashText(c, oneDay)}</p>)}
                     {unavailable && <p className="mt-1 text-[11px] text-red-400">{STATUS_LABEL[item.status]}{item.status_note ? `: ${item.status_note}` : ''}</p>}
                     {item.status === 'beperkt' && <p className="mt-1 text-[11px] text-amber-300">Beperkt bruikbaar{item.status_note ? `: ${item.status_note}` : ''}</p>}
                     {item.warning && <Notice icon="warn">{item.warning}</Notice>}
@@ -422,6 +441,7 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
               )}
               {holderError && kind !== 'collega' && <p className="text-xs text-amber-300">{HOLDER_ERROR_TEXT[holderError]}</p>}
               {kind === 'collega' && !userIdFor && <p className="text-xs text-amber-300">Kies een collega.</p>}
+              {rangeError === 'einde_voor_begin' && <p className="text-xs text-amber-300">Het terugbrengen moet na het ophalen liggen.</p>}
               {inPast && <p className="text-xs text-amber-300">Een boeking naar het verleden verplaatsen kan alleen een beheerder.</p>}
               {afterwards && !booking && <p className="text-xs text-zinc-400">Je boekt achteraf. Dit wordt zo geregistreerd.</p>}
               {!allDiscussed && <p className="text-xs text-amber-300">Vink aan dat je het besproken hebt met {discussNames.filter(n => !discussed.has(n)).join(' en ')}.</p>}
@@ -463,5 +483,15 @@ function Notice({ icon, children }: { icon: 'user' | 'warn'; children: React.Rea
       {icon === 'user' ? <UserRound size={10} className="mt-0.5 flex-shrink-0" /> : <AlertTriangle size={10} className="mt-0.5 flex-shrink-0" />}
       <span>{children}</span>
     </p>
+  )
+}
+
+/** Uur per kwartier (06:00–23:45); leeg = de hele dag. */
+function TimeSelect({ value, onChange, disabled, label }: { value: string; onChange: (v: string) => void; disabled?: boolean; label: string }) {
+  return (
+    <Select value={value} disabled={disabled} onChange={e => onChange(e.target.value)} aria-label={label} title={value ? undefined : 'Hele dag'} className="tabular-nums">
+      <option value="">Hele dag</option>
+      {TIME_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
+    </Select>
   )
 }

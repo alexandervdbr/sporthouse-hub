@@ -1,5 +1,6 @@
 import { diffDays } from './dates'
 import { intersectRanges, type DateRange } from './ranges'
+import { dayFraction, type Slot } from './times'
 
 // Boekingen van één unit omzetten naar balken in een zichtbaar venster (een
 // maand). Het raster tekent alleen; welke dagen, hoe breed en of een balk
@@ -10,6 +11,8 @@ export interface BarInput {
   bookingId: string
   range: DateRange
   cancelled: boolean
+  /** Met uren (0085): de balk begint en eindigt dan midden in een dag. */
+  slot?: Slot
 }
 
 export interface Bar {
@@ -22,6 +25,10 @@ export interface Bar {
   continuesBefore: boolean
   /** Loopt door na het venster. */
   continuesAfter: boolean
+  /** Waar de balk in zijn eerste zichtbare dag begint (0 = middernacht). */
+  startFrac: number
+  /** Waar de balk in zijn laatste zichtbare dag eindigt (1 = middernacht erna). */
+  endFrac: number
 }
 
 export function buildBars(bookings: BarInput[], window: DateRange): Bar[] {
@@ -36,6 +43,8 @@ export function buildBars(bookings: BarInput[], window: DateRange): Bar[] {
       span: diffDays(visible.start, visible.end) + 1,
       continuesBefore: b.range.start < window.start,
       continuesAfter: b.range.end > window.end,
+      startFrac: b.slot ? dayFraction(b.slot.start, visible.start) : 0,
+      endFrac: b.slot ? dayFraction(b.slot.end, visible.end) : 1,
     })
   }
   return bars.sort((a, b) => a.startIndex - b.startIndex)

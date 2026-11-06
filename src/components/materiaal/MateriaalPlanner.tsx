@@ -14,7 +14,8 @@ import { Button, ErrorLine, IconButton, Segmented, buttonCls, inputCls, send } f
 import type { GearAccess } from '@/lib/gear/access'
 import { eachDay, todayInBrussels } from '@/lib/gear/dates'
 import { buildDayList, type DayFilter } from '@/lib/gear/day-list'
-import { buildGrid } from '@/lib/gear/grid'
+import { buildGrid, busyFor } from '@/lib/gear/grid'
+import { gapTimes, suggestTimes, type Slot } from '@/lib/gear/times'
 import { moveCategory } from '@/lib/gear/categories'
 import type { GearBooking, GearBookingOptions, GearCatalog } from '@/lib/gear/types'
 import {
@@ -43,7 +44,7 @@ function storedView(): PlannerView | null {
 }
 
 type Dialog =
-  | { kind: 'new'; kitIds: string[]; itemIds: string[]; start: string; end: string }
+  | { kind: 'new'; kitIds: string[]; itemIds: string[]; start: string; end: string; startTime?: string | null; endTime?: string | null }
   | { kind: 'open'; booking: GearBooking }
 
 export default function MateriaalPlanner({ userId, access, initialView, initialDate }: {
@@ -127,10 +128,20 @@ export default function MateriaalPlanner({ userId, access, initialView, initialD
   }
 
   const openBooking = (id: string) => { const b = bookingById.get(id); if (b) setDialog({ kind: 'open', booking: b }) }
+  // Klik of sleep: met de uren waarop het vrij is ("tot 10:00 weg" → ophalen 10:00).
+  // Botst er dan nog iets, dan zegt het formulier welk deel.
   const onSelectRange = useCallback((target: GridTarget, from: number, to: number) => {
-    setDialog({ kind: 'new', kitIds: target.kind === 'kit' ? [target.id] : [], itemIds: target.kind === 'item' ? [target.id] : [], start: days[from], end: days[to] })
-  }, [days])
-  const onBookDay = (target: GridTarget) => onSelectRange(target, 0, 0)
+    const t = suggestTimes(days[from], days[to], busyFor(target, bookings))
+    setDialog({
+      kind: 'new', kitIds: target.kind === 'kit' ? [target.id] : [], itemIds: target.kind === 'item' ? [target.id] : [],
+      start: days[from], end: days[to], startTime: t.startTime, endTime: t.endTime,
+    })
+  }, [days, bookings])
+  // Dagweergave: een vrij stuk ("vrij 10:00–14:00") vult beide uren in.
+  const onBookDay = (target: GridTarget, gap?: Slot) => {
+    if (!gap) return onSelectRange(target, 0, 0)
+    setDialog({ kind: 'new', kitIds: target.kind === 'kit' ? [target.id] : [], itemIds: target.kind === 'item' ? [target.id] : [], start: date, end: date, ...gapTimes(gap, date) })
+  }
 
   // Categorie verslepen in het raster (alleen admins): meteen tonen, dan
   // opslaan via dezelfde route als Beheer; bij een fout terugzetten. Komt op

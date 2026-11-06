@@ -7,6 +7,7 @@ import { Select } from '@/components/materiaal/ui'
 import { DAY_FILTERS, DAY_FILTER_LABEL, type DayEntry, type DayFilter, type DayGroup, type DayHolder, type DayItemEntry } from '@/lib/gear/day-list'
 import { responsibleBand, RESPONSIBLE_NOTICE } from '@/lib/gear/responsible'
 import { STATUS_LABEL } from '@/lib/gear/status'
+import { slotLabel, type Slot } from '@/lib/gear/times'
 import { periodLabel } from '@/lib/gear/views'
 
 // De dagweergave: geen raster met één kolom, maar een lijst voor die dag. Per
@@ -24,7 +25,8 @@ interface Props {
   openKits: Set<string>
   onToggleKit: (id: string) => void
   canBook: boolean
-  onBook: (target: GridTarget) => void
+  /** Boeken op die dag; met een vrij stuk vult het formulier die uren in. */
+  onBook: (target: GridTarget, gap?: Slot) => void
   onOpenBooking: (bookingId: string) => void
   onOpenItem: (itemId: string) => void
   onOpenKit: (kitId: string) => void
@@ -132,17 +134,35 @@ function Row({ entry, color, part, day, today, canBook, openKits, onToggleKit, o
   )
 
   const statusCls = 'w-full min-w-0 min-h-9 flex items-center gap-2 px-3 py-1.5 rounded-lg text-left text-[13px]'
-  const status = entry.holder && entry.booking ? (
-    <button onClick={() => onOpenBooking(entry.booking!.id)} title={holderTitle(entry.holder)}
-      className={`${statusCls} hover:brightness-125 transition`}
-      style={{ background: `${entry.holder.color}1f`, border: entry.holder.flagged ? '1px solid #ef4444' : `1px solid ${entry.holder.color}55` }}>
-      {entry.holder.flagged && <AlertTriangle size={11} className="text-red-400 flex-shrink-0" />}
-      <span className="min-w-0 truncate font-semibold" style={{ color: entry.holder.color }}>
-        {entry.holder.text}
-        {entry.holder.project && <span className="font-normal opacity-75"> · {entry.holder.project}</span>}
-      </span>
-      <span className="ml-auto flex-shrink-0 text-xs text-zinc-400 tabular-nums">{periodLabel(entry.holder.start, entry.holder.end)}</span>
-    </button>
+  // Met uren: de boekingen en de vrije stukken van die dag, in volgorde.
+  const canBookGap = canBook && day >= today
+  const segments: ({ kind: 'held'; at: string; h: (typeof entry.holders)[number] } | { kind: 'gap'; at: string; gap: Slot })[] = [
+    ...entry.holders.map(h => ({ kind: 'held' as const, at: h.holder.slot.start, h })),
+    ...(entry.holders.length ? entry.gaps.map(gap => ({ kind: 'gap' as const, at: gap.start, gap })) : []),
+  ].sort((a, b) => a.at.localeCompare(b.at))
+  const status = entry.holders.length ? (
+    <div className="space-y-1">
+      {segments.map(seg => seg.kind === 'held' ? (
+        <button key={seg.h.booking.id} onClick={() => onOpenBooking(seg.h.booking.id)} title={holderTitle(seg.h.holder)}
+          className={`${statusCls} hover:brightness-125 transition`}
+          style={{ background: `${seg.h.holder.color}1f`, border: seg.h.holder.flagged ? '1px solid #ef4444' : `1px solid ${seg.h.holder.color}55` }}>
+          {seg.h.holder.flagged && <AlertTriangle size={11} className="text-red-400 flex-shrink-0" />}
+          <span className="min-w-0 truncate font-semibold" style={{ color: seg.h.holder.color }}>
+            {seg.h.holder.text}
+            {seg.h.holder.project && <span className="font-normal opacity-75"> · {seg.h.holder.project}</span>}
+          </span>
+          <span className="ml-auto flex-shrink-0 text-xs text-zinc-400 tabular-nums">{whenText(seg.h.holder)}</span>
+        </button>
+      ) : canBookGap ? (
+        <button key={seg.at} onClick={() => onBook(target, seg.gap)}
+          className={`${statusCls} group/free border border-dashed border-zinc-800 hover:border-zinc-600 hover:bg-zinc-800/50 transition-colors`}>
+          <span className="text-emerald-400/90">vrij {slotLabel(seg.gap, day)}</span>
+          <span className="ml-auto flex-shrink-0 flex items-center gap-1 text-xs text-zinc-500 group-hover/free:text-zinc-200"><Plus size={12} /> {target.kind === 'kit' && entry.kind === 'item' ? 'Kit boeken' : 'Boeken'}</span>
+        </button>
+      ) : (
+        <div key={seg.at} className={`${statusCls} border border-dashed border-zinc-900 text-zinc-500`}>vrij {slotLabel(seg.gap, day)}</div>
+      ))}
+    </div>
   ) : (
     <Free entry={entry} bookable={bookable} bookKit={target.kind === 'kit' && entry.kind === 'item'} onBook={() => onBook(target)} cls={statusCls} />
   )
@@ -191,6 +211,12 @@ function Free({ entry, bookable, bookKit, onBook, cls }: { entry: DayEntry; book
   )
 }
 
+/** "terug om 17:00 · 3–7 nov", "vanaf 14:00", "hele dag · 3–7 nov". */
+function whenText(h: DayHolder) {
+  const when = h.when.startsWith('tot ') ? `terug om ${h.when.slice(4)}` : h.when
+  return h.start === h.end ? when : `${when} · ${periodLabel(h.start, h.end)}`
+}
+
 function holderTitle(h: DayHolder) {
-  return [h.text, h.project, periodLabel(h.start, h.end, true), h.flagged ? 'let op: een onderdeel is defect of uit dienst' : null].filter(Boolean).join(' — ')
+  return [h.text, h.project, slotLabel(h.slot), h.flagged ? 'let op: een onderdeel is defect of uit dienst' : null].filter(Boolean).join(' — ')
 }

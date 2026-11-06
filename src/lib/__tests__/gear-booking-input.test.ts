@@ -9,8 +9,17 @@ describe('parseBookingInput', () => {
     })).toEqual({ args: {
       p_start_date: '2026-11-13', p_end_date: '2026-11-15', p_item_ids: ['a'], p_kit_ids: ['k'], p_excluded_item_ids: ['x'],
       p_user_id: 'u1', p_freelancer_id: null, p_external_name: null,
-      p_client_id: 'c1', p_project_id: null, p_note: null,
+      p_client_id: 'c1', p_project_id: null, p_note: null, p_start_time: null, p_end_time: null,
     } })
+  })
+
+  it('uren: per kwartier tussen 06:00 en 23:45, of leeg voor de hele dag', () => {
+    const base = { start_date: '2026-11-13', end_date: '2026-11-13', item_ids: ['a'] }
+    const ok = parseBookingInput({ ...base, start_time: '10:00', end_time: '23:45' })
+    expect('args' in ok && [ok.args.p_start_time, ok.args.p_end_time]).toEqual(['10:00', '23:45'])
+    expect(parseBookingInput({ ...base, start_time: '10:10' })).toHaveProperty('error')
+    expect(parseBookingInput({ ...base, start_time: '05:45' })).toHaveProperty('error')
+    expect(parseBookingInput({ ...base, end_time: '24:00' })).toHaveProperty('error')
   })
 
   it('weigert ontbrekende of onbestaande datums', () => {

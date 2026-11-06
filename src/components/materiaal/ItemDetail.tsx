@@ -8,6 +8,7 @@ import { barLabel } from '@/lib/gear/labels'
 import { kitByItem } from '@/lib/gear/kits'
 import { effectiveResponsible, responsibleLabel, RESPONSIBLE_NOTICE } from '@/lib/gear/responsible'
 import { enteredAfterwards } from '@/lib/gear/dates'
+import { bookingSlot, slotLabel } from '@/lib/gear/times'
 import { STATUS_LABEL, type UnitStatus } from '@/lib/gear/status'
 import type { GearCatalog, GearItemHistory } from '@/lib/gear/types'
 import type { GearAccess } from '@/lib/gear/access'
@@ -149,7 +150,11 @@ export default function ItemDetail({ itemId, access }: { itemId: string; access:
                 {timeline.map(t => (
                   <li key={t.key} className={`flex flex-wrap items-baseline gap-x-2 text-sm ${t.kind === 'booking' && t.b.cancelled_at ? 'text-zinc-600 line-through' : 'text-zinc-400'}`}>
                     {t.kind === 'booking' && <>
-                      <span className="tabular-nums text-zinc-500">{shortDate(t.b.start_date)}{t.b.end_date !== t.b.start_date && ` – ${shortDate(t.b.end_date)}`}</span>
+                      <span className="tabular-nums text-zinc-500">
+                        {t.b.start_time || t.b.end_time
+                          ? slotLabel(bookingSlot(t.b.start_date, t.b.start_time, t.b.end_date, t.b.end_time))
+                          : <>{shortDate(t.b.start_date)}{t.b.end_date !== t.b.start_date && ` – ${shortDate(t.b.end_date)}`}</>}
+                      </span>
                       <span className="text-zinc-300">{barLabel({ personName: t.b.person_name, clientName: t.b.client?.name, clientColor: t.b.client?.color }).text}</span>
                       {t.b.via_kit_name && <span className="text-xs text-zinc-500">via kit {t.b.via_kit_name}</span>}
                       {t.b.note && <span className="text-xs text-zinc-500">· {t.b.note}</span>}

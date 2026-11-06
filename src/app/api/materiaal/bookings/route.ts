@@ -3,6 +3,7 @@ import { after } from 'next/server'
 import { requireGear, dbErrorResponse, needsResponsibleAck, RESPONSIBLE_ACK_TEXT } from '@/lib/gear/server'
 import { sendBookingConfirmation } from '@/lib/gear/mail-server'
 import { isISODate } from '@/lib/gear/dates'
+import { normalizeTime } from '@/lib/gear/times'
 import { parseBookingInput } from '@/lib/gear/booking-input'
 import type { GearBooking } from '@/lib/gear/types'
 
@@ -24,7 +25,7 @@ export async function GET(req: Request) {
 
   const { data, error } = await supabase
     .from('gear_bookings')
-    .select('id, start_date, end_date, booked_for_user_id, freelancer_id, external_name, person_name, client_id, project_id, note, created_by, created_by_name, created_at, gear_booking_items(item_id, via_kit_id, via_kit_name)')
+    .select('id, start_date, end_date, start_time, end_time, booked_for_user_id, freelancer_id, external_name, person_name, client_id, project_id, note, created_by, created_by_name, created_at, gear_booking_items(item_id, via_kit_id, via_kit_name)')
     .is('cancelled_at', null)
     .lte('start_date', end)
     .gte('end_date', start)
@@ -52,6 +53,8 @@ export async function GET(req: Request) {
 
   const bookings: GearBooking[] = rows.map(({ client_id, project_id, gear_booking_items, ...b }) => ({
     ...b,
+    start_time: normalizeTime(b.start_time),
+    end_time: normalizeTime(b.end_time),
     lines: gear_booking_items,
     client: client_id ? clientById.get(client_id) ?? null : null,
     project: project_id ? projectById.get(project_id) ?? null : null,

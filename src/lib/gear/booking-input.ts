@@ -1,4 +1,5 @@
 import { isISODate } from './dates'
+import { isValidTime } from './times'
 import type { GearBookingInput } from './types'
 
 // Wat een formulier als boeking instuurt, omzetten naar de argumenten van
@@ -18,6 +19,8 @@ export type BookingArgs = {
   p_client_id: string | null
   p_project_id: string | null
   p_note: string | null
+  p_start_time: string | null
+  p_end_time: string | null
 }
 
 const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)
@@ -32,6 +35,8 @@ export function parseBookingInput(body: unknown): { args: BookingArgs } | { erro
   const itemIds = ids(b.item_ids), kitIds = ids(b.kit_ids), excluded = ids(b.excluded_item_ids)
   if (!itemIds || !kitIds || !excluded) return { error: 'Ongeldige lijst met materiaal.' }
   if (itemIds.length + kitIds.length === 0) return { error: 'Kies minstens één stuk materiaal of een kit.' }
+  const startTime = text(b.start_time), endTime = text(b.end_time)
+  if (!isValidTime(startTime) || !isValidTime(endTime)) return { error: 'Kies een uur per kwartier tussen 06:00 en 23:45.' }
   return {
     args: {
       p_start_date: start,
@@ -45,6 +50,8 @@ export function parseBookingInput(body: unknown): { args: BookingArgs } | { erro
       p_client_id: text(b.client_id),
       p_project_id: text(b.project_id),
       p_note: text(b.note),
+      p_start_time: startTime,
+      p_end_time: endTime,
     },
   }
 }
