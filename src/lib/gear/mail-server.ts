@@ -2,7 +2,8 @@ import { createAdminClient } from '@/lib/supabase/server'
 import { todayInBrussels } from './dates'
 import { effectiveResponsible, ownResponsible, responsibleWarning, type EffectiveResponsible } from './responsible'
 import {
-  confirmationKey, confirmationMail, icsFile, mailConfig, mailErrorText, mailRecipients, reminderMail, shouldConfirm,
+  cancellationMail, confirmationKey, confirmationMail, icsFile, icsSequence, mailConfig, mailErrorText, mailRecipients, reminderMail, shouldConfirm,
+  type IcsMethod,
   type MailBooking, type MailConfig, type MailContent,
 } from './mail'
 import type { GearClientRef, GearResponsible } from './types'
@@ -17,7 +18,7 @@ import type { GearClientRef, GearResponsible } from './types'
 
 const TIMEOUT_MS = 20_000
 type Admin = ReturnType<typeof createAdminClient>
-type Kind = 'bevestiging' | 'herinnering'
+type Kind = 'bevestiging' | 'herinnering' | 'annulering'
 
 function siteOrigin(): string {
   const env = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '')
@@ -113,7 +114,10 @@ async function holderEmails(admin: Admin, l: Loaded): Promise<string[]> {
   return mailRecipients([await emailOf(admin, l.bookedFor), freelancer, await emailOf(admin, l.createdBy)])
 }
 
-async function post(config: MailConfig, to: string, content: MailContent, ics?: string): Promise<void> {
+/** Een uitnodiging (REQUEST) of annulering (CANCEL) als bijlage. */
+interface Invite { ics: string; method: IcsMethod }
+
+async function post(config: MailConfig, to: string, content: MailContent, invite?: Invite): Promise<void> {
   // Apps Script antwoordt met een doorverwijzing naar het eigenlijke antwoord;
   // fetch volgt die. Het script zegt altijd 200, met { ok, error }.
   const res = await fetch(config.url, {
@@ -121,7 +125,8 @@ async function post(config: MailConfig, to: string, content: MailContent, ics?: 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       secret: config.secret, to, subject: content.subject, html: content.html, text: content.text,
-      attachments: ics ? [{ name: 'materiaal.ics', mimeType: 'text/calendar', base64: Buffer.from(ics).toString('base64') }] : [],
+      // method= in het type: zo herkennen Gmail en Outlook het als uitnodiging of annulering.
+      attachments: invite ? [{ name: 'materiaal.ics', mimeType: `text/calendar; charset=utf-8; method=${invite.method}`, base64: Buffer.from(invite.ics).toString('base64') }] : [],
     }),
     redirect: 'follow',
     signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -136,7 +141,7 @@ async function post(config: MailConfig, to: string, content: MailContent, ics?: 
  * Eén mail naar één ontvanger, hooguit één keer: eerst de rij in het logboek
  * (lukt dat niet omdat ze er al is, dan niets), dan versturen, dan de uitkomst.
  */
-async function sendOnce(admin: Admin, config: MailConfig, bookingId: string, kind: Kind, key: string, to: string, content: MailContent, ics?: string)
+async function sendOnce(admin: Admin, config: MailConfig, bookingId: string, kind: Kind, key: string, to: string, content: MailContent, invite?: Invite)
   : Promise<'verstuurd' | 'al_verstuurd' | 'mislukt'> {
   const { data, error } = await admin.from('gear_mail_log').insert({ booking_id: bookingId, kind, key, recipient: to }).select('id').single()
   if (error) {
@@ -145,7 +150,7 @@ async function sendOnce(admin: Admin, config: MailConfig, bookingId: string, kin
     return 'mislukt'
   }
   try {
-    await post(config, to, content, ics)
+    await post(config, to, content, invite)
     await admin.from('gear_mail_log').update({ sent_at: new Date().toISOString() }).eq('id', data.id)
     return 'verstuurd'
   } catch (e) {
@@ -154,6 +159,17 @@ async function sendOnce(admin: Admin, config: MailConfig, bookingId: string, kin
     await admin.from('gear_mail_log').update({ error: msg }).eq('id', data.id)
     return 'mislukt'
   }
+}
+
+/** Wie een bevestiging of annulering krijgt: de persoon, de maker, en de contactpersonen. */
+async function bookingRecipients(admin: Admin, l: Loaded): Promise<string[]> {
+  const contacts = await Promise.all(l.contactUserIds.map(id => emailOf(admin, id)))
+  return mailRecipients([...(await holderEmails(admin, l)), ...contacts])
+}
+
+/** Per ontvanger een eigen uitnodiging (met die ontvanger als deelnemer). */
+function invite(config: MailConfig, b: MailBooking, method: IcsMethod, attendee: string, now: Date): Invite {
+  return { method, ics: icsFile(b, { method, sequence: icsSequence(now), now, organizer: config.from, attendee }) }
 }
 
 /**
@@ -168,13 +184,35 @@ export async function sendBookingConfirmation(bookingId: string, changed: boolea
     const admin = createAdminClient()
     const l = await loadBooking(admin, bookingId)
     if (!l || l.cancelled || !shouldConfirm(l.mail.end, todayInBrussels())) return
-    const contacts = await Promise.all(l.contactUserIds.map(id => emailOf(admin, id)))
-    const to = mailRecipients([...(await holderEmails(admin, l)), ...contacts])
     const content = confirmationMail(l.mail, changed)
-    const ics = icsFile(l.mail, new Date(), Math.floor(Date.now() / 1000))
-    for (const r of to) await sendOnce(admin, config, l.mail.id, 'bevestiging', confirmationKey(l.mail.start, l.mail.end), r, content, ics)
+    const now = new Date()
+    for (const r of await bookingRecipients(admin, l)) {
+      await sendOnce(admin, config, l.mail.id, 'bevestiging', confirmationKey(l.mail.start, l.mail.end), r, content, invite(config, l.mail, 'REQUEST', r, now))
+    }
   } catch (e) {
     console.error('Materiaal: bevestiging mislukt:', e instanceof Error ? e.message : e)
+  }
+}
+
+/**
+ * Annulering: naar dezelfde ontvangers als de bevestiging, met een .ics die
+ * het agenda-item weghaalt. Niet voor een boeking die al voorbij was, en
+ * hooguit één keer per ontvanger (logboek, sleutel 'annulering').
+ */
+export async function sendBookingCancellation(bookingId: string): Promise<void> {
+  try {
+    const config = mailConfig()
+    if (!config) return
+    const admin = createAdminClient()
+    const l = await loadBooking(admin, bookingId)
+    if (!l || !l.cancelled || !shouldConfirm(l.mail.end, todayInBrussels())) return
+    const content = cancellationMail(l.mail)
+    const now = new Date()
+    for (const r of await bookingRecipients(admin, l)) {
+      await sendOnce(admin, config, l.mail.id, 'annulering', 'annulering', r, content, invite(config, l.mail, 'CANCEL', r, now))
+    }
+  } catch (e) {
+    console.error('Materiaal: annuleringsmail mislukt:', e instanceof Error ? e.message : e)
   }
 }
 
