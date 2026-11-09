@@ -14,7 +14,7 @@ import { periodLabel } from './views'
 //
 // De agenda loopt niet via een bijlage maar via een echte afspraak in Google
 // Calendar, die het script maakt, verplaatst of weghaalt (calendarEvent
-// hieronder; Google stuurt zelf de uitnodiging). Een .ics in een mail van
+// hieronder), zonder mails van Google: de mails komen alleen van ons. Een .ics in een mail van
 // MailApp toont Gmail niet als uitnodiging.
 //
 // Alles hier is puur (geen database, geen netwerk); mail-server.ts haalt de
@@ -208,7 +208,7 @@ export interface CalendarEvent {
   description: string
   start: CalendarTime
   end: CalendarTime
-  attendees: { email: string }[]
+  attendees: { email: string; responseStatus: 'accepted' }[]
 }
 
 /**
@@ -229,7 +229,8 @@ export function calendarEvent(b: MailBooking, guests: string[]): CalendarEvent {
     description: [...what, '', `Voor: ${forWhom(b)}`, ...(b.project ? [`Project: ${b.project}`] : []), ...b.responsibleWarnings, '', b.link].join('\n'),
     start: allDay ? { date: b.start } : at(s.start),
     end: allDay ? { date: addDays(b.end, 1) } : at(s.end),
-    attendees: mailRecipients(guests).map(email => ({ email })),
+    // Al aanvaard: Google mailt niet (de hub doet dat), en de gast hoeft niet op "Ja" te klikken.
+    attendees: mailRecipients(guests).map(email => ({ email, responseStatus: 'accepted' as const })),
   }
 }
 

@@ -11,8 +11,12 @@ afspraak bij in Google Calendar:
 - **annulering** naar dezelfde ontvangers;
 - **herinnering** op de ochtend van de terugbrengdag, naar de persoon en de maker;
 - **agenda**: een afspraak in de agenda *Sporthouse Materiaal* op dit account,
-  met dezelfde ontvangers als gasten. Google stuurt zelf de uitnodiging; nieuwe
-  data verplaatsen de afspraak, annuleren haalt ze weg (Google mailt de gasten).
+  met alleen de persoon voor wie geboekt is als gast (wie voor iemand anders
+  boekt, krijgt de mail maar geen afspraak). Google stuurt zelf geen mails
+  (geen uitnodiging, wijziging of annulering): onze mails volstaan. Bij een
+  Google-account verschijnt, verschuift en verdwijnt de afspraak toch in de
+  agenda van de gast; een niet-Google-adres krijgt alleen onze mail. Nieuwe
+  data verplaatsen de afspraak, annuleren haalt ze weg.
   Zonder uren een afspraak over hele dagen, met uren op Brusselse tijd.
 
 Elke mail heeft onderaan het Sporthouse-logo met "Sporthouse Materiaal".
@@ -24,6 +28,11 @@ mislukte mail of afspraak houdt een boeking nooit tegen. Voor boekingen die al
 voorbij waren (achteraf ingevoerd) komt er geen mail en geen afspraak.
 
 ## De agenda
+
+Tip voor het verzendaccount: de agenda *Sporthouse Materiaal* is het overzicht
+van alle boekingen. Boek je voor jezelf, dan zie je de afspraak daar én als
+uitnodiging in je hoofdagenda (één afspraak, twee agenda's). Vink de agenda
+links in Google Calendar uit als je ze niet dubbel wil zien.
 
 Het script gebruikt een eigen agenda **Sporthouse Materiaal** op het
 verzendaccount, niet de hoofdagenda. Bestaat ze nog niet, dan maakt het script

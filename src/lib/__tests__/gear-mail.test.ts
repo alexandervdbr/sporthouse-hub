@@ -141,7 +141,7 @@ describe('calendarEvent (afspraak in Google Calendar)', () => {
     expect(e.end).toEqual({ dateTime: '2027-03-28T23:45:00', timeZone: 'Europe/Brussels' })
   })
   it('gasten: alleen geldige adressen, elk één keer', () => {
-    expect(calendarEvent(b, ['Bram@Sporthouse.be', 'bram@sporthouse.be', 'geen adres', '']).attendees).toEqual([{ email: 'bram@sporthouse.be' }])
+    expect(calendarEvent(b, ['Bram@Sporthouse.be', 'bram@sporthouse.be', 'geen adres', '']).attendees).toEqual([{ email: 'bram@sporthouse.be', responseStatus: 'accepted' }])
   })
   it('titel en beschrijving: wat, voor wie, project, verantwoordelijke, link', () => {
     const e = calendarEvent(b, [])

@@ -6,8 +6,9 @@
  *    als "Sporthouse Materiaal" (alleen versturen; geen toegang tot de mailbox).
  * 2. doPost, action "agenda": de hub maakt, verplaatst of verwijdert de
  *    afspraak van een boeking in de agenda "Sporthouse Materiaal" op dit
- *    account, met de ontvangers als gasten. Google stuurt zelf de uitnodiging,
- *    de wijziging en de annulering (sendUpdates: all). Antwoordt met het id.
+ *    account, met de persoon voor wie geboekt is als gast. Google stuurt zelf
+ *    géén mails (sendUpdates: none): de hub mailt al. De afspraak verschijnt,
+ *    verschuift en verdwijnt toch in de agenda van de gast. Antwoordt met het id.
  *    Tijden komen als Brusselse kloktijd met timeZone Europe/Brussels; het
  *    script rekent niets om.
  * 3. dagelijks: een tijdgestuurde trigger (elke dag rond 07:00, Brussel)
@@ -103,13 +104,14 @@ function calendarId_() {
 
 /**
  * op "upsert": afspraak maken, of (met eventId) bijwerken: tijden, titel,
- * beschrijving en gasten. op "delete": weghalen. Google mailt de gasten.
+ * beschrijving en gasten. op "delete": weghalen. Google mailt niemand.
  * event = { summary, description, start, end, attendees } in de vorm van de
  * Calendar API: { date } voor hele dagen, { dateTime, timeZone } met uren.
  */
 function agenda_(body) {
   var calId = calendarId_();
-  var opts = { sendUpdates: 'all' };
+  // Geen mails van Google: de hub stuurt zelf de bevestiging en de annulering.
+  var opts = { sendUpdates: 'none' };
   if (body.op === 'delete') {
     if (!body.eventId) return { ok: true };
     try { Calendar.Events.remove(calId, body.eventId, opts); }
