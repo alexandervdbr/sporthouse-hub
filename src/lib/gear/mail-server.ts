@@ -18,8 +18,8 @@ import type { GearClientRef, GearResponsible } from './types'
 // het logboek — een boeking wordt er nooit door tegengehouden.
 //
 // Daarnaast de agenda: per boeking één afspraak in de agenda "Sporthouse
-// Materiaal" van het verzendaccount (via hetzelfde script), met dezelfde
-// ontvangers als gasten. Het id staat op de boeking (0086); nieuwe data
+// Materiaal" van het verzendaccount (via hetzelfde script), met alleen de
+// persoon voor wie geboekt is als gast (niet wie boekte, niet de contactpersoon). Het id staat op de boeking (0086); nieuwe data
 // verplaatsen de afspraak, annuleren haalt ze weg. Mislukt dat, dan staat de
 // fout op de boeking (calendar_error) en gaan boeking en mail gewoon door.
 
@@ -119,10 +119,19 @@ async function loadBooking(admin: Admin, bookingId: string): Promise<Loaded | nu
 
 /** De persoon voor wie geboekt is, en wie de boeking maakte als dat iemand anders is. */
 async function holderEmails(admin: Admin, l: Loaded): Promise<string[]> {
+  return mailRecipients([...(await bookedForEmails(admin, l)), await emailOf(admin, l.createdBy)])
+}
+
+/**
+ * Alleen de persoon voor wie geboekt is (collega of freelancer): die krijgt
+ * de afspraak in zijn agenda. Wie voor iemand anders boekt, krijgt de mail,
+ * maar geen afspraak; een externe naam of alleen een klant: geen gast.
+ */
+async function bookedForEmails(admin: Admin, l: Loaded): Promise<string[]> {
   const freelancer = l.freelancerId
     ? (await admin.from('freelancers').select('email').eq('id', l.freelancerId).maybeSingle()).data?.email ?? null
     : null
-  return mailRecipients([await emailOf(admin, l.bookedFor), freelancer, await emailOf(admin, l.createdBy)])
+  return mailRecipients([await emailOf(admin, l.bookedFor), freelancer])
 }
 
 /** Iets naar het script sturen (met het geheim); geeft het antwoord terug of gooit met de fout. */
@@ -232,7 +241,7 @@ export async function sendBookingConfirmation(bookingId: string, changed: boolea
     for (const r of to) {
       await sendOnce(admin, config, l.mail.id, 'bevestiging', confirmationKey(l.mail.start, l.mail.end, l.mail.startTime, l.mail.endTime), r, content)
     }
-    await syncCalendar(admin, config, l, 'upsert', to)
+    await syncCalendar(admin, config, l, 'upsert', await bookedForEmails(admin, l))
   } catch (e) {
     await noteProblem(bookingId, 'Bevestiging mislukt', e)
   }
