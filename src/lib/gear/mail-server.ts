@@ -52,9 +52,11 @@ interface Loaded {
 
 /** Een boeking met alles wat de mail nodig heeft: namen, onderdelen, verantwoordelijken. */
 async function loadBooking(admin: Admin, bookingId: string): Promise<Loaded | null> {
-  const { data: b } = await admin.from('gear_bookings')
+  const { data: b, error } = await admin.from('gear_bookings')
     .select('id, start_date, end_date, start_time, end_time, person_name, external_name, booked_for_user_id, freelancer_id, client_id, project_id, note, created_by, cancelled_at, calendar_event_id, gear_booking_items(item_id, via_kit_id, via_kit_name)')
     .eq('id', bookingId).maybeSingle()
+  // Een leesfout is geen "boeking bestaat niet": die moet zichtbaar worden.
+  if (error) throw new Error(`Boeking niet te lezen: ${error.message}`)
   if (!b) return null
   const lines = (b.gear_booking_items ?? []) as { item_id: string; via_kit_id: string | null; via_kit_name: string | null }[]
 
@@ -201,6 +203,18 @@ async function bookingRecipients(admin: Admin, l: Loaded): Promise<string[]> {
 }
 
 /**
+ * Wat er misliep, op de boeking zelf (calendar_error), zodat het niet alleen
+ * in de serverlogs staat. Lukt ook dat niet, dan alleen de log.
+ */
+async function noteProblem(bookingId: string, what: string, err?: unknown, secret?: string): Promise<void> {
+  const msg = err === undefined ? what : `${what}: ${mailErrorText(err, secret)}`
+  console.error(`Materiaal: ${msg}`)
+  try { await createAdminClient().from('gear_bookings').update({ calendar_error: msg.slice(0, 300) }).eq('id', bookingId) } catch { /* alleen de log */ }
+}
+
+const NOT_CONFIGURED = 'Mail en agenda niet ingesteld (MATERIAAL_MAIL_WEBHOOK_URL / MATERIAAL_MAIL_SECRET ontbreekt of is ongeldig op deze omgeving)'
+
+/**
  * Bevestiging na boeken of nieuwe data: naar de persoon, de maker (als dat
  * iemand anders is) en de contactpersonen van verantwoordelijk materiaal.
  * Gooit nooit; loopt na het antwoord aan de gebruiker (after()).
@@ -208,7 +222,7 @@ async function bookingRecipients(admin: Admin, l: Loaded): Promise<string[]> {
 export async function sendBookingConfirmation(bookingId: string, changed: boolean): Promise<void> {
   try {
     const config = mailConfig()
-    if (!config) return
+    if (!config) return noteProblem(bookingId, NOT_CONFIGURED)
     const admin = createAdminClient()
     const l = await loadBooking(admin, bookingId)
     // Achteraf ingevoerd en al voorbij: geen mail en geen afspraak.
@@ -220,7 +234,7 @@ export async function sendBookingConfirmation(bookingId: string, changed: boolea
     }
     await syncCalendar(admin, config, l, 'upsert', to)
   } catch (e) {
-    console.error('Materiaal: bevestiging mislukt:', e instanceof Error ? e.message : e)
+    await noteProblem(bookingId, 'Bevestiging mislukt', e)
   }
 }
 
@@ -232,7 +246,7 @@ export async function sendBookingConfirmation(bookingId: string, changed: boolea
 export async function sendBookingCancellation(bookingId: string): Promise<void> {
   try {
     const config = mailConfig()
-    if (!config) return
+    if (!config) return noteProblem(bookingId, NOT_CONFIGURED)
     const admin = createAdminClient()
     const l = await loadBooking(admin, bookingId)
     if (!l || !l.cancelled) return
@@ -244,7 +258,7 @@ export async function sendBookingCancellation(bookingId: string): Promise<void> 
       await sendOnce(admin, config, l.mail.id, 'annulering', 'annulering', r, content)
     }
   } catch (e) {
-    console.error('Materiaal: annuleringsmail mislukt:', e instanceof Error ? e.message : e)
+    await noteProblem(bookingId, 'Annuleringsmail mislukt', e)
   }
 }
 
