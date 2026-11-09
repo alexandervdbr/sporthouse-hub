@@ -12,8 +12,11 @@ afspraak bij in Google Calendar:
 - **herinnering** op de ochtend van de terugbrengdag, naar de persoon en de maker;
 - **agenda**: een afspraak in de agenda *Sporthouse Materiaal* op dit account,
   met alleen de persoon voor wie geboekt is als gast (wie voor iemand anders
-  boekt, krijgt de mail maar geen afspraak). Google stuurt zelf de uitnodiging; nieuwe
-  data verplaatsen de afspraak, annuleren haalt ze weg (Google mailt de gasten).
+  boekt, krijgt de mail maar geen afspraak). Google stuurt zelf geen mails
+  (geen uitnodiging, wijziging of annulering): onze mails volstaan. Bij een
+  Google-account verschijnt, verschuift en verdwijnt de afspraak toch in de
+  agenda van de gast; een niet-Google-adres krijgt alleen onze mail. Nieuwe
+  data verplaatsen de afspraak, annuleren haalt ze weg.
   Zonder uren een afspraak over hele dagen, met uren op Brusselse tijd.
 
 Elke mail heeft onderaan het Sporthouse-logo met "Sporthouse Materiaal".

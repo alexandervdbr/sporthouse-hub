@@ -249,7 +249,7 @@ export async function sendBookingConfirmation(bookingId: string, changed: boolea
 
 /**
  * Annulering: naar dezelfde ontvangers als de bevestiging, en de afspraak uit
- * de agenda (Google mailt de gasten). Geen mail voor een boeking die al
+ * de agenda (zonder mail van Google). Geen mail voor een boeking die al
  * voorbij was, en hooguit één keer per ontvanger (logboek, sleutel 'annulering').
  */
 export async function sendBookingCancellation(bookingId: string): Promise<void> {
