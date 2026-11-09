@@ -4,8 +4,7 @@ import { todayInBrussels } from './dates'
 import { normalizeTime } from './times'
 import { effectiveResponsible, ownResponsible, responsibleWarning, type EffectiveResponsible } from './responsible'
 import {
-  cancellationMail, confirmationKey, confirmationMail, icsFile, icsSequence, mailConfig, mailErrorText, mailRecipients, reminderMail, shouldConfirm,
-  type IcsMethod,
+  calendarEvent, cancellationMail, confirmationKey, confirmationMail, mailConfig, mailErrorText, mailRecipients, reminderMail, shouldConfirm,
   type MailBooking, type MailConfig, type MailContent,
 } from './mail'
 import type { GearClientRef, GearResponsible } from './types'
@@ -17,6 +16,12 @@ import type { GearClientRef, GearResponsible } from './types'
 // wordt eerst in het logboek gezet; de unieke sleutel daar zorgt dat dezelfde
 // mail nooit twee keer vertrekt. Mislukt het versturen, dan staat de fout in
 // het logboek — een boeking wordt er nooit door tegengehouden.
+//
+// Daarnaast de agenda: per boeking één afspraak in de agenda "Sporthouse
+// Materiaal" van het verzendaccount (via hetzelfde script), met dezelfde
+// ontvangers als gasten. Het id staat op de boeking (0086); nieuwe data
+// verplaatsen de afspraak, annuleren haalt ze weg. Mislukt dat, dan staat de
+// fout op de boeking (calendar_error) en gaan boeking en mail gewoon door.
 
 const TIMEOUT_MS = 20_000
 type Admin = ReturnType<typeof createAdminClient>
@@ -42,13 +47,16 @@ interface Loaded {
   freelancerId: string | null
   contactUserIds: string[]
   cancelled: boolean
+  calendarEventId: string | null
 }
 
 /** Een boeking met alles wat de mail nodig heeft: namen, onderdelen, verantwoordelijken. */
 async function loadBooking(admin: Admin, bookingId: string): Promise<Loaded | null> {
-  const { data: b } = await admin.from('gear_bookings')
-    .select('id, start_date, end_date, start_time, end_time, person_name, external_name, booked_for_user_id, freelancer_id, client_id, project_id, note, created_by, cancelled_at, gear_booking_items(item_id, via_kit_id, via_kit_name)')
+  const { data: b, error } = await admin.from('gear_bookings')
+    .select('id, start_date, end_date, start_time, end_time, person_name, external_name, booked_for_user_id, freelancer_id, client_id, project_id, note, created_by, cancelled_at, calendar_event_id, gear_booking_items(item_id, via_kit_id, via_kit_name)')
     .eq('id', bookingId).maybeSingle()
+  // Een leesfout is geen "boeking bestaat niet": die moet zichtbaar worden.
+  if (error) throw new Error(`Boeking niet te lezen: ${error.message}`)
   if (!b) return null
   const lines = (b.gear_booking_items ?? []) as { item_id: string; via_kit_id: string | null; via_kit_name: string | null }[]
 
@@ -105,6 +113,7 @@ async function loadBooking(admin: Admin, bookingId: string): Promise<Loaded | nu
     bookedFor: b.booked_for_user_id, createdBy: b.created_by, freelancerId: b.freelancer_id,
     contactUserIds: [...new Set([...resp.values()].map(x => x.contactUser).filter((x): x is string => !!x))],
     cancelled: !!b.cancelled_at,
+    calendarEventId: b.calendar_event_id ?? null,
   }
 }
 
@@ -116,36 +125,58 @@ async function holderEmails(admin: Admin, l: Loaded): Promise<string[]> {
   return mailRecipients([await emailOf(admin, l.bookedFor), freelancer, await emailOf(admin, l.createdBy)])
 }
 
-/** Een uitnodiging (REQUEST) of annulering (CANCEL) als bijlage. */
-interface Invite { ics: string; method: IcsMethod }
-
-async function post(config: MailConfig, to: string, content: MailContent, invite?: Invite): Promise<void> {
+/** Iets naar het script sturen (met het geheim); geeft het antwoord terug of gooit met de fout. */
+async function callScript<T extends object>(config: MailConfig, payload: object): Promise<T> {
   // Apps Script antwoordt met een doorverwijzing naar het eigenlijke antwoord;
   // fetch volgt die. Het script zegt altijd 200, met { ok, error }.
   const res = await fetch(config.url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      secret: config.secret, to, subject: content.subject, html: content.html, text: content.text,
-      // method= in het type: zo herkennen Gmail en Outlook het als uitnodiging of annulering.
-      attachments: invite ? [{ name: 'materiaal.ics', mimeType: `text/calendar; charset=utf-8; method=${invite.method}`, base64: Buffer.from(invite.ics).toString('base64') }] : [],
-      // Het logo bovenaan, als inline-afbeelding (cid:logo in de html).
-      inlineImages: [{ cid: MAIL_LOGO_CID, name: 'sporthouse.png', mimeType: 'image/png', base64: MAIL_LOGO_PNG_BASE64 }],
-    }),
+    body: JSON.stringify({ secret: config.secret, ...payload }),
     redirect: 'follow',
     signal: AbortSignal.timeout(TIMEOUT_MS),
   })
   if (!res.ok) throw new Error(`Het mailscript antwoordde ${res.status}.`)
-  let body: { ok?: boolean; error?: string }
+  let body: { ok?: boolean; error?: string } & T
   try { body = await res.json() } catch { throw new Error('Het mailscript antwoordde niet zoals verwacht. Staat de toegang van de webapp op "Iedereen"?') }
-  if (!body.ok) throw new Error(body.error || 'Het mailscript weigerde de mail.')
+  if (!body.ok) throw new Error(body.error || 'Het mailscript weigerde.')
+  return body
+}
+
+async function post(config: MailConfig, to: string, content: MailContent): Promise<void> {
+  await callScript(config, {
+    to, subject: content.subject, html: content.html, text: content.text,
+    // Het logo onderaan, als inline-afbeelding (cid:logo in de html).
+    inlineImages: [{ cid: MAIL_LOGO_CID, name: 'sporthouse.png', mimeType: 'image/png', base64: MAIL_LOGO_PNG_BASE64 }],
+  })
+}
+
+/**
+ * De afspraak in de agenda maken of bijwerken (upsert), of weghalen (delete).
+ * Bewaart het id en de uitkomst op de boeking; gooit nooit.
+ */
+async function syncCalendar(admin: Admin, config: MailConfig, l: Loaded, op: 'upsert' | 'delete', guests: string[]): Promise<void> {
+  try {
+    if (op === 'delete') {
+      if (!l.calendarEventId) return
+      await callScript(config, { action: 'agenda', op, eventId: l.calendarEventId })
+      await admin.from('gear_bookings').update({ calendar_event_id: null, calendar_error: null, calendar_synced_at: new Date().toISOString() }).eq('id', l.mail.id)
+      return
+    }
+    const res = await callScript<{ eventId?: string }>(config, { action: 'agenda', op, eventId: l.calendarEventId, event: calendarEvent(l.mail, guests) })
+    await admin.from('gear_bookings').update({ calendar_event_id: res.eventId ?? l.calendarEventId, calendar_error: null, calendar_synced_at: new Date().toISOString() }).eq('id', l.mail.id)
+  } catch (e) {
+    const msg = mailErrorText(e, config.secret)
+    console.error('Materiaal: agenda niet bijgewerkt:', msg)
+    await admin.from('gear_bookings').update({ calendar_error: msg }).eq('id', l.mail.id)
+  }
 }
 
 /**
  * Eén mail naar één ontvanger, hooguit één keer: eerst de rij in het logboek
  * (lukt dat niet omdat ze er al is, dan niets), dan versturen, dan de uitkomst.
  */
-async function sendOnce(admin: Admin, config: MailConfig, bookingId: string, kind: Kind, key: string, to: string, content: MailContent, invite?: Invite)
+async function sendOnce(admin: Admin, config: MailConfig, bookingId: string, kind: Kind, key: string, to: string, content: MailContent)
   : Promise<'verstuurd' | 'al_verstuurd' | 'mislukt'> {
   const { data, error } = await admin.from('gear_mail_log').insert({ booking_id: bookingId, kind, key, recipient: to }).select('id').single()
   if (error) {
@@ -154,7 +185,7 @@ async function sendOnce(admin: Admin, config: MailConfig, bookingId: string, kin
     return 'mislukt'
   }
   try {
-    await post(config, to, content, invite)
+    await post(config, to, content)
     await admin.from('gear_mail_log').update({ sent_at: new Date().toISOString() }).eq('id', data.id)
     return 'verstuurd'
   } catch (e) {
@@ -171,10 +202,17 @@ async function bookingRecipients(admin: Admin, l: Loaded): Promise<string[]> {
   return mailRecipients([...(await holderEmails(admin, l)), ...contacts])
 }
 
-/** Per ontvanger een eigen uitnodiging (met die ontvanger als deelnemer). */
-function invite(config: MailConfig, b: MailBooking, method: IcsMethod, attendee: string, now: Date): Invite {
-  return { method, ics: icsFile(b, { method, sequence: icsSequence(now), now, organizer: config.from, attendee }) }
+/**
+ * Wat er misliep, op de boeking zelf (calendar_error), zodat het niet alleen
+ * in de serverlogs staat. Lukt ook dat niet, dan alleen de log.
+ */
+async function noteProblem(bookingId: string, what: string, err?: unknown, secret?: string): Promise<void> {
+  const msg = err === undefined ? what : `${what}: ${mailErrorText(err, secret)}`
+  console.error(`Materiaal: ${msg}`)
+  try { await createAdminClient().from('gear_bookings').update({ calendar_error: msg.slice(0, 300) }).eq('id', bookingId) } catch { /* alleen de log */ }
 }
+
+const NOT_CONFIGURED = 'Mail en agenda niet ingesteld (MATERIAAL_MAIL_WEBHOOK_URL / MATERIAAL_MAIL_SECRET ontbreekt of is ongeldig op deze omgeving)'
 
 /**
  * Bevestiging na boeken of nieuwe data: naar de persoon, de maker (als dat
@@ -184,39 +222,43 @@ function invite(config: MailConfig, b: MailBooking, method: IcsMethod, attendee:
 export async function sendBookingConfirmation(bookingId: string, changed: boolean): Promise<void> {
   try {
     const config = mailConfig()
-    if (!config) return
+    if (!config) return noteProblem(bookingId, NOT_CONFIGURED)
     const admin = createAdminClient()
     const l = await loadBooking(admin, bookingId)
+    // Achteraf ingevoerd en al voorbij: geen mail en geen afspraak.
     if (!l || l.cancelled || !shouldConfirm(l.mail.end, todayInBrussels())) return
     const content = confirmationMail(l.mail, changed)
-    const now = new Date()
-    for (const r of await bookingRecipients(admin, l)) {
-      await sendOnce(admin, config, l.mail.id, 'bevestiging', confirmationKey(l.mail.start, l.mail.end, l.mail.startTime, l.mail.endTime), r, content, invite(config, l.mail, 'REQUEST', r, now))
+    const to = await bookingRecipients(admin, l)
+    for (const r of to) {
+      await sendOnce(admin, config, l.mail.id, 'bevestiging', confirmationKey(l.mail.start, l.mail.end, l.mail.startTime, l.mail.endTime), r, content)
     }
+    await syncCalendar(admin, config, l, 'upsert', to)
   } catch (e) {
-    console.error('Materiaal: bevestiging mislukt:', e instanceof Error ? e.message : e)
+    await noteProblem(bookingId, 'Bevestiging mislukt', e)
   }
 }
 
 /**
- * Annulering: naar dezelfde ontvangers als de bevestiging, met een .ics die
- * het agenda-item weghaalt. Niet voor een boeking die al voorbij was, en
- * hooguit één keer per ontvanger (logboek, sleutel 'annulering').
+ * Annulering: naar dezelfde ontvangers als de bevestiging, en de afspraak uit
+ * de agenda (Google mailt de gasten). Geen mail voor een boeking die al
+ * voorbij was, en hooguit één keer per ontvanger (logboek, sleutel 'annulering').
  */
 export async function sendBookingCancellation(bookingId: string): Promise<void> {
   try {
     const config = mailConfig()
-    if (!config) return
+    if (!config) return noteProblem(bookingId, NOT_CONFIGURED)
     const admin = createAdminClient()
     const l = await loadBooking(admin, bookingId)
-    if (!l || !l.cancelled || !shouldConfirm(l.mail.end, todayInBrussels())) return
+    if (!l || !l.cancelled) return
+    // Een afspraak die er nog staat, gaat altijd weg; de mail alleen als de boeking nog liep of kwam.
+    await syncCalendar(admin, config, l, 'delete', [])
+    if (!shouldConfirm(l.mail.end, todayInBrussels())) return
     const content = cancellationMail(l.mail)
-    const now = new Date()
     for (const r of await bookingRecipients(admin, l)) {
-      await sendOnce(admin, config, l.mail.id, 'annulering', 'annulering', r, content, invite(config, l.mail, 'CANCEL', r, now))
+      await sendOnce(admin, config, l.mail.id, 'annulering', 'annulering', r, content)
     }
   } catch (e) {
-    console.error('Materiaal: annuleringsmail mislukt:', e instanceof Error ? e.message : e)
+    await noteProblem(bookingId, 'Annuleringsmail mislukt', e)
   }
 }
 
