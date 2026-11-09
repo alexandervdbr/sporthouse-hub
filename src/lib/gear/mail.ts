@@ -5,14 +5,17 @@ import { periodLabel } from './views'
 
 // Mails van de materiaalplanner, via een eigen Google Apps Script
 // (scripts/apps-script/materiaal-mail/Code.gs): de hub maakt de inhoud en
-// stuurt die met een gedeeld geheim naar het script, dat verstuurt met Gmail
+// stuurt die met een gedeeld geheim naar het script, dat verstuurt met MailApp
 // als "Sporthouse Materiaal". Los van de poolwagenmail.
 //
-// - bevestiging: bij een nieuwe boeking of nieuwe data, met een uitnodiging
-//   (.ics, METHOD:REQUEST); nieuwe data = zelfde UID, hogere SEQUENCE, zodat
-//   het bestaande agenda-item verschuift
-// - annulering: zelfde UID met METHOD:CANCEL, zodat het item verdwijnt
+// - bevestiging: bij een nieuwe boeking of nieuwe data
+// - annulering: naar dezelfde ontvangers
 // - herinnering: de ochtend van de terugbrengdag
+//
+// De agenda loopt niet via een bijlage maar via een echte afspraak in Google
+// Calendar, die het script maakt, verplaatst of weghaalt (calendarEvent
+// hieronder; Google stuurt zelf de uitnodiging). Een .ics in een mail van
+// MailApp toont Gmail niet als uitnodiging.
 //
 // Alles hier is puur (geen database, geen netwerk); mail-server.ts haalt de
 // gegevens op, houdt het logboek bij en verstuurt.
@@ -20,12 +23,6 @@ import { periodLabel } from './views'
 export interface MailConfig {
   url: string
   secret: string
-  /**
-   * Het adres waarmee het script verstuurt (MATERIAAL_MAIL_FROM). Komt als
-   * ORGANIZER in de uitnodiging; agenda's als Gmail en Outlook verwerken een
-   * wijziging of annulering pas automatisch als die klopt met de afzender.
-   */
-  from: string | null
 }
 
 // Ook de Workspace-vorm: https://script.google.com/a/macros/<domein>/s/<id>/exec
@@ -41,8 +38,7 @@ export function mailConfig(env: Record<string, string | undefined> = process.env
   const url = env.MATERIAAL_MAIL_WEBHOOK_URL?.trim()
   const secret = env.MATERIAAL_MAIL_SECRET?.trim()
   if (!url || !secret || !SCRIPT_URL.test(url) || secret.length < MIN_SECRET_LENGTH) return null
-  const from = env.MATERIAAL_MAIL_FROM?.trim()
-  return { url, secret, from: isEmail(from) ? from.toLowerCase() : null }
+  return { url, secret }
 }
 
 const EMAIL_RE = /^[a-z0-9._%+'-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/i
@@ -145,16 +141,20 @@ function warnings(b: MailBooking): { text: string[]; html: string } {
   }
 }
 
-/** Kop van elke mail: het beeldmerk (inline, cid:logo) met "Sporthouse Materiaal" ernaast. */
-export const MAIL_HEADER =
-  `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 18px;border-collapse:collapse"><tr>` +
-  `<td style="padding:0 10px 0 0;vertical-align:middle"><img src="cid:${MAIL_LOGO_CID}" width="40" height="40" alt="Sporthouse" style="display:block;border:0"></td>` +
-  `<td style="vertical-align:middle;font-size:16px;font-weight:600;color:#18181b;letter-spacing:.2px">Sporthouse Materiaal</td>` +
-  `</tr></table>`
+/** Kop van elke mail: alleen de titel. */
+export const MAIL_HEADER = `<p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#18181b;letter-spacing:.2px">Sporthouse Materiaal</p>`
+
+/** Onderaan elke mail: een dunne lijn, dan het beeldmerk (inline, cid:logo, 48 px) met "Sporthouse Materiaal" ernaast. */
+export const MAIL_SIGNATURE =
+  `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 0;border-collapse:collapse;border-top:1px solid #e4e4e7;width:100%"><tr><td style="padding-top:14px">` +
+  `<table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse"><tr>` +
+  `<td style="padding:0 10px 0 0;vertical-align:middle"><img src="cid:${MAIL_LOGO_CID}" width="48" height="48" alt="Sporthouse" style="display:block;border:0"></td>` +
+  `<td style="vertical-align:middle;font-size:14px;font-weight:600;color:#18181b">Sporthouse Materiaal` +
+  `<br><span style="font-weight:400;font-size:12px;color:#a1a1aa">Automatische mail uit de materiaalplanner</span></td>` +
+  `</tr></table></td></tr></table>`
 
 function wrap(body: string): string {
-  return `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;color:#18181b;max-width:560px">${MAIL_HEADER}${body}` +
-    `<p style="margin-top:20px;color:#a1a1aa;font-size:12px">Sporthouse Materiaal — automatische mail uit de materiaalplanner.</p></div>`
+  return `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;color:#18181b;max-width:560px">${MAIL_HEADER}${body}${MAIL_SIGNATURE}</div>`
 }
 
 /** Bevestiging bij een nieuwe boeking, of bij een boeking met nieuwe data. */
@@ -166,20 +166,20 @@ export function confirmationMail(b: MailBooking, changed: boolean): MailContent 
   const l = lines(b), d = details(b), w = warnings(b)
   return {
     subject,
-    text: [intro, '', ...l.text, '', ...d.text, ...w.text, '', `Bekijk in de planner: ${b.link}`, '', 'In de bijlage zit een agenda-item (.ics).'].join('\n'),
+    text: [intro, '', ...l.text, '', ...d.text, ...w.text, '', `Bekijk in de planner: ${b.link}`, '', '— Sporthouse Materiaal'].join('\n'),
     html: wrap(`<p style="margin:0 0 12px">${esc(intro)}</p>${l.html}${d.html}${w.html}` +
       `<p style="margin:0"><a href="${esc(b.link)}" style="color:#3A913F">Bekijk in de planner</a></p>`),
   }
 }
 
-/** Annulering: zelfde ontvangers als de bevestiging; het agenda-item verdwijnt via de bijlage. */
+/** Annulering: zelfde ontvangers als de bevestiging (de afspraak in de agenda haalt het script weg). */
 export function cancellationMail(b: MailBooking): MailContent {
   const subject = oneLine(`Geannuleerd: ${whatShort(b)} · ${mailPeriod(b)}`)
   const intro = 'Deze boeking is geannuleerd. Het materiaal is weer vrij.'
   const l = lines(b), d = details(b)
   return {
     subject,
-    text: [intro, '', ...l.text, '', ...d.text, '', 'Het agenda-item in de bijlage haalt de afspraak uit je agenda.'].join('\n'),
+    text: [intro, '', ...l.text, '', ...d.text, '', '— Sporthouse Materiaal'].join('\n'),
     html: wrap(`<p style="margin:0 0 12px">${esc(intro)}</p>${l.html}${d.html}`),
   }
 }
@@ -194,92 +194,43 @@ export function reminderMail(b: MailBooking): MailContent {
   const l = lines(b), d = details(b)
   return {
     subject,
-    text: [intro, '', ...l.text, '', ...d.text, '', `Bekijk in de planner: ${b.link}`].join('\n'),
+    text: [intro, '', ...l.text, '', ...d.text, '', `Bekijk in de planner: ${b.link}`, '', '— Sporthouse Materiaal'].join('\n'),
     html: wrap(`<p style="margin:0 0 12px">${esc(intro)}</p>${l.html}${d.html}` +
       `<p style="margin:0"><a href="${esc(b.link)}" style="color:#3A913F">Bekijk in de planner</a></p>`),
   }
 }
 
-/** Tekst in een .ics-veld: komma's, puntkomma's en regeleinden ontsnappen; regels van max 75 tekens. */
-function icsText(s: string): string {
-  return s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n')
-}
-function fold(line: string): string {
-  const out: string[] = []
-  let rest = line
-  while (rest.length > 75) { out.push(rest.slice(0, 75)); rest = ` ${rest.slice(75)}` }
-  out.push(rest)
-  return out.join('\r\n')
-}
-const icsDate = (iso: string) => iso.replace(/-/g, '')
+/** Een tijdstip zoals de Calendar API het wil: een datum (hele dag) of kloktijd met tijdzone. */
+export type CalendarTime = { date: string } | { dateTime: string; timeZone: 'Europe/Brussels' }
 
-/** Brusselse tijdzone in de .ics, zodat een agenda de kloktijd juist toont (ook rond de wissel). */
-const VTIMEZONE_BRUSSELS = [
-  'BEGIN:VTIMEZONE', 'TZID:Europe/Brussels',
-  'BEGIN:DAYLIGHT', 'TZOFFSETFROM:+0100', 'TZOFFSETTO:+0200', 'TZNAME:CEST', 'DTSTART:19700329T020000', 'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU', 'END:DAYLIGHT',
-  'BEGIN:STANDARD', 'TZOFFSETFROM:+0200', 'TZOFFSETTO:+0100', 'TZNAME:CET', 'DTSTART:19701025T030000', 'RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU', 'END:STANDARD',
-  'END:VTIMEZONE',
-]
+export interface CalendarEvent {
+  summary: string
+  description: string
+  start: CalendarTime
+  end: CalendarTime
+  attendees: { email: string }[]
+}
 
 /**
- * Wanneer: zonder uren een item over hele dagen (DTEND = de dag ná het
- * einde); met een uur een item op Brusselse kloktijd (TZID), waarbij een
- * leeg uur middernacht is — net als de bezetting in de planner.
+ * De afspraak van een boeking in Google Calendar. Zonder uren een afspraak
+ * over hele dagen (het einde is in de Calendar API de dag na de laatste dag);
+ * met een uur Brusselse kloktijd met timeZone Europe/Brussels, waarbij een
+ * leeg uur middernacht is, net als de bezetting in de planner. Niets wordt
+ * hier naar UTC omgerekend; dat doet Google zelf met de tijdzone erbij.
+ * Alleen gasten met een geldig adres.
  */
-function icsWhen(b: Pick<MailBooking, 'start' | 'end' | 'startTime' | 'endTime'>): string[] {
-  if (!b.startTime && !b.endTime) return [`DTSTART;VALUE=DATE:${icsDate(b.start)}`, `DTEND;VALUE=DATE:${icsDate(addDays(b.end, 1))}`]
+export function calendarEvent(b: MailBooking, guests: string[]): CalendarEvent {
+  const allDay = !b.startTime && !b.endTime
   const s = bookingSlot(b.start, b.startTime, b.end, b.endTime)
-  const local = (m: string) => `${icsDate(m.slice(0, 10))}T${m.slice(11, 13)}${m.slice(14, 16)}00`
-  return [`DTSTART;TZID=Europe/Brussels:${local(s.start)}`, `DTEND;TZID=Europe/Brussels:${local(s.end)}`]
-}
-
-export type IcsMethod = 'REQUEST' | 'CANCEL'
-
-export interface IcsOptions {
-  method: IcsMethod
-  /** Hoger bij elke nieuwe versie; zie icsSequence. */
-  sequence: number
-  now?: Date
-  /** Afzender (MailConfig.from); zonder blijft het een uitnodiging zonder organisator. */
-  organizer?: string | null
-  /** De ontvanger van deze mail: één uitnodiging per ontvanger. */
-  attendee?: string | null
-}
-
-/**
- * Volgnummer van een versie: de seconden sinds 1970. Elke nieuwe mail (nieuwe
- * data, annulering) heeft er dus een hoger dan de vorige, zonder dat we het
- * ergens moeten bijhouden. Past tot 2038 in een 32-bit getal.
- */
-export const icsSequence = (now: Date = new Date()) => Math.floor(now.getTime() / 1000)
-
-/**
- * Agenda-item over hele dagen: van de ophaaldag tot en met de terugbrengdag
- * (DTEND is in .ics de dag ná het einde). Altijd dezelfde UID per boeking:
- * met een hogere SEQUENCE verschuift het bestaande item (REQUEST) of
- * verdwijnt het (CANCEL), in plaats van dat er een tweede bijkomt.
- */
-export function icsFile(b: MailBooking, o: IcsOptions): string {
-  const stamp = (o.now ?? new Date()).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
-  const summary = `Materiaal: ${whatShort(b, 3)}`
-  const description = [`Voor: ${forWhom(b)}`, b.project ? `Project: ${b.project}` : null, ...b.responsibleWarnings, b.link].filter(Boolean).join('\n')
-  return [
-    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Sporthouse//Materiaal//NL', 'CALSCALE:GREGORIAN', `METHOD:${o.method}`,
-    ...(b.startTime || b.endTime ? VTIMEZONE_BRUSSELS : []),
-    'BEGIN:VEVENT',
-    `UID:materiaal-${b.id}@sporthouse`,
-    `DTSTAMP:${stamp}`,
-    `SEQUENCE:${o.sequence}`,
-    ...(o.organizer ? [`ORGANIZER;CN=Sporthouse Materiaal:mailto:${o.organizer}`] : []),
-    ...(o.attendee ? [`ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;RSVP=FALSE:mailto:${o.attendee}`] : []),
-    `STATUS:${o.method === 'CANCEL' ? 'CANCELLED' : 'CONFIRMED'}`,
-    ...icsWhen(b),
-    `SUMMARY:${icsText(summary)}`,
-    `DESCRIPTION:${icsText(description)}`,
-    `URL:${b.link}`,
-    'TRANSP:TRANSPARENT',
-    'END:VEVENT', 'END:VCALENDAR',
-  ].map(fold).join('\r\n') + '\r\n'
+  const at = (m: string): CalendarTime => ({ dateTime: `${m}:00`, timeZone: 'Europe/Brussels' })
+  const what = [...b.kits.map(k => `${k.name}${k.parts.length ? ` (${k.parts.join(', ')})` : ''}`), ...b.loose]
+  return {
+    summary: `Materiaal: ${whatShort(b, 3)} · ${forWhom(b)}`,
+    description: [...what, '', `Voor: ${forWhom(b)}`, ...(b.project ? [`Project: ${b.project}`] : []), ...b.responsibleWarnings, '', b.link].join('\n'),
+    start: allDay ? { date: b.start } : at(s.start),
+    end: allDay ? { date: addDays(b.end, 1) } : at(s.end),
+    attendees: mailRecipients(guests).map(email => ({ email })),
+  }
 }
 
 /** Een foutmelding kort en zonder het geheim, voor het logboek. */
