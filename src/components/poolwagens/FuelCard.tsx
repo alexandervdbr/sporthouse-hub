@@ -19,10 +19,10 @@ export function FuelTag({ last4, className = '' }: { last4: string | null; class
 }
 
 /**
- * "Toon pincode": haalt de pincode op (de database beslist of je ze mag zien)
- * en verbergt ze na 30 seconden weer. Ze wordt nergens bewaard.
+ * Haalt de pincode op vraag op (de database beslist of je ze mag zien) en
+ * vergeet ze na 30 seconden weer. Ze wordt nergens bewaard.
  */
-export function FuelPin({ carId, last4 }: { carId: string; last4: string | null }) {
+function usePin(carId: string) {
   const [pin, setPin] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -47,6 +47,34 @@ export function FuelPin({ carId, last4 }: { carId: string; last4: string | null 
     }
   }
 
+  return { pin, busy, error, show, hide: () => setPin(null) }
+}
+
+/**
+ * Compacte knop "Pincode ••1234" voor "Mijn ritten" en de "Nu"-rij: toont de
+ * pincode ter plekke in de knop, 30 seconden lang; nog eens klikken verbergt ze.
+ */
+export function FuelPinButton({ carId, last4, className = '' }: { carId: string; last4: string | null; className?: string }) {
+  const { pin, busy, error, show, hide } = usePin(carId)
+  return (
+    <span className={`inline-flex items-center gap-2 min-w-0 ${className}`}>
+      <button type="button" onClick={pin ? hide : show} disabled={busy}
+        title={pin ? 'Verbergen' : 'De pincode blijft 30 seconden zichtbaar.'}
+        className={`${secondaryCls} min-h-11 md:min-h-0 flex-shrink-0 justify-center`}>
+        {busy ? <Loader2 size={13} className="animate-spin" /> : <Fuel size={13} />}
+        {pin
+          ? <span className="font-mono font-semibold tracking-[0.25em] text-zinc-100" aria-live="polite">{pin}</span>
+          : <>Pincode{last4 ? <span className="font-mono text-zinc-500">••{last4}</span> : null}</>}
+      </button>
+      {error && <span role="alert" className="text-xs text-red-400 truncate">{error}</span>}
+    </span>
+  )
+}
+
+/** "Toon pincode" in de ritdetails, met de pincode groot in beeld. */
+export function FuelPin({ carId, last4 }: { carId: string; last4: string | null }) {
+  const { pin, busy, error, show, hide } = usePin(carId)
+
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-3 space-y-2">
       <div className="flex items-center justify-between gap-3">
@@ -59,7 +87,7 @@ export function FuelPin({ carId, last4 }: { carId: string; last4: string | null 
           )}
         </div>
         {pin ? (
-          <button type="button" onClick={() => setPin(null)} className={`${secondaryCls} min-h-11 md:min-h-0 flex-shrink-0`}><EyeOff size={13} /> Verbergen</button>
+          <button type="button" onClick={hide} className={`${secondaryCls} min-h-11 md:min-h-0 flex-shrink-0`}><EyeOff size={13} /> Verbergen</button>
         ) : (
           <button type="button" onClick={show} disabled={busy} className={`${secondaryCls} min-h-11 md:min-h-0 flex-shrink-0`}>
             {busy ? <Loader2 size={13} className="animate-spin" /> : <Eye size={13} />} Toon pincode

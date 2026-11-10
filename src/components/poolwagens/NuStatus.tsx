@@ -2,30 +2,41 @@
 
 import { Car, ChevronRight, LogIn } from 'lucide-react'
 import { ACCENT, actionCls, buttonCls, panelCls, secondaryCls } from './ui'
-import { FuelTag } from './FuelCard'
+import { FuelPinButton, FuelTag } from './FuelCard'
+import { canSeePin } from '@/lib/poolwagens/fuel-card'
 import { NOW_COLOR, carsNow, type CarNow } from '@/lib/poolwagens/status'
 import type { PoolPlanning } from '@/lib/poolwagens/types'
 
 // "Nu": één regel per actieve wagen met de toestand van dit moment, de
 // volgende reservatie en één actie (src/lib/poolwagens/status.ts). Een vrije
-// wagen voor later zoeken gebeurt in het reserveerformulier.
+// wagen voor later zoeken gebeurt in het reserveerformulier. Wie met de wagen
+// onderweg is (en beheer) krijgt naast de actie een knop voor de pincode.
 
 interface Props {
   planning: PoolPlanning
   userId: string
   canBook: boolean
+  /** Beheer: ziet de pincode ook bij ritten van anderen. */
+  manage: boolean
   onDepart: (carId: string) => void
   onArrive: (reservationId: string) => void
   onDetails: (reservationId: string) => void
 }
 
-export default function NuStatus({ planning, userId, canBook, onDepart, onArrive, onDetails }: Props) {
+export default function NuStatus({ planning, userId, canBook, manage, onDepart, onArrive, onDetails }: Props) {
   const rows = carsNow(planning, userId, new Date(planning.now), canBook)
   return (
     <section aria-label="Nu" className={`${panelCls} overflow-hidden`}>
       <h2 className="px-3 md:px-4 pt-3 pb-2 text-[10px] uppercase tracking-widest text-zinc-500">Nu</h2>
       <ul className="divide-y divide-zinc-800/70 border-t border-zinc-800/70">
-        {rows.map(row => <Row key={row.car.id} row={row} action={action(row, onDepart, onArrive, onDetails)} />)}
+        {rows.map(row => <Row key={row.car.id} row={row} action={
+          <>
+            {row.car.fuel_card_last4 && row.current && canSeePin(row.current, userId, manage) && (
+              <FuelPinButton carId={row.car.id} last4={null} />
+            )}
+            {action(row, onDepart, onArrive, onDetails)}
+          </>
+        } />)}
       </ul>
     </section>
   )
