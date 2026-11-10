@@ -25,65 +25,12 @@ interface FormState {
 
 const EMPTY_FORM: FormState = { platform: '', url: '', username: '', password: '', notes: '' }
 
-// ─── Clipboard ────────────────────────────────────────────────────────────────
-
-// Een gekopieerd wachtwoord wordt na een minuut van het klembord gehaald —
-// maar alleen als het er zeker nog op staat, zodat we nooit iets wissen wat
-// iemand daarna zelf kopieerde.
-//
-// Zekerheid via het klembord zelf lezen kan alleen als de browser daar al
-// toestemming voor heeft (anders zou Chrome na een minuut ineens een
-// toestemmingsvraag tonen). Zonder die toestemming wissen we alleen als het
-// venster de hele tijd focus hield en er op de pagina niets anders gekopieerd
-// werd: iets kopiëren in een andere app of ander tabblad kan niet zonder het
-// venster te verlaten.
-const CLIPBOARD_CLEAR_MS = 60_000
 // Het zichtbaar gemaakte wachtwoord op een kaart verbergt zichzelf weer.
 const REVEAL_MS = 30_000
 
-let cancelPendingClear: (() => void) | null = null
-
-function scheduleClipboardClear(value: string) {
-  cancelPendingClear?.()
-  let leftWindow = false
-  const onBlur = () => { leftWindow = true }
-  window.addEventListener('blur', onBlur)
-  document.addEventListener('copy', cancel)
-  document.addEventListener('cut', cancel)
-
-  const timer = setTimeout(async () => {
-    cleanup()
-    if (await clipboardStillHolds(value, leftWindow)) {
-      navigator.clipboard.writeText('').catch(() => {})
-    }
-  }, CLIPBOARD_CLEAR_MS)
-
-  function cleanup() {
-    window.removeEventListener('blur', onBlur)
-    document.removeEventListener('copy', cancel)
-    document.removeEventListener('cut', cancel)
-    if (cancelPendingClear === cancel) cancelPendingClear = null
-  }
-  function cancel() {
-    clearTimeout(timer)
-    cleanup()
-  }
-  cancelPendingClear = cancel
-}
-
-async function clipboardStillHolds(value: string, leftWindow: boolean): Promise<boolean> {
-  try {
-    const perm = await navigator.permissions.query({ name: 'clipboard-read' as PermissionName })
-    if (perm.state === 'granted') return (await navigator.clipboard.readText()) === value
-  } catch {
-    // Firefox/Safari kennen 'clipboard-read' niet als permissie — val terug.
-  }
-  return !leftWindow && document.hasFocus()
-}
-
 // ─── Copy button ──────────────────────────────────────────────────────────────
 
-function CopyButton({ value, label, sensitive = false }: { value: string; label: string; sensitive?: boolean }) {
+function CopyButton({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false)
 
   async function handleCopy() {
@@ -92,10 +39,6 @@ function CopyButton({ value, label, sensitive = false }: { value: string; label:
     } catch {
       return
     }
-    // Wat nu op het klembord staat is niet meer het vorige wachtwoord: een
-    // geplande wis daarvan zou dit nieuwe kopieerwerk weghalen.
-    cancelPendingClear?.()
-    if (sensitive) scheduleClipboardClear(value)
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }
@@ -232,7 +175,7 @@ function CredentialCard({
             >
               {showPassword ? <EyeOff size={13} /> : <Eye size={13} />}
             </button>
-            <CopyButton value={cred.password} label="Wachtwoord kopiëren" sensitive />
+            <CopyButton value={cred.password} label="Wachtwoord kopiëren" />
           </div>
         </div>
 
