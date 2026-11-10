@@ -18,8 +18,14 @@ import type { RoleRow } from '@/components/admin/RolesPage'
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface TeamContact {
+  id: string
+  name: string
   email: string | null
+  phone?: string | null
+  role?: string | null
   photo_url: string | null
+  employment_type?: string | null
+  active_until?: string | null
 }
 
 interface User {
@@ -193,36 +199,11 @@ function OverridesEditor({ roleLevels, overrides, onChange }: {
   )
 }
 
-interface TeamContactRow {
-  id: string
-  name: string
-  email: string | null
-  phone?: string | null
-  role?: string | null
-  employment_type?: string | null
-  active_until?: string | null
-}
-
-// Het Team-contact dat bij dit account hoort, op e-mailadres. Daar staat de
-// einddatum van de persoon, en die is de bron: het account volgt hem, niet
-// omgekeerd.
-function useTeamContact(email: string | undefined) {
-  const [contact, setContact] = useState<TeamContactRow | null>(null)
-  useEffect(() => {
-    if (!email) return
-    let cancelled = false
-    fetch('/api/team/members')
-      .then(r => (r.ok ? r.json() : null))
-      .then((rows: TeamContactRow[] | null) => {
-        if (cancelled || !Array.isArray(rows)) return
-        const wanted = email.trim().toLowerCase()
-        setContact(rows.find(c => c.email?.trim().toLowerCase() === wanted) ?? null)
-      })
-      .catch(() => { /* zonder contact werkt het veld gewoon handmatig */ })
-    return () => { cancelled = true }
-  }, [email])
-  return contact
-}
+// Het Team-contact dat bij dit account hoort zoekt de pagina op e-mailadres
+// op, uit de lijst die ze toch al laadt voor de foto's. Het paneel haalde die
+// vroeger zelf nog eens op bij elke klik — dat kostte een verzoek per keer en
+// liet telefoon en functie pas na een paar seconden verschijnen. Daar staat
+// ook de einddatum van de persoon, en die is de bron: het account volgt hem.
 
 // Het rooster, met de namen erbij opgezocht.
 //
@@ -237,7 +218,7 @@ function usePlanningRoster() {
       fetch('/api/planning/config').then(r => (r.ok ? r.json() : null)),
       fetch('/api/team/members').then(r => (r.ok ? r.json() : null)),
     ])
-      .then(([cfg, contacts]: [{ name: string; employees: string[] }[] | null, TeamContactRow[] | null]) => {
+      .then(([cfg, contacts]: [{ name: string; employees: string[] }[] | null, TeamContact[] | null]) => {
         if (cancelled || !Array.isArray(cfg) || !Array.isArray(contacts)) return
         const byId = new Map(contacts.map(c => [c.id, c]))
         setRoster(cfg.flatMap(d =>
@@ -579,10 +560,12 @@ function MiniCheck({ checked, onChange, label }: { checked: boolean; onChange: (
 // ─── Permissions Panel ────────────────────────────────────────────────────────
 
 function PermissionsPanel({
-  user, photoUrl, clients, roles, onClose, onSaved, onDeleted,
+  user, photoUrl, teamContact, teamLoaded, clients, roles, onClose, onSaved, onDeleted,
 }: {
   user: User
   photoUrl?: string | null
+  teamContact: TeamContact | null
+  teamLoaded: boolean
   clients: ClientOption[]
   roles: RoleRow[]
   onClose: () => void
@@ -605,16 +588,16 @@ function PermissionsPanel({
   const [expiresAt,      setExpiresAt]      = useState<string>(
     user.expires_at ? user.expires_at.split('T')[0] : ''
   )
-  const teamContact = useTeamContact(user.email)
   const contactEnd = teamContact?.active_until ?? ''
 
   // Gegevens. Naam en e-mail staan op het account; telefoon en functie op
   // het Team-contact, dus die komen binnen zodra dat geladen is.
   const [fullName, setFullName] = useState(user.full_name)
   const [email,    setEmail]    = useState(user.email)
-  const [phone,    setPhone]    = useState('')
-  const [jobRole,  setJobRole]  = useState('')
-  const [loadedContact, setLoadedContact] = useState<TeamContactRow | null>(null)
+  const [phone,    setPhone]    = useState(teamContact?.phone ?? '')
+  const [jobRole,  setJobRole]  = useState(teamContact?.role ?? '')
+  // Bijwerken als de lijst pas na het openen binnenkomt (of na opslaan).
+  const [loadedContact, setLoadedContact] = useState<TeamContact | null>(teamContact)
   if (teamContact && teamContact !== loadedContact) {
     setLoadedContact(teamContact)
     setPhone(teamContact.phone ?? '')
@@ -746,7 +729,7 @@ function PermissionsPanel({
                 : 'Het Team-contact verhuist mee naar het nieuwe adres.'}
             </p>
           )}
-          {!teamContact && (
+          {teamLoaded && !teamContact && (
             <p className="text-[10px] text-zinc-600 mt-1.5">Geen Team-contact op dit adres — telefoon en functie staan daar.</p>
           )}
         </div>
@@ -1052,6 +1035,7 @@ export default function UsersPage() {
   const router = useRouter()
   const [users,        setUsers]        = useState<User[]>([])
   const [teamContacts, setTeamContacts] = useState<TeamContact[]>([])
+  const [teamLoaded,   setTeamLoaded]   = useState(false)
   const [allClients,      setAllClients]      = useState<ClientOption[]>([])
   const [freelancerEmails, setFreelancerEmails] = useState<Set<string>>(new Set())
   const [loading,         setLoading]         = useState(true)
@@ -1073,12 +1057,15 @@ export default function UsersPage() {
     setLoading(false)
   }, [])
 
-  useEffect(() => {
+  const loadTeam = useCallback(() => {
     fetch('/api/team/members')
       .then(r => r.ok ? r.json() : [])
       .then((data: TeamContact[]) => setTeamContacts(data))
       .catch(() => {})
+      .finally(() => setTeamLoaded(true))
   }, [])
+
+  useEffect(() => { loadTeam() }, [loadTeam])
 
   useEffect(() => {
     createClient()
@@ -1350,10 +1337,12 @@ export default function UsersPage() {
           key={selectedUser.id}
           user={selectedUser}
           photoUrl={photoByEmail[selectedUser.email.toLowerCase()]}
+          teamContact={teamContacts.find(c => c.email?.trim().toLowerCase() === selectedUser.email.trim().toLowerCase()) ?? null}
+          teamLoaded={teamLoaded}
           clients={allClients}
           roles={roles}
           onClose={() => setSelectedId(null)}
-          onSaved={() => loadUsers(true)}
+          onSaved={() => { loadUsers(true); loadTeam() }}
           onDeleted={handleDeleted}
         />
       )}
