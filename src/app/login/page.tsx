@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
+import Link from 'next/link'
 
 function LoginForm() {
   const [loading, setLoading] = useState(false)
@@ -82,6 +83,13 @@ export default function LoginPage() {
         }>
           <LoginForm />
         </Suspense>
+
+        <p className="mt-8 text-center text-xs text-zinc-500 leading-relaxed">
+          Door in te loggen ga je akkoord met de{' '}
+          <Link href="/terms" className="text-zinc-400 hover:text-white underline underline-offset-2">gebruiksvoorwaarden</Link>{' '}
+          en het{' '}
+          <Link href="/privacy" className="text-zinc-400 hover:text-white underline underline-offset-2">privacybeleid</Link>.
+        </p>
       </div>
     </div>
   )

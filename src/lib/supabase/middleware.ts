@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { getSessionUser } from '@/lib/supabase/claims'
 import { isFreelancerUser } from '@/lib/auth-permissions'
+import { GOOGLE_SITE_VERIFICATION_FILE } from '@/lib/site-url'
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -46,8 +47,18 @@ export async function updateSession(request: NextRequest) {
   // Called by the iOS shortcut with its own per-user bearer token instead of
   // a session cookie — see /api/save-reel's own auth check.
   const isSaveReelApiPage = pathname.startsWith('/api/save-reel')
-  // Must be publicly reachable — this is the URL submitted to Meta App Review.
-  const isPrivacyPage = pathname.startsWith('/privacy')
+  // The public pages: homepage, privacy policy and terms. Must be reachable
+  // without signing in — these are the URLs registered on the Google OAuth
+  // consent screen (and /privacy also in Meta App Review), and Google's
+  // verification rejects a homepage that sits behind a login.
+  const isHomePage = pathname === '/'
+  const isLegalPage =
+    pathname === '/privacy' || pathname.startsWith('/privacy/') ||
+    pathname === '/terms' || pathname.startsWith('/terms/')
+  // The Search Console ownership file. The matcher in src/middleware.ts
+  // already keeps it away from here; this is the second line of defence.
+  const isSiteVerificationFile = pathname === `/${GOOGLE_SITE_VERIFICATION_FILE}`
+  const isPublicPage = isHomePage || isLegalPage || isSiteVerificationFile
   // Also public, and on purpose: the link-preview bots of WhatsApp, Slack and
   // Discord never sign in, so a shared link's card can only say what it opens
   // if this page answers them. It carries one folder or file name and the
@@ -63,7 +74,7 @@ export async function updateSession(request: NextRequest) {
   const isMaterialMailPage = pathname === '/api/materiaal/mail/due'
 
   // Unauthenticated → login (API routes get a 401 instead of a redirect)
-  if (!user && !isLoginPage && !isCallbackPage && !isSaveReelApiPage && !isPrivacyPage && !isSharePage && !isPlanningLinkPage && !isMaterialMailPage) {
+  if (!user && !isLoginPage && !isCallbackPage && !isSaveReelApiPage && !isPublicPage && !isSharePage && !isPlanningLinkPage && !isMaterialMailPage) {
     if (isApiPage) {
       return new NextResponse(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
@@ -88,8 +99,8 @@ export async function updateSession(request: NextRequest) {
       })
     }
 
-    // Freelancer on login page or main app → portal
-    if (isFreelancer && !isPortalPage && !isApiPage && !isCallbackPage && !isPlanningLinkPage) {
+    // Freelancer on login page or main app → portal (the policy pages stay readable)
+    if (isFreelancer && !isPortalPage && !isApiPage && !isCallbackPage && !isPlanningLinkPage && !isLegalPage) {
       const url = request.nextUrl.clone()
       url.pathname = '/portal'
       return NextResponse.redirect(url)
@@ -97,7 +108,9 @@ export async function updateSession(request: NextRequest) {
 
     // Logged-in non-freelancer on login page → dashboard
     // (Supabase "disable signups" ensures only pre-created users reach here)
-    if (!isFreelancer && isLoginPage) {
+    // Same for the public homepage: staff open the app on / out of habit, and
+    // it used to redirect them straight to the dashboard.
+    if (!isFreelancer && (isLoginPage || isHomePage)) {
       const url = request.nextUrl.clone()
       url.pathname = '/dashboard'
       return NextResponse.redirect(url)
