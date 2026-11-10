@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
 import { LEGAL } from '@/lib/legal'
-import { GOOGLE_SITE_VERIFICATION_FILE, SITE_URL } from '@/lib/site-url'
+import { GOOGLE_SITE_VERIFICATION_FILE, PRODUCTION_URL } from '@/lib/site-url'
 
 // The public pages are what Google reviews for OAuth verification. A field
 // left empty in src/lib/legal.ts shows up there as "[To be completed: …]" —
@@ -20,8 +20,10 @@ describe('public legal pages', () => {
     }
   })
 
-  it('points at the production domain', () => {
-    expect(SITE_URL).toBe('https://sporthouse-hub-ten.vercel.app')
+  // The address registered with Google. Checked on the constant, not on
+  // SITE_URL: NEXT_PUBLIC_SITE_URL overrides that, and CI sets a placeholder.
+  it('defaults to the production domain', () => {
+    expect(PRODUCTION_URL).toBe('https://sporthouse-hub-ten.vercel.app')
   })
 })
 
