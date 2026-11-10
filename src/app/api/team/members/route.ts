@@ -16,7 +16,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from('contacts')
-    .select('id, name, role, email, photo_url, employment_type, active_until')
+    .select('id, name, role, email, phone, photo_url, employment_type, active_until')
     .in('client_id', ids)
     .order('name')
 

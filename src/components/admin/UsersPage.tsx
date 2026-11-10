@@ -197,6 +197,8 @@ interface TeamContactRow {
   id: string
   name: string
   email: string | null
+  phone?: string | null
+  role?: string | null
   employment_type?: string | null
   active_until?: string | null
 }
@@ -605,6 +607,20 @@ function PermissionsPanel({
   )
   const teamContact = useTeamContact(user.email)
   const contactEnd = teamContact?.active_until ?? ''
+
+  // Gegevens. Naam en e-mail staan op het account; telefoon en functie op
+  // het Team-contact, dus die komen binnen zodra dat geladen is.
+  const [fullName, setFullName] = useState(user.full_name)
+  const [email,    setEmail]    = useState(user.email)
+  const [phone,    setPhone]    = useState('')
+  const [jobRole,  setJobRole]  = useState('')
+  const [loadedContact, setLoadedContact] = useState<TeamContactRow | null>(null)
+  if (teamContact && teamContact !== loadedContact) {
+    setLoadedContact(teamContact)
+    setPhone(teamContact.phone ?? '')
+    setJobRole(teamContact.role ?? '')
+  }
+  const emailChanged = email.trim().toLowerCase() !== user.email.trim().toLowerCase()
   // De lijst kan het "geen enkele klant"-id bevatten (NO_CLIENTS); dat is
   // geen klant en hoort niet als vinkje op het scherm.
   const [restrictClients, setRestrictClients] = useState(
@@ -657,10 +673,15 @@ function PermissionsPanel({
     if (role?.requires_end_date && !expiresAt) {
       setError(`Een ${role.label.toLowerCase()} heeft een vervaldatum nodig.`); setSaving(false); return
     }
+    if (!email.trim()) { setError('Vul een e-mailadres in.'); setSaving(false); return }
     const r = await fetch(`/api/admin/users/${user.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        full_name: fullName,
+        email: email.trim(),
+        // Zonder Team-contact is er geen plek om deze twee te bewaren.
+        ...(teamContact ? { phone, job_role: jobRole } : {}),
         access_role: accessRole,
         overrides,
         clients: role?.client_scope === 'chosen' || restrictClients ? clientIds : [],
@@ -700,6 +721,35 @@ function PermissionsPanel({
 
       {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
+
+        {/* Gegevens */}
+        <div>
+          <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mb-2.5">Gegevens</p>
+          <div className="space-y-2.5">
+            {([
+              { label: 'Naam',     value: fullName, set: setFullName, type: 'text',  placeholder: 'Voornaam Achternaam', team: false },
+              { label: 'E-mail',   value: email,    set: setEmail,    type: 'email', placeholder: 'naam@sporthousegroup.com', team: false },
+              { label: 'Telefoon', value: phone,    set: setPhone,    type: 'tel',   placeholder: '+32 470 00 00 00', team: true },
+              { label: 'Functie',  value: jobRole,  set: setJobRole,  type: 'text',  placeholder: 'bv. Videograaf', team: true },
+            ] as const).filter(f => !f.team || teamContact).map(f => (
+              <label key={f.label} className="block">
+                <span className="block text-[11px] text-zinc-500 mb-1">{f.label}</span>
+                <input type={f.type} value={f.value} placeholder={f.placeholder} onChange={e => f.set(e.target.value)}
+                  className="w-full px-3 py-2 bg-zinc-800/60 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600 transition-colors" />
+              </label>
+            ))}
+          </div>
+          {emailChanged && (
+            <p className="text-[10px] text-amber-400 mt-1.5">
+              {user.last_sign_in
+                ? 'Deze persoon logde al in met het oude adres. Na het opslaan logt die persoon in met het Google-account van het nieuwe adres.'
+                : 'Het Team-contact verhuist mee naar het nieuwe adres.'}
+            </p>
+          )}
+          {!teamContact && (
+            <p className="text-[10px] text-zinc-600 mt-1.5">Geen Team-contact op dit adres — telefoon en functie staan daar.</p>
+          )}
+        </div>
 
         {/* Rol */}
         <div>
