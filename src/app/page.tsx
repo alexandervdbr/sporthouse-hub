@@ -15,6 +15,7 @@ export const metadata: Metadata = {
   description:
     'Sporthouse Hub is the internal workspace where SporthouseGroup staff and freelancers manage clients, projects, files, planning and equipment. Sign in with Google.',
   robots: { index: true, follow: true },
+  alternates: { canonical: '/' },
   openGraph: {
     title: 'Sporthouse Hub',
     description: 'The internal platform of SporthouseGroup.',

@@ -10,6 +10,7 @@ export const metadata: Metadata = {
   title: 'Terms of Service — Sporthouse Hub',
   description: 'The terms that apply to using Sporthouse Hub, the internal platform of SporthouseGroup.',
   robots: { index: true, follow: true },
+  alternates: { canonical: '/terms' },
 }
 
 export default function TermsPage() {
@@ -105,7 +106,7 @@ export default function TermsPage() {
 
       <LegalSection id="law" title="10. Governing law">
         <p>
-          These terms are governed by <Fill value={LEGAL.governingLaw} missing="governing law and competent courts" />.
+          <Fill value={LEGAL.governingLaw} missing="governing law and competent courts" />
         </p>
       </LegalSection>
 

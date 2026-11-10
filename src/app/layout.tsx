@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next'
+import { SITE_URL } from '@/lib/site-url'
 import './globals.css'
 import { RecordingProvider } from '@/contexts/RecordingContext'
 import { PreviewProvider } from '@/lib/preview-context'
@@ -6,6 +7,8 @@ import { TourProvider } from '@/contexts/TourContext'
 import TourOverlay from '@/components/tour/TourOverlay'
 
 export const metadata: Metadata = {
+  // Makes canonical and Open Graph URLs absolute, on the production domain.
+  metadataBase: new URL(SITE_URL),
   title: 'Sporthouse Hub',
   description: 'Intern platform voor SporthouseGroup',
 }

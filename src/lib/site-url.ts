@@ -1,14 +1,12 @@
-import { headers } from 'next/headers'
+// The public address of Sporthouse Hub. This is the domain registered with
+// Google (Search Console and the OAuth consent screen), so canonical links,
+// robots.txt and the sitemap always point here — also on preview deployments,
+// which should never present themselves as the real site.
+//
+// NEXT_PUBLIC_SITE_URL overrides it, for the day the platform moves domains.
+export const PRODUCTION_URL = 'https://sporthouse-hub-ten.vercel.app'
 
-/**
- * The public origin of the site, without a trailing slash: NEXT_PUBLIC_SITE_URL
- * when it is set, otherwise the host the request came in on.
- */
-export async function siteUrl(): Promise<string> {
-  const env = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '')
-  if (env) return env
-  const h = await headers()
-  const host = h.get('x-forwarded-host') ?? h.get('host') ?? 'localhost:3000'
-  const proto = h.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https')
-  return `${proto}://${host}`
-}
+export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || PRODUCTION_URL).replace(/\/$/, '')
+
+/** The Google Search Console HTML verification file in public/. */
+export const GOOGLE_SITE_VERIFICATION_FILE = 'google3bff64dd6bd354bb.html'

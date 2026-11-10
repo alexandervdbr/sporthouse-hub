@@ -12,6 +12,7 @@ export const metadata: Metadata = {
   description:
     'How Sporthouse Hub, the internal platform of SporthouseGroup, collects, uses, stores and protects personal data, including data received through Google Sign-In.',
   robots: { index: true, follow: true },
+  alternates: { canonical: '/privacy' },
 }
 
 export default function PrivacyPolicyPage() {
@@ -53,7 +54,7 @@ export default function PrivacyPolicyPage() {
         <p><strong>Content you create for your work.</strong> Depending on which parts of the platform you use, this
           includes client and project records, uploaded files, planning and schedules, equipment bookings, pool car
           reservations and damage reports, chat messages, meeting transcripts and summaries, and saved content
-          references (see section 9 on Instagram).</p>
+          references (see section 10 on Instagram).</p>
         <p><strong>Technical data.</strong> Cookies that keep you signed in (set by our authentication provider,
           Supabase), a push notification subscription if you choose to turn notifications on, and the request logs
           our hosting providers keep to run and secure the service.</p>
@@ -112,7 +113,7 @@ export default function PrivacyPolicyPage() {
           <li><strong>Anthropic</strong>: AI processing of content you choose to submit, such as summarizing a
             meeting transcript or labelling a saved content reference. Your Google account data is not sent to it.</li>
           <li><strong>Meta (Instagram oEmbed)</strong>: retrieving the public preview of an Instagram post you save
-            (see section 9).</li>
+            (see section 10).</li>
           <li><strong>Your browser</strong>: if you record a meeting, live transcription uses your browser&apos;s
             built-in speech recognition; some browsers, such as Google Chrome, process that audio on their
             vendor&apos;s servers. Push notifications are delivered through your browser vendor&apos;s push service.</li>
@@ -138,8 +139,7 @@ export default function PrivacyPolicyPage() {
             deleted automatically on that date (checked daily).</li>
           <li><strong>Deleted files</strong> stay in the platform&apos;s trash for 30 days and are then
             permanently removed.</li>
-          <li><strong>Other content and backups:</strong>{' '}
-            <Fill value={LEGAL.contentRetention} missing="retention period for other content and backups" /></li>
+          <li><Fill value={LEGAL.contentRetention} missing="retention period for other content and backups" /></li>
         </ul>
       </LegalSection>
 
@@ -147,11 +147,23 @@ export default function PrivacyPolicyPage() {
         <p>
           All traffic to {LEGAL.appName} is encrypted with HTTPS. Sign-in goes through Google, so we never see or
           store your Google password. Access inside the platform is limited by per-user authentication and
-          role-based permissions.
+          role-based permissions, so people only see the data they need for their work.
+        </p>
+        <p>
+          If an incident involving your personal data occurs, {LEGAL.operator} will notify you according to the
+          conditions prescribed by law.
         </p>
       </LegalSection>
 
-      <LegalSection id="instagram" title="9. Saved Instagram references">
+      <LegalSection id="automated-decisions" title="9. Automated decision-making">
+        <p>
+          {LEGAL.operator} does not make decisions about you by automated means that have legal or other
+          significant consequences for you. Where {LEGAL.appName} uses AI, it only drafts summaries and labels for
+          content you submit.
+        </p>
+      </LegalSection>
+
+      <LegalSection id="instagram" title="10. Saved Instagram references">
         <p>
           Our &quot;Mijn gedacht!&quot; feature lets a staff member save the public URL of an Instagram post they
           want to keep as a content reference, using Meta&apos;s oEmbed API. When a post is saved, we store the
@@ -167,7 +179,7 @@ export default function PrivacyPolicyPage() {
         </p>
       </LegalSection>
 
-      <LegalSection id="your-rights" title="10. Your rights">
+      <LegalSection id="your-rights" title="11. Your rights">
         <p>Under the EU General Data Protection Regulation (GDPR) you have the right to:</p>
         <ul>
           <li>access the personal data we hold about you and get a copy of it;</li>
@@ -183,9 +195,13 @@ export default function PrivacyPolicyPage() {
           {LEGAL.appName}&apos;s access to your Google account at any time at{' '}
           <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer">myaccount.google.com/permissions</a>.
         </p>
+        <p>
+          Data protection law sets conditions on these rights, so depending on the situation not every right may
+          apply. If you have a complaint, we would like you to contact us first so we can resolve it together.
+        </p>
       </LegalSection>
 
-      <LegalSection id="deletion" title="11. Deleting your data">
+      <LegalSection id="deletion" title="12. Deleting your data">
         <p>
           To have your account and personal data deleted, email {mail} from the address you sign in with. We then
           delete your account, including the name, email address and profile picture we received from Google,
@@ -198,17 +214,18 @@ export default function PrivacyPolicyPage() {
         </p>
       </LegalSection>
 
-      <LegalSection id="children" title="12. Children">
+      <LegalSection id="children" title="13. Children">
         <p>{LEGAL.appName} is a work tool and is not intended for children under 16.</p>
       </LegalSection>
 
-      <LegalSection id="changes" title="13. Changes to this policy">
+      <LegalSection id="changes" title="14. Changes to this policy">
         <p>
-          If we change this policy, we update the date at the top of this page.
+          {LEGAL.operator} may change this policy from time to time, within the limits of applicable privacy and
+          data protection law. When we do, we update the date at the top of this page.
         </p>
       </LegalSection>
 
-      <LegalSection id="contact" title="14. Contact">
+      <LegalSection id="contact" title="15. Contact">
         <p>Questions about this policy or about your data: {mail}.</p>
         <p>See also our <Link href="/terms">Terms of Service</Link>.</p>
       </LegalSection>

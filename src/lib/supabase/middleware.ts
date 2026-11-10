@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { getSessionUser } from '@/lib/supabase/claims'
 import { isFreelancerUser } from '@/lib/auth-permissions'
+import { GOOGLE_SITE_VERIFICATION_FILE } from '@/lib/site-url'
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -54,7 +55,10 @@ export async function updateSession(request: NextRequest) {
   const isLegalPage =
     pathname === '/privacy' || pathname.startsWith('/privacy/') ||
     pathname === '/terms' || pathname.startsWith('/terms/')
-  const isPublicPage = isHomePage || isLegalPage
+  // The Search Console ownership file. The matcher in src/middleware.ts
+  // already keeps it away from here; this is the second line of defence.
+  const isSiteVerificationFile = pathname === `/${GOOGLE_SITE_VERIFICATION_FILE}`
+  const isPublicPage = isHomePage || isLegalPage || isSiteVerificationFile
   // Also public, and on purpose: the link-preview bots of WhatsApp, Slack and
   // Discord never sign in, so a shared link's card can only say what it opens
   // if this page answers them. It carries one folder or file name and the

@@ -33,6 +33,10 @@ export const config = {
     // for the same reason as images: the public homepage, /privacy and /terms
     // need them for anonymous visitors, and without this they were answered
     // with a redirect to /login.
-    '/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|robots.txt|sitemap.xml|api/files/download|api/sporthouse/documents/download|api/preassist/download|.*\\.(?:svg|png|jpg|jpeg|gif|webp|otf|ttf|woff|woff2)$).*)',
+    //
+    // google3bff64dd6bd354bb.html is the Google Search Console ownership file
+    // (public/). Google fetches it without signing in and must get the file
+    // itself, not a redirect. Exact name only — no other .html is excluded.
+    '/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|robots.txt|sitemap.xml|google3bff64dd6bd354bb\\.html$|api/files/download|api/sporthouse/documents/download|api/preassist/download|.*\\.(?:svg|png|jpg|jpeg|gif|webp|otf|ttf|woff|woff2)$).*)',
   ],
 }
