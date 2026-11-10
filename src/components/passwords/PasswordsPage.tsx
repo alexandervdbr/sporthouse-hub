@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, Eye, EyeOff, Copy, Check, Pencil, Trash2, X, ExternalLink, Search, Lock, ArrowLeft } from 'lucide-react'
+import { generatePassword } from '@/lib/password-generator'
+import { Plus, Eye, EyeOff, Copy, Check, Pencil, Trash2, X, ExternalLink, Search, Lock, WandSparkles } from 'lucide-react'
 
 interface Credential {
   id: string
@@ -25,13 +25,77 @@ interface FormState {
 
 const EMPTY_FORM: FormState = { platform: '', url: '', username: '', password: '', notes: '' }
 
+// ─── Clipboard ────────────────────────────────────────────────────────────────
+
+// Een gekopieerd wachtwoord wordt na een minuut van het klembord gehaald —
+// maar alleen als het er zeker nog op staat, zodat we nooit iets wissen wat
+// iemand daarna zelf kopieerde.
+//
+// Zekerheid via het klembord zelf lezen kan alleen als de browser daar al
+// toestemming voor heeft (anders zou Chrome na een minuut ineens een
+// toestemmingsvraag tonen). Zonder die toestemming wissen we alleen als het
+// venster de hele tijd focus hield en er op de pagina niets anders gekopieerd
+// werd: iets kopiëren in een andere app of ander tabblad kan niet zonder het
+// venster te verlaten.
+const CLIPBOARD_CLEAR_MS = 60_000
+// Het zichtbaar gemaakte wachtwoord op een kaart verbergt zichzelf weer.
+const REVEAL_MS = 30_000
+
+let cancelPendingClear: (() => void) | null = null
+
+function scheduleClipboardClear(value: string) {
+  cancelPendingClear?.()
+  let leftWindow = false
+  const onBlur = () => { leftWindow = true }
+  window.addEventListener('blur', onBlur)
+  document.addEventListener('copy', cancel)
+  document.addEventListener('cut', cancel)
+
+  const timer = setTimeout(async () => {
+    cleanup()
+    if (await clipboardStillHolds(value, leftWindow)) {
+      navigator.clipboard.writeText('').catch(() => {})
+    }
+  }, CLIPBOARD_CLEAR_MS)
+
+  function cleanup() {
+    window.removeEventListener('blur', onBlur)
+    document.removeEventListener('copy', cancel)
+    document.removeEventListener('cut', cancel)
+    if (cancelPendingClear === cancel) cancelPendingClear = null
+  }
+  function cancel() {
+    clearTimeout(timer)
+    cleanup()
+  }
+  cancelPendingClear = cancel
+}
+
+async function clipboardStillHolds(value: string, leftWindow: boolean): Promise<boolean> {
+  try {
+    const perm = await navigator.permissions.query({ name: 'clipboard-read' as PermissionName })
+    if (perm.state === 'granted') return (await navigator.clipboard.readText()) === value
+  } catch {
+    // Firefox/Safari kennen 'clipboard-read' niet als permissie — val terug.
+  }
+  return !leftWindow && document.hasFocus()
+}
+
 // ─── Copy button ──────────────────────────────────────────────────────────────
 
-function CopyButton({ value }: { value: string }) {
+function CopyButton({ value, label, sensitive = false }: { value: string; label: string; sensitive?: boolean }) {
   const [copied, setCopied] = useState(false)
 
   async function handleCopy() {
-    await navigator.clipboard.writeText(value)
+    try {
+      await navigator.clipboard.writeText(value)
+    } catch {
+      return
+    }
+    // Wat nu op het klembord staat is niet meer het vorige wachtwoord: een
+    // geplande wis daarvan zou dit nieuwe kopieerwerk weghalen.
+    cancelPendingClear?.()
+    if (sensitive) scheduleClipboardClear(value)
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }
@@ -40,7 +104,8 @@ function CopyButton({ value }: { value: string }) {
     <button
       onClick={handleCopy}
       className="tap-target p-1.5 rounded transition-colors text-zinc-500 hover:text-zinc-300"
-      title="Kopiëren"
+      title={label}
+      aria-label={label}
     >
       {copied ? <Check size={13} className="text-green-400" /> : <Copy size={13} />}
     </button>
@@ -60,6 +125,12 @@ function CredentialCard({
 }) {
   const [showPassword, setShowPassword] = useState(false)
   const initials = cred.platform.slice(0, 2).toUpperCase()
+
+  useEffect(() => {
+    if (!showPassword) return
+    const t = setTimeout(() => setShowPassword(false), REVEAL_MS)
+    return () => clearTimeout(t)
+  }, [showPassword])
 
   return (
     <div
@@ -106,6 +177,8 @@ function CredentialCard({
             {onEdit && (
               <button
                 onClick={() => onEdit(cred)}
+                aria-label={`${cred.platform} bewerken`}
+                title="Bewerken"
                 className="tap-target p-1.5 rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-all"
               >
                 <Pencil size={13} />
@@ -114,6 +187,8 @@ function CredentialCard({
             {onDelete && (
               <button
                 onClick={() => onDelete(cred.id)}
+                aria-label={`${cred.platform} verwijderen`}
+                title="Verwijderen"
                 className="tap-target p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-950/30 transition-all"
               >
                 <Trash2 size={13} />
@@ -134,7 +209,7 @@ function CredentialCard({
             <p className="text-[10px] text-zinc-600 uppercase tracking-widest mb-0.5">Gebruikersnaam</p>
             <p className="text-sm text-zinc-300 truncate">{cred.username}</p>
           </div>
-          <CopyButton value={cred.username} />
+          <CopyButton value={cred.username} label="Gebruikersnaam kopiëren" />
         </div>
 
         {/* Password */}
@@ -151,11 +226,13 @@ function CredentialCard({
           <div className="flex items-center gap-0.5">
             <button
               onClick={() => setShowPassword(p => !p)}
+              aria-label={showPassword ? 'Wachtwoord verbergen' : 'Wachtwoord tonen'}
+              title={showPassword ? 'Verbergen' : 'Tonen'}
               className="tap-target p-1.5 rounded transition-colors text-zinc-500 hover:text-zinc-300"
             >
               {showPassword ? <EyeOff size={13} /> : <Eye size={13} />}
             </button>
-            <CopyButton value={cred.password} />
+            <CopyButton value={cred.password} label="Wachtwoord kopiëren" sensitive />
           </div>
         </div>
 
@@ -174,6 +251,7 @@ function Modal({
   title,
   form,
   saving,
+  error,
   onClose,
   onChange,
   onSave,
@@ -181,6 +259,7 @@ function Modal({
   title: string
   form: FormState
   saving: boolean
+  error: string | null
   onClose: () => void
   onChange: (f: FormState) => void
   onSave: () => void
@@ -231,19 +310,33 @@ function Modal({
             <label className={labelClass}>Wachtwoord *</label>
             <div className="relative">
               <input
-                className={inputClass + ' pr-9 font-mono'}
+                className={inputClass + ' pr-16 font-mono'}
                 type={showPw ? 'text' : 'password'}
                 placeholder="wachtwoord"
                 value={form.password}
                 onChange={e => onChange({ ...form, password: e.target.value })}
               />
-              <button
-                type="button"
-                onClick={() => setShowPw(p => !p)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
-              >
-                {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2.5">
+                {/* Toont het resultaat meteen: wie genereert, wil zien wat er staat. */}
+                <button
+                  type="button"
+                  onClick={() => { onChange({ ...form, password: generatePassword() }); setShowPw(true) }}
+                  aria-label="Sterk wachtwoord genereren"
+                  title="Sterk wachtwoord genereren"
+                  className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                >
+                  <WandSparkles size={14} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowPw(p => !p)}
+                  aria-label={showPw ? 'Wachtwoord verbergen' : 'Wachtwoord tonen'}
+                  title={showPw ? 'Verbergen' : 'Tonen'}
+                  className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                >
+                  {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
             </div>
           </div>
           <div>
@@ -252,6 +345,10 @@ function Modal({
               value={form.notes} onChange={e => onChange({ ...form, notes: e.target.value })} />
           </div>
         </div>
+
+        {error && (
+          <p role="alert" className="px-6 pt-4 text-sm text-red-400 flex-shrink-0">{error}</p>
+        )}
 
         <div className="flex justify-end gap-2 px-6 pt-4 pb-6 flex-shrink-0">
           <button onClick={onClose}
@@ -275,10 +372,11 @@ function Modal({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; canDelete: boolean }) {
-  const router = useRouter()
   const supabase = createClient()
   const [credentials, setCredentials] = useState<Credential[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Credential | null>(null)
@@ -302,6 +400,7 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
     setLoading(true)
     const { data, error } = await supabase.rpc('get_credentials')
     if (error) console.error('Kon wachtwoorden niet laden:', error)
+    setLoadError(!!error)
     setCredentials((data ?? []).sort((a: Credential, b: Credential) => a.platform.localeCompare(b.platform)))
     setLoading(false)
   }
@@ -309,17 +408,20 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
   function openAdd() {
     setEditing(null)
     setForm(EMPTY_FORM)
+    setSaveError(null)
     setModalOpen(true)
   }
 
   function openEdit(cred: Credential) {
     setEditing(cred)
+    setSaveError(null)
     setForm({ platform: cred.platform, url: cred.url ?? '', username: cred.username, password: cred.password, notes: cred.notes ?? '' })
     setModalOpen(true)
   }
 
   async function handleSave() {
     setSaving(true)
+    setSaveError(null)
     const { error } = await supabase.rpc('upsert_credential', {
       p_id: editing?.id ?? null,
       p_platform: form.platform.trim(),
@@ -328,11 +430,14 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
       p_password: form.password,
       p_notes: form.notes.trim() || null,
     })
+    setSaving(false)
+    // Bij een fout blijft de modal open, zodat de ingevulde gegevens (en een
+    // net gegenereerd wachtwoord) niet verloren gaan.
     if (error) {
       console.error('Kon wachtwoord niet opslaan:', error)
-      alert('Opslaan mislukt. Probeer opnieuw.')
+      setSaveError('Opslaan mislukt. Probeer opnieuw.')
+      return
     }
-    setSaving(false)
     setModalOpen(false)
     load()
   }
@@ -347,19 +452,13 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
     load()
   }
 
+  const query = search.trim().toLowerCase()
   const filtered = credentials.filter(c =>
-    c.platform.toLowerCase().includes(search.toLowerCase()) ||
-    c.username.toLowerCase().includes(search.toLowerCase())
+    [c.platform, c.username, c.url, c.notes].some(field => field?.toLowerCase().includes(query))
   )
 
   return (
     <div className="p-4 sm:p-8 max-w-5xl mx-auto">
-      {/* Back */}
-      <button onClick={() => router.back()}
-        className="flex items-center gap-1.5 mb-6 text-sm text-zinc-500 hover:text-zinc-200 transition-colors">
-        <ArrowLeft size={14} /> Terug
-      </button>
-
       {/* Header */}
       <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
@@ -389,7 +488,7 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
         <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
         <input
           type="text"
-          placeholder="Zoeken op platform of gebruikersnaam…"
+          placeholder="Zoeken op platform, gebruikersnaam, URL of notitie…"
           value={search}
           onChange={e => setSearch(e.target.value)}
           className="w-full pl-9 pr-4 py-2.5 rounded-xl text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none transition-colors"
@@ -400,6 +499,15 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
       {/* Grid */}
       {loading ? (
         <div className="flex items-center justify-center py-20 text-zinc-600 text-sm">Laden…</div>
+      ) : loadError ? (
+        <div role="alert" className="flex flex-col items-center justify-center py-20 text-center">
+          <Lock size={28} className="text-zinc-700 mb-3" />
+          <p className="text-sm text-zinc-400 mb-3">Kon wachtwoorden niet laden.</p>
+          <button onClick={load}
+            className="px-4 py-2 text-sm rounded-lg text-zinc-200 bg-zinc-800 hover:bg-zinc-700 transition-colors">
+            Opnieuw proberen
+          </button>
+        </div>
       ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <Lock size={28} className="text-zinc-700 mb-3" />
@@ -426,6 +534,7 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
           title={editing ? 'Wachtwoord bewerken' : 'Wachtwoord toevoegen'}
           form={form}
           saving={saving}
+          error={saveError}
           onClose={() => setModalOpen(false)}
           onChange={setForm}
           onSave={handleSave}
