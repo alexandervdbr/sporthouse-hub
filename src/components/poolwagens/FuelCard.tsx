@@ -51,7 +51,7 @@ function usePin(carId: string) {
 }
 
 /**
- * Compacte knop "Pincode ••1234" voor "Mijn ritten" en de "Nu"-rij: toont de
+ * Compacte knop "Pincode tankkaart ••1234" voor "Mijn ritten" en de "Nu"-rij: toont de
  * pincode ter plekke in de knop, 30 seconden lang; nog eens klikken verbergt ze.
  */
 export function FuelPinButton({ carId, last4, className = '' }: { carId: string; last4: string | null; className?: string }) {
@@ -64,7 +64,7 @@ export function FuelPinButton({ carId, last4, className = '' }: { carId: string;
         {busy ? <Loader2 size={13} className="animate-spin" /> : <Fuel size={13} />}
         {pin
           ? <span className="font-mono font-semibold tracking-[0.25em] text-zinc-100" aria-live="polite">{pin}</span>
-          : <>Pincode{last4 ? <span className="font-mono text-zinc-500">••{last4}</span> : null}</>}
+          : <><span className="whitespace-nowrap">Pincode tankkaart</span>{last4 ?<span className="font-mono text-zinc-500">••{last4}</span> : null}</>}
       </button>
       {error && <span role="alert" className="text-xs text-red-400 truncate">{error}</span>}
     </span>
