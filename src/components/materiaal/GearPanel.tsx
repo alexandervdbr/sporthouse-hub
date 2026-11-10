@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { ArrowDown, ArrowUp, Check, Loader2, MoreHorizontal, Package, Plus, Search, Trash2, UserRound, Wrench, X } from 'lucide-react'
 import { SerialWarning } from '@/components/materiaal/AddGearDialog'
 import DeleteCategoryDialog from '@/components/materiaal/DeleteCategoryDialog'
+import StatusPicker from '@/components/materiaal/StatusPicker'
 import { ItemBadges, KitBadges } from '@/components/materiaal/GearLabels'
 import { Button, ColorDots, ContactPicker, ErrorLine, IconButton, ResponsiblePicker, Select, StatusBadge, formGap, inputCls, labelCls, send, textareaCls, type People } from '@/components/materiaal/ui'
 import type { GearAccess } from '@/lib/gear/access'
@@ -334,7 +335,6 @@ function ItemForm({ item, catalog, people, access, onChange, persist, run, onOpe
   const kit = useMemo(() => kitByItem(catalog.kits).get(item.id) ?? null, [catalog.kits, item.id])
   const clients = useMemo(() => new Map(catalog.clients.map(c => [c.id, c])), [catalog.clients])
   const resp = effectiveResponsible(item, kit, clients)
-  const [note, setNote] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   async function patch(fields: Record<string, unknown>) {
@@ -342,11 +342,11 @@ function ItemForm({ item, catalog, people, access, onChange, persist, run, onOpe
     if (updated) onChange(c => ({ ...c, items: c.items.map(i => (i.id === item.id ? updated : i)) }))
   }
 
-  async function setStatus(status: UnitStatus) {
+  async function setStatus(status: UnitStatus, note: string) {
     const updated = await persist(() => setItemStatus(item, status, note))
-    if (updated) { onChange(c => ({ ...c, items: c.items.map(i => (i.id === item.id ? { ...i, ...updated } : i)) })); setNote('') }
+    if (updated) onChange(c => ({ ...c, items: c.items.map(i => (i.id === item.id ? { ...i, ...updated } : i)) }))
+    return updated !== null
   }
-  const needsNote = (s: UnitStatus) => (s === 'defect' || s === 'beperkt') && !note.trim()
 
   return (
     <>
@@ -357,18 +357,7 @@ function ItemForm({ item, catalog, people, access, onChange, persist, run, onOpe
           <StatusBadge status={item.status} />
           {item.status_note && item.status !== 'ok' && <span className="text-xs text-zinc-400 truncate">{item.status_note}</span>}
         </div>
-        {access.book && (
-          <>
-            <input value={note} onChange={e => setNote(e.target.value)} aria-label="Notitie bij de statuswijziging"
-              placeholder={item.status === 'ok' ? 'Wat is er mis? (nodig voor defect/beperkt)' : 'Notitie (optioneel)'} className={inputCls} />
-            <div className="flex flex-wrap gap-1.5">
-              {item.status !== 'defect' && <SmallButton disabled={needsNote('defect')} onClick={() => setStatus('defect')}><Wrench size={12} /> Defect</SmallButton>}
-              {item.status !== 'beperkt' && <SmallButton disabled={needsNote('beperkt')} onClick={() => setStatus('beperkt')}>Beperkt</SmallButton>}
-              {edit && item.status !== 'ok' && <SmallButton onClick={() => setStatus('ok')}><Check size={12} /> Hersteld</SmallButton>}
-              {edit && item.status !== 'uit_dienst' && <SmallButton onClick={() => setStatus('uit_dienst')}>Uit dienst</SmallButton>}
-            </div>
-          </>
-        )}
+        {access.book && <StatusPicker key={item.id} status={item.status} canManage={edit} onSet={setStatus} />}
       </section>
 
       {resp && <Notice icon={<UserRound size={13} />}>{RESPONSIBLE_NOTICE} {responsibleLabel(resp)}</Notice>}

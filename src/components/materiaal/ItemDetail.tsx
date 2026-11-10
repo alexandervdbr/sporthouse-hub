@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { AlertTriangle, ChevronRight, Loader2, Package, UserRound, Wrench } from 'lucide-react'
-import { Button, ErrorLine, StatusBadge, inputCls, send } from '@/components/materiaal/ui'
+import { AlertTriangle, ChevronRight, Loader2, Package, UserRound } from 'lucide-react'
+import StatusPicker from '@/components/materiaal/StatusPicker'
+import { ErrorLine, StatusBadge, send } from '@/components/materiaal/ui'
 import { barLabel } from '@/lib/gear/labels'
 import { kitByItem } from '@/lib/gear/kits'
 import { effectiveResponsible, responsibleLabel, RESPONSIBLE_NOTICE } from '@/lib/gear/responsible'
@@ -29,8 +30,6 @@ export default function ItemDetail({ itemId, access }: { itemId: string; access:
   const [catalog, setCatalog] = useState<GearCatalog | null>(null)
   const [history, setHistory] = useState<GearItemHistory | null>(null)
   const [error, setError] = useState('')
-  const [note, setNote] = useState('')
-  const [busy, setBusy] = useState<UnitStatus | null>(null)
 
   const loadHistory = useCallback(() => {
     send<GearItemHistory>(`/api/materiaal/items/${itemId}/history`, 'GET').then(setHistory).catch(e => setError(e.message))
@@ -58,16 +57,14 @@ export default function ItemDetail({ itemId, access }: { itemId: string; access:
     ].sort((x, y) => y.at.localeCompare(x.at))
   }, [history])
 
-  async function setStatus(status: UnitStatus) {
-    if ((status === 'defect' || status === 'beperkt') && !note.trim()) { setError('Schrijf kort wat er mis is.'); return }
-    setBusy(status); setError('')
+  async function setStatus(status: UnitStatus, note: string) {
+    setError('')
     try {
       const updated = await send<{ id: string; status: UnitStatus; status_note: string | null }>(`/api/materiaal/items/${itemId}/status`, 'POST', { status, note })
       setCatalog(c => c && ({ ...c, items: c.items.map(i => (i.id === itemId ? { ...i, ...updated } : i)) }))
-      setNote('')
       loadHistory()
-    } catch (e) { setError(e instanceof Error ? e.message : 'Opslaan mislukt.') }
-    setBusy(null)
+      return true
+    } catch (e) { setError(e instanceof Error ? e.message : 'Opslaan mislukt.'); return false }
   }
 
   if (!catalog) return <div className="p-8">{error ? <ErrorLine>{error}</ErrorLine> : <Loader2 size={20} className="animate-spin text-zinc-600" />}</div>
@@ -124,19 +121,8 @@ export default function ItemDetail({ itemId, access }: { itemId: string; access:
         {access.book && (
           <section className="rounded-xl border border-zinc-800 p-3 space-y-2">
             <p className="section-label">Toestand</p>
-            <input value={note} onChange={e => setNote(e.target.value)}
-              placeholder={item.status === 'ok' ? 'Wat is er mis? bv. lens krast' : 'Notitie (optioneel), bv. hersteld door Cameranu'}
-              aria-label="Notitie bij de statuswijziging" className={inputCls} />
+            <StatusPicker status={item.status} canManage={access.manageCatalog} onSet={setStatus} />
             {error && <ErrorLine>{error}</ErrorLine>}
-            <div className="flex flex-wrap gap-2">
-              {(['defect', 'beperkt'] as const).filter(s => s !== item.status).map(s => (
-                <StatusButton key={s} onClick={() => setStatus(s)} busy={busy === s}>
-                  <Wrench size={12} /> {s === 'defect' ? 'Defect melden' : 'Beperkt bruikbaar melden'}
-                </StatusButton>
-              ))}
-              {access.manageCatalog && item.status !== 'ok' && <StatusButton onClick={() => setStatus('ok')} busy={busy === 'ok'} tone="ok">Hersteld</StatusButton>}
-              {access.manageCatalog && item.status !== 'uit_dienst' && <StatusButton onClick={() => setStatus('uit_dienst')} busy={busy === 'uit_dienst'}>Uit dienst nemen</StatusButton>}
-            </div>
           </section>
         )}
         {!access.book && error && <ErrorLine>{error}</ErrorLine>}
@@ -181,14 +167,5 @@ export default function ItemDetail({ itemId, access }: { itemId: string; access:
         </section>
       </div>
     </div>
-  )
-}
-
-function StatusButton({ onClick, busy, tone, children }: { onClick: () => void; busy: boolean; tone?: 'ok'; children: React.ReactNode }) {
-  return (
-    <Button size="sm" onClick={onClick} busy={busy}
-      className={tone === 'ok' ? '!text-emerald-400 !border-emerald-500/30 !bg-emerald-500/10 hover:!bg-emerald-500/20' : ''}>
-      {children}
-    </Button>
   )
 }
