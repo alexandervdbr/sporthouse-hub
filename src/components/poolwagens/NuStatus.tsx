@@ -2,6 +2,7 @@
 
 import { Car, ChevronRight, LogIn } from 'lucide-react'
 import { ACCENT, actionCls, buttonCls, panelCls, secondaryCls } from './ui'
+import { FuelTag } from './FuelCard'
 import { NOW_COLOR, carsNow, type CarNow } from '@/lib/poolwagens/status'
 import type { PoolPlanning } from '@/lib/poolwagens/types'
 
@@ -40,6 +41,7 @@ function Row({ row, action }: { row: CarNow; action: React.ReactNode }) {
         <div className="min-w-0 md:flex-shrink-0 flex items-baseline gap-2">
           <span className="text-sm font-medium text-zinc-100 truncate">{row.car.name}</span>
           <span className="text-[10px] font-mono text-zinc-500 flex-shrink-0">{row.car.license_plate}</span>
+          <FuelTag last4={row.car.fuel_card_last4} />
         </div>
         <div className="text-[13px] truncate md:flex-shrink-0" style={{ color }}>{row.label}</div>
         <div className="text-xs text-zinc-500 truncate md:min-w-0">{row.nextLabel ?? ''}</div>

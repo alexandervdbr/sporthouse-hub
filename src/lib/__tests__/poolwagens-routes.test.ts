@@ -68,6 +68,9 @@ const notify = await import('@/app/api/poolwagens/damage/[id]/notify/route')
 const settings = await import('@/app/api/poolwagens/settings/route')
 const mailTest = await import('@/app/api/poolwagens/mail-test/route')
 const planning = await import('@/app/api/poolwagens/planning/route')
+const fuelCards = await import('@/app/api/poolwagens/fuel-cards/route')
+const fuelCard = await import('@/app/api/poolwagens/cars/[id]/fuel-card/route')
+const pin = await import('@/app/api/poolwagens/cars/[id]/pin/route')
 const history = await import('@/app/api/poolwagens/history/route')
 
 const CAR = '11111111-1111-4111-8111-111111111111'
@@ -320,5 +323,49 @@ describe('historiek — klantfilter', () => {
     state.tables.clients = { data: [] }
     expect(await statusOf(history.GET(json('GET', undefined, 'http://hub.test/api/poolwagens/history?klant=Club')))).toBe(200)
     expect(state.calls).toContain('pool_car_reservations.or:client_name.ilike.*Club*')
+  })
+})
+
+describe('tankkaart en pincode (0087)', () => {
+  it('een gewone gebruiker kan de kaart niet instellen en het overzicht niet zien, zonder databaseverzoek', async () => {
+    state.user = user(USER)
+    expect(await statusOf(fuelCards.GET())).toBe(403)
+    expect(await statusOf(fuelCard.PUT(json('PUT', { card_number: '7077 1234', pin: '1234' }), params()))).toBe(403)
+    expect(state.calls).toEqual([])
+  })
+
+  it('beheer: ongeldige pincode is een 400 zonder databaseverzoek; geldige gaat naar de databasefunctie', async () => {
+    state.user = user(MANAGER)
+    expect(await answer(fuelCard.PUT(json('PUT', { card_number: '7077 1234', pin: '12a4' }), params()))).toEqual({ status: 400, text: 'De pincode bestaat uit 4 tot 8 cijfers.' })
+    expect(state.calls).toEqual([])
+
+    state.tables.pool_cars = { data: { id: 'id-1', fuel_card_last4: '1234' } }
+    const res = (await fuelCard.PUT(json('PUT', { card_number: '7077 1234', pin: '4321' }), params()))!
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Cache-Control')).toContain('no-store')
+    expect(await res.text()).not.toContain('4321')
+    expect(state.rpcArgs.pool_set_fuel_card).toEqual({ p_car_id: 'id-1', p_card_number: '7077 1234', p_pin: '4321', p_clear_pin: false })
+  })
+
+  it('de pincode: wat de database toelaat, nooit gecachet', async () => {
+    state.user = user(USER)
+    state.rpc.pool_fuel_card_pin = { data: '1234' }
+    const res = (await pin.POST(json('POST'), params('car-1')))!
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Cache-Control')).toContain('no-store')
+    expect(await res.json()).toEqual({ pin: '1234' })
+    expect(state.rpcArgs.pool_fuel_card_pin).toEqual({ p_car_id: 'car-1' })
+  })
+
+  it('de pincode: geen rit, dan de melding van de database als 403', async () => {
+    state.user = user(USER)
+    state.rpc.pool_fuel_card_pin = { data: null, error: { code: '42501', message: 'De pincode zie je alleen tijdens je eigen rit met deze wagen.' } }
+    expect(await answer(pin.POST(json('POST'), params()))).toEqual({ status: 403, text: 'De pincode zie je alleen tijdens je eigen rit met deze wagen.' })
+  })
+
+  it('de pincode: zonder rechten op Poolwagens niets', async () => {
+    state.user = user([])
+    expect(await statusOf(pin.POST(json('POST'), params()))).toBe(403)
+    expect(state.calls).toEqual([])
   })
 })

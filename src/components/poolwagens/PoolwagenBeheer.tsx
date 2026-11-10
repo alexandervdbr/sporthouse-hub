@@ -3,36 +3,78 @@
 import { useEffect, useState, type ChangeEvent, type ReactNode } from 'react'
 import { Archive, ArchiveRestore, Ban, Car, Check, Loader2, Pencil, Plus, X } from 'lucide-react'
 import { ACCENT, ErrorLine, inputCls, labelCls, send } from '@/components/materiaal/ui'
-import type { PoolCar } from '@/lib/poolwagens/types'
+import type { FuelCard, PoolCar } from '@/lib/poolwagens/types'
 import { DUPLICATE_NAME_TEXT, isDuplicateCarName } from '@/lib/poolwagens/car-input'
+import { fuelCardChanged, nextFuelCard, parseFuelCardInput } from '@/lib/poolwagens/fuel-card'
 import MailSettings from './MailSettings'
+import { FuelTag } from './FuelCard'
 import { EmptyState, PoolHeader, actionCls, buttonCls, pageBody, panelCls } from './ui'
 
 // Beheer van de poolwagens: toevoegen, bewerken, handmatig niet beschikbaar
 // zetten en archiveren. Verwijderen bestaat niet, zodat de historiek blijft.
+// De tankkaart (nummer en pincode) wordt apart bewaard, via
+// /api/poolwagens/cars/[id]/fuel-card; de pincode zelf komt hier nooit terug
+// van de server, alleen of er een is.
 
 interface CarForm {
   name: string
   license_plate: string
   make_model: string
   current_km: string
+  fuel_card_number: string
+  /** Een nieuwe pincode; leeg laat de bestaande staan. */
+  fuel_pin: string
+  clear_pin: boolean
 }
 
-const EMPTY: CarForm = { name: '', license_plate: '', make_model: '', current_km: '' }
+const EMPTY: CarForm = { name: '', license_plate: '', make_model: '', current_km: '', fuel_card_number: '', fuel_pin: '', clear_pin: false }
+
+/** Alleen de velden van de wagen zelf, zonder de tankkaart. */
+const carFields = ({ name, license_plate, make_model, current_km }: CarForm) => ({ name, license_plate, make_model, current_km })
+
+const fuelForm = (f: CarForm) => ({ card_number: f.fuel_card_number, pin: f.fuel_pin, clear_pin: f.clear_pin })
 
 const km = (n: number) => n.toLocaleString('nl-BE')
 
 export default function PoolwagenBeheer() {
   const [cars, setCars] = useState<PoolCar[] | null>(null)
+  const [fuel, setFuel] = useState<Record<string, FuelCard>>({})
   const [showArchived, setShowArchived] = useState(false)
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
     send<PoolCar[]>('/api/poolwagens/cars?archived=1', 'GET').then(setCars).catch(e => setError(e.message))
+    send<FuelCard[]>('/api/poolwagens/fuel-cards', 'GET')
+      .then(list => setFuel(Object.fromEntries(list.map(f => [f.car_id, f]))))
+      .catch(e => setError(e.message))
   }, [])
 
   const replace = (car: PoolCar) => setCars(cs => (cs ?? []).map(c => (c.id === car.id ? car : c)))
+
+  /**
+   * De tankkaart bewaren als er iets veranderd is. Geeft null als het lukte
+   * (of er niets te doen was), anders de foutmelding.
+   */
+  async function saveFuel(carId: string, form: CarForm): Promise<string | null> {
+    const prev = fuel[carId] ?? null
+    if (!fuelCardChanged({ card_number: prev?.card_number ?? null }, fuelForm(form))) return null
+    const parsed = parseFuelCardInput(fuelForm(form))
+    if ('error' in parsed) return parsed.error
+    try {
+      replace(await send<PoolCar>(`/api/poolwagens/cars/${carId}/fuel-card`, 'PUT', parsed.input))
+      const next = nextFuelCard(carId, prev, parsed.input)
+      setFuel(f => {
+        const copy = { ...f }
+        if (next) copy[carId] = next
+        else delete copy[carId]
+        return copy
+      })
+      return null
+    } catch (e) {
+      return (e as Error).message
+    }
+  }
 
   async function patch(id: string, body: Record<string, unknown>) {
     setError('')
@@ -72,15 +114,24 @@ export default function PoolwagenBeheer() {
                 onCancel={() => setAdding(false)}
                 onSubmit={async form => {
                   setError('')
+                  // Een ongeldige tankkaart: meteen zeggen, nog vóór de wagen bestaat.
+                  if (fuelCardChanged({ card_number: null }, fuelForm(form))) {
+                    const check = parseFuelCardInput(fuelForm(form))
+                    if ('error' in check) { setError(check.error); return false }
+                  }
+                  let car: PoolCar
                   try {
-                    const car = await send<PoolCar>('/api/poolwagens/cars', 'POST', form)
-                    setCars(cs => [...(cs ?? []), car].sort((a, b) => a.name.localeCompare(b.name, 'nl')))
-                    setAdding(false)
-                    return true
+                    car = await send<PoolCar>('/api/poolwagens/cars', 'POST', carFields(form))
                   } catch (e) {
                     setError((e as Error).message)
                     return false
                   }
+                  setCars(cs => [...(cs ?? []), car].sort((a, b) => a.name.localeCompare(b.name, 'nl')))
+                  setAdding(false)
+                  // De wagen bestaat nu; lukt de kaart niet, dan opnieuw via Bewerken.
+                  const fuelError = await saveFuel(car.id, form)
+                  if (fuelError) setError(`Wagen toegevoegd, maar de tankkaart niet: ${fuelError} Bewerk de wagen om het opnieuw te proberen.`)
+                  return true
                 }}
               />
             )}
@@ -91,7 +142,7 @@ export default function PoolwagenBeheer() {
             ) : (
               <section aria-label="Wagens" className="space-y-2">
                 <h2 className="text-sm font-semibold text-zinc-200">Wagens</h2>
-                {active.map(car => <CarRow key={car.id} car={car} cars={cars} onPatch={body => patch(car.id, body)} />)}
+                {active.map(car => <CarRow key={car.id} car={car} cars={cars} fuel={fuel[car.id] ?? null} onPatch={body => patch(car.id, body)} onSaveFuel={form => saveFuel(car.id, form)} />)}
               </section>
             )}
 
@@ -100,7 +151,7 @@ export default function PoolwagenBeheer() {
                 <button onClick={() => setShowArchived(v => !v)} className="text-xs text-zinc-500 hover:text-zinc-300 py-2">
                   {showArchived ? 'Verberg' : 'Toon'} gearchiveerde wagens ({archived.length})
                 </button>
-                {showArchived && archived.map(car => <CarRow key={car.id} car={car} cars={cars} onPatch={body => patch(car.id, body)} />)}
+                {showArchived && archived.map(car => <CarRow key={car.id} car={car} cars={cars} fuel={fuel[car.id] ?? null} onPatch={body => patch(car.id, body)} onSaveFuel={form => saveFuel(car.id, form)} />)}
               </section>
             )}
 
@@ -112,7 +163,13 @@ export default function PoolwagenBeheer() {
   )
 }
 
-function CarRow({ car, cars, onPatch }: { car: PoolCar; cars: PoolCar[]; onPatch: (body: Record<string, unknown>) => Promise<boolean> }) {
+function CarRow({ car, cars, fuel, onPatch, onSaveFuel }: {
+  car: PoolCar
+  cars: PoolCar[]
+  fuel: FuelCard | null
+  onPatch: (body: Record<string, unknown>) => Promise<boolean>
+  onSaveFuel: (form: CarForm) => Promise<string | null>
+}) {
   const [editing, setEditing] = useState(false)
   const [blocking, setBlocking] = useState(false)
   const [note, setNote] = useState('')
@@ -128,14 +185,22 @@ function CarRow({ car, cars, onPatch }: { car: PoolCar; cars: PoolCar[]; onPatch
   if (editing) {
     return (
       <CarEditor
-        initial={{ name: car.name, license_plate: car.license_plate, make_model: car.make_model ?? '', current_km: String(car.current_km) }}
+        initial={{
+          name: car.name, license_plate: car.license_plate, make_model: car.make_model ?? '', current_km: String(car.current_km),
+          fuel_card_number: fuel?.card_number ?? '', fuel_pin: '', clear_pin: false,
+        }}
+        hasPin={!!fuel?.has_pin}
         nameTaken={name => isDuplicateCarName(name, cars, car.id)}
         submitLabel="Opslaan"
         onCancel={() => setEditing(false)}
         onSubmit={async form => {
-          const ok = await onPatch(form as unknown as Record<string, unknown>)
-          if (ok) setEditing(false)
-          return ok
+          const ok = await onPatch(carFields(form))
+          if (!ok) return false
+          // De wagen is bewaard; een fout bij de kaart houdt het formulier open.
+          const fuelError = await onSaveFuel(form)
+          if (fuelError) return fuelError
+          setEditing(false)
+          return true
         }}
       />
     )
@@ -155,6 +220,12 @@ function CarRow({ car, cars, onPatch }: { car: PoolCar; cars: PoolCar[]; onPatch
             <span className="px-1.5 py-0.5 rounded border border-zinc-700 text-[10px] font-mono text-zinc-300">{car.license_plate}</span>
           </div>
           <div className="text-xs text-zinc-500">{[car.make_model, `${km(car.current_km)} km`].filter(Boolean).join(' · ')}</div>
+          {(car.fuel_card_last4 || fuel?.has_pin) && (
+            <div className="text-xs text-zinc-500 flex items-center gap-2">
+              <FuelTag last4={car.fuel_card_last4} className="text-xs" />
+              <span>{fuel?.has_pin ? 'pincode ingesteld' : 'geen pincode'}</span>
+            </div>
+          )}
           <div className={`text-xs ${car.manual_block && !archivedCar ? 'text-red-400' : archivedCar ? 'text-zinc-500' : 'text-emerald-400'}`}>{state}</div>
         </div>
 
@@ -209,17 +280,24 @@ function CarRow({ car, cars, onPatch }: { car: PoolCar; cars: PoolCar[]; onPatch
   )
 }
 
-function CarEditor({ initial, nameTaken, submitLabel, onSubmit, onCancel }: {
+function CarEditor({ initial, hasPin = false, nameTaken, submitLabel, onSubmit, onCancel }: {
   initial: CarForm
+  /** Er is al een pincode bewaard (de pincode zelf komt niet mee). */
+  hasPin?: boolean
   nameTaken: (name: string) => boolean
   submitLabel: string
-  onSubmit: (form: CarForm) => Promise<boolean>
+  /** true = klaar; false = fout (elders getoond); tekst = fout om hier te tonen. */
+  onSubmit: (form: CarForm) => Promise<boolean | string>
   onCancel: () => void
 }) {
   const [form, setForm] = useState(initial)
   const [busy, setBusy] = useState(false)
-  const set = (k: keyof CarForm) => (e: ChangeEvent<HTMLInputElement>) => setForm(f => ({ ...f, [k]: e.target.value }))
+  const [fuelError, setFuelError] = useState('')
+  const set = (k: keyof CarForm) => (e: ChangeEvent<HTMLInputElement>) => { setFuelError(''); setForm(f => ({ ...f, [k]: e.target.value })) }
   const duplicate = nameTaken(form.name)
+  // Dezelfde controle als de server, terwijl je typt.
+  const fuelCheck = fuelCardChanged({ card_number: initial.fuel_card_number || null }, fuelForm(form)) ? parseFuelCardInput(fuelForm(form)) : null
+  const fuelProblem = fuelCheck && 'error' in fuelCheck ? fuelCheck.error : ''
 
   return (
     <form
@@ -227,7 +305,8 @@ function CarEditor({ initial, nameTaken, submitLabel, onSubmit, onCancel }: {
       onSubmit={async e => {
         e.preventDefault()
         setBusy(true)
-        await onSubmit(form)
+        const result = await onSubmit(form)
+        if (typeof result === 'string') setFuelError(result)
         setBusy(false)
       }}
     >
@@ -250,12 +329,31 @@ function CarEditor({ initial, nameTaken, submitLabel, onSubmit, onCancel }: {
           <label className={labelCls}>Actuele kilometerstand</label>
           <input className={inputCls} value={form.current_km} onChange={set('current_km')} inputMode="numeric" placeholder="0" />
         </div>
+        <div>
+          <label className={labelCls}>Tankkaart (nummer)</label>
+          <input className={inputCls} value={form.fuel_card_number} onChange={set('fuel_card_number')} placeholder="bv. 7077 1234 5678 9012"
+            autoComplete="off" data-1p-ignore data-lpignore="true" />
+          <p className="mt-1 text-[11px] text-zinc-500">Elders staan alleen de laatste 4 tekens.</p>
+        </div>
+        <div>
+          <label className={labelCls}>Pincode tankkaart</label>
+          <input className={inputCls} type="password" inputMode="numeric" value={form.fuel_pin} onChange={set('fuel_pin')}
+            disabled={form.clear_pin} maxLength={8} autoComplete="off" data-1p-ignore data-lpignore="true"
+            placeholder={hasPin ? 'Ingesteld; leeg laten om te behouden' : '4 tot 8 cijfers'} />
+          {hasPin && (
+            <label className="mt-1.5 inline-flex items-center gap-2 text-xs text-zinc-400">
+              <input type="checkbox" checked={form.clear_pin} onChange={e => { setFuelError(''); setForm(f => ({ ...f, clear_pin: e.target.checked, fuel_pin: '' })) }} />
+              Pincode wissen
+            </label>
+          )}
+        </div>
       </div>
+      {(fuelProblem || fuelError) && <p className="text-xs text-red-400">{fuelProblem || fuelError}</p>}
       <div className="grid grid-cols-2 gap-2 md:flex md:justify-end">
         <button type="button" onClick={onCancel} className="min-h-11 md:min-h-0 inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs text-zinc-400 border border-zinc-800 md:border-0 hover:text-zinc-200">
           <X size={14} /> Annuleren
         </button>
-        <button type="submit" disabled={busy || duplicate} className="min-h-11 md:min-h-0 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-50" style={{ backgroundColor: ACCENT }}>
+        <button type="submit" disabled={busy || duplicate || !!fuelProblem} className="min-h-11 md:min-h-0 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-50" style={{ backgroundColor: ACCENT }}>
           {busy ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} {submitLabel}
         </button>
       </div>
