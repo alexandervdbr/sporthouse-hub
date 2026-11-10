@@ -1,12 +1,12 @@
--- Poolwagens: de testwagen van de tankkaarttest verwijderen. ÉÉN TRANSACTIE.
+-- Poolwagens: de testwagens van de tankkaarttest verwijderen. ÉÉN TRANSACTIE.
 --
--- Verwijdert precies één wagen: "TEST Poolwagen" (1-ABC-123), met zijn
--- reservaties, schademeldingen en tankkaart (die laatste via on delete cascade).
--- Andere wagens blijven onaangeroerd.
+-- Verwijdert precies twee wagens: "TEST Poolwagen" (1-ABC-123) en
+-- "TEST Poolwagen 2" (1-ABC-124), met hun reservaties, schademeldingen en
+-- tankkaart (die laatste via on delete cascade). Andere wagens blijven
+-- onaangeroerd.
 --
 -- Het script stopt met een fout en verwijdert NIETS als:
---   - er niet precies één wagen is waarvan de naam met "TEST" begint;
---   - die wagen een andere naam of nummerplaat heeft;
+--   - de TEST-wagens niet precies deze twee zijn (naam én nummerplaat);
 --   - er schadefoto's aan hangen (die staan ook in Drive en moeten eerst daar weg).
 --
 -- Verwacht: één rij met test_wagens 0, reservaties 0, meldingen 0, tankkaarten 0.
@@ -15,29 +15,31 @@ begin;
 
 do $$
 declare
-  n_test   int  := (select count(*) from public.pool_cars where name ilike 'TEST%');
-  v_car    uuid := (select id from public.pool_cars where name = 'TEST Poolwagen' and license_plate = '1-ABC-123');
+  v_found  text := (select string_agg(name || ' · ' || license_plate, ', ' order by license_plate)
+                       from public.pool_cars where name ilike 'TEST%');
+  v_cars   uuid[] := array(select id from public.pool_cars
+                            where (name, license_plate) in (('TEST Poolwagen', '1-ABC-123'), ('TEST Poolwagen 2', '1-ABC-124')));
   n_photos int;
 begin
-  if n_test <> 1 or v_car is null then
-    raise exception 'Niets verwijderd: verwacht precies één wagen "TEST Poolwagen" (1-ABC-123), gevonden: % TEST-wagen(s), %',
-      n_test, coalesce((select string_agg(name || ' · ' || license_plate, ', ') from public.pool_cars where name ilike 'TEST%'), '-');
+  if v_found is distinct from 'TEST Poolwagen · 1-ABC-123, TEST Poolwagen 2 · 1-ABC-124' or cardinality(v_cars) <> 2 then
+    raise exception 'Niets verwijderd: verwacht precies TEST Poolwagen (1-ABC-123) en TEST Poolwagen 2 (1-ABC-124), gevonden: % (%)',
+      cardinality(v_cars), coalesce(v_found, '-');
   end if;
 
   select count(*) into n_photos
     from public.pool_car_damage_photos p
     join public.pool_car_damage_reports d on d.id = p.report_id
-   where d.car_id = v_car;
+   where d.car_id = any(v_cars);
   if n_photos <> 0 then
-    raise exception 'Niets verwijderd: er hangen % schadefoto(''s) aan de testwagen.', n_photos;
+    raise exception 'Niets verwijderd: er hangen % schadefoto(''s) aan de testwagens.', n_photos;
   end if;
 
-  delete from public.pool_car_damage_reports where car_id = v_car;
-  delete from public.pool_car_reservations   where car_id = v_car;
-  delete from public.pool_cars               where id = v_car;   -- tankkaart volgt via cascade
+  delete from public.pool_car_damage_reports where car_id = any(v_cars);
+  delete from public.pool_car_reservations   where car_id = any(v_cars);
+  delete from public.pool_cars               where id = any(v_cars);   -- tankkaart volgt via cascade
 
-  if exists (select 1 from public.pool_cars where id = v_car)
-     or exists (select 1 from public.pool_car_fuel_cards where car_id = v_car) then
+  if exists (select 1 from public.pool_cars where id = any(v_cars))
+     or exists (select 1 from public.pool_car_fuel_cards where car_id = any(v_cars)) then
     raise exception 'Na het verwijderen blijft er iets over; alles teruggedraaid.';
   end if;
 end $$;
