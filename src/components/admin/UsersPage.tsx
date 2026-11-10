@@ -625,10 +625,10 @@ function PermissionsPanel({
   useEffect(() => {
     createClient().from('credentials').select('id, platform, username').order('platform').then(({ data }) => {
       const creds = (data ?? []) as CredentialOption[]
+      // Geen lijst ingesteld = geen wachtwoorden (zo ziet get_credentials()
+      // het ook). Niet vooraf alles aanvinken: dan krijgt iemand bij de
+      // eerstvolgende opslag van zijn profiel ongemerkt toegang tot alles.
       setAllCredentials(creds)
-      if (!user.permissions?.credentials) {
-        setCredIds(creds.map(c => c.id))
-      }
       setCredsReady(true)
     })
   }, [])

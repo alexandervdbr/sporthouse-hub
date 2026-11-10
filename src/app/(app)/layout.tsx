@@ -8,7 +8,7 @@ import { toStatusMap } from '@/lib/tool-status'
 
 // Single shared layout for every authenticated in-app section (dashboard,
 // clients, chat, team, planning, equipment, freelancers, admin, events,
-// projects, calendar, mijn-gedacht) — previously each had its own,
+// projects, calendar, mijn-gedacht, passwords) — previously each had its own,
 // near-identical layout.tsx, which meant AppShell (and the sidebar inside
 // it) was a genuinely different React subtree per section. Navigating
 // between sections forced a full unmount/remount of the sidebar itself,

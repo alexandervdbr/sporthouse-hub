@@ -25,7 +25,7 @@ describe('toolForPath', () => {
     for (const t of DEV_TOOLS) {
       const page = path.join(appDir, t.path, 'page.tsx')
       // Alleen pagina's onder (app) lopen door AppShell en dus door de poort.
-      // Een tool erbuiten (zoals /passwords) zou in Beheer op "in
+      // Een tool erbuiten zou in Beheer op "in
       // ontwikkeling" kunnen staan zonder dat er iets afgeschermd wordt.
       expect(fs.existsSync(page), `${t.key}: ${page} ontbreekt`).toBe(true)
     }

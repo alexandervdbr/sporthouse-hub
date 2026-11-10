@@ -18,9 +18,8 @@
 //
 // Een nieuwe tool toevoegen: zet hem in DEV_TOOLS hieronder. Meer niet —
 // zolang zijn pagina onder src/app/(app)/ staat, want daar zit de poort
-// (AppShell → ToolGate). Wachtwoorden (/passwords) staat erbuiten en kan
-// daarom niet in dev-modus; de test in __tests__/tool-status.test.ts bewaakt
-// dat.
+// (AppShell → ToolGate). Een pagina daarbuiten kan niet in dev-modus; de
+// test in __tests__/tool-status.test.ts bewaakt dat.
 //
 // Geen server-only imports: de zijbalk en het beheerscherm lezen dit ook.
 
