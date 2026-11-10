@@ -5,6 +5,8 @@ import { AlertTriangle, ChevronDown, Flag, Loader2, LogIn, LogOut, Pencil, Rotat
 import { ACCENT, ErrorLine, Modal, buttonCls, dangerCls, inputCls, km, labelCls, secondaryCls, send } from './ui'
 import { STATE_LABEL } from './PoolwagenGrid'
 import { DamageFields, EMPTY_DAMAGE, damageReady, submitDamage, type DamageDraft } from './damage-form'
+import { FuelPin } from './FuelCard'
+import { canSeePin } from '@/lib/poolwagens/fuel-card'
 import { runArrival } from '@/lib/poolwagens/arrival-flow'
 import { arrivalKmError } from '@/lib/poolwagens/km'
 import { parseKm } from '@/lib/poolwagens/car-input'
@@ -168,7 +170,11 @@ export default function ReservationDetail({ reservation: r, car, block, endanger
         {r.arrived_at && (<><dt className="text-zinc-500">Aankomst</dt><dd className="text-zinc-200">{formatShort(r.arrived_at)} · {km(r.arrival_km)}</dd></>)}
         {r.driven_km !== null && (<><dt className="text-zinc-500">Gereden</dt><dd className="text-zinc-200">{km(r.driven_km)}</dd></>)}
         {r.note && (<><dt className="text-zinc-500">Notitie</dt><dd className="text-zinc-200 break-words">{r.note}</dd></>)}
+        {car?.fuel_card_last4 && (<><dt className="text-zinc-500">Tankkaart</dt><dd className="text-zinc-200 font-mono">••{car.fuel_card_last4}</dd></>)}
       </dl>
+
+      {/* Tijdens de rit: de pincode van de tankkaart, op vraag. */}
+      {car && canSeePin(r, userId, manage) && <FuelPin carId={car.id} last4={car.fuel_card_last4} />}
 
       {state === 'te_laat' && (
         <Warning>De geplande terugkomst is voorbij en de aankomst is nog niet geregistreerd.</Warning>

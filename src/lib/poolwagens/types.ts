@@ -10,10 +10,19 @@ export interface PoolCar {
   manual_block_note: string | null
   archived_at: string | null
   created_at: string
+  /** De laatste vier tekens van de tankkaart (0087), of null. Het volledige nummer en de pincode staan afgeschermd. */
+  fuel_card_last4: string | null
 }
 
 export const CAR_COLUMNS =
-  'id, name, license_plate, make_model, current_km, manual_block, manual_block_note, archived_at, created_at'
+  'id, name, license_plate, make_model, current_km, manual_block, manual_block_note, archived_at, created_at, fuel_card_last4'
+
+/** De tankkaart zoals beheer ze ziet (pool_fuel_cards): het volledige nummer, en of er een pincode is. */
+export interface FuelCard {
+  car_id: string
+  card_number: string | null
+  has_pin: boolean
+}
 
 export interface ClientRef {
   id: string

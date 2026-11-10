@@ -8,6 +8,7 @@ import ReservationDialog, { type ReservationDialogMode } from './ReservationDial
 import ReservationDetail from './ReservationDetail'
 import DamageDialog from './DamageDialog'
 import NuStatus from './NuStatus'
+import { FuelPinButton } from './FuelCard'
 import AgendaList from './AgendaList'
 import { ACCENT, ErrorLine, Notice, PoolHeader, buttonCls, newNotice, pageBody, panelCls, secondaryCls, send } from './ui'
 import type { PoolwagenAccess } from '@/lib/poolwagens/access'
@@ -15,6 +16,7 @@ import { addDays, eachDay, todayInBrussels } from '@/lib/gear/dates'
 import { buildAgenda } from '@/lib/poolwagens/agenda'
 import { buildPoolGrid } from '@/lib/poolwagens/grid'
 import { carsNow, isMine } from '@/lib/poolwagens/status'
+import { canSeePin } from '@/lib/poolwagens/fuel-card'
 import { formatPeriod, mondayOf, nextHourLocal, shortDayLabel } from '@/lib/poolwagens/time'
 import { endangeredReservations, tripState } from '@/lib/poolwagens/trips'
 import {
@@ -168,19 +170,22 @@ export default function PoolwagenPlanner({ userId, access }: { userId: string; a
                 const state = tripState(r, now)
                 const car = planning.cars.find(c => c.id === r.car_id)
                 return (
-                  <button key={r.id} onClick={() => setDialog({ kind: 'detail', id: r.id })}
-                    className="inline-flex items-center gap-2 min-h-11 md:min-h-0 px-2.5 py-1 rounded-lg border text-xs hover:bg-zinc-800/60 max-w-full"
-                    style={{ borderColor: `${STATE_COLOR[state]}80`, color: STATE_COLOR[state] }}>
-                    <span className="font-semibold truncate min-w-0">{car?.name ?? 'Wagen'}</span>
-                    <span className="text-zinc-400 truncate min-w-0">{formatPeriod(r.start_at, r.end_at)}</span>
-                    <span className="hidden sm:inline">{state === 'gepland' ? 'Vertrek registreren' : state === 'teruggebracht' ? STATE_LABEL[state] : 'Aankomst registreren'}</span>
-                  </button>
+                  <span key={r.id} className="inline-flex flex-wrap items-center gap-2 max-w-full">
+                    <button onClick={() => setDialog({ kind: 'detail', id: r.id })}
+                      className="inline-flex items-center gap-2 min-h-11 md:min-h-0 px-2.5 py-1 rounded-lg border text-xs hover:bg-zinc-800/60 max-w-full"
+                      style={{ borderColor: `${STATE_COLOR[state]}80`, color: STATE_COLOR[state] }}>
+                      <span className="font-semibold truncate min-w-0">{car?.name ?? 'Wagen'}</span>
+                      <span className="text-zinc-400 truncate min-w-0">{formatPeriod(r.start_at, r.end_at)}</span>
+                      <span className="hidden sm:inline">{state === 'gepland' ? 'Vertrek registreren' : state === 'teruggebracht' ? STATE_LABEL[state] : 'Aankomst registreren'}</span>
+                    </button>
+                    {car?.fuel_card_last4 && canSeePin(r, userId, false) && <FuelPinButton carId={car.id} last4={car.fuel_card_last4} />}
+                  </span>
                 )
               })}
             </section>
           )}
 
-          <NuStatus planning={planning} userId={userId} canBook={access.use}
+          <NuStatus planning={planning} userId={userId} canBook={access.use} manage={access.manage}
             onDepart={carId => departNow(carId)}
             onArrive={id => setDialog({ kind: 'detail', id, initialForm: 'aankomst' })}
             onDetails={id => setDialog({ kind: 'detail', id })} />

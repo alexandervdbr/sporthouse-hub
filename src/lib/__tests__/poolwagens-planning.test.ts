@@ -211,7 +211,7 @@ describe('de weergave onthouden', () => {
 
 const car = (id: string, extra: Partial<PoolCar> = {}): PoolCar => ({
   id, name: `Wagen ${id}`, license_plate: `1-TST-00${id}`, make_model: null, current_km: 1000,
-  manual_block: false, manual_block_note: null, archived_at: null, created_at: '2026-01-01T00:00:00Z', ...extra,
+  manual_block: false, manual_block_note: null, archived_at: null, created_at: '2026-01-01T00:00:00Z', fuel_card_last4: null, ...extra,
 })
 const res = (id: string, carId: string, start: string, end: string, extra: Partial<PoolReservation> = {}): PoolReservation => ({
   id, car_id: carId, user_id: 'u2', person_name: 'Bram Peeters', client_id: null, client_name: null,
