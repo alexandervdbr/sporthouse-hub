@@ -3,15 +3,19 @@
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { generatePassword } from '@/lib/password-generator'
-import { Plus, Eye, EyeOff, Copy, Check, Pencil, Trash2, X, ExternalLink, Search, Lock, WandSparkles } from 'lucide-react'
+import type { LoginMethod } from '@/lib/credential-import'
+import ImportModal from '@/components/passwords/ImportModal'
+import { Plus, Eye, EyeOff, Copy, Check, Pencil, Trash2, X, ExternalLink, Search, Lock, WandSparkles, Upload } from 'lucide-react'
 
 interface Credential {
   id: string
   platform: string
   url: string | null
   username: string
-  password: string
+  // null bij een Google-login (migratie 0088).
+  password: string | null
   notes: string | null
+  login_method: LoginMethod
   created_at: string
 }
 
@@ -21,9 +25,10 @@ interface FormState {
   username: string
   password: string
   notes: string
+  login_method: LoginMethod
 }
 
-const EMPTY_FORM: FormState = { platform: '', url: '', username: '', password: '', notes: '' }
+const EMPTY_FORM: FormState = { platform: '', url: '', username: '', password: '', notes: '', login_method: 'password' }
 
 // Het zichtbaar gemaakte wachtwoord op een kaart verbergt zichzelf weer.
 const REVEAL_MS = 30_000
@@ -68,6 +73,7 @@ function CredentialCard({
 }) {
   const [showPassword, setShowPassword] = useState(false)
   const initials = cred.platform.slice(0, 2).toUpperCase()
+  const viaGoogle = cred.login_method === 'google'
 
   useEffect(() => {
     if (!showPassword) return
@@ -149,13 +155,24 @@ function CredentialCard({
           style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
         >
           <div className="min-w-0">
-            <p className="text-[10px] text-zinc-600 uppercase tracking-widest mb-0.5">Gebruikersnaam</p>
+            <p className="text-[10px] text-zinc-600 uppercase tracking-widest mb-0.5">{viaGoogle ? 'Google-account' : 'Gebruikersnaam'}</p>
             <p className="text-sm text-zinc-300 truncate">{cred.username}</p>
           </div>
-          <CopyButton value={cred.username} label="Gebruikersnaam kopiëren" />
+          <CopyButton value={cred.username} label={viaGoogle ? 'Google-account kopiëren' : 'Gebruikersnaam kopiëren'} />
         </div>
 
-        {/* Password */}
+        {/* Password — of hoe je anders aanmeldt */}
+        {viaGoogle ? (
+          <div
+            className="flex items-center gap-2 px-3 py-2 rounded-lg"
+            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
+          >
+            <div className="min-w-0">
+              <p className="text-[10px] text-zinc-600 uppercase tracking-widest mb-0.5">Aanmelden</p>
+              <p className="text-sm text-zinc-300">Inloggen met Google</p>
+            </div>
+          </div>
+        ) : (
         <div
           className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg"
           style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
@@ -175,9 +192,10 @@ function CredentialCard({
             >
               {showPassword ? <EyeOff size={13} /> : <Eye size={13} />}
             </button>
-            <CopyButton value={cred.password} label="Wachtwoord kopiëren" />
+            <CopyButton value={cred.password ?? ''} label="Wachtwoord kopiëren" />
           </div>
         </div>
+        )}
 
         {/* Notes */}
         {cred.notes && (
@@ -245,10 +263,30 @@ function Modal({
               value={form.url} onChange={e => onChange({ ...form, url: e.target.value })} />
           </div>
           <div>
-            <label className={labelClass}>Gebruikersnaam / e-mail *</label>
-            <input className={inputClass} placeholder="gebruikersnaam of e-mailadres"
+            <span className={labelClass}>Aanmelden met</span>
+            <div role="radiogroup" aria-label="Aanmelden met" className="flex gap-1 p-1 rounded-lg bg-zinc-900 border border-zinc-700">
+              {([['password', 'Wachtwoord'], ['google', 'Google']] as [LoginMethod, string][]).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="radio"
+                  aria-checked={form.login_method === value}
+                  onClick={() => onChange({ ...form, login_method: value })}
+                  className={'flex-1 px-3 py-1.5 rounded-md text-sm transition-colors ' +
+                    (form.login_method === value ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-zinc-200')}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className={labelClass}>{form.login_method === 'google' ? 'Google-account *' : 'Gebruikersnaam / e-mail *'}</label>
+            <input className={inputClass}
+              placeholder={form.login_method === 'google' ? 'naam@sporthouse.be' : 'gebruikersnaam of e-mailadres'}
               value={form.username} onChange={e => onChange({ ...form, username: e.target.value })} />
           </div>
+          {form.login_method === 'password' && (
           <div>
             <label className={labelClass}>Wachtwoord *</label>
             <div className="relative">
@@ -282,6 +320,7 @@ function Modal({
               </div>
             </div>
           </div>
+          )}
           <div>
             <label className={labelClass}>Notities</label>
             <textarea className={inputClass + ' resize-none'} rows={2} placeholder="Optionele notitie…"
@@ -300,7 +339,7 @@ function Modal({
           </button>
           <button
             onClick={onSave}
-            disabled={saving || !form.platform || !form.username || !form.password}
+            disabled={saving || !form.platform || !form.username || (form.login_method === 'password' && !form.password)}
             className="px-4 py-2 text-sm font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ background: '#3A913F', color: '#fff' }}
           >
@@ -326,6 +365,7 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
 
   useEffect(() => {
     if (!deleteId) return
@@ -358,7 +398,10 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
   function openEdit(cred: Credential) {
     setEditing(cred)
     setSaveError(null)
-    setForm({ platform: cred.platform, url: cred.url ?? '', username: cred.username, password: cred.password, notes: cred.notes ?? '' })
+    setForm({
+      platform: cred.platform, url: cred.url ?? '', username: cred.username, password: cred.password ?? '',
+      notes: cred.notes ?? '', login_method: cred.login_method ?? 'password',
+    })
     setModalOpen(true)
   }
 
@@ -370,8 +413,9 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
       p_platform: form.platform.trim(),
       p_url: form.url.trim() || null,
       p_username: form.username.trim(),
-      p_password: form.password,
+      p_password: form.login_method === 'password' ? form.password : null,
       p_notes: form.notes.trim() || null,
+      p_login_method: form.login_method,
     })
     setSaving(false)
     // Bij een fout blijft de modal open, zodat de ingevulde gegevens (en een
@@ -415,14 +459,23 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
           <p className="text-sm text-zinc-500">Gedeelde logins voor het team</p>
         </div>
         {canAdd && (
-          <button
-            onClick={openAdd}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all flex-shrink-0"
-            style={{ background: '#3A913F', color: '#fff' }}
-          >
-            <Plus size={15} />
-            Toevoegen
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={() => setImportOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-zinc-300 bg-zinc-800 hover:bg-zinc-700 transition-colors"
+            >
+              <Upload size={15} />
+              Importeren
+            </button>
+            <button
+              onClick={openAdd}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all"
+              style={{ background: '#3A913F', color: '#fff' }}
+            >
+              <Plus size={15} />
+              Toevoegen
+            </button>
+          </div>
         )}
       </div>
 
@@ -481,6 +534,14 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
           onClose={() => setModalOpen(false)}
           onChange={setForm}
           onSave={handleSave}
+        />
+      )}
+
+      {importOpen && (
+        <ImportModal
+          existing={credentials}
+          onClose={() => setImportOpen(false)}
+          onImported={load}
         />
       )}
 
