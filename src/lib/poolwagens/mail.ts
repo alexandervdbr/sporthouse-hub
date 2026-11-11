@@ -205,7 +205,7 @@ export function reservationMail(r: ReservationMailInput): Omit<MailMessage, 'to'
     `<table style="border-collapse:collapse;margin:0 0 16px">${rows.map(([k, v]) =>
       `<tr><td style="padding:2px 12px 2px 0;color:#71717a;vertical-align:top">${escapeHtml(k)}</td><td style="padding:2px 0;white-space:pre-wrap">${escapeHtml(v)}</td></tr>`).join('')}</table>` +
     `<div style="margin:0 0 16px;padding:10px 14px;border:1px solid #e4e4e7;border-radius:8px;background:#fafafa">` +
-    `<p style="margin:0 0 10px;font-weight:600">Afspraken bij elke rit</p>` +
+    `<p style="margin:0 0 10px;padding-bottom:8px;border-bottom:1px solid #e4e4e7;font-weight:600">Afspraken bij elke rit</p>` +
     POOL_RULES.map((rule, i) =>
       `<p style="margin:${i === POOL_RULES.length - 1 ? '0' : '0 0 10px'}"><strong>${escapeHtml(rule.title)}</strong>` +
       `<br><span style="color:#52525b">${escapeHtml(rule.detail)}</span></p>`).join('') +
