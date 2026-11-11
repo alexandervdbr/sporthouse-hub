@@ -105,7 +105,7 @@ export default function DayAgenda(props: Props) {
   )
 }
 
-function Row({ entry, color, part, day, today, canBook, openKits, onToggleKit, onBook, onOpenBooking, onOpenItem, onOpenKit }: Props & {
+function Row({ entry, color, part, day, today, canBook, openKits, onToggleKit, onBook, onOpenBooking, onOpenItem, onOpenKit, search }: Props & {
   entry: DayEntry; color: string; part?: boolean
 }) {
   const bookable = canBook && day >= today && entry.state === 'vrij'
@@ -116,6 +116,10 @@ function Row({ entry, color, part, day, today, canBook, openKits, onToggleKit, o
   const name = entry.kind === 'kit' ? (() => {
     const { kit, parts } = entry.row
     const open = openKits.has(kit.id)
+    // Dichtgeklapt bij het zoeken: welk onderdeel matcht, als het niet de kit zelf is.
+    const q = search.trim().toLowerCase()
+    const hits = q && !open && !kit.name.toLowerCase().includes(q)
+      ? parts.map(p => p.item).filter(i => i.name.toLowerCase().includes(q) || (i.model ?? '').toLowerCase().includes(q)).map(i => i.name) : []
     return (
       <>
         <button onClick={() => onToggleKit(kit.id)} aria-expanded={open} aria-label={open ? 'Onderdelen verbergen' : 'Onderdelen tonen'}
@@ -129,6 +133,7 @@ function Row({ entry, color, part, day, today, canBook, openKits, onToggleKit, o
           {kit.name}
         </button>
         <KitBadges kit={kit} parts={parts.map(p => p.item)} />
+        {hits.length > 0 && <span className="min-w-0 truncate text-[11px] text-emerald-400/80" title={hits.join(', ')}>· {hits.join(', ')}</span>}
         <ResponsiblePill r={entry.row.responsible} />
       </>
     )

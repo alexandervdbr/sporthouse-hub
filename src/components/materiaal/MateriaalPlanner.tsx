@@ -250,7 +250,8 @@ export default function MateriaalPlanner({ userId, access, initialView, initialD
             today={today}
             collapsed={search ? new Set() : collapsed}
             onToggleCategory={toggle(setCollapsed)}
-            openKits={search ? new Set(catalog.kits.map(k => k.id)) : openKits}
+            // Hier blijven kits dicht bij het zoeken: vaak zoek je de kit zelf. Wat erin matcht, staat naast de naam.
+            openKits={openKits}
             onToggleKit={toggle(setOpenKits)}
             canBook={access.book}
             onBook={onBookDay}
