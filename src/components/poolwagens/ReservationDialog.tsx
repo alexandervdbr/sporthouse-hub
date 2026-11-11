@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { Car, Check, Loader2 } from 'lucide-react'
+import ClientPicker from './ClientPicker'
 import { ACCENT, ErrorLine, Modal, inputCls, labelCls, secondaryCls, buttonCls, send } from './ui'
 import { blockFor } from '@/lib/poolwagens/status'
 import { NO_FREE_CAR_TEXT, carChoices, pickFreeCar, reservationFormProblem } from '@/lib/poolwagens/reservation-form'
@@ -183,16 +184,7 @@ export default function ReservationDialog({ mode, planning, options, userId, man
 
       <div>
         <label className={labelCls}>Klant (optioneel)</label>
-        <input className={inputCls} list="poolwagens-klanten" value={clientText} onChange={e => edit(setClientText)(e.target.value)}
-          placeholder="Kies een klant of typ een naam" maxLength={200} autoComplete="off" />
-        <datalist id="poolwagens-klanten">
-          {clients.map(c => <option key={c.id} value={c.name} />)}
-        </datalist>
-        {typed && (
-          <p className="mt-1 text-[11px] text-zinc-500">
-            {matched ? 'Gekoppeld aan deze klant in de hub.' : 'Staat niet in de klantenlijst: wordt bewaard zoals getypt.'}
-          </p>
-        )}
+        <ClientPicker clients={clients} value={clientText} onChange={edit(setClientText)} matched={matched} />
       </div>
 
       {mode.kind === 'now' && (
