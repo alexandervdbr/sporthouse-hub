@@ -5,7 +5,9 @@ import { createClient } from '@/lib/supabase/client'
 import { generatePassword } from '@/lib/password-generator'
 import type { LoginMethod } from '@/lib/credential-import'
 import ImportModal from '@/components/passwords/ImportModal'
-import { Plus, Eye, EyeOff, Copy, Check, Pencil, Trash2, X, ExternalLink, Search, Lock, WandSparkles, Upload } from 'lucide-react'
+import CategoriesModal from '@/components/passwords/CategoriesModal'
+import { groupByCategory, sortCategories, UNCATEGORIZED_LABEL, type CredentialCategory } from '@/lib/credential-categories'
+import { Plus, Eye, EyeOff, Copy, Check, Pencil, Trash2, X, ExternalLink, Search, Lock, WandSparkles, Upload, Tags, ListChecks, FolderInput } from 'lucide-react'
 
 interface Credential {
   id: string
@@ -16,6 +18,8 @@ interface Credential {
   password: string | null
   notes: string | null
   login_method: LoginMethod
+  // null = "Zonder categorie" (migratie 0089).
+  category_id: string | null
   created_at: string
 }
 
@@ -26,9 +30,11 @@ interface FormState {
   password: string
   notes: string
   login_method: LoginMethod
+  // '' = zonder categorie
+  category_id: string
 }
 
-const EMPTY_FORM: FormState = { platform: '', url: '', username: '', password: '', notes: '', login_method: 'password' }
+const EMPTY_FORM: FormState = { platform: '', url: '', username: '', password: '', notes: '', login_method: 'password', category_id: '' }
 
 // Het zichtbaar gemaakte wachtwoord op een kaart verbergt zichzelf weer.
 const REVEAL_MS = 30_000
@@ -66,10 +72,16 @@ function CredentialCard({
   cred,
   onEdit,
   onDelete,
+  selecting = false,
+  selected = false,
+  onToggleSelect,
 }: {
   cred: Credential
   onEdit?: (c: Credential) => void
   onDelete?: (id: string) => void
+  selecting?: boolean
+  selected?: boolean
+  onToggleSelect?: () => void
 }) {
   const [showPassword, setShowPassword] = useState(false)
   const initials = cred.platform.slice(0, 2).toUpperCase()
@@ -86,9 +98,31 @@ function CredentialCard({
       className="relative rounded-2xl p-5 flex flex-col gap-4 group"
       style={{
         background: 'rgba(22,22,22,0.98)',
-        border: '1px solid rgba(255,255,255,0.09)',
+        border: selected ? '1px solid #3A913F' : '1px solid rgba(255,255,255,0.09)',
       }}
     >
+      {/* Selecteermodus: de hele kaart is één knop, zodat je niet per ongeluk
+          een wachtwoord kopieert of opent terwijl je aan het aanvinken bent. */}
+      {selecting && (
+        <button
+          type="button"
+          onClick={onToggleSelect}
+          aria-pressed={selected}
+          aria-label={`${cred.platform} ${selected ? 'deselecteren' : 'selecteren'}`}
+          className="absolute inset-0 z-10 rounded-2xl flex items-start justify-end p-3"
+          style={{ background: selected ? 'rgba(58,145,63,0.08)' : 'transparent' }}
+        >
+          <span
+            className="w-5 h-5 rounded-md flex items-center justify-center"
+            style={selected
+              ? { background: '#3A913F', border: '1px solid #3A913F' }
+              : { background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.25)' }}
+          >
+            {selected && <Check size={13} className="text-white" />}
+          </span>
+        </button>
+      )}
+
       {/* Top shine */}
       <div
         className="absolute top-0 left-[10%] right-[10%] h-px pointer-events-none"
@@ -121,7 +155,7 @@ function CredentialCard({
         </div>
 
         {/* Actions */}
-        {(onEdit || onDelete) && (
+        {!selecting && (onEdit || onDelete) && (
           <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0">
             {onEdit && (
               <button
@@ -211,6 +245,7 @@ function CredentialCard({
 function Modal({
   title,
   form,
+  categories,
   saving,
   error,
   onClose,
@@ -219,6 +254,7 @@ function Modal({
 }: {
   title: string
   form: FormState
+  categories: CredentialCategory[]
   saving: boolean
   error: string | null
   onClose: () => void
@@ -256,6 +292,14 @@ function Modal({
             <label className={labelClass}>Platform *</label>
             <input className={inputClass} placeholder="bv. Instagram, Facebook, Google…"
               value={form.platform} onChange={e => onChange({ ...form, platform: e.target.value })} />
+          </div>
+          <div>
+            <label className={labelClass} htmlFor="cred-category">Categorie</label>
+            <select id="cred-category" className={inputClass}
+              value={form.category_id} onChange={e => onChange({ ...form, category_id: e.target.value })}>
+              <option value="">{UNCATEGORIZED_LABEL}</option>
+              {sortCategories(categories).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
           </div>
           <div>
             <label className={labelClass}>URL</label>
@@ -366,6 +410,14 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
   const [saving, setSaving] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [importOpen, setImportOpen] = useState(false)
+  const [categories, setCategories] = useState<CredentialCategory[]>([])
+  const [categoriesOpen, setCategoriesOpen] = useState(false)
+  // Meerdere logins tegelijk naar een categorie verplaatsen.
+  const [selecting, setSelecting] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [moveTarget, setMoveTarget] = useState('')
+  const [moving, setMoving] = useState(false)
+  const [moveError, setMoveError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!deleteId) return
@@ -374,7 +426,48 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
     return () => window.removeEventListener('keydown', onKey)
   }, [deleteId])
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(); loadCategories() }, [])
+
+  // Categorienamen zijn niet geheim; gewoon via de tabel (RLS, migratie 0089).
+  async function loadCategories() {
+    const { data, error } = await supabase.from('credential_categories').select('id, name, sort_order')
+    if (error) console.error('Kon categorieën niet laden:', error)
+    setCategories((data as CredentialCategory[] | null) ?? [])
+  }
+
+  function stopSelecting() {
+    setSelecting(false)
+    setSelectedIds(new Set())
+    setMoveError(null)
+  }
+
+  function toggleSelected(ids: string[], on: boolean) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      for (const id of ids) {
+        if (on) next.add(id)
+        else next.delete(id)
+      }
+      return next
+    })
+  }
+
+  async function moveSelected() {
+    setMoving(true)
+    setMoveError(null)
+    const { error } = await supabase.rpc('set_credentials_category', {
+      p_ids: [...selectedIds],
+      p_category_id: moveTarget || null,
+    })
+    setMoving(false)
+    if (error) {
+      console.error('Verplaatsen mislukt:', error)
+      setMoveError('Verplaatsen mislukt. Probeer opnieuw.')
+      return
+    }
+    stopSelecting()
+    load()
+  }
 
   // get_credentials() (see migration 0025) already returns only what this
   // user is allowed to see — decrypted server-side via pgcrypto, filtered
@@ -400,7 +493,7 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
     setSaveError(null)
     setForm({
       platform: cred.platform, url: cred.url ?? '', username: cred.username, password: cred.password ?? '',
-      notes: cred.notes ?? '', login_method: cred.login_method ?? 'password',
+      notes: cred.notes ?? '', login_method: cred.login_method ?? 'password', category_id: cred.category_id ?? '',
     })
     setModalOpen(true)
   }
@@ -416,6 +509,7 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
       p_password: form.login_method === 'password' ? form.password : null,
       p_notes: form.notes.trim() || null,
       p_login_method: form.login_method,
+      p_category_id: form.category_id || null,
     })
     setSaving(false)
     // Bij een fout blijft de modal open, zodat de ingevulde gegevens (en een
@@ -439,10 +533,15 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
     load()
   }
 
+  const categoryName = new Map(categories.map(c => [c.id, c.name]))
   const query = search.trim().toLowerCase()
   const filtered = credentials.filter(c =>
-    [c.platform, c.username, c.url, c.notes].some(field => field?.toLowerCase().includes(query))
+    [c.platform, c.username, c.url, c.notes, c.category_id ? categoryName.get(c.category_id) : null]
+      .some(field => field?.toLowerCase().includes(query))
   )
+  const groups = groupByCategory(filtered, categories)
+  const counts: Record<string, number> = {}
+  for (const c of credentials) if (c.category_id) counts[c.category_id] = (counts[c.category_id] ?? 0) + 1
 
   return (
     <div className="p-4 sm:p-8 max-w-5xl mx-auto">
@@ -458,25 +557,43 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
           </div>
           <p className="text-sm text-zinc-500">Gedeelde logins voor het team</p>
         </div>
-        {canAdd && (
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <button
-              onClick={() => setImportOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-zinc-300 bg-zinc-800 hover:bg-zinc-700 transition-colors"
-            >
-              <Upload size={15} />
-              Importeren
-            </button>
-            <button
-              onClick={openAdd}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all"
-              style={{ background: '#3A913F', color: '#fff' }}
-            >
-              <Plus size={15} />
-              Toevoegen
-            </button>
-          </div>
-        )}
+        <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
+          <button
+            onClick={() => setCategoriesOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-zinc-300 bg-zinc-800 hover:bg-zinc-700 transition-colors"
+          >
+            <Tags size={15} />
+            Categorieën
+          </button>
+          {canAdd && (
+            <>
+              <button
+                onClick={() => (selecting ? stopSelecting() : setSelecting(true))}
+                aria-pressed={selecting}
+                className={'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors ' +
+                  (selecting ? 'bg-zinc-200 text-zinc-900' : 'text-zinc-300 bg-zinc-800 hover:bg-zinc-700')}
+              >
+                <ListChecks size={15} />
+                {selecting ? 'Stoppen met selecteren' : 'Selecteren'}
+              </button>
+              <button
+                onClick={() => setImportOpen(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-zinc-300 bg-zinc-800 hover:bg-zinc-700 transition-colors"
+              >
+                <Upload size={15} />
+                Importeren
+              </button>
+              <button
+                onClick={openAdd}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all"
+                style={{ background: '#3A913F', color: '#fff' }}
+              >
+                <Plus size={15} />
+                Toevoegen
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Search */}
@@ -484,7 +601,7 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
         <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
         <input
           type="text"
-          placeholder="Zoeken op platform, gebruikersnaam, URL of notitie…"
+          placeholder="Zoeken op platform, gebruikersnaam, URL, notitie of categorie…"
           value={search}
           onChange={e => setSearch(e.target.value)}
           className="w-full pl-9 pr-4 py-2.5 rounded-xl text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none transition-colors"
@@ -512,16 +629,88 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map(cred => (
-            <CredentialCard
-              key={cred.id}
-              cred={cred}
-              onEdit={canAdd ? openEdit : undefined}
-              onDelete={canDelete ? setDeleteId : undefined}
-            />
-          ))}
+        // Altijd gegroepeerd per categorie, met een klein tussentiteltje.
+        <div className="space-y-8">
+          {groups.map(group => {
+            const ids = group.items.map(c => c.id)
+            const allSelected = ids.every(id => selectedIds.has(id))
+            return (
+              <section key={group.id ?? 'none'} aria-label={group.name}>
+                <div className="flex items-baseline justify-between gap-3 mb-3">
+                  <h2 className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest">
+                    {group.name} <span className="text-zinc-700 font-normal">{group.items.length}</span>
+                  </h2>
+                  {selecting && (
+                    <button onClick={() => toggleSelected(ids, !allSelected)}
+                      className="text-xs text-zinc-500 hover:text-zinc-200 transition-colors">
+                      {allSelected ? 'Niets selecteren' : 'Alles selecteren'}
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {group.items.map(cred => (
+                    <CredentialCard
+                      key={cred.id}
+                      cred={cred}
+                      onEdit={canAdd ? openEdit : undefined}
+                      onDelete={canDelete ? setDeleteId : undefined}
+                      selecting={selecting}
+                      selected={selectedIds.has(cred.id)}
+                      onToggleSelect={() => toggleSelected([cred.id], !selectedIds.has(cred.id))}
+                    />
+                  ))}
+                </div>
+              </section>
+            )
+          })}
         </div>
+      )}
+
+      {/* Verplaatsbalk */}
+      {selecting && (
+        <div className="sticky bottom-4 z-20 mt-6">
+          <div className="flex flex-wrap items-center gap-3 rounded-xl px-4 py-3 shadow-2xl"
+            style={{ background: '#1f1f1f', border: '1px solid rgba(255,255,255,0.12)' }}>
+            <span className="text-sm text-zinc-300">
+              {selectedIds.size === 0 ? 'Tik op kaarten om ze te selecteren' : `${selectedIds.size} geselecteerd`}
+            </span>
+            <div className="flex flex-wrap items-center gap-2 ml-auto">
+              <label className="flex items-center gap-2 text-sm text-zinc-400">
+                <FolderInput size={15} />
+                <span className="sr-only sm:not-sr-only">Verplaats naar</span>
+                <select
+                  value={moveTarget}
+                  onChange={e => setMoveTarget(e.target.value)}
+                  className="bg-zinc-900 border border-zinc-700 rounded-md px-2 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-zinc-500"
+                >
+                  <option value="">{UNCATEGORIZED_LABEL}</option>
+                  {sortCategories(categories).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </label>
+              <button
+                onClick={moveSelected}
+                disabled={moving || selectedIds.size === 0}
+                className="px-4 py-1.5 text-sm font-medium rounded-lg disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ background: '#3A913F', color: '#fff' }}
+              >
+                {moving ? 'Verplaatsen…' : 'Verplaatsen'}
+              </button>
+              <button onClick={stopSelecting} className="px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-200 transition-colors">
+                Annuleren
+              </button>
+            </div>
+            {moveError && <p role="alert" className="w-full text-sm text-red-400">{moveError}</p>}
+          </div>
+        </div>
+      )}
+
+      {categoriesOpen && (
+        <CategoriesModal
+          categories={categories}
+          counts={counts}
+          onClose={() => setCategoriesOpen(false)}
+          onChanged={async () => { await loadCategories(); load() }}
+        />
       )}
 
       {/* Add/Edit modal */}
@@ -529,6 +718,7 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
         <Modal
           title={editing ? 'Wachtwoord bewerken' : 'Wachtwoord toevoegen'}
           form={form}
+          categories={categories}
           saving={saving}
           error={saveError}
           onClose={() => setModalOpen(false)}
@@ -540,6 +730,7 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
       {importOpen && (
         <ImportModal
           existing={credentials}
+          categories={categories}
           onClose={() => setImportOpen(false)}
           onImported={load}
         />

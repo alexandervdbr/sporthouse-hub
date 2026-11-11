@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { X, Upload, AlertTriangle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { parseImport, buildImportRow, credentialKey, type ImportRow, type LoginMethod } from '@/lib/credential-import'
+import { sortCategories, UNCATEGORIZED_LABEL, type CredentialCategory } from '@/lib/credential-categories'
 
 // Import uit een spreadsheet. De tabel wordt in de browser gelezen en rij
 // per rij via upsert_credential() opgeslagen — dezelfde route als handmatig
@@ -17,10 +18,12 @@ interface Failure { line: number; platform: string }
 
 export default function ImportModal({
   existing,
+  categories,
   onClose,
   onImported,
 }: {
   existing: { platform: string; username: string }[]
+  categories: CredentialCategory[]
   onClose: () => void
   onImported: () => void
 }) {
@@ -31,6 +34,8 @@ export default function ImportModal({
   const [progress, setProgress] = useState(0)
   const [failures, setFailures] = useState<Failure[]>([])
   const [imported, setImported] = useState(0)
+  // Importeren gebeurt per blok: alle rijen van één import komen in deze categorie.
+  const [categoryId, setCategoryId] = useState('')
 
   const busy = step === 'importing'
 
@@ -106,6 +111,7 @@ export default function ImportModal({
         p_password: r.login_method === 'password' ? r.password : null,
         p_notes: r.notes || null,
         p_login_method: r.login_method,
+        p_category_id: categoryId || null,
       })
       if (error) {
         console.error(`Import regel ${r.line} mislukt:`, error.message)
@@ -148,6 +154,9 @@ export default function ImportModal({
                 Eerste kolom = platform, daarna <span className="text-zinc-300">login</span> en <span className="text-zinc-300">wachtwoord</span>.
                 Kolommen <span className="text-zinc-300">url</span> en <span className="text-zinc-300">notitie</span> mogen ook.
                 Het bestand wordt alleen in je browser gelezen.
+              </p>
+              <p className="text-sm text-zinc-500">
+                Werk per categorie: plak de rijen van één categorie en kies die categorie in de volgende stap.
               </p>
               <textarea
                 value={text}
@@ -242,6 +251,18 @@ export default function ImportModal({
               <button onClick={() => { setRows([]); setStep('input') }} className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors">
                 Terug
               </button>
+              <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-2 text-sm text-zinc-400">
+                In categorie
+                <select
+                  value={categoryId}
+                  onChange={e => setCategoryId(e.target.value)}
+                  className="bg-zinc-900 border border-zinc-700 rounded-md px-2 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-zinc-500"
+                >
+                  <option value="">{UNCATEGORIZED_LABEL}</option>
+                  {sortCategories(categories).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </label>
               <button
                 onClick={runImport}
                 disabled={total === 0}
@@ -250,6 +271,7 @@ export default function ImportModal({
               >
                 {total === 1 ? '1 login importeren' : `${total} logins importeren`}
               </button>
+              </div>
             </div>
           </>
         )}
