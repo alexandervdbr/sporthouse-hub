@@ -1,9 +1,9 @@
 'use client'
 
-import { AlertTriangle, ChevronDown, ChevronRight, Plus } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronRight, Plus, Search, X } from 'lucide-react'
 import { ItemBadges, KitBadges, KitIcon, ResponsiblePill, itemNameClass, itemTitle } from '@/components/materiaal/GearLabels'
 import type { GridTarget } from '@/components/materiaal/MaterialGrid'
-import { Select } from '@/components/materiaal/ui'
+import { IconButton, Select, inputCls } from '@/components/materiaal/ui'
 import { DAY_FILTERS, DAY_FILTER_LABEL, type DayEntry, type DayFilter, type DayGroup, type DayHolder, type DayItemEntry } from '@/lib/gear/day-list'
 import { responsibleBand, RESPONSIBLE_NOTICE } from '@/lib/gear/responsible'
 import { STATUS_LABEL } from '@/lib/gear/status'
@@ -34,6 +34,8 @@ interface Props {
   filter: DayFilter
   onFilter: (f: DayFilter) => void
   search: string
+  /** Zoeken; het veld staat hier alleen op de telefoon (op de computer in de kopregel). */
+  onSearch: (q: string) => void
 }
 
 const EMPTY: Record<DayFilter, string> = {
@@ -41,14 +43,23 @@ const EMPTY: Record<DayFilter, string> = {
 }
 
 export default function DayAgenda(props: Props) {
-  const { groups, collapsed, onToggleCategory, openKits, filter, onFilter, search } = props
+  const { groups, collapsed, onToggleCategory, openKits, filter, onFilter, search, onSearch } = props
   return (
     <div className="mx-auto w-full max-w-4xl">
-      <div className="mb-3 flex items-center justify-end">
+      <div className="mb-3 flex items-center gap-2 lg:justify-end">
+        <div className="relative flex-1 min-w-0 lg:hidden">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+          <input type="search" enterKeyHint="search" value={search} onChange={e => onSearch(e.target.value)}
+            placeholder="Zoek materiaal of houder…" aria-label="Zoek materiaal"
+            className={`${inputCls} pl-9 pr-9 [&::-webkit-search-cancel-button]:hidden`} />
+          {search && (
+            <span className="absolute right-0 top-1/2 -translate-y-1/2"><IconButton label="Zoekopdracht wissen" onClick={() => onSearch('')}><X size={14} /></IconButton></span>
+          )}
+        </div>
         <label className="flex items-center gap-2 text-xs text-zinc-400 flex-shrink-0">
-          Toon
+          <span className="hidden sm:inline">Toon</span>
           <Select value={filter} onChange={e => onFilter(e.target.value as DayFilter)}
-            aria-label="Toon" wrapperClassName="w-40" highlighted={filter !== 'all'}>
+            aria-label="Toon" wrapperClassName="w-32 sm:w-40" highlighted={filter !== 'all'}>
             {DAY_FILTERS.map(f => <option key={f} value={f}>{DAY_FILTER_LABEL[f]}</option>)}
           </Select>
         </label>
@@ -62,11 +73,11 @@ export default function DayAgenda(props: Props) {
             const isCollapsed = collapsed.has(category.id)
             return (
               <section key={category.id} className="border-b border-zinc-800 last:border-b-0">
-                <div className="flex items-stretch h-[30px]" style={{ background: `linear-gradient(90deg, ${category.color}26 0%, #09090b 100%), #09090b` }}>
+                <div className="flex items-stretch h-11 sm:h-[30px]" style={{ background: `linear-gradient(90deg, ${category.color}26 0%, #09090b 100%), #09090b` }}>
                   <button onClick={() => onToggleCategory(category.id)} aria-expanded={!isCollapsed}
                     aria-label={isCollapsed ? `${category.name} openklappen` : `${category.name} dichtklappen`}
-                    className="flex-shrink-0 flex items-center pl-3 pr-1.5">
-                    {isCollapsed ? <ChevronRight size={12} style={{ color: category.color }} /> : <ChevronDown size={12} style={{ color: category.color }} />}
+                    className="flex-shrink-0 flex items-center pl-3 pr-3 sm:pr-1.5">
+                    {isCollapsed ? <ChevronRight size={14} style={{ color: category.color }} /> : <ChevronDown size={14} style={{ color: category.color }} />}
                   </button>
                   <button onClick={() => props.onOpenCategory(category.id)} title={`${category.name} — details`}
                     className="flex-1 min-w-0 flex items-center gap-2 pr-3 text-left">
@@ -108,8 +119,8 @@ function Row({ entry, color, part, day, today, canBook, openKits, onToggleKit, o
     return (
       <>
         <button onClick={() => onToggleKit(kit.id)} aria-expanded={open} aria-label={open ? 'Onderdelen verbergen' : 'Onderdelen tonen'}
-          className="w-5 h-5 flex items-center justify-center text-zinc-500 hover:text-zinc-200 flex-shrink-0">
-          {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+          className="w-9 h-9 -my-1.5 -ml-1 sm:w-5 sm:h-5 sm:my-0 sm:ml-0 flex items-center justify-center rounded-md text-zinc-500 hover:text-zinc-200 flex-shrink-0">
+          {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
         </button>
         <span className="w-0.5 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
         <KitIcon />
@@ -166,26 +177,36 @@ function Row({ entry, color, part, day, today, canBook, openKits, onToggleKit, o
   ) : (
     <Free entry={entry} bookable={bookable} bookKit={target.kind === 'kit' && entry.kind === 'item'} onBook={() => onBook(target)} cls={statusCls} />
   )
+  // Telefoon: niets dan "vrij" (of een status) → naam en stand op één regel; anders de stand eronder.
+  const { responsible, elsewhere } = freeExtras(entry)
+  const compact = !entry.holders.length && !responsible && !elsewhere
 
   return (
-    <div className={`flex flex-col gap-1 px-2 py-1.5 border-t border-zinc-900 sm:grid sm:grid-cols-[minmax(0,19rem)_minmax(0,1fr)] sm:items-center sm:gap-3 ${part ? 'bg-[#0b0b0d]' : 'bg-zinc-950'}`}>
-      <div className={`flex items-center gap-1.5 min-w-0 min-h-7 ${part ? 'pl-9' : entry.kind === 'kit' ? '' : 'pl-2'}`}>{name}</div>
-      <div className={part ? 'pl-9 sm:pl-0' : ''}>{status}</div>
+    <div className={`flex ${compact ? 'flex-row items-center gap-2' : 'flex-col gap-1'} px-2 py-1.5 border-t border-zinc-900 sm:grid sm:grid-cols-[minmax(0,19rem)_minmax(0,1fr)] sm:items-center sm:gap-3 ${part ? 'bg-[#0b0b0d]' : 'bg-zinc-950'}`}>
+      <div className={`flex items-center gap-1.5 min-w-0 min-h-7 ${compact ? 'flex-1' : ''} ${part ? 'pl-9' : entry.kind === 'kit' ? '' : 'pl-2'}`}>{name}</div>
+      <div className={compact ? 'flex-shrink-0 sm:flex-shrink sm:min-w-0' : part ? 'pl-9 sm:pl-0' : ''}>{status}</div>
     </div>
   )
 }
 
+/** Wat er naast "vrij" nog te melden is: de verantwoordelijke en, bij een kit, wat er elders weg is. */
+function freeExtras(entry: DayEntry) {
+  // Bij een onderdeel staat de verantwoordelijke op de kit.
+  const responsible = entry.row.responsible && !(entry.kind === 'item' && entry.row.kitId && entry.row.responsible.viaKit) ? entry.row.responsible : null
+  const elsewhere = entry.kind === 'kit' && entry.partsElsewhere > 0
+    ? `${entry.partsElsewhere} van ${entry.parts.length} onderdelen elders weg` : null
+  return { responsible, elsewhere }
+}
+
 /** Vrij, onbeschikbaar, en bij een kit: wat er elders weg is. */
 function Free({ entry, bookable, bookKit, onBook, cls }: { entry: DayEntry; bookable: boolean; bookKit: boolean; onBook: () => void; cls: string }) {
-  // De verantwoordelijke als gearceerd label, zoals de band in het raster (bij een onderdeel staat ze op de kit).
-  const r = entry.row.responsible && !(entry.kind === 'item' && entry.row.kitId && entry.row.responsible.viaKit) ? entry.row.responsible : null
+  // De verantwoordelijke als gearceerd label, zoals de band in het raster.
+  const { responsible: r, elsewhere } = freeExtras(entry)
   const rc = r?.color ?? '#f59e0b'
   const off = entry.state === 'onbeschikbaar'
   const label = !off ? 'Vrij'
     : entry.kind === 'kit' ? 'Geen onderdeel vrij'
     : STATUS_LABEL[(entry as DayItemEntry).row.item.status]
-  const elsewhere = entry.kind === 'kit' && entry.partsElsewhere > 0
-    ? `${entry.partsElsewhere} van ${entry.parts.length} onderdelen elders weg` : null
   const inner = (
     <>
       <span className={off ? 'text-zinc-600' : 'text-emerald-400/90'}>{label}</span>
@@ -201,7 +222,12 @@ function Free({ entry, bookable, bookKit, onBook, cls }: { entry: DayEntry; book
           {responsibleBand(r)}
         </span>
       )}
-      {bookable && <span className="ml-auto flex-shrink-0 flex items-center gap-1 text-xs text-zinc-500 group-hover/free:text-zinc-200"><Plus size={12} /> {bookKit ? 'Kit boeken' : 'Boeken'}</span>}
+      {bookable && (
+        // Op de telefoon alleen een plusje, zodat de naam ernaast de ruimte houdt.
+        <span className="ml-auto flex-shrink-0 flex items-center justify-center gap-1 w-6 h-6 sm:w-auto sm:h-auto rounded-md border border-zinc-700 sm:border-0 text-xs text-zinc-400 sm:text-zinc-500 group-hover/free:text-zinc-200">
+          <Plus size={12} /><span className="sr-only sm:not-sr-only">{bookKit ? 'Kit boeken' : 'Boeken'}</span>
+        </span>
+      )}
     </>
   )
   return bookable ? (

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { weekdayIndex } from '@/lib/gear/dates'
-import { isoWeek, parseViewParams, periodLabel, shiftView, showsToday, viewLabel, viewRange, weekStart } from '@/lib/gear/views'
+import { isoWeek, parseViewParams, periodLabel, shiftView, shortDayLabel, showsToday, viewLabel, viewRange, weekStart } from '@/lib/gear/views'
 
 // Weken beginnen op maandag. De klassieke fouten: een week over een maand- of
 // jaargrens, weeknummer 53, en de klokwissel (25 oktober 2026 en 28 maart
@@ -93,5 +93,12 @@ describe('showsToday / parseViewParams', () => {
     expect(parseViewParams({ view: 'month', date: '2026-12-01' }, 'week', '2026-11-05')).toEqual({ view: 'month', date: '2026-12-01' })
     expect(parseViewParams({ view: 'jaar', date: '2026-02-30' }, 'day', '2026-11-05')).toEqual({ view: 'day', date: '2026-11-05' })
     expect(parseViewParams({}, 'week', '2026-11-05')).toEqual({ view: 'week', date: '2026-11-05' })
+  })
+})
+
+describe('shortDayLabel', () => {
+  it('zonder jaar in hetzelfde jaar, met jaar daarbuiten', () => {
+    expect(shortDayLabel('2026-11-11', '2026-11-11')).toBe('Wo 11 november')
+    expect(shortDayLabel('2027-01-04', '2026-12-30')).toBe('Ma 4 januari 2027')
   })
 })

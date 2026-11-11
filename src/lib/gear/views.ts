@@ -77,6 +77,12 @@ export function viewLabel(view: PlannerView, date: string): string {
   return `${cap(MONTHS[m - 1])} ${y}`
 }
 
+/** Voor de telefoon: "Wo 11 november", met het jaar erbij als het niet dit jaar is. */
+export function shortDayLabel(date: string, today: string): string {
+  const { y, m, d } = parts(date)
+  return `${WEEKDAYS[weekdayIndex(date)]} ${d} ${MONTHS[m - 1]}${y === parts(today).y ? '' : ` ${y}`}`
+}
+
 /** Valt vandaag in de zichtbare periode? Dan is "Vandaag" overbodig. */
 export function showsToday(view: PlannerView, date: string, today: string): boolean {
   const r = viewRange(view, date)
