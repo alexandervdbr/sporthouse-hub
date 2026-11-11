@@ -19,7 +19,7 @@ import { gapTimes, suggestTimes, type Slot } from '@/lib/gear/times'
 import { moveCategory } from '@/lib/gear/categories'
 import type { GearBooking, GearBookingOptions, GearCatalog } from '@/lib/gear/types'
 import {
-  DEFAULT_VIEW, PLANNER_VIEWS, PLANNER_VIEW_LABEL, isPlannerView, parseViewParams, shiftView, showsToday, viewLabel, viewRange, type PlannerView,
+  DEFAULT_VIEW, PLANNER_VIEWS, PLANNER_VIEW_LABEL, isPlannerView, parseViewParams, shiftView, shortDayLabel, showsToday, viewLabel, viewRange, type PlannerView,
 } from '@/lib/gear/views'
 
 // De materiaalplanner: een dag, een week of een maand, units als rijen.
@@ -31,7 +31,7 @@ import {
 const VIEW_KEY = 'materiaal-weergave'
 const VIEW_OPTIONS = PLANNER_VIEWS.map(v => ({ value: v, label: PLANNER_VIEW_LABEL[v] }))
 const UNIT: Record<PlannerView, string> = { day: 'dag', week: 'week', month: 'maand' }
-const LABEL_W: Record<PlannerView, string> = { day: 'w-44', week: 'w-64', month: 'w-32' }
+const LABEL_W: Record<PlannerView, string> = { day: 'lg:w-44', week: 'lg:w-64', month: 'lg:w-32' }
 
 // Browserzaken die de server niet kent: of het een telefoon is, en welke
 // weergave onthouden was. Op de server (en bij de eerste render) "onbekend",
@@ -180,21 +180,22 @@ export default function MateriaalPlanner({ userId, access, initialView, initialD
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-zinc-800">
-        <div className="flex items-center gap-4 min-w-0">
-          <h1 className="text-base sm:text-lg font-semibold text-zinc-100">Materiaal</h1>
-          <div className="hidden lg:block w-48 flex-shrink-0">
-            <Segmented label="Weergave" value={view} options={VIEW_OPTIONS} onChange={chooseView} />
-          </div>
-          <div className="flex items-center gap-1">
-            <IconButton label={`Vorige ${UNIT[shown]}`} onClick={() => setDate(d => shiftView(shown, d, -1))}><ChevronLeft size={16} /></IconButton>
-            <span className={`${LABEL_W[shown]} text-center text-sm font-medium text-zinc-200 whitespace-nowrap truncate`}>{viewLabel(shown, date)}</span>
-            <IconButton label={`Volgende ${UNIT[shown]}`} onClick={() => setDate(d => shiftView(shown, d, 1))}><ChevronRight size={16} /></IconButton>
-            {!inView && <Button size="sm" onClick={() => setDate(today)} className="ml-1">Vandaag</Button>}
-            {loading && <Loader2 size={14} className="ml-2 animate-spin text-zinc-600" />}
-          </div>
+      {/* Telefoon: titel en knoppen bovenaan, de datum als eigen volle regel eronder. */}
+      <div className="flex-shrink-0 flex flex-wrap items-center gap-x-4 gap-y-2 px-4 sm:px-6 py-3 lg:py-4 border-b border-zinc-800">
+        <h1 className="order-1 text-base sm:text-lg font-semibold text-zinc-100">Materiaal</h1>
+        <div className="order-2 hidden lg:block w-48 flex-shrink-0">
+          <Segmented label="Weergave" value={view} options={VIEW_OPTIONS} onChange={chooseView} />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="order-4 lg:order-3 w-full lg:w-auto flex items-center gap-1">
+          <IconButton label={`Vorige ${UNIT[shown]}`} onClick={() => setDate(d => shiftView(shown, d, -1))}><ChevronLeft size={16} /></IconButton>
+          <span className={`flex-1 lg:flex-none min-w-0 ${LABEL_W[shown]} text-center text-sm font-medium text-zinc-200 whitespace-nowrap truncate`}>
+            {phone ? shortDayLabel(date, today) : viewLabel(shown, date)}
+          </span>
+          <IconButton label={`Volgende ${UNIT[shown]}`} onClick={() => setDate(d => shiftView(shown, d, 1))}><ChevronRight size={16} /></IconButton>
+          {!inView && <Button size="sm" onClick={() => setDate(today)} className="ml-1">Vandaag</Button>}
+          {loading && <Loader2 size={14} className="ml-2 animate-spin text-zinc-600" />}
+        </div>
+        <div className="order-2 lg:order-4 ml-auto flex items-center gap-2">
           {!noUnits && (
             <div className="relative hidden lg:block">
               <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
@@ -249,7 +250,8 @@ export default function MateriaalPlanner({ userId, access, initialView, initialD
             today={today}
             collapsed={search ? new Set() : collapsed}
             onToggleCategory={toggle(setCollapsed)}
-            openKits={search ? new Set(catalog.kits.map(k => k.id)) : openKits}
+            // Hier blijven kits dicht bij het zoeken: vaak zoek je de kit zelf. Wat erin matcht, staat naast de naam.
+            openKits={openKits}
             onToggleKit={toggle(setOpenKits)}
             canBook={access.book}
             onBook={onBookDay}
@@ -260,6 +262,7 @@ export default function MateriaalPlanner({ userId, access, initialView, initialD
             filter={dayFilter}
             onFilter={setDayFilter}
             search={search}
+            onSearch={setSearch}
           />
         </div>
       ) : (

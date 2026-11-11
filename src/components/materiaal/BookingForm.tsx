@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Calendar, Package, Search, UserRound, X } from 'lucide-react'
+import { AlertTriangle, Calendar, ChevronDown, ChevronRight, Package, Search, UserRound, X } from 'lucide-react'
 import { Button, ErrorLine, Field, IconButton, Segmented, Select, formGap, inputCls, labelCls, send } from '@/components/materiaal/ui'
 import { canChangeBooking, type GearAccess } from '@/lib/gear/access'
 import { eachDay, enteredAfterwards } from '@/lib/gear/dates'
@@ -83,6 +83,11 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
   const [kitIds, setKitIds] = useState<string[]>(start0?.kitIds ?? pre?.kitIds ?? [])
   const [looseIds, setLooseIds] = useState<string[]>(start0?.looseItemIds ?? pre?.itemIds ?? [])
   const [excluded, setExcluded] = useState<Set<string>>(start0?.excluded ?? new Set())
+  // Dichtgeklapte kits. Eén kit staat open; zijn het er meer, dan alles dicht zodat je het overzicht houdt.
+  const [closedKits, setClosedKits] = useState<Set<string>>(() => {
+    const ids = start0?.kitIds ?? pre?.kitIds ?? []
+    return new Set(ids.length > 1 ? ids : [])
+  })
   const [kind, setKind] = useState<PersonKind>(initialKind)
   const [userIdFor, setUserIdFor] = useState(booking?.booked_for_user_id ?? (booking ? '' : userId))
   const [freelancerId, setFreelancerId] = useState(booking?.freelancer_id ?? '')
@@ -179,6 +184,14 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
     else setLooseIds(ids => [...ids, id])
     setQuery('')
   }
+  function addKit(id: string) {
+    // Er staat al een kit: de nieuwe komt dichtgeklapt, zodat de lijst kort blijft.
+    if (kitIds.length > 0) setClosedKits(prev => new Set(prev).add(id))
+    setKitIds(ids => [...ids, id]); setQuery('')
+  }
+  function toggleKitOpen(id: string) {
+    setClosedKits(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  }
   function toggleExcluded(id: string, on: boolean) {
     setExcluded(prev => { const n = new Set(prev); if (on) n.add(id); else n.delete(id); return n })
   }
@@ -214,23 +227,24 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
   const readOnly = !editing
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center sm:p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      {/* Telefoon: een volledig scherm met de knoppen vast onderaan; groter: een venster. */}
       <div role="dialog" aria-modal="true" aria-labelledby="booking-title"
-        className="relative w-full max-w-xl max-h-[92dvh] flex flex-col bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl">
-        <div className="px-5 py-3 border-b border-zinc-800 flex items-center justify-between gap-3">
+        className="relative w-full h-[100dvh] sm:h-auto sm:max-w-xl sm:max-h-[92dvh] flex flex-col bg-zinc-900 sm:border border-zinc-800 sm:rounded-2xl shadow-2xl">
+        <div className="px-4 sm:px-5 py-2 sm:py-3 pt-[max(0.5rem,env(safe-area-inset-top))] sm:pt-3 border-b border-zinc-800 flex items-center justify-between gap-3">
           <h2 id="booking-title" className="text-sm font-semibold text-zinc-100">
             {booking ? (editing ? 'Boeking wijzigen' : 'Boeking') : 'Materiaal boeken'}
           </h2>
           <IconButton label="Sluiten" onClick={onClose}><X size={15} /></IconButton>
         </div>
 
-        <div className={`px-5 py-4 ${formGap} overflow-y-auto`}>
-          {/* Periode */}
-          <div className="grid grid-cols-2 gap-3">
+        <div className={`flex-1 sm:flex-initial px-4 sm:px-5 py-4 ${formGap} overflow-y-auto overscroll-contain`}>
+          {/* Periode: op de telefoon onder elkaar, anders past de datum niet. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label className="block min-w-0">
               <span className={labelCls}><Calendar size={10} className="inline mr-1" />Ophalen</span>
-              <span className="grid grid-cols-[minmax(0,1fr)_6.5rem] gap-1.5">
+              <span className="grid grid-cols-[minmax(0,1fr)_8rem] sm:grid-cols-[minmax(0,1fr)_6.5rem] gap-1.5">
                 <input type="date" value={start} disabled={readOnly} min={booking && !access.manageBookings ? today : undefined}
                   onChange={e => { setStart(e.target.value); if (end < e.target.value) setEnd(e.target.value) }} className={inputCls} />
                 <TimeSelect value={startTime} onChange={setStartTime} disabled={readOnly} label="Uur ophalen" />
@@ -238,14 +252,14 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
             </label>
             <label className="block min-w-0">
               <span className={labelCls}><Calendar size={10} className="inline mr-1" />Terugbrengen</span>
-              <span className="grid grid-cols-[minmax(0,1fr)_6.5rem] gap-1.5">
+              <span className="grid grid-cols-[minmax(0,1fr)_8rem] sm:grid-cols-[minmax(0,1fr)_6.5rem] gap-1.5">
                 <input type="date" value={end} min={start} disabled={readOnly} onChange={e => setEnd(e.target.value)} className={inputCls} />
                 <TimeSelect value={endTime} onChange={setEndTime} disabled={readOnly} label="Uur terugbrengen" />
               </span>
             </label>
           </div>
           {!rangeError && (
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap gap-1.5 sm:gap-1">
               {eachDay(start, end).slice(0, 31).map(d => (
                 <span key={d} className={`px-1.5 py-0.5 rounded text-[10px] font-medium border whitespace-nowrap ${clashDays.has(d)
                   ? 'text-red-400 border-red-500/40 bg-red-500/10' : 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'}`}>
@@ -262,29 +276,42 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
             if (!kit) return null
             const parts = kitChecks.get(id) ?? []
             const included = parts.filter(p => !excluded.has(p.item.id)).length
+            const open = !closedKits.has(id)
+            // Dichtgeklapt blijft zichtbaar wat aandacht vraagt: botsingen, defect, waarschuwingen, en wat niet meegaat.
+            const shownParts = open ? parts : parts.filter(p => p.blocking || p.state !== 'ok' || !!p.item.warning || excluded.has(p.item.id))
+            const hidden = parts.length - shownParts.length
             return (
               <div key={id} className={`rounded-xl border ${parts.some(p => p.blocking && !excluded.has(p.item.id)) ? 'border-red-500/40' : 'border-zinc-800'} bg-zinc-950/40`}>
-                <div className="flex items-center gap-2 pl-3 pr-1.5 py-1 border-b border-zinc-800/80">
-                  <Package size={13} className="text-zinc-500" />
-                  <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: categories.get(kit.category_id)?.color }} />
-                  <span className="min-w-0 text-sm font-medium text-zinc-100 truncate" title={kit.name}>{kit.name}</span>
-                  <span className="text-[11px] text-zinc-500 flex-shrink-0 whitespace-nowrap">{included} van {parts.length}</span>
+                <div className={`flex items-center gap-1 pr-1.5 ${open || shownParts.length || kit.warning ? 'border-b border-zinc-800/80' : ''}`}>
+                  <button type="button" onClick={() => toggleKitOpen(id)} aria-expanded={open}
+                    aria-label={open ? `Onderdelen van ${kit.name} verbergen` : `Onderdelen van ${kit.name} tonen`}
+                    className="flex-1 min-w-0 min-h-11 sm:min-h-9 flex items-center gap-2 pl-2.5 pr-1 text-left rounded-tl-xl focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500">
+                    {open ? <ChevronDown size={14} className="text-zinc-500 flex-shrink-0" /> : <ChevronRight size={14} className="text-zinc-500 flex-shrink-0" />}
+                    <Package size={13} className="text-zinc-500 flex-shrink-0" />
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: categories.get(kit.category_id)?.color }} />
+                    <span className="min-w-0 text-sm font-medium text-zinc-100 truncate" title={kit.name}>{kit.name}</span>
+                    <span className="text-[11px] text-zinc-500 flex-shrink-0 whitespace-nowrap">{included} van {parts.length}</span>
+                  </button>
                   {!readOnly && (
-                    <span className="ml-auto"><IconButton label={`${kit.name} weghalen`} onClick={() => setKitIds(ids => ids.filter(k => k !== id))}><X size={13} /></IconButton></span>
+                    <IconButton label={`${kit.name} weghalen`} onClick={() => setKitIds(ids => ids.filter(k => k !== id))}><X size={13} /></IconButton>
                   )}
                 </div>
+                {(open || shownParts.length > 0 || kit.warning) && (
                 <div className="px-3 py-2 space-y-1">
                   {kit.warning && <Notice icon="warn">{kit.warning}</Notice>}
-                  {kit.notes && <p className="text-[11px] text-zinc-500">{kit.notes}</p>}
+                  {open && kit.notes && <p className="text-[11px] text-zinc-500">{kit.notes}</p>}
                   <ul className="mt-1 space-y-0.5">
-                    {parts.map(p => {
+                    {shownParts.map(p => {
                       const out = excluded.has(p.item.id)
                       return (
-                        <li key={p.item.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
-                          <input type="checkbox" checked={!out} disabled={readOnly || (p.blocking && out)}
-                            onChange={e => toggleExcluded(p.item.id, !e.target.checked)}
-                            aria-label={`${p.item.name} meenemen`} className="accent-[#3A913F]" />
-                          <span title={p.item.name} className={`min-w-0 max-w-full truncate ${out ? 'text-zinc-600 line-through' : p.blocking ? 'text-red-300' : 'text-zinc-300'}`}>{p.item.name}</span>
+                        <li key={p.item.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm sm:text-xs">
+                          {/* De hele naam is aantikbaar: op de telefoon is een los vinkje te klein. */}
+                          <label className={`flex items-center gap-2.5 sm:gap-2 min-w-0 max-w-full min-h-9 sm:min-h-0 ${readOnly || (p.blocking && out) ? '' : 'cursor-pointer'}`}>
+                            <input type="checkbox" checked={!out} disabled={readOnly || (p.blocking && out)}
+                              onChange={e => toggleExcluded(p.item.id, !e.target.checked)}
+                              aria-label={`${p.item.name} meenemen`} className="accent-[#3A913F] w-[18px] h-[18px] sm:w-3.5 sm:h-3.5 flex-shrink-0" />
+                            <span title={p.item.name} className={`min-w-0 truncate ${out ? 'text-zinc-600 line-through' : p.blocking ? 'text-red-300' : 'text-zinc-300'}`}>{p.item.name}</span>
+                          </label>
                           {p.state === 'elders' && p.conflicts.map(c => <span key={c.bookingId} className="text-[11px] text-red-400">{clashText(c, oneDay)}</span>)}
                           {(p.state === 'defect' || p.state === 'uit_dienst') && <span className="text-[11px] text-red-400">{PART_REASON[p.state]}{p.item.status_note ? `: ${p.item.status_note}` : ''}</span>}
                           {p.state === 'beperkt' && <span className="text-[11px] text-amber-300">Beperkt{p.item.status_note ? `: ${p.item.status_note}` : ''}</span>}
@@ -300,7 +327,13 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
                       )
                     })}
                   </ul>
+                  {!open && hidden > 0 && (
+                    <button type="button" onClick={() => toggleKitOpen(id)} className="min-h-9 sm:min-h-0 text-xs text-zinc-500 hover:text-zinc-300">
+                      + {hidden} {hidden === 1 ? 'ander onderdeel' : 'andere onderdelen'} in orde
+                    </button>
+                  )}
                 </div>
+                )}
               </div>
             )
           })}
@@ -333,14 +366,15 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
           {!readOnly && (
             <div className="relative">
               <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
-              <input value={query} onChange={e => setQuery(e.target.value)}
+              <input type="search" enterKeyHint="search" value={query} onChange={e => setQuery(e.target.value)}
                 placeholder={kitIds.length + looseIds.length ? 'Nog een kit of materiaal toevoegen…' : 'Zoek een kit of materiaal…'}
-                aria-label="Kit of materiaal zoeken" className={`${inputCls} pl-9`} />
+                aria-label="Kit of materiaal zoeken" className={`${inputCls} pl-9 [&::-webkit-search-cancel-button]:hidden`} />
               {(matches.kits.length > 0 || matches.items.length > 0) && (
-                <div className="absolute top-full left-0 right-0 mt-1 z-10 rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl overflow-hidden max-h-72 overflow-y-auto">
+                // Telefoon: in de lijst zelf (een zwevend menu verdwijnt achter het toetsenbord); groter: zwevend.
+                <div className="mt-1 rounded-lg border border-zinc-700 bg-zinc-900 overflow-hidden sm:absolute sm:top-full sm:left-0 sm:right-0 sm:z-10 sm:shadow-xl sm:max-h-72 sm:overflow-y-auto">
                   {matches.kits.map(k => (
-                    <button key={k.id} onClick={() => { setKitIds(ids => [...ids, k.id]); setQuery('') }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-zinc-800">
+                    <button key={k.id} onClick={() => addKit(k.id)}
+                      className="w-full min-h-11 sm:min-h-0 flex items-center gap-2 px-3 py-2 text-left hover:bg-zinc-800 border-b border-zinc-800/60 last:border-b-0 sm:border-b-0">
                       <Package size={12} className="text-zinc-500" />
                       <span className="text-sm text-zinc-100 flex-1 min-w-0 truncate" title={k.name}>{k.name}</span>
                       <span className="text-[10px] uppercase tracking-wide text-zinc-500 whitespace-nowrap">kit · {k.item_ids.length}</span>
@@ -348,7 +382,7 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
                   ))}
                   {matches.items.map(i => (
                     <button key={i.id} onClick={() => addItem(i.id)}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-zinc-800">
+                      className="w-full min-h-11 sm:min-h-0 flex items-center gap-2 px-3 py-2 text-left hover:bg-zinc-800 border-b border-zinc-800/60 last:border-b-0 sm:border-b-0">
                       <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: categories.get(i.category_id)?.color }} />
                       <span className="text-sm text-zinc-200 flex-1 min-w-0 truncate" title={i.name}>{i.name}</span>
                       <span className="text-[10px] text-zinc-500 truncate max-w-[40%]">{kitOf.get(i.id) ? `in ${kitOf.get(i.id)!.name}` : categories.get(i.category_id)?.name}</span>
@@ -451,7 +485,7 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
           {error && <ErrorLine>{error}</ErrorLine>}
         </div>
 
-        <div className="px-5 py-3 border-t border-zinc-800 flex flex-wrap items-center gap-2">
+        <div className="px-4 sm:px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-3 border-t border-zinc-800 flex flex-wrap items-center gap-2">
           {booking && editable && !confirmCancel && (
             <Button variant="danger" onClick={() => setConfirmCancel(true)} disabled={saving}>Boeking annuleren</Button>
           )}
@@ -462,11 +496,12 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
               <Button variant="text" onClick={() => setConfirmCancel(false)}>Nee</Button>
             </>
           )}
-          <div className="ml-auto flex items-center gap-2">
-            <Button variant="text" onClick={onClose}>Sluiten</Button>
-            {booking && editable && !editing && <Button onClick={() => setEditing(true)}>Wijzigen</Button>}
+          <div className="ml-auto flex flex-1 sm:flex-initial items-center justify-end gap-2">
+            {/* Op de telefoon doet het kruisje bovenaan hetzelfde — behalve als er verder geen knop staat. */}
+            <span className={editing || (booking && editable) ? 'hidden sm:block' : ''}><Button variant="text" onClick={onClose}>Sluiten</Button></span>
+            {booking && editable && !editing && <Button onClick={() => setEditing(true)} className="flex-1 sm:flex-initial h-11 sm:h-9">Wijzigen</Button>}
             {editing && (
-              <Button variant="primary" onClick={save} disabled={!canSave} busy={saving}>
+              <Button variant="primary" onClick={save} disabled={!canSave} busy={saving} className="flex-1 sm:flex-initial h-11 sm:h-9">
                 {booking ? 'Opslaan' : includedCount > 1 ? `${includedCount} stuks boeken` : 'Boeken'}
               </Button>
             )}
