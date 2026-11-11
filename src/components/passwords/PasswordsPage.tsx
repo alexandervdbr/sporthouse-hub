@@ -7,7 +7,7 @@ import type { LoginMethod } from '@/lib/credential-import'
 import ImportModal from '@/components/passwords/ImportModal'
 import CategoriesModal from '@/components/passwords/CategoriesModal'
 import { groupByCategory, sortCategories, UNCATEGORIZED_LABEL, type CredentialCategory } from '@/lib/credential-categories'
-import { Plus, Eye, EyeOff, Copy, Check, Pencil, Trash2, X, ExternalLink, Search, Lock, WandSparkles, Upload, Tags, ListChecks, FolderInput } from 'lucide-react'
+import { Plus, Eye, EyeOff, Copy, Check, Pencil, Trash2, X, ExternalLink, Search, Lock, WandSparkles, Upload, Tags, ListChecks, FolderInput, ChevronRight } from 'lucide-react'
 
 interface Credential {
   id: string
@@ -395,9 +395,36 @@ function Modal({
   )
 }
 
+// ─── Ingeklapte categorieën ─────────────────────────────────────────────────
+
+// Welke categorieën iemand dichtgeklapt heeft, is een persoonlijke voorkeur:
+// die staat in de browser (per gebruiker), niet in de database. Geen extra
+// verzoek, niemand anders ziet het. Op een ander toestel begint alles open.
+function collapsedKey(userId: string) {
+  return `wachtwoorden:ingeklapt:${userId}`
+}
+
+function readCollapsed(userId: string): Set<string> {
+  try {
+    const raw = window.localStorage.getItem(collapsedKey(userId))
+    const parsed: unknown = raw ? JSON.parse(raw) : []
+    return new Set(Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [])
+  } catch {
+    return new Set()
+  }
+}
+
+function writeCollapsed(userId: string, collapsed: Set<string>) {
+  try {
+    window.localStorage.setItem(collapsedKey(userId), JSON.stringify([...collapsed]))
+  } catch {
+    // Privévenster of geblokkeerde opslag: dan onthouden we het gewoon niet.
+  }
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; canDelete: boolean }) {
+export default function PasswordsPage({ canAdd, canDelete, userId }: { canAdd: boolean; canDelete: boolean; userId: string }) {
   const supabase = createClient()
   const [credentials, setCredentials] = useState<Credential[]>([])
   const [loading, setLoading] = useState(true)
@@ -418,6 +445,20 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
   const [moveTarget, setMoveTarget] = useState('')
   const [moving, setMoving] = useState(false)
   const [moveError, setMoveError] = useState<string | null>(null)
+  // Server-render: geen window → leeg. De lijst zelf verschijnt pas na het
+  // laden in de browser, dus dit geeft geen verschil bij hydratie.
+  const [collapsed, setCollapsed] = useState<Set<string>>(() =>
+    typeof window === 'undefined' ? new Set() : readCollapsed(userId))
+
+  function toggleCollapsed(key: string) {
+    setCollapsed(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      writeCollapsed(userId, next)
+      return next
+    })
+  }
 
   useEffect(() => {
     if (!deleteId) return
@@ -630,25 +671,38 @@ export default function PasswordsPage({ canAdd, canDelete }: { canAdd: boolean; 
         </div>
       ) : (
         // Altijd gegroepeerd per categorie, met een klein tussentiteltje.
-        <div className="space-y-8">
+        <div className="space-y-6">
           {groups.map(group => {
             const ids = group.items.map(c => c.id)
             const allSelected = ids.every(id => selectedIds.has(id))
+            const key = group.id ?? 'none'
+            // Tijdens zoeken staat alles open, anders zie je treffers niet.
+            const isCollapsed = !query && collapsed.has(key)
             return (
-              <section key={group.id ?? 'none'} aria-label={group.name}>
-                <div className="flex items-baseline justify-between gap-3 mb-3">
-                  <h2 className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest">
-                    {group.name} <span className="text-zinc-700 font-normal">{group.items.length}</span>
+              <section key={key} aria-label={group.name}>
+                <div className={'flex items-center justify-between gap-3' + (isCollapsed ? '' : ' mb-3')}>
+                  <h2>
+                    <button
+                      type="button"
+                      onClick={() => toggleCollapsed(key)}
+                      aria-expanded={!isCollapsed}
+                      aria-controls={`groep-${key}`}
+                      disabled={!!query}
+                      className="flex items-center gap-1.5 text-[11px] font-semibold text-zinc-500 uppercase tracking-widest hover:text-zinc-300 disabled:hover:text-zinc-500 transition-colors"
+                    >
+                      <ChevronRight size={13} className={'transition-transform ' + (isCollapsed ? '' : 'rotate-90')} />
+                      {group.name} <span className="text-zinc-700 font-normal">{group.items.length}</span>
+                    </button>
                   </h2>
-                  {selecting && (
+                  {selecting && !isCollapsed && (
                     <button onClick={() => toggleSelected(ids, !allSelected)}
                       className="text-xs text-zinc-500 hover:text-zinc-200 transition-colors">
                       {allSelected ? 'Niets selecteren' : 'Alles selecteren'}
                     </button>
                   )}
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {group.items.map(cred => (
+                <div id={`groep-${key}`} hidden={isCollapsed} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {!isCollapsed && group.items.map(cred => (
                     <CredentialCard
                       key={cred.id}
                       cred={cred}

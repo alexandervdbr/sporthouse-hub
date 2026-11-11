@@ -20,5 +20,5 @@ export default async function Page() {
   const canAdd    = hasSection(user, 'wachtwoorden_toevoegen')
   const canDelete = hasSection(user, 'wachtwoorden_verwijderen')
 
-  return <PasswordsPage canAdd={canAdd} canDelete={canDelete} />
+  return <PasswordsPage canAdd={canAdd} canDelete={canDelete} userId={user.id} />
 }
