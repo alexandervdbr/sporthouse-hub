@@ -51,22 +51,34 @@ function usePin(carId: string) {
 }
 
 /**
- * Compacte knop "Pincode tankkaart ••1234" voor "Mijn ritten" en de "Nu"-rij: toont de
- * pincode ter plekke in de knop, 30 seconden lang; nog eens klikken verbergt ze.
+ * Compacte knop "Pincode tankkaart ••1234" voor "Mijn ritten" en de "Nu"-kaart:
+ * toont de pincode ter plekke in de knop, 30 seconden lang; nog eens klikken
+ * verbergt ze. De tekst en de pincode liggen op dezelfde plek op elkaar
+ * (de ene onzichtbaar), zodat de knop nooit van breedte verandert en de rest
+ * van de pagina niet verspringt. `block`: over de volle breedte.
  */
-export function FuelPinButton({ carId, last4, className = '' }: { carId: string; last4: string | null; className?: string }) {
+export function FuelPinButton({ carId, last4, block = false, className = '' }: { carId: string; last4: string | null; block?: boolean; className?: string }) {
   const { pin, busy, error, show, hide } = usePin(carId)
+  const layer = 'col-start-1 row-start-1 inline-flex items-center justify-center gap-1.5 transition-opacity'
   return (
-    <span className={`inline-flex items-center gap-2 min-w-0 ${className}`}>
+    <span className={`${block ? 'flex flex-col' : 'inline-flex flex-col'} gap-1 min-w-0 ${className}`}>
       <button type="button" onClick={pin ? hide : show} disabled={busy}
         title={pin ? 'Verbergen' : 'De pincode blijft 30 seconden zichtbaar.'}
-        className={`${secondaryCls} min-h-11 md:min-h-0 flex-shrink-0 justify-center`}>
-        {busy ? <Loader2 size={13} className="animate-spin" /> : <Fuel size={13} />}
-        {pin
-          ? <span className="font-mono font-semibold tracking-[0.25em] text-zinc-100" aria-live="polite">{pin}</span>
-          : <><span className="whitespace-nowrap">Pincode tankkaart</span>{last4 ?<span className="font-mono text-zinc-500">••{last4}</span> : null}</>}
+        aria-label={pin ? `Pincode ${pin.split('').join(' ')}, tik om te verbergen` : undefined}
+        className={`${secondaryCls} justify-center ${block ? 'w-full min-h-11 md:min-h-9' : 'min-h-11 md:min-h-0'}`}>
+        <span className="grid">
+          <span className={`${layer} ${pin ? 'opacity-0' : ''}`} aria-hidden={!!pin}>
+            {busy ? <Loader2 size={13} className="animate-spin" /> : <Fuel size={13} />}
+            <span className="whitespace-nowrap">Pincode tankkaart</span>
+            {last4 ? <span className="font-mono text-zinc-500">••{last4}</span> : null}
+          </span>
+          <span className={`${layer} ${pin ? '' : 'opacity-0'}`} aria-hidden={!pin} aria-live="polite">
+            <Fuel size={13} />
+            <span className="font-mono font-semibold tracking-[0.3em] text-zinc-100 text-sm">{pin ?? ''}</span>
+          </span>
+        </span>
       </button>
-      {error && <span role="alert" className="text-xs text-red-400 truncate">{error}</span>}
+      {error && <span role="alert" className="text-xs text-red-400">{error}</span>}
     </span>
   )
 }
