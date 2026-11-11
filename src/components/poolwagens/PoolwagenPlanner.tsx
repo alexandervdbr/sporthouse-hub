@@ -164,24 +164,36 @@ export default function PoolwagenPlanner({ userId, access }: { userId: string; a
       ) : (
         <>
           {mine.length > 0 && (
-            <section aria-label="Mijn ritten" className={`${panelCls} px-3 md:px-4 py-3 flex flex-wrap items-center gap-2`}>
-              <h2 className="w-full md:w-auto text-[10px] uppercase tracking-widest text-zinc-500 md:mr-2">Mijn ritten</h2>
-              {mine.map(r => {
-                const state = tripState(r, now)
-                const car = planning.cars.find(c => c.id === r.car_id)
-                return (
-                  <span key={r.id} className="inline-flex flex-wrap items-center gap-2 max-w-full">
-                    <button onClick={() => setDialog({ kind: 'detail', id: r.id })}
-                      className="inline-flex items-center gap-2 min-h-11 md:min-h-0 px-2.5 py-1 rounded-lg border text-xs hover:bg-zinc-800/60 max-w-full"
-                      style={{ borderColor: `${STATE_COLOR[state]}80`, color: STATE_COLOR[state] }}>
-                      <span className="font-semibold truncate min-w-0">{car?.name ?? 'Wagen'}</span>
-                      <span className="text-zinc-400 truncate min-w-0">{formatPeriod(r.start_at, r.end_at)}</span>
-                      <span className="hidden sm:inline">{state === 'gepland' ? 'Vertrek registreren' : state === 'teruggebracht' ? STATE_LABEL[state] : 'Aankomst registreren'}</span>
-                    </button>
-                    {car?.fuel_card_last4 && canSeePin(r, userId, false) && <FuelPinButton carId={car.id} last4={car.fuel_card_last4} />}
-                  </span>
-                )
-              })}
+            // Eén regel per rit: de rit (tik voor details) en, tijdens de rit, de
+            // pincode. Gsm: de pincode onder de rit, beide over de volle breedte.
+            // Desktop: naast elkaar. De pincodeknop verandert nooit van breedte,
+            // dus er verspringt niets als de pincode verschijnt.
+            <section aria-label="Mijn ritten" className={`${panelCls} px-3 md:px-4 py-3 space-y-2`}>
+              <h2 className="text-[10px] uppercase tracking-widest text-zinc-500">Mijn ritten</h2>
+              <ul className="space-y-2">
+                {mine.map(r => {
+                  const state = tripState(r, now)
+                  const car = planning.cars.find(c => c.id === r.car_id)
+                  const pin = !!car?.fuel_card_last4 && canSeePin(r, userId, false)
+                  return (
+                    <li key={r.id} className="flex flex-col md:flex-row md:items-stretch gap-2">
+                      <button onClick={() => setDialog({ kind: 'detail', id: r.id })}
+                        className="flex-1 min-w-0 flex items-center gap-3 min-h-11 md:min-h-9 px-3 py-2 md:py-1.5 rounded-lg border text-left hover:bg-zinc-800/60"
+                        style={{ borderColor: `${STATE_COLOR[state]}80` }}>
+                        <span className="flex-1 min-w-0 flex flex-col md:flex-row md:items-baseline md:gap-3">
+                          <span className="text-sm font-semibold break-words" style={{ color: STATE_COLOR[state] }}>{car?.name ?? 'Wagen'}</span>
+                          <span className="text-xs text-zinc-400">{formatPeriod(r.start_at, r.end_at)}</span>
+                        </span>
+                        <span className="hidden sm:inline text-xs flex-shrink-0" style={{ color: STATE_COLOR[state] }}>
+                          {state === 'gepland' ? 'Vertrek registreren' : state === 'teruggebracht' ? STATE_LABEL[state] : 'Aankomst registreren'}
+                        </span>
+                        <ChevronRight size={14} className="text-zinc-500 flex-shrink-0" />
+                      </button>
+                      {pin && car && <FuelPinButton carId={car.id} last4={car.fuel_card_last4} block className="md:w-auto md:flex-shrink-0" />}
+                    </li>
+                  )
+                })}
+              </ul>
             </section>
           )}
 
