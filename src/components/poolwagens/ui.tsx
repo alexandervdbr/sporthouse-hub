@@ -14,8 +14,14 @@ export { ACCENT, ErrorLine, inputCls, labelCls, send } from '@/components/materi
 
 /**
  * Dialoogvenster in dezelfde stijl als het boekingsformulier van /materiaal.
- * Op een gsm past het altijd: de inhoud scrollt, de kop en de knoppen
- * (footer) blijven staan.
+ *
+ * Gsm (< 640 px): een volledig scherm, zonder achtergrond rond het venster.
+ * Zo sluit een tik net naast een veld het formulier niet per ongeluk (en ben
+ * je je boeking niet kwijt): sluiten kan alleen met ✕ of Annuleren. De kop en
+ * de knoppen blijven staan, de inhoud scrollt, en de knoppen zijn grote
+ * aanraakdoelen boven de thuisbalk van de iPhone.
+ *
+ * Desktop: een venster in het midden; een klik ernaast sluit het.
  */
 export function Modal({ title, onClose, children, footer, wide }: {
   title: string
@@ -24,18 +30,32 @@ export function Modal({ title, onClose, children, footer, wide }: {
   footer?: ReactNode
   wide?: boolean
 }) {
+  // De pagina eronder mag niet meescrollen (iOS doet dat anders wel).
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+    <div className="fixed inset-0 z-50 flex sm:items-center sm:justify-center sm:p-4">
+      <div className="hidden sm:block absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div role="dialog" aria-modal="true" aria-label={title}
-        className={`relative w-full ${wide ? 'max-w-2xl' : 'max-w-lg'} max-h-[calc(100dvh-1.5rem)] sm:max-h-[90dvh] flex flex-col bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl`}>
-        <div className="flex-shrink-0 px-4 sm:px-5 py-3 sm:py-4 border-b border-zinc-800 flex items-center justify-between gap-3">
+        className={`relative w-full ${wide ? 'sm:max-w-2xl' : 'sm:max-w-lg'} h-[100dvh] sm:h-auto sm:max-h-[90dvh] flex flex-col bg-zinc-900 sm:border sm:border-zinc-800 sm:rounded-2xl sm:shadow-2xl`}>
+        <div className="flex-shrink-0 px-4 sm:px-5 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:py-4 border-b border-zinc-800 flex items-center justify-between gap-3">
           <h2 className="text-sm font-semibold text-zinc-100 min-w-0 truncate">{title}</h2>
-          <button onClick={onClose} aria-label="Sluiten" className="p-2 -m-1 rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800"><X size={16} /></button>
+          <button onClick={onClose} aria-label="Sluiten" className="p-2.5 -m-1.5 sm:p-2 sm:-m-1 rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800"><X size={18} className="sm:w-4 sm:h-4" /></button>
         </div>
         {/* min-h-0: anders krimpt dit vak niet en valt de footer onder het scherm. */}
         <div className="flex-1 min-h-0 px-4 sm:px-5 py-4 overflow-y-auto overscroll-contain space-y-4">{children}</div>
-        {footer && <div className="flex-shrink-0 px-4 sm:px-5 py-3 border-t border-zinc-800 flex flex-wrap items-center justify-end gap-2">{footer}</div>}
+        {footer && (
+          // Gsm: de knoppen delen de breedte en zijn 44px hoog; een voortgangstekst krijgt een eigen regel.
+          <div className="flex-shrink-0 px-4 sm:px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:py-3 border-t border-zinc-800 flex flex-wrap items-center justify-end gap-2
+            [&>button]:flex-1 [&>button]:justify-center [&>button]:min-h-11 sm:[&>button]:flex-none sm:[&>button]:min-h-0
+            [&>span]:w-full sm:[&>span]:w-auto">
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   )
