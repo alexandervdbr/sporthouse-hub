@@ -35,7 +35,7 @@ export default function DamageDialog({ cars, carId, reservationId, onClose, onSa
       <>
         {progress && <span className="mr-auto text-xs text-zinc-500">{progress}</span>}
         <button onClick={onClose} disabled={busy} className={secondaryCls}>Annuleren</button>
-        <button onClick={submit} disabled={busy || !car || !damageReady(draft)} className={`${buttonCls} text-white bg-red-600 hover:bg-red-500`}>
+        <button data-primary onClick={submit} disabled={busy || !car || !damageReady(draft)} className={`${buttonCls} text-white bg-red-600 hover:bg-red-500`}>
           {busy ? <Loader2 size={14} className="animate-spin" /> : <Flag size={14} />} Melden
         </button>
       </>

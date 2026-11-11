@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from 'react'
 import { AlertTriangle, ChevronDown, Flag, Loader2, LogIn, LogOut, Pencil, RotateCcw, Trash2 } from 'lucide-react'
-import { ACCENT, ErrorLine, Modal, buttonCls, dangerCls, inputCls, km, labelCls, secondaryCls, send } from './ui'
+import { ACCENT, ErrorLine, Modal, buttonCls, dangerCls, iconLabelCls, inputCls, km, labelCls, secondaryCls, send } from './ui'
 import { STATE_LABEL } from './PoolwagenGrid'
 import { DamageFields, EMPTY_DAMAGE, damageReady, submitDamage, type DamageDraft } from './damage-form'
 import { FuelPin } from './FuelCard'
@@ -123,7 +123,7 @@ export default function ReservationDetail({ reservation: r, car, block, endanger
     <>
       {progress && <span className="mr-auto text-xs text-zinc-500">{progress}</span>}
       {!arrivalDone && <button onClick={() => { setForm(null); setError('') }} disabled={busy} className={secondaryCls}>Annuleren</button>}
-      <button disabled={blocked} onClick={submit} className={`${buttonCls} text-white`} style={{ backgroundColor: ACCENT }}>
+      <button data-primary disabled={blocked} onClick={submit} className={`${buttonCls} text-white`} style={{ backgroundColor: ACCENT }}>
         {busy ? <Loader2 size={14} className="animate-spin" /> : form === 'vertrek' ? <LogOut size={14} /> : <LogIn size={14} />}
         {form === 'vertrek' ? 'Vertrek registreren' : arrivalDone ? 'Schade melden' : withDamage ? 'Aankomst en schade registreren' : 'Aankomst registreren'}
       </button>
@@ -131,25 +131,25 @@ export default function ReservationDetail({ reservation: r, car, block, endanger
   ) : (
     <>
       {r.departed_at && (
-        <button onClick={onReportDamage} className={secondaryCls}><Flag size={14} /> Schade melden</button>
+        <button data-icon onClick={onReportDamage} title="Schade melden" className={secondaryCls}><Flag size={14} /><span className={iconLabelCls}>Schade melden</span></button>
       )}
       {canChange && !r.departed_at && (
         <button disabled={busy}
           onClick={() => { if (confirm('Deze reservatie annuleren?')) run(() => send(`/api/poolwagens/reservations/${r.id}`, 'DELETE')) }}
-          className={dangerCls}>
-          <Trash2 size={14} /> Annuleren
+          data-icon title="Reservatie annuleren" className={dangerCls}>
+          <Trash2 size={14} /><span className={iconLabelCls}>Annuleren</span>
         </button>
       )}
       {canChange && (!r.departed_at || manage) && (
         <button onClick={onEdit} className={secondaryCls}><Pencil size={14} /> Wijzigen</button>
       )}
       {canTrip && !r.departed_at && (
-        <button onClick={() => openForm('vertrek')} className={`${buttonCls} text-white`} style={{ backgroundColor: ACCENT }}>
+        <button data-primary onClick={() => openForm('vertrek')} className={`${buttonCls} text-white`} style={{ backgroundColor: ACCENT }}>
           <LogOut size={14} /> Vertrek registreren
         </button>
       )}
       {canTrip && r.departed_at && !r.arrived_at && (
-        <button onClick={() => openForm('aankomst')} className={`${buttonCls} text-white`} style={{ backgroundColor: ACCENT }}>
+        <button data-primary onClick={() => openForm('aankomst')} className={`${buttonCls} text-white`} style={{ backgroundColor: ACCENT }}>
           <LogIn size={14} /> Aankomst registreren
         </button>
       )}
@@ -170,7 +170,7 @@ export default function ReservationDetail({ reservation: r, car, block, endanger
         {r.arrived_at && (<><dt className="text-zinc-500">Aankomst</dt><dd className="text-zinc-200">{formatShort(r.arrived_at)} · {km(r.arrival_km)}</dd></>)}
         {r.driven_km !== null && (<><dt className="text-zinc-500">Gereden</dt><dd className="text-zinc-200">{km(r.driven_km)}</dd></>)}
         {r.note && (<><dt className="text-zinc-500">Notitie</dt><dd className="text-zinc-200 break-words">{r.note}</dd></>)}
-        {car?.fuel_card_last4 && (<><dt className="text-zinc-500">Tankkaart</dt><dd className="text-zinc-200 font-mono">••{car.fuel_card_last4}</dd></>)}
+        {car?.fuel_card_last4 && !(car && canSeePin(r, userId, manage)) && (<><dt className="text-zinc-500">Tankkaart</dt><dd className="text-zinc-200 font-mono">••{car.fuel_card_last4}</dd></>)}
       </dl>
 
       {/* Tijdens de rit: de pincode van de tankkaart, op vraag. */}

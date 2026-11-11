@@ -133,7 +133,7 @@ export default function ReservationDialog({ mode, planning, options, userId, man
     <Modal title={title} onClose={onClose} footer={
       <>
         <button onClick={onClose} className={secondaryCls}>Annuleren</button>
-        <button onClick={save} disabled={busy || !carId || !end || (mode.kind !== 'now' && !start) || !!problem}
+        <button data-primary onClick={save} disabled={busy || !carId || !end || (mode.kind !== 'now' && !start) || !!problem}
           className={`${buttonCls} text-white`} style={{ backgroundColor: ACCENT }}>
           {busy ? <Loader2 size={14} className="animate-spin" /> : mode.kind === 'now' ? <Car size={14} /> : <Check size={14} />}
           {mode.kind === 'now' ? 'Vertrekken' : editing ? 'Opslaan' : 'Reserveren'}
