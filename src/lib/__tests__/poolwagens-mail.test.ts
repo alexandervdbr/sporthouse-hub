@@ -110,10 +110,12 @@ describe('reservationMail', () => {
     expect(m.text).toContain('Poolwagen 1 (1-ABC-234) is voor je gereserveerd.')
     expect(m.text).toContain('Klant: Flanders Classics')
     for (const rule of POOL_RULES) {
-      expect(m.text).toContain(rule)
-      expect(m.html).toContain(rule)
+      expect(m.text).toContain(`${rule.title}: ${rule.detail}`)
+      expect(m.html).toContain(rule.title)
+      expect(m.html).toContain(rule.detail)
     }
-    expect(m.text).toContain('Shell, Total, Esso, Dats24 en Q8')
+    expect(m.text).toContain('Shell, Total, Esso, Dats24 of Q8')
+    expect(m.html).toContain('Bekijk je reservatie of meld schade op de hub')
     expect(m.text).toContain('kiezelparking')
     expect(m.text).not.toContain('Notitie')
   })

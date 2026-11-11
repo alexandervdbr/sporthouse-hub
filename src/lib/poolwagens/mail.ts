@@ -149,13 +149,15 @@ ${block ? `<p style="color:#b91c1c">${escapeHtml(block)}</p>` : ''}
 // Eén mail bij het reserveren (ook bij "Nu vertrekken"), met de afspraken
 // over de wagen. Geen herinnering en geen mail bij het terugbrengen.
 
-/** De afspraken onderaan elke bevestiging. Hier aanpassen als ze veranderen. */
-export const POOL_RULES: string[] = [
-  'Tank de wagen altijd opnieuw vol bij terugkeer. Tanken kan bij Shell, Total, Esso, Dats24 en Q8.',
-  'Schade? Meld die meteen op de hub.',
-  'Geeft de wagen een melding van lage bandendruk of onderhoud? Meld dat meteen op de hub.',
-  'Parkeer de wagen altijd op de kiezelparking of op de parking van Flanders Classics. Nooit in de straat.',
+/** De afspraken in elke bevestiging: een kort kopje en één regel. Hier aanpassen als ze veranderen. */
+export const POOL_RULES: { title: string; detail: string }[] = [
+  { title: 'Voltanken', detail: 'Altijd bij terugkeer, bij Shell, Total, Esso, Dats24 of Q8.' },
+  { title: 'Schade', detail: 'Meteen melden op de hub.' },
+  { title: 'Bandendruk of onderhoud', detail: 'Geeft de wagen een melding? Meteen melden op de hub.' },
+  { title: 'Parkeren', detail: 'Op de kiezelparking of de parking van Flanders Classics. Nooit in de straat.' },
 ]
+
+const LINK_TEXT = 'Bekijk je reservatie of meld schade op de hub'
 
 export interface ReservationMailInput {
   carName: string
@@ -191,9 +193,9 @@ export function reservationMail(r: ReservationMailInput): Omit<MailMessage, 'to'
     ...rows.map(([k, v]) => `${k}: ${v}`),
     '',
     'Afspraken bij elke rit:',
-    ...POOL_RULES.map(rule => `- ${rule}`),
+    ...POOL_RULES.map(rule => `- ${rule.title}: ${rule.detail}`),
     '',
-    `Melden en je reservatie bekijken: ${r.link}`,
+    `${LINK_TEXT}: ${r.link}`,
     '',
     '— Sporthouse Poolwagens',
   ].join('\n')
@@ -203,9 +205,12 @@ export function reservationMail(r: ReservationMailInput): Omit<MailMessage, 'to'
     `<table style="border-collapse:collapse;margin:0 0 16px">${rows.map(([k, v]) =>
       `<tr><td style="padding:2px 12px 2px 0;color:#71717a;vertical-align:top">${escapeHtml(k)}</td><td style="padding:2px 0;white-space:pre-wrap">${escapeHtml(v)}</td></tr>`).join('')}</table>` +
     `<div style="margin:0 0 16px;padding:10px 14px;border:1px solid #e4e4e7;border-radius:8px;background:#fafafa">` +
-    `<p style="margin:0 0 6px;font-weight:600">Afspraken bij elke rit</p>` +
-    `<ul style="margin:0;padding-left:18px">${POOL_RULES.map(rule => `<li style="margin:2px 0">${escapeHtml(rule)}</li>`).join('')}</ul></div>` +
-    `<p style="margin:0"><a href="${escapeHtml(r.link)}" style="color:#3A913F">Melden en je reservatie bekijken in de hub</a></p>` +
+    `<p style="margin:0 0 10px;font-weight:600">Afspraken bij elke rit</p>` +
+    POOL_RULES.map((rule, i) =>
+      `<p style="margin:${i === POOL_RULES.length - 1 ? '0' : '0 0 10px'}"><strong>${escapeHtml(rule.title)}</strong>` +
+      `<br><span style="color:#52525b">${escapeHtml(rule.detail)}</span></p>`).join('') +
+    `</div>` +
+    `<p style="margin:0"><a href="${escapeHtml(r.link)}" style="color:#3A913F">${escapeHtml(LINK_TEXT)}</a></p>` +
     `<p style="margin:24px 0 0;padding-top:14px;border-top:1px solid #e4e4e7;font-size:12px;color:#a1a1aa">Automatische mail van Sporthouse Poolwagens</p>` +
     `</div>`
   return { subject, text, html }
