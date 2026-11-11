@@ -49,10 +49,15 @@ export function Modal({ title, onClose, children, footer, wide }: {
         {/* min-h-0: anders krimpt dit vak niet en valt de footer onder het scherm. */}
         <div className="flex-1 min-h-0 px-4 sm:px-5 py-4 overflow-y-auto overscroll-contain space-y-4">{children}</div>
         {footer && (
-          // Gsm: de knoppen delen de breedte en zijn 44px hoog; een voortgangstekst krijgt een eigen regel.
+          // Gsm: de knoppen zijn 44px hoog en delen de breedte. Een knop met
+          // data-icon (bv. Schade melden) is daar een vierkant met alleen het
+          // icoon; de hoofdknop (data-primary) krijgt dubbel zoveel ruimte.
+          // Een voortgangstekst krijgt een eigen regel. Desktop: ongewijzigd.
           <div className="flex-shrink-0 px-4 sm:px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:py-3 border-t border-zinc-800 flex flex-wrap items-center justify-end gap-2
-            [&>button]:flex-1 [&>button]:justify-center [&>button]:min-h-11 sm:[&>button]:flex-none sm:[&>button]:min-h-0
-            [&>span]:w-full sm:[&>span]:w-auto">
+            max-sm:[&>button]:justify-center max-sm:[&>button]:min-h-11 max-sm:[&>button]:min-w-0
+            max-sm:[&>button:not([data-icon])]:flex-1 max-sm:[&>button[data-primary]]:flex-[2]
+            max-sm:[&>button[data-icon]]:w-11 max-sm:[&>button[data-icon]]:flex-none max-sm:[&>button[data-icon]]:px-0
+            max-sm:[&>span]:w-full">
             {footer}
           </div>
         )}
@@ -150,6 +155,12 @@ export function EmptyState({ icon, title, text, action }: { icon: ReactNode; tit
     </div>
   )
 }
+
+/**
+ * Het label naast het icoon van een footerknop met data-icon: op een gsm
+ * verborgen (de knop wordt een vierkant), voor schermlezers altijd gelezen.
+ */
+export const iconLabelCls = 'max-sm:sr-only'
 
 /** Een actieknop: op een gsm een groot aanraakdoel over de volle breedte. */
 export const actionCls = 'min-h-11 md:min-h-0 justify-center'
