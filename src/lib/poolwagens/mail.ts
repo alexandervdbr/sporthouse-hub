@@ -143,3 +143,75 @@ ${block ? `<p style="color:#b91c1c">${escapeHtml(block)}</p>` : ''}
 <p><a href="${escapeHtml(d.link)}">Bekijk de melding in de hub</a></p>`
   return { subject, text, html }
 }
+
+// ── De bevestiging van een reservatie ───────────────────────────────────────
+//
+// Eén mail bij het reserveren (ook bij "Nu vertrekken"), met de afspraken
+// over de wagen. Geen herinnering en geen mail bij het terugbrengen.
+
+/** De afspraken in elke bevestiging: een kort kopje en één regel. Hier aanpassen als ze veranderen. */
+export const POOL_RULES: { title: string; detail: string }[] = [
+  { title: 'Voltanken', detail: 'Altijd bij terugkeer, bij Shell, Total, Esso, Dats24 of Q8.' },
+  { title: 'Schade', detail: 'Meteen melden op de hub.' },
+  { title: 'Bandendruk of onderhoud', detail: 'Geeft de wagen een melding? Meteen melden op de hub.' },
+  { title: 'Parkeren', detail: 'Op de kiezelparking of de parking van Flanders Classics. Nooit in de straat.' },
+]
+
+const LINK_TEXT = 'Bekijk je reservatie of meld schade op de hub'
+
+export interface ReservationMailInput {
+  carName: string
+  plate: string
+  /** "di 4/11 08:00–17:00" (formatPeriod). */
+  period: string
+  /** Voor wie de reservatie is. */
+  person: string
+  /** Wie reserveerde, als dat iemand anders is; anders null. */
+  bookedBy: string | null
+  client: string | null
+  note: string | null
+  /** Link naar de poolwagens in de hub. */
+  link: string
+}
+
+export function reservationMail(r: ReservationMailInput): Omit<MailMessage, 'to'> {
+  const car = `${r.carName}${r.plate ? ` (${r.plate})` : ''}`
+  const subject = `Poolwagen gereserveerd: ${r.carName} · ${r.period}`
+  const intro = r.bookedBy
+    ? `${r.bookedBy} reserveerde ${car} voor ${r.person}.`
+    : `${car} is voor je gereserveerd.`
+  const rows: [string, string][] = [
+    ['Wagen', car],
+    ['Periode', r.period],
+    ['Voor', r.person],
+    ...(r.client ? [['Klant', r.client] as [string, string]] : []),
+    ...(r.note ? [['Notitie', r.note] as [string, string]] : []),
+  ]
+  const text = [
+    intro,
+    '',
+    ...rows.map(([k, v]) => `${k}: ${v}`),
+    '',
+    'Afspraken bij elke rit:',
+    ...POOL_RULES.map(rule => `- ${rule.title}: ${rule.detail}`),
+    '',
+    `${LINK_TEXT}: ${r.link}`,
+    '',
+    '— Sporthouse Poolwagens',
+  ].join('\n')
+  const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;color:#18181b;max-width:560px">` +
+    `<p style="margin:0 0 16px;font-size:16px;font-weight:600;letter-spacing:.2px">Sporthouse Poolwagens</p>` +
+    `<p style="margin:0 0 12px">${escapeHtml(intro)}</p>` +
+    `<table style="border-collapse:collapse;margin:0 0 16px">${rows.map(([k, v]) =>
+      `<tr><td style="padding:2px 12px 2px 0;color:#71717a;vertical-align:top">${escapeHtml(k)}</td><td style="padding:2px 0;white-space:pre-wrap">${escapeHtml(v)}</td></tr>`).join('')}</table>` +
+    `<div style="margin:0 0 16px;padding:10px 14px;border:1px solid #e4e4e7;border-radius:8px;background:#fafafa">` +
+    `<p style="margin:0 0 10px;padding-bottom:8px;border-bottom:1px solid #e4e4e7;font-weight:600">Afspraken bij elke rit</p>` +
+    POOL_RULES.map((rule, i) =>
+      `<p style="margin:${i === POOL_RULES.length - 1 ? '0' : '0 0 10px'}"><strong>${escapeHtml(rule.title)}</strong>` +
+      `<br><span style="color:#52525b">${escapeHtml(rule.detail)}</span></p>`).join('') +
+    `</div>` +
+    `<p style="margin:0"><a href="${escapeHtml(r.link)}" style="color:#3A913F">${escapeHtml(LINK_TEXT)}</a></p>` +
+    `<p style="margin:24px 0 0;padding-top:14px;border-top:1px solid #e4e4e7;font-size:12px;color:#a1a1aa">Automatische mail van Sporthouse Poolwagens</p>` +
+    `</div>`
+  return { subject, text, html }
+}

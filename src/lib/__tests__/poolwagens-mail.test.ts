@@ -96,3 +96,35 @@ describe('damageMail', () => {
     expect(m.text).not.toContain('geblokkeerd')
   })
 })
+
+describe('reservationMail', () => {
+  const base = {
+    carName: 'Poolwagen 1', plate: '1-ABC-234', period: 'di 4/11 08:00–17:00', person: 'Bram',
+    bookedBy: null, client: null, note: null, link: 'https://hub.example/poolwagens',
+  }
+
+  it('bevat de reservatie en alle afspraken, in tekst en html', async () => {
+    const { reservationMail, POOL_RULES } = await import('@/lib/poolwagens/mail')
+    const m = reservationMail({ ...base, client: 'Flanders Classics' })
+    expect(m.subject).toBe('Poolwagen gereserveerd: Poolwagen 1 · di 4/11 08:00–17:00')
+    expect(m.text).toContain('Poolwagen 1 (1-ABC-234) is voor je gereserveerd.')
+    expect(m.text).toContain('Klant: Flanders Classics')
+    for (const rule of POOL_RULES) {
+      expect(m.text).toContain(`${rule.title}: ${rule.detail}`)
+      expect(m.html).toContain(rule.title)
+      expect(m.html).toContain(rule.detail)
+    }
+    expect(m.text).toContain('Shell, Total, Esso, Dats24 of Q8')
+    expect(m.html).toContain('Bekijk je reservatie of meld schade op de hub')
+    expect(m.text).toContain('kiezelparking')
+    expect(m.text).not.toContain('Notitie')
+  })
+
+  it('zegt wie reserveerde voor een collega, en ontsnapt html', async () => {
+    const { reservationMail } = await import('@/lib/poolwagens/mail')
+    const m = reservationMail({ ...base, bookedBy: 'Alexander', note: '<b>x</b>' })
+    expect(m.text).toContain('Alexander reserveerde Poolwagen 1 (1-ABC-234) voor Bram.')
+    expect(m.html).toContain('&lt;b&gt;x&lt;/b&gt;')
+    expect(m.html).not.toContain('<b>x</b>')
+  })
+})

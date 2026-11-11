@@ -1,5 +1,7 @@
+import { after } from 'next/server'
 import { requirePoolwagens, dbErrorResponse, readJson } from '@/lib/poolwagens/server'
 import { parseDepartNowInput, rpcArgs } from '@/lib/poolwagens/reservation-input'
+import { sendReservationConfirmation } from '@/lib/poolwagens/notify'
 
 // POST — "Nu vertrekken": een reservatie vanaf nu en het vertrek in één
 // handeling (pool_depart_now), met dezelfde controles als reserveren.
@@ -13,5 +15,7 @@ export async function POST(req: Request) {
 
   const { data, error } = await supabase.rpc('pool_depart_now', rpcArgs(parsed.args))
   if (error) return dbErrorResponse(error)
+  // De bevestigingsmail na het antwoord: de gebruiker wacht er niet op.
+  after(() => sendReservationConfirmation(data as string))
   return Response.json({ id: data }, { status: 201 })
 }

@@ -53,6 +53,10 @@ vi.mock('@/lib/supabase/server', () => ({
 // De mail-worker weigert elke verzendpoging, zoals bij een verkeerd geheim.
 // De melding moet dan gewoon blijven bestaan.
 vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ ok: false, error: 'Geen toegang.' })))
+// after() werkt alleen binnen een echt verzoek: hier onthouden we wat er na
+// het antwoord zou lopen (de bevestigingsmail), zonder het uit te voeren.
+const afterTasks: (() => unknown)[] = []
+vi.mock('next/server', async (orig) => ({ ...(await orig<object>()), after: (fn: () => unknown) => { afterTasks.push(fn) } }))
 vi.mock('googleapis', () => ({ google: { auth: { JWT: class { constructor() {} } }, drive: () => ({}) } }))
 
 const cars = await import('@/app/api/poolwagens/cars/route')
@@ -209,6 +213,18 @@ describe('reserveren', () => {
     expect(state.rpcArgs.pool_create_reservation).toMatchObject({ p_client_id: CLIENT, p_client_name: null })
     expect(await statusOf(now.POST(json('POST', { car_id: CAR, end: '2099-01-01T10:00', client_name: 'Club X' })))).toBe(201)
     expect(state.rpcArgs.pool_depart_now).toMatchObject({ p_client_id: null, p_client_name: 'Club X' })
+  })
+
+  it('plant na het reserveren een bevestigingsmail, niet bij een fout', async () => {
+    state.user = user(USER)
+    afterTasks.length = 0
+    state.rpc.pool_create_reservation = { data: 'r1' }
+    expect(await statusOf(reservations.POST(json('POST', booking)))).toBe(201)
+    expect(await statusOf(now.POST(json('POST', { car_id: CAR, end: '2099-01-01T10:00' })))).toBe(201)
+    expect(afterTasks).toHaveLength(2)
+    state.rpc.pool_create_reservation = { error: { code: '23P01', message: 'overlap' } }
+    await reservations.POST(json('POST', booking))
+    expect(afterTasks).toHaveLength(2)
   })
 
   it('een ongeldige klant: 400 vóór de database', async () => {
