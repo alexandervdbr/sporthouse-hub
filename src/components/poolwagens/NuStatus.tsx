@@ -46,7 +46,7 @@ export default function NuStatus({ planning, userId, canBook, manage, onDepart, 
 function CarCard({ row, pin, action }: { row: CarNow; pin: boolean; action: React.ReactNode }) {
   const color = NOW_COLOR[row.kind]
   return (
-    <li className={`${panelCls} p-3 md:p-4 flex flex-col gap-3`} style={{ borderTopColor: color, borderTopWidth: 2 }}>
+    <li className={`${panelCls} p-3 md:p-4 flex flex-col gap-3`}>
       <div className="min-w-0 space-y-1">
         <div className="flex items-start gap-2">
           <span className="mt-[7px] w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} aria-hidden />
