@@ -57,7 +57,10 @@ export async function GET(req: Request) {
     rows = rows.filter(r =>
       wanted.has(`${r.year}-${r.month}`) && daysByMonth.get(`${r.year}-${r.month}`)!.has(r.day))
   } catch (e) {
-    return new Response(e instanceof Error ? e.message : 'Ophalen mislukt', { status: 500 })
+    // Supabase gooit een PostgrestError, geen Error: zonder dit verdween de
+    // echte oorzaak achter "Ophalen mislukt".
+    console.error('planning/mine', e)
+    return new Response('Ophalen mislukt', { status: 500 })
   }
 
   touchPlanningLink(link.token)
