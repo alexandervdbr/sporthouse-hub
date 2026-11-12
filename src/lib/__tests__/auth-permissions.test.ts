@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { hasSection, hasOpenSection, ADMIN_EMAILS } from '@/lib/auth-permissions'
+import { hasSection, hasOpenSection, isAdminUser } from '@/lib/auth-permissions'
 
 // Het verschil tussen deze twee functies is één tak, en die tak bepaalt wat er
 // gebeurt met een account waarvoor nooit permissies zijn ingesteld. Pré-assist
@@ -10,7 +10,7 @@ import { hasSection, hasOpenSection, ADMIN_EMAILS } from '@/lib/auth-permissions
 const niemand = { email: 'stagiair@sporthousegroup.com', app_metadata: { permissions: { sections: [] } } }
 const metSectie = { email: 'collega@sporthousegroup.com', app_metadata: { permissions: { sections: ['preassist'] } } }
 const nooitIngesteld = { email: 'nieuw@sporthousegroup.com', app_metadata: {} }
-const admin = { email: ADMIN_EMAILS[0], app_metadata: {} }
+const admin = { email: 'beheerder@sporthousegroup.com', app_metadata: { permissions: { sections: ['beheer'] } } }
 
 describe('hasOpenSection', () => {
   it('laat iemand met de sectie binnen', () => {
@@ -47,5 +47,17 @@ describe('hasSection blijft weigeren bij twijfel', () => {
 
   it('en laat iemand met de sectie wel binnen', () => {
     expect(hasSection(metSectie, 'preassist')).toBe(true)
+  })
+})
+
+describe('isAdminUser', () => {
+  it('is admin met een rol met beheer', () => {
+    expect(isAdminUser(admin)).toBe(true)
+  })
+
+  it('maakt geen uitzondering meer op e-mailadres', () => {
+    // De vroegere hardcoded lijst kende de database niet; nu volgt de app
+    // dezelfde regel als de RLS.
+    expect(isAdminUser({ email: 'arne.smets@sporthousegroup.com', app_metadata: {} })).toBe(false)
   })
 })

@@ -30,7 +30,6 @@
 // (een sleutel die de code controleert maar die niemand kan krijgen), of als
 // een sleutel in de catalogus nergens meer gecontroleerd wordt.
 
-import { ADMIN_EMAILS } from '@/lib/auth-permissions'
 import { PROJECTKALENDER_ENABLED, CHAT_ENABLED } from '@/lib/features'
 
 export interface AccessLevel {
@@ -392,11 +391,9 @@ export function buildAppMetadata(
 }
 
 // Wie zijn eigen Beheer wegklikt, staat buiten en kan het niet meer
-// terugzetten. De twee vaste admins kunnen dat altijd (ADMIN_EMAILS), de rest
-// niet — dus dat weigeren we vóór het gebeurt.
+// terugzetten — dus dat weigeren we vóór het gebeurt.
 export function locksOutCaller(caller: { id: string; email?: string | null }, targetId: string, newMeta: Record<string, unknown>) {
   if (caller.id !== targetId) return false
-  if (ADMIN_EMAILS.includes(caller.email ?? '')) return false
   const sections = ((newMeta.permissions as { sections?: string[] } | undefined)?.sections) ?? []
   return !sections.includes('beheer')
 }
