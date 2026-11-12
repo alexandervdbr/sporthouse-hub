@@ -186,6 +186,10 @@ export default function PlanningApp() {
   // wél echt gewerkt hebben. Standaard verborgen uit Team, terug op te
   // vragen via de toggle naast de zoekbalk.
   const [archived, setArchived] = useState<string[]>([])
+  // Bewust uit het rooster gehaald: de automatische aanvulling slaat hen over.
+  const [excluded, setExcluded] = useState<string[]>([])
+  // Of archief én uitsluitlijst allebei binnen zijn — zie hun laad-effect.
+  const [listsLoaded, setListsLoaded] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
 
   const [data, setData] = useState<PlanningWeekData>({})
@@ -260,9 +264,8 @@ export default function PlanningApp() {
   // ── Team contacts — the real, actually-maintained source of "who works
   // here" (see /team). New hires land in a "Nieuw" bucket automatically so
   // they get a planning spot without anyone remembering a separate step;
-  // admins move them into the right department afterwards. Matched by name
-  // only (no shared id with planning_entries), so a rename in Team won't be
-  // picked up here — only additions/removals.
+  // admins move them into the right department afterwards. Matched on
+  // contact id, so a rename in Team shows up here automatically.
   const [teamContacts, setTeamContacts] = useState<TeamContact[]>([])
   const [teamContactsLoaded, setTeamContactsLoaded] = useState(false)
   useEffect(() => {
@@ -324,13 +327,17 @@ export default function PlanningApp() {
   //
   // Vergelijken op id, dus geen naamsvergelijking meer die ernaast kan zitten.
   // De hele hernoemingsmachinerie die hier ooit naast stond is daarmee weg.
+  //
+  // Niet voor wie gearchiveerd is of bewust uit het rooster gehaald werd: die
+  // stonden anders bij de volgende lading gewoon terug in "Nieuw".
   useEffect(() => {
-    if (!isBeheer || configFailed || !serverHasConfig || teamContacts.length === 0 || activeDepts.length === 0 || configWriteRef.current) return
+    if (!isBeheer || configFailed || !serverHasConfig || !listsLoaded || teamContacts.length === 0 || activeDepts.length === 0 || configWriteRef.current) return
     const known = new Set(activeDepts.flatMap(d => d.employees))
+    const skip = new Set([...archived, ...excluded])
     const missing = teamContacts.filter(c =>
       // Wie niet meer meedraait hoort hier niet opnieuw binnengehaald te
       // worden; anders duikt een vertrokken stagiair elke keer weer op.
-      c.active !== false && !known.has(c.id)
+      c.active !== false && !known.has(c.id) && !skip.has(c.id)
     )
     if (missing.length === 0) return
     const next = activeDepts.map(d => ({ ...d, employees: [...d.employees] }))
@@ -342,7 +349,7 @@ export default function PlanningApp() {
       // Achtergrondherstel: mislukt het, dan probeert de volgende lading opnieuw.
       .catch(e => console.error('Rooster bijwerken mislukt:', e))
       .finally(() => { configWriteRef.current = false })
-  }, [isBeheer, configFailed, serverHasConfig, teamContacts, activeDepts, handleSaveConfig])
+  }, [isBeheer, configFailed, serverHasConfig, listsLoaded, archived, excluded, teamContacts, activeDepts, handleSaveConfig])
 
   // ── Load presets ─────────────────────────────────────────────────────────
   // Ook opnieuw op te vragen: de Presets-tab in de configuratiemodal schrijft
@@ -357,16 +364,39 @@ export default function PlanningApp() {
 
   useEffect(() => { loadPresets() }, [loadPresets])
 
-  // ── Load archived employees ──────────────────────────────────────────────
+  // ── Load archived and excluded people ────────────────────────────────────
+  // Samen, en pas "geladen" als allebei gelukt zijn: de automatische
+  // aanvulling hieronder wacht hierop. Liep die vóór deze lijsten binnen
+  // waren, dan zette hij wie bewust uit het rooster gehaald was gewoon terug.
   useEffect(() => {
-    fetch('/api/planning/archived')
-      .then(r => r.json())
-      .then((a: string[] | null) => { if (Array.isArray(a)) setArchived(a) })
-      .catch(() => {})
+    const lijst = (url: string) => fetch(url).then(r => {
+      if (!r.ok) throw new Error(`${url} ${r.status}`)
+      return r.json() as Promise<string[]>
+    })
+    Promise.all([lijst('/api/planning/archived'), lijst('/api/planning/excluded')])
+      .then(([a, x]) => {
+        if (Array.isArray(a)) setArchived(a)
+        if (Array.isArray(x)) setExcluded(x)
+        setListsLoaded(true)
+      })
+      .catch(e => console.error('Planninglijsten ophalen mislukt:', e))
   }, [])
 
   // Pas na een gelukte opslag op het scherm: hiervoor sprong de schakelaar
   // meteen om, ook als de server het weigerde.
+  async function handleSaveExcluded(next: string[]) {
+    const res = await fetch('/api/planning/excluded', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(next),
+    })
+    if (!res.ok) {
+      const tekst = await res.text().catch(() => '')
+      throw new Error(tekst || `Opslaan mislukt (${res.status}).`)
+    }
+    setExcluded(next)
+  }
+
   async function handleSaveArchived(next: string[]) {
     const res = await fetch('/api/planning/archived', {
       method: 'PUT',
@@ -1636,6 +1666,8 @@ export default function PlanningApp() {
           onSave={handleSaveConfig}
           archived={archived}
           onSaveArchived={handleSaveArchived}
+          excluded={excluded}
+          onSaveExcluded={handleSaveExcluded}
           teamContacts={teamContacts}
           onClose={() => { setShowConfig(false); loadPresets() }}
           isBeheer={isBeheer}
