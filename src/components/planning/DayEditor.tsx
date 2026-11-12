@@ -183,14 +183,35 @@ export default function DayEditor({
       }
     : null
 
+  // Een cel met een waarde die geen (bestaande) status is: zonder nieuwe
+  // keuze blijft die staan, en kan je alleen de notitie aanpassen.
+  const behoudOudeWaarde = !selectedOption && !matched && initialCell.value.trim() !== ''
+  const kanOpslaan = !!selectedOption || behoudOudeWaarde
+
   function handleSave() {
     const trimmedNote = note.trim() || null
 
-    // Geen status gekozen betekent wissen. Vrije tekst bestaat niet meer:
-    // elke tikfout werd anders een eigen "status" die in Statistieken in de
-    // kolom "Overig" belandde, en wat je er eigenlijk in kwijt wilde — een
-    // klant, een uur, een reden — hoort in de notitie eronder.
-    if (!selectedOption) { onClear(); return }
+    // Vrije tekst bestaat niet meer: elke tikfout werd anders een eigen
+    // "status" die in Statistieken in de kolom "Overig" belandde, en wat je er
+    // eigenlijk in kwijt wilde — een klant, een uur, een reden — hoort in de
+    // notitie eronder.
+    //
+    // Geen status gekozen betekende hier vroeger wissen. Dat wiste ook een
+    // cel met een oude waarde waar je alleen de notitie van aanpaste, terwijl
+    // het scherm net "of laat staan" had gezegd. Wissen is nu altijd de knop
+    // Wissen; Opslaan zonder status houdt de oude waarde.
+    if (!selectedOption) {
+      if (behoudOudeWaarde) {
+        onSave({
+          value: initialCell.value,
+          bold: initialCell.bold,
+          textColor: initialCell.textColor,
+          bgColor: initialCell.bgColor,
+          note: trimmedNote,
+        })
+      }
+      return
+    }
 
     // De opgeslagen waarde blijft "PS - THUIS": oude cellen, de statistieken
     // en de kleuren in het raster blijven daardoor kloppen. Alleen de kiezer
@@ -348,10 +369,11 @@ export default function DayEditor({
                 de presets, of een status die intussen verwijderd werd — dan
                 tonen we dat, zodat je niet blind overschrijft. Kiezen doe je
                 verder gewoon uit de lijst. */}
-            {!selectedOption && initialCell.value.trim() && (
+            {behoudOudeWaarde && (
               <p className="text-[11px] text-zinc-500">
                 Staat nu: <span className="text-zinc-300">{initialCell.value}</span> — geen
-                bestaande status. Kies er een uit de lijst, of laat staan.
+                bestaande status. Kies er een uit de lijst, of laat staan: opslaan
+                zonder keuze houdt deze waarde en bewaart alleen de notitie.
               </p>
             )}
 
@@ -394,7 +416,9 @@ export default function DayEditor({
                 Annuleren
               </button>
               <button onClick={handleSave}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors"
+                disabled={!kanOpslaan}
+                title={kanOpslaan ? undefined : 'Kies eerst een status — wissen doe je met Wissen'}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{ backgroundColor: '#3A913F' }}>
                 <Check size={14} /> Opslaan
               </button>
