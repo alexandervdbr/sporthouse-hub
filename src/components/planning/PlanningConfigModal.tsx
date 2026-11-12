@@ -182,12 +182,18 @@ function PresetsPanel() {
       return
     }
 
-    await fetch('/api/planning/presets', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: p.id }),
-    })
-    setPresets(prev => prev.filter(x => x.id !== p.id))
+    // Pas uit de lijst als de server het echt verwijderd heeft.
+    try {
+      const res = await fetch('/api/planning/presets', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: p.id }),
+      })
+      if (!res.ok) throw new Error(await res.text().catch(() => '') || `Verwijderen mislukt (${res.status}).`)
+      setPresets(prev => prev.filter(x => x.id !== p.id))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Verwijderen mislukt.')
+    }
     setBusyId(null)
   }
 
@@ -425,8 +431,13 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
 
   async function toggleArchived(id: string) {
     setBusyArchive(id)
+    setSaveError('')
     const next = isArchivedId(id) ? archived.filter(a => a !== id) : [...archived, id]
-    await onSaveArchived(next)
+    try {
+      await onSaveArchived(next)
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Archiveren mislukt.')
+    }
     setBusyArchive(null)
   }
 

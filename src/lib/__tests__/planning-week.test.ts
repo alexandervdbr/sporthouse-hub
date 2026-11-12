@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   getWeekDates, getMonthWeeks, groupWeekByMonth, addMonths, addWeeks,
-  dateCellKey, weekLabel,
+  dateCellKey, weekLabel, groupDeletes,
 } from '@/lib/planning-week'
 
 // Datumrekenen is waar dit soort code stilletjes fout gaat: een week die over
@@ -123,5 +123,32 @@ describe('weekLabel', () => {
 
   it('noemt beide jaren bij een jaargrens', () => {
     expect(weekLabel(getWeekDates(new Date(2026, 11, 30)))).toBe('28 Dec 2026 – 3 Jan 2027')
+  })
+})
+
+describe('groupDeletes', () => {
+  it('turns cells into one group per month and person', () => {
+    const groups = groupDeletes([
+      { year: 2026, month: 11, day: 3, contactId: 'a' },
+      { year: 2026, month: 11, day: 4, contactId: 'a' },
+      { year: 2026, month: 11, day: 3, contactId: 'b' },
+      { year: 2026, month: 12, day: 1, contactId: 'a' },
+    ])
+    expect(groups).toEqual([
+      { year: 2026, month: 11, contactId: 'a', days: [3, 4] },
+      { year: 2026, month: 11, contactId: 'b', days: [3] },
+      { year: 2026, month: 12, contactId: 'a', days: [1] },
+    ])
+  })
+
+  it('does not repeat a day that was passed twice', () => {
+    expect(groupDeletes([
+      { year: 2026, month: 1, day: 5, contactId: 'a' },
+      { year: 2026, month: 1, day: 5, contactId: 'a' },
+    ])).toEqual([{ year: 2026, month: 1, contactId: 'a', days: [5] }])
+  })
+
+  it('returns nothing for nothing', () => {
+    expect(groupDeletes([])).toEqual([])
   })
 })

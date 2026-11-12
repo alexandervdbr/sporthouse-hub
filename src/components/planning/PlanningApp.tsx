@@ -7,7 +7,7 @@ import {
   DUTCH_MONTHS, UNASSIGNED_DEPT, normName, type Department, type Person,
 } from '@/lib/planning-config'
 import {
-  addMonths, addWeeks, dateCellKey, getMonthWeeks, getWeekDates, groupWeekByMonth, weekDayCellKey, weekLabel,
+  addMonths, addWeeks, dateCellKey, getMonthWeeks, getWeekDates, groupDeletes, groupWeekByMonth, weekDayCellKey, weekLabel,
   type CellData, type PlanningWeekData, type Target, type WeekDay,
 } from '@/lib/planning-week'
 import { isAdminUser } from '@/lib/auth-permissions'
@@ -27,6 +27,7 @@ import MyMonthWeeks from './MyMonthWeeks'
 import TeamMonthGrid from './TeamMonthGrid'
 import MobileTeamDayStepper from './MobileTeamDayStepper'
 import PlanningStats from './PlanningStats'
+import Toast, { type ToastData } from '@/components/materiaal/Toast'
 
 const norm = normName
 
@@ -235,16 +236,22 @@ export default function PlanningApp() {
   // dependencies hebben: zonder stabiele identiteit zouden die op elke render
   // opnieuw lopen.
   const handleSaveConfig = useCallback(async (newDepts: Department[]) => {
-    if (configFailed) return
+    if (configFailed) {
+      throw new Error('Het rooster kon niet geladen worden, dus opslaan staat uit. Herlaad de pagina.')
+    }
     const res = await fetch('/api/planning/config', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newDepts),
     })
-    // Mislukt opslaan hoeft niet luidruchtig te zijn, maar de lokale staat mag
-    // er dan ook niet doen alsof het gelukt is — anders staat het scherm
-    // ergens anders dan de database, en schrijft de cache dat verschil vast.
-    if (!res.ok) return
+    // Mislukt opslaan is een fout, geen stilte. Hiervoor keerde dit gewoon
+    // terug, sloot de configuratie alsof alles bewaard was, en was al het
+    // sleepwerk van de beheerder weg. De lokale staat blijft ongemoeid, zodat
+    // het scherm niet ergens anders staat dan de database.
+    if (!res.ok) {
+      const tekst = await res.text().catch(() => '')
+      throw new Error(tekst || `Opslaan mislukt (${res.status}).`)
+    }
     setActiveDepts(newDepts)
     setServerHasConfig(true)
     try { localStorage.setItem(CONFIG_CACHE_KEY, JSON.stringify(newDepts)) } catch { /* private browsing */ }
@@ -304,7 +311,10 @@ export default function PlanningApp() {
     })
     if (!changed) return
     configWriteRef.current = true
-    handleSaveConfig(next).finally(() => { configWriteRef.current = false })
+    handleSaveConfig(next)
+      // Achtergrondherstel: mislukt het, dan probeert de volgende lading opnieuw.
+      .catch(e => console.error('Rooster bijwerken mislukt:', e))
+      .finally(() => { configWriteRef.current = false })
   }, [isBeheer, configFailed, serverHasConfig, activeDepts, handleSaveConfig])
 
   // 2) Nieuwe Team-contacten komen vanzelf in een bakje "Nieuw" terecht, zodat
@@ -328,7 +338,10 @@ export default function PlanningApp() {
     if (!bucket) { bucket = { name: UNASSIGNED_DEPT, employees: [] }; next.push(bucket) }
     bucket.employees.push(...missing.map(c => c.id))
     configWriteRef.current = true
-    handleSaveConfig(next).finally(() => { configWriteRef.current = false })
+    handleSaveConfig(next)
+      // Achtergrondherstel: mislukt het, dan probeert de volgende lading opnieuw.
+      .catch(e => console.error('Rooster bijwerken mislukt:', e))
+      .finally(() => { configWriteRef.current = false })
   }, [isBeheer, configFailed, serverHasConfig, teamContacts, activeDepts, handleSaveConfig])
 
   // ── Load presets ─────────────────────────────────────────────────────────
@@ -352,13 +365,19 @@ export default function PlanningApp() {
       .catch(() => {})
   }, [])
 
+  // Pas na een gelukte opslag op het scherm: hiervoor sprong de schakelaar
+  // meteen om, ook als de server het weigerde.
   async function handleSaveArchived(next: string[]) {
-    setArchived(next)
-    await fetch('/api/planning/archived', {
+    const res = await fetch('/api/planning/archived', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(next),
     })
+    if (!res.ok) {
+      const tekst = await res.text().catch(() => '')
+      throw new Error(tekst || `Archiveren mislukt (${res.status}).`)
+    }
+    setArchived(next)
   }
 
   // Namen van Team-contacten die niet meer meedraaien: een stagiair voorbij
@@ -884,8 +903,9 @@ export default function PlanningApp() {
   const pollForChangesRef = useRef(pollForChanges)
   useEffect(() => { pollForChangesRef.current = pollForChanges }, [pollForChanges])
 
-  // Clearing a selection deletes every cell in it separately, and each one
-  // reaches every open tab as its own event. Without coalescing, emptying
+  // Clearing a selection is one request per month and person (see
+  // writeEntries), but every deleted row still reaches every open tab as its
+  // own realtime event. Without coalescing, emptying
   // forty cells with ten people watching would fire four hundred polls in a
   // couple of seconds — each small, but it's the number of requests that the
   // log quota counts, and that's the one we're furthest over.
@@ -1117,7 +1137,18 @@ export default function PlanningApp() {
 
   type WriteEntry = { wd: WeekDay; contactId: string; cell: CellData | null }
 
-  async function writeEntries(entries: WriteEntry[]) {
+  // Een melding onderaan als opslaan mislukt. Hiervoor ging een mislukte
+  // schrijfactie volledig stil: het scherm en de kopie in de browser toonden
+  // de wijziging, de database had ze niet, en een minuut later verdween ze
+  // bij de volgende sync — zonder dat iemand wist waarom.
+  const [toast, setToast] = useState<ToastData | null>(null)
+  const toastIdRef = useRef(0)
+  const closeToast = useCallback(() => setToast(null), [])
+
+  // Het scherm, de boekhouding van de sync en de kopie in de browser in één
+  // keer naar `entries` zetten. Gebruikt voor de wijziging zelf, en voor het
+  // terugzetten als de database ze weigert.
+  function applyLocal(entries: WriteEntry[]) {
     setData(prev => {
       const next = { ...prev }
       for (const e of entries) {
@@ -1150,9 +1181,8 @@ export default function PlanningApp() {
           year: e.wd.year, month: e.wd.month, day: e.wd.day, contact_id: e.contactId,
           value: e.cell.value, bold: e.cell.bold,
           text_color: e.cell.textColor, bg_color: e.cell.bgColor, note: e.cell.note,
-          updated_by: userEmail ?? null,
-          // De database zet deze; wij kennen hem nog niet.
-          updated_at: null,
+          updated_by: e.cell.updatedBy ?? null,
+          updated_at: e.cell.updatedAt ?? null,
         })
       } else {
         bucket.deleteKeys.push(weekDayCellKey(e.wd, e.contactId))
@@ -1162,8 +1192,29 @@ export default function PlanningApp() {
     for (const b of perMonth.values()) {
       patchCachedMonth(b.year, b.month, { upserts: b.upserts, deleteKeys: b.deleteKeys })
     }
-    const toUpsert = entries.filter(e => e.cell)
-    const toDelete = entries.filter(e => !e.cell)
+  }
+
+  // Schrijft de wijziging weg en zegt of de database ze helemaal aannam.
+  // Lukt dat niet, dan gaat alles terug naar hoe het was, wordt de periode
+  // opnieuw opgehaald en krijgt de gebruiker een melding.
+  async function writeEntries(entries: WriteEntry[]): Promise<boolean> {
+    const before: WriteEntry[] = entries.map(e => ({
+      ...e, cell: data[weekDayCellKey(e.wd, e.contactId)] ?? null,
+    }))
+
+    // Wie iets schrijft, heeft het als laatste aangeraakt. De database zet
+    // updated_at zelf; die kennen we hier nog niet.
+    const stamped: WriteEntry[] = entries.map(e => e.cell
+      ? { ...e, cell: { ...e.cell, updatedBy: userEmail ?? null, updatedAt: null } }
+      : e)
+    applyLocal(stamped)
+
+    const toUpsert = stamped.filter(e => e.cell)
+    // Alleen cellen die er echt staan. Een lege cel "wissen" raakt geen rij,
+    // en dan zou de telling hieronder ten onrechte een weigering melden.
+    const toDelete = stamped.filter((e, i) => !e.cell && before[i].cell)
+    const errors: string[] = []
+
     if (toUpsert.length > 0) {
       const rows = toUpsert.map(e => ({
         year: e.wd.year, month: e.wd.month, day: e.wd.day, contact_id: e.contactId,
@@ -1174,37 +1225,73 @@ export default function PlanningApp() {
         // die achterloopt zou wijzigingen onzichtbaar maken.
         updated_by: userEmail,
       }))
-      await supabase.from('planning_entries').upsert(rows, { onConflict: 'year,month,day,contact_id' })
+      const { error } = await supabase.from('planning_entries').upsert(rows, { onConflict: 'year,month,day,contact_id' })
+      if (error) errors.push(error.message)
     }
+
     if (toDelete.length > 0) {
-      await Promise.all(toDelete.map(e =>
-        supabase.from('planning_entries').delete()
-          .eq('year', e.wd.year).eq('month', e.wd.month).eq('day', e.wd.day)
-          .eq('contact_id', e.contactId)
+      // Eén verzoek per maand en persoon in plaats van één per cel.
+      //
+      // Met de telling erbij, want een wisactie die de database weigert (RLS)
+      // geeft geen fout: hij raakt gewoon nul rijen.
+      const groups = groupDeletes(toDelete.map(e => ({
+        year: e.wd.year, month: e.wd.month, day: e.wd.day, contactId: e.contactId,
+      })))
+      const results = await Promise.all(groups.map(g =>
+        supabase.from('planning_entries').delete({ count: 'exact' })
+          .eq('year', g.year).eq('month', g.month).eq('contact_id', g.contactId)
+          .in('day', g.days)
       ))
+      results.forEach((r, i) => {
+        if (r.error) errors.push(r.error.message)
+        else if ((r.count ?? 0) < groups[i].days.length) errors.push('niet alle dagen konden gewist worden')
+      })
     }
+
+    if (errors.length === 0) return true
+
+    console.error('Planning opslaan mislukt:', errors)
+    applyLocal(before)
+    // De waarheid uit de database, voor het geval een deel wel gelukt is.
+    loadPeriodDataRef.current({ silent: true, skipCache: true })
+    setToast({
+      id: ++toastIdRef.current,
+      tone: 'warn',
+      message: 'Niet opgeslagen — je wijziging is teruggezet. Probeer opnieuw; blijft het mislukken, herlaad dan de pagina.',
+      ms: 10000,
+    })
+    return false
   }
 
   function pushUndo(targets: Target[]) {
-    const before = targets.map(t => ({ ...t, before: data[weekDayCellKey(t.wd, t.contactId)] ?? null }))
-    undoStackRef.current.push(before)
+    const entry = targets.map(t => ({ ...t, before: data[weekDayCellKey(t.wd, t.contactId)] ?? null }))
+    undoStackRef.current.push(entry)
     if (undoStackRef.current.length > 50) undoStackRef.current.shift()
+    return entry
+  }
+
+  // Wat niet opgeslagen werd, valt niet ongedaan te maken.
+  function dropUndo(entry: unknown) {
+    const i = undoStackRef.current.indexOf(entry as (typeof undoStackRef.current)[number])
+    if (i >= 0) undoStackRef.current.splice(i, 1)
   }
 
   async function applyToTargets(targets: Target[], cell: CellData) {
-    pushUndo(targets)
-    await writeEntries(targets.map(t => ({ ...t, cell })))
+    const entry = pushUndo(targets)
+    if (!await writeEntries(targets.map(t => ({ ...t, cell })))) dropUndo(entry)
   }
 
   async function clearTargets(targets: Target[]) {
-    pushUndo(targets)
-    await writeEntries(targets.map(t => ({ ...t, cell: null })))
+    const entry = pushUndo(targets)
+    if (!await writeEntries(targets.map(t => ({ ...t, cell: null })))) dropUndo(entry)
   }
 
   async function handleUndo() {
     const entry = undoStackRef.current.pop()
     if (!entry) return
-    await writeEntries(entry.map(e => ({ wd: e.wd, contactId: e.contactId, cell: e.before })))
+    const ok = await writeEntries(entry.map(e => ({ wd: e.wd, contactId: e.contactId, cell: e.before })))
+    // Mislukt: dan staat de stap er nog, en kan je het nog eens proberen.
+    if (!ok) undoStackRef.current.push(entry)
   }
 
   useEffect(() => {
@@ -1554,6 +1641,8 @@ export default function PlanningApp() {
           isBeheer={isBeheer}
         />
       )}
+
+      {toast && <Toast toast={toast} onClose={closeToast} />}
     </div>
   )
 }
