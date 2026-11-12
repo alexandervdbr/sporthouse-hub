@@ -1,16 +1,11 @@
-// Single source of truth for the hardcoded admin allowlist and the
-// permission checks built on top of it. Import from here instead of
-// redeclaring ADMIN_EMAILS locally — this file has no server-only
-// dependencies, so it's safe to import from both server and client code.
+// De rechtencontroles van de app. Geen server-afhankelijkheden, dus bruikbaar
+// in server- en clientcode.
 //
-// This is deliberately a break-glass fallback, not the primary admin path —
-// both accounts below should also have 'beheer' granted through the admin
-// panel, so day-to-day admin access has a visible, revocable route and this
-// hardcoded list is only what's left if that panel-granted access is ever
-// lost or misconfigured. It only ever gates UI/page routing; the DB-level
-// RLS checks (see supabase/migrations/0023_client_access_rls_foundation.sql)
-// deliberately don't know about it at all.
-export const ADMIN_EMAILS = ['arne.smets@sporthousegroup.com', 'deryan.spiessens@sporthousegroup.com']
+// Admin is wie een rol met 'beheer' heeft — niets anders. Er stond hier
+// vroeger een hardcoded lijst met e-mailadressen die altijd admin waren, maar
+// de database (RLS) kende die niet, waardoor app en database het oneens konden
+// zijn over wie admin was. Raakt iedereen 'beheer' kwijt, zet het dan terug
+// via het Supabase-dashboard (app_metadata van de gebruiker).
 
 type PermissionUser = {
   email?: string | null
@@ -29,7 +24,7 @@ export function getSections(user: PermissionUser): string[] {
 }
 
 export function isAdminUser(user: PermissionUser): boolean {
-  return ADMIN_EMAILS.includes(user?.email ?? '') || getSections(user).includes('beheer')
+  return getSections(user).includes('beheer')
 }
 
 export function hasSection(user: PermissionUser, section: string): boolean {

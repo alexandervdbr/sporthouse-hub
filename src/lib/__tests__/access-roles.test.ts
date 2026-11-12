@@ -5,7 +5,7 @@ import {
   NO_CLIENTS, chosenClients, FROZEN_SECTION_KEYS,
   type AccessRole,
 } from '@/lib/access-roles'
-import { ADMIN_EMAILS, hasClientAccess } from '@/lib/auth-permissions'
+import { hasClientAccess } from '@/lib/auth-permissions'
 
 // De vakjes zoals ze in het beheerscherm stonden vóór de rollen. Elke sleutel
 // hier wordt ergens in de app of de RLS gecontroleerd; als er één niet meer
@@ -165,9 +165,13 @@ describe('locksOutCaller', () => {
     expect(locksOutCaller({ id: 'a', email: 'x@y.be' }, 'a', metBeheer)).toBe(false)
   })
 
-  it('laat het toe voor iemand anders of voor een vaste admin', () => {
+  it('laat het toe voor iemand anders', () => {
     expect(locksOutCaller({ id: 'a', email: 'x@y.be' }, 'b', zonderBeheer)).toBe(false)
-    expect(locksOutCaller({ id: 'a', email: ADMIN_EMAILS[0] }, 'a', zonderBeheer)).toBe(false)
+  })
+
+  it('maakt geen uitzondering op e-mailadres', () => {
+    // Vroeger mochten twee hardcoded adressen dit wel. Die lijst is weg.
+    expect(locksOutCaller({ id: 'a', email: 'arne.smets@sporthousegroup.com' }, 'a', zonderBeheer)).toBe(true)
   })
 })
 

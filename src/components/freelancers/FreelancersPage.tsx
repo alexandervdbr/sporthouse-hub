@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { DriveThumbnail } from '@/components/shared/DrivePreview'
 import { ALLOWED_UPLOAD_HINT } from '@/lib/upload-policy'
+import { hasSection } from '@/lib/auth-permissions'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -1520,8 +1521,6 @@ function FreelancerRow({ freelancer, onClick, matchReason, matchConcern, matchRa
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-const FREELANCER_ADMIN = 'deryan.spiessens@sporthousegroup.com'
-
 function sortByRating<T extends Freelancer>(arr: T[]): T[] {
   return [...arr].sort((a, b) => {
     if (a.rating === b.rating) return 0
@@ -1546,7 +1545,8 @@ export default function FreelancersPage() {
   useEffect(() => {
     import('@/lib/supabase/client').then(({ createClient }) => {
       createClient().auth.getUser().then(({ data: { user } }) => {
-        setIsAdmin(user?.email === FREELANCER_ADMIN)
+        // Dezelfde regel als de API's: Freelancers op niveau Beheren, of beheer.
+        setIsAdmin(hasSection(user, 'freelancers'))
       })
     })
     fetch('/api/freelancers')
