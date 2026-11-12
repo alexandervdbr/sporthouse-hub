@@ -807,6 +807,9 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Planning configuratie"
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
       onClick={e => { if (e.target === e.currentTarget) requestClose() }}

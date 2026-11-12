@@ -1330,6 +1330,8 @@ export default function PlanningApp() {
       if (!isUndo) return
       const tag = (e.target as HTMLElement)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      // Niet achter een open dialoog: daar zie je niet wat er teruggezet wordt.
+      if (document.querySelector('[role="dialog"]')) return
       e.preventDefault()
       handleUndo()
     }

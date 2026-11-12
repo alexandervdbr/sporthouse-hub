@@ -33,7 +33,7 @@ export default function NamePicker({
   }, [onCancel, canCancel])
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={canCancel ? onCancel : undefined}>
+    <div role="dialog" aria-modal="true" aria-label="Kies wie je bent" className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={canCancel ? onCancel : undefined}>
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
       <div onClick={e => e.stopPropagation()}
         className="relative w-full max-w-sm rounded-2xl bg-zinc-900 border border-zinc-800 shadow-2xl p-5 space-y-4">

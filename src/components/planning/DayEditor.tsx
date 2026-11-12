@@ -227,7 +227,7 @@ export default function DayEditor({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
+    <div role="dialog" aria-modal="true" aria-label={title} className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
       <div onClick={e => e.stopPropagation()}
         className="relative w-full sm:max-w-sm sm:rounded-2xl rounded-t-2xl bg-zinc-900 border border-zinc-800 shadow-2xl max-h-[85dvh] flex flex-col">
@@ -248,7 +248,25 @@ export default function DayEditor({
         )}
 
         {readOnly ? (
-          <div className="px-5 py-6 text-sm text-zinc-500">Je hebt geen rechten om dit te bewerken.</div>
+          // Alleen kijken: wel tonen wat er staat. Hier stond enkel "geen
+          // rechten", en een afgekapte notitie in het raster was dan nergens
+          // volledig te lezen.
+          <div className="px-5 py-5 space-y-3">
+            {initialCell.value.trim() ? (
+              <span
+                className="inline-block rounded-md px-2.5 py-1 text-xs font-semibold"
+                style={{ backgroundColor: initialCell.bgColor ?? 'rgba(255,255,255,0.08)', color: initialCell.bgColor ? '#fff' : '#a1a1aa' }}
+              >
+                {initialCell.value}
+              </span>
+            ) : (
+              <p className="text-sm text-zinc-500">Niets ingepland.</p>
+            )}
+            {initialCell.note && (
+              <p className="text-sm text-zinc-300 whitespace-pre-wrap break-words">{initialCell.note}</p>
+            )}
+            <p className="text-[11px] text-zinc-600">Je kan deze dag bekijken, niet bewerken.</p>
+          </div>
         ) : (
           <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
             {dateEditor && (

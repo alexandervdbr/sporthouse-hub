@@ -78,7 +78,9 @@ export default function MobileTeamDayStepper({
             return (
               <button
                 key={key}
-                onClick={() => !locked && setEditing({ wd: day, person: drilldown })}
+                // Vergrendeld: alleen openen als er iets te lezen staat — de
+                // dageditor toont het dan zonder bewerkknoppen.
+                onClick={() => (!locked || cell.value) && setEditing({ wd: day, person: drilldown })}
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border border-zinc-800 bg-zinc-900/60 text-left"
                 style={{ opacity: locked ? 0.6 : 1 }}
               >

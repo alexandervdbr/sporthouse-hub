@@ -409,7 +409,12 @@ export default function MyMonthCalendar({
             },
           }}
           onSave={cell => { onApply(editing.targets, cell); setEditing(null); setSelected(new Set()); setSelectMode(false) }}
-          onClear={() => { onClear(editing.targets); setEditing(null); setSelected(new Set()); setSelectMode(false) }}
+          onClear={() => {
+            // Op gsm is er geen Ctrl+Z: meerdere dagen in één tik wissen
+            // vraagt dus eerst even of dat de bedoeling is.
+            if (editing.targets.length > 1 && !confirm(`${editing.targets.length} dagen wissen?`)) return
+            onClear(editing.targets); setEditing(null); setSelected(new Set()); setSelectMode(false)
+          }}
           onClose={() => setEditing(null)}
         />
       )}
