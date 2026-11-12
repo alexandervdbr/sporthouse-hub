@@ -3,6 +3,7 @@
 
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { isAdminUser } from '@/lib/auth-permissions'
+import { canReadPlanning } from '@/lib/planning-access'
 
 export interface ArchivedEmployee {
   dept: string
@@ -22,6 +23,7 @@ export async function GET() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return new Response('Unauthorized', { status: 401 })
+  if (!canReadPlanning(user)) return new Response('Forbidden', { status: 403 })
 
   try {
     const admin = createAdminClient()

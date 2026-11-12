@@ -1,5 +1,6 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { isAdminUser } from '@/lib/auth-permissions'
+import { canReadPlanning } from '@/lib/planning-access'
 
 // Vaste kleur-presets voor de planning (SHG, FOS, …). Iedereen mag ze lezen om
 // de knopjes te tonen; enkel beheerders mogen de lijst aanpassen.
@@ -15,6 +16,7 @@ export async function GET() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return new Response('Unauthorized', { status: 401 })
+  if (!canReadPlanning(user)) return new Response('Forbidden', { status: 403 })
 
   const { data, error } = await supabase
     .from('planning_presets')

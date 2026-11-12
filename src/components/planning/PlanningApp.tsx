@@ -11,6 +11,7 @@ import {
   type CellData, type PlanningWeekData, type Target, type WeekDay,
 } from '@/lib/planning-week'
 import { isAdminUser } from '@/lib/auth-permissions'
+import { canEditPerson, ownContactIdFor, NO_COLUMN } from '@/lib/planning-access'
 import {
   monthCacheKey, readCachedMonth, writeCachedMonth, patchCachedMonth, SELECT_COLS,
   CONFIG_CACHE_KEY, IDENTITY_KEY, IDENTITY_ACCOUNT_KEY, type PlanningRow,
@@ -191,7 +192,9 @@ export default function PlanningApp() {
 
   const [userEmail, setUserEmail] = useState<string | undefined>()
   const [myName, setMyName] = useState('')
-  const [canEditAll, setCanEditAll] = useState(true)
+  // Standaard uit tot de login bekend is: anders mocht iedereen heel even
+  // alles bewerken terwijl de rechten nog onderweg waren.
+  const [canEditAll, setCanEditAll] = useState(false)
   const [myColumn, setMyColumn] = useState<string | null>(null)
   const [isBeheer, setIsBeheer] = useState(false)
   const [mySections, setMySections] = useState<string[]>([])
@@ -411,18 +414,18 @@ export default function PlanningApp() {
     if (authChecked && tab === 'stats' && !canSeeStats) setTab('mijn')
   }, [authChecked, tab, canSeeStats])
 
-  const canEditCol = useCallback((p: Person): boolean => {
-    if (canEditAll) return true
-    if (myColumn === '__none__') return false
-    if (myColumn === null) return true
-    // De toegewezen kolom is een contact-id. Oudere toekenningen waren een
-    // naam of `afdeling|naam`; die matchen nergens meer op en zouden iemand
-    // stil buitensluiten, dus vallen ze terug op een naamvergelijking tot een
-    // beheerder hem opnieuw toekent.
-    return myColumn.includes('-')
-      ? myColumn === p.id
-      : normName(myColumn) === normName(p.emp)
-  }, [canEditAll, myColumn])
+  // Het Team-contact van wie hier ingelogd is. Zonder toegewezen kolom is dat
+  // de enige rij die je mag bewerken — zie src/lib/planning-access.ts, en
+  // planning_can_write() in migratie 0090 voor dezelfde regel in de database.
+  const ownContactId = useMemo(
+    () => ownContactIdFor(userEmail, teamContacts),
+    [userEmail, teamContacts]
+  )
+
+  const canEditCol = useCallback(
+    (p: Person): boolean => canEditPerson({ editAll: canEditAll, column: myColumn, ownContactId }, p),
+    [canEditAll, myColumn, ownContactId]
+  )
 
   // ── Identity: "who am I in this roster" ─────────────────────────────────
   // Het rooster houdt alleen contact-id's bij; de naam komt hier pas uit
@@ -503,7 +506,7 @@ export default function PlanningApp() {
   }, [])
 
   useEffect(() => {
-    if (myColumn && myColumn !== '__none__') setMyIdentity(myColumn)
+    if (myColumn && myColumn !== NO_COLUMN) setMyIdentity(myColumn)
   }, [myColumn])
 
   // Real identity, derived from the login itself instead of a guessed/typed
