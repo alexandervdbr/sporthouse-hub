@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 import { DUTCH_MONTHS } from '@/lib/planning-config'
@@ -36,12 +36,18 @@ export default function MyPlanningLink({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
+  // Wie snel door de maanden klikt, mag niet eindigen op de maand waarvan het
+  // antwoord toevallig als laatste binnenkwam. Alleen de jongste vraag telt.
+  const requestIdRef = useRef(0)
+
   const load = useCallback(async () => {
+    const requestId = ++requestIdRef.current
     setError('')
     try {
       const res = await fetch(`/api/planning/mine?token=${encodeURIComponent(token)}&year=${year}&month=${month}`)
       if (!res.ok) throw new Error(String(res.status))
       const body = await res.json() as { rows: PlanningRow[] }
+      if (requestId !== requestIdRef.current) return
       const map: PlanningWeekData = {}
       for (const r of body.rows) {
         map[dateCellKey(r.year, r.month, r.day, r.contact_id)] = {
@@ -54,9 +60,10 @@ export default function MyPlanningLink({
       }
       setData(map)
     } catch {
+      if (requestId !== requestIdRef.current) return
       setError('Kon je planning niet laden. Probeer het straks opnieuw.')
     } finally {
-      setLoading(false)
+      if (requestId === requestIdRef.current) setLoading(false)
     }
   }, [token, year, month])
 

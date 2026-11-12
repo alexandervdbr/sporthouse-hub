@@ -157,3 +157,30 @@ export function groupWeekByMonth(week: WeekDay[]): { year: number; month: number
   }
   return [...groups.values()]
 }
+
+// Cellen om te wissen, gegroepeerd per (jaar, maand, persoon), zodat elke
+// groep één DELETE wordt met `day IN (...)`.
+//
+// Wissen ging per cel: een maand leegmaken voor één persoon waren dertig
+// losse verzoeken, en dat is precies het soort herhaling dat in oktober de
+// quota liet overlopen (zie CLAUDE.md). Zo is het er één.
+export interface DeleteGroup {
+  year: number
+  month: number
+  contactId: string
+  days: number[]
+}
+
+export function groupDeletes(cells: { year: number; month: number; day: number; contactId: string }[]): DeleteGroup[] {
+  const groups = new Map<string, DeleteGroup>()
+  for (const c of cells) {
+    const key = `${c.year}-${c.month}|${c.contactId}`
+    const group = groups.get(key)
+    if (group) {
+      if (!group.days.includes(c.day)) group.days.push(c.day)
+    } else {
+      groups.set(key, { year: c.year, month: c.month, contactId: c.contactId, days: [c.day] })
+    }
+  }
+  return [...groups.values()]
+}

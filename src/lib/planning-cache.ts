@@ -181,9 +181,10 @@ export function clearPlanningCache() {
   }
 }
 
-// Alleen de maandkopie, zonder de identiteit of de config aan te raken. Nodig
-// nadat cellen van naam veranderd zijn (zie /api/planning/rename): de kopie in
-// de browser staat dan nog op de oude namen, maar wie je bent is ongewijzigd.
+// Alleen de maandkopie, zonder de identiteit of de config aan te raken. Was
+// nodig toen cellen nog op naam stonden en hernoemd konden worden; sinds de
+// planning aan contact-id's hangt (migratie 0053) roept de app dit niet meer
+// aan. Blijft staan voor wie de maandkopie ooit los moet wissen.
 export function clearPlanningMonthCache() {
   try {
     localStorage.removeItem(CACHE_KEY)

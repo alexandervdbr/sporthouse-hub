@@ -13,6 +13,7 @@ import { createAdminClient } from '@/lib/supabase/server'
 import { resolvePlanningLink, touchPlanningLink } from '@/lib/planning-links'
 import { fetchAllRows } from '@/lib/planning-paginate'
 import { SELECT_COLS, type PlanningRow } from '@/lib/planning-cache'
+import { getMonthWeeks, groupWeekByMonth } from '@/lib/planning-week'
 
 function monthFromQuery(url: URL): { year: number; month: number } | null {
   const year = Number(url.searchParams.get('year'))
@@ -30,6 +31,17 @@ export async function GET(req: Request) {
   const period = monthFromQuery(url)
   if (!period) return new Response('Ongeldige maand', { status: 400 })
 
+  // De volledige weken van de maand, zoals het scherm ze toont: de eerste en
+  // laatste week lopen meestal over in de buurmaand. Alleen de maand zelf
+  // ophalen liet die dagen altijd leeg lijken, ook als er iets stond.
+  //
+  // Eén vraag over de jaren en maanden die erin voorkomen, daarna nagefilterd:
+  // december en januari samen vragen ook januari en december van de andere
+  // jaren op, en dat is voor één persoon een handvol rijen.
+  const months = groupWeekByMonth(getMonthWeeks(period.year, period.month).flat())
+  const wanted = new Set(months.map(m => `${m.year}-${m.month}`))
+  const daysByMonth = new Map(months.map(m => [`${m.year}-${m.month}`, new Set(m.days)]))
+
   const admin = createAdminClient()
   let rows: PlanningRow[]
   try {
@@ -37,11 +49,13 @@ export async function GET(req: Request) {
       admin
         .from('planning_entries')
         .select(SELECT_COLS)
-        .eq('year', period.year)
-        .eq('month', period.month)
+        .in('year', [...new Set(months.map(m => m.year))])
+        .in('month', [...new Set(months.map(m => m.month))])
         .eq('contact_id', link.contact_id)
         .order('id', { ascending: true })
     )
+    rows = rows.filter(r =>
+      wanted.has(`${r.year}-${r.month}`) && daysByMonth.get(`${r.year}-${r.month}`)!.has(r.day))
   } catch (e) {
     return new Response(e instanceof Error ? e.message : 'Ophalen mislukt', { status: 500 })
   }

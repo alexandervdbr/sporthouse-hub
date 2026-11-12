@@ -306,11 +306,12 @@ export default function MyMonthWeeks({
                         <span
                           className="w-full text-center truncate rounded-md px-1.5 py-1 text-[11px] font-semibold"
                           style={{ backgroundColor: cell.bgColor ?? 'rgba(255,255,255,0.08)', color: cell.bgColor ? '#fff' : '#a1a1aa' }}
+                          title={cell.note ? `${cell.value} — ${cell.note}` : cell.value}
                         >
                           {cell.value}
                         </span>
                         {cell.note && (
-                          <span className="w-full text-center truncate text-[9px] text-zinc-500 px-1">{cell.note}</span>
+                          <span className="w-full text-center truncate text-[9px] text-zinc-500 px-1" title={cell.note}>{cell.note}</span>
                         )}
                       </>
                     ) : (

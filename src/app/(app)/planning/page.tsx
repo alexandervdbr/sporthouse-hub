@@ -1,6 +1,18 @@
+import { redirect } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
+import { canReadPlanning } from '@/lib/planning-access'
 import PlanningApp from '@/components/planning/PlanningApp'
 
-export default function PlanningPage() {
+// De zijbalk verbergt de link voor wie geen planningsrecht heeft, maar dat
+// hield niemand tegen die /planning zelf intikte. Hier wel.
+//
+// Wie wel en niet: zie canReadPlanning.
+export default async function PlanningPage() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (!canReadPlanning(user)) redirect('/dashboard')
+
   return (
     <div className="h-full flex flex-col overflow-hidden">
       <div className="flex-shrink-0 px-4 sm:px-8 pt-4 sm:pt-8 pb-5 border-b border-zinc-900">

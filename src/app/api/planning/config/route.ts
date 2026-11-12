@@ -8,6 +8,7 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import type { Department } from '@/lib/planning-config'
 import { isAdminUser } from '@/lib/auth-permissions'
+import { canReadPlanning } from '@/lib/planning-access'
 
 async function requireAdmin() {
   const supabase = await createClient()
@@ -30,6 +31,7 @@ export async function GET() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return new Response('Unauthorized', { status: 401 })
+  if (!canReadPlanning(user)) return new Response('Forbidden', { status: 403 })
 
   try {
     const admin = createAdminClient()

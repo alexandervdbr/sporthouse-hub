@@ -50,6 +50,10 @@ interface Props {
   // Contact-id's van wie uit de teamweergave gehouden wordt.
   archived: string[]
   onSaveArchived: (a: string[]) => Promise<void>
+  // Contact-id's die een beheerder bewust uit het rooster haalde. De
+  // automatische aanvulling met nieuwe Team-contacten slaat hen over.
+  excluded: string[]
+  onSaveExcluded: (x: string[]) => Promise<void>
   // De echte Team-contacten (zie /team). Wie hier niet tussen staat is ofwel
   // uit Team verdwenen, ofwel een eenmalig getypte naam — in beide gevallen
   // gemarkeerd zodat een beheerder kan beslissen wat ermee moet.
@@ -182,12 +186,18 @@ function PresetsPanel() {
       return
     }
 
-    await fetch('/api/planning/presets', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: p.id }),
-    })
-    setPresets(prev => prev.filter(x => x.id !== p.id))
+    // Pas uit de lijst als de server het echt verwijderd heeft.
+    try {
+      const res = await fetch('/api/planning/presets', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: p.id }),
+      })
+      if (!res.ok) throw new Error(await res.text().catch(() => '') || `Verwijderen mislukt (${res.status}).`)
+      setPresets(prev => prev.filter(x => x.id !== p.id))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Verwijderen mislukt.')
+    }
     setBusyId(null)
   }
 
@@ -392,12 +402,33 @@ function PresetsPanel() {
   )
 }
 
-export default function PlanningConfigModal({ departments, onSave, archived, onSaveArchived, teamContacts, onClose, isBeheer }: Props) {
+export default function PlanningConfigModal({ departments, onSave, archived, onSaveArchived, excluded, onSaveExcluded, teamContacts, onClose, isBeheer }: Props) {
   const [tab, setTab] = useState<'afdelingen' | 'presets'>('afdelingen')
   const [depts, setDepts] = useState<DraftDept[]>(() =>
     departments.map(d => ({ name: d.name, employees: [...d.employees] }))
   )
+  // Kladversie van de uitsluitlijst, samen met de afdelingen opgeslagen.
+  const [excludedDraft, setExcludedDraft] = useState<Set<string>>(() => new Set(excluded))
   const [saving, setSaving] = useState(false)
+
+  // Niet-opgeslagen werk. Een klik naast de modal of Escape gooide het
+  // vroeger zonder vragen weg — na tien minuten slepen is dat pijnlijk.
+  const isDirty = useMemo(() => {
+    const zelfde = depts.length === departments.length && depts.every((d, i) =>
+      d.name === departments[i].name
+      && d.employees.length === departments[i].employees.length
+      && d.employees.every((id, j) => id === departments[i].employees[j]))
+    if (!zelfde) return true
+    const placed = new Set(depts.flatMap(d => d.employees))
+    const nieuw = [...excludedDraft].filter(id => !placed.has(id)).sort().join(',')
+    const oud = [...excluded].filter(id => !placed.has(id)).sort().join(',')
+    return nieuw !== oud
+  }, [depts, departments, excludedDraft, excluded])
+
+  const requestClose = useCallback(() => {
+    if (isDirty && !confirm('Je hebt wijzigingen die nog niet opgeslagen zijn. Toch sluiten?')) return
+    onClose()
+  }, [isDirty, onClose])
   const [saveError, setSaveError] = useState('')
   const [collapsed, setCollapsed] = useState<Record<number, boolean>>({})
 
@@ -425,8 +456,13 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
 
   async function toggleArchived(id: string) {
     setBusyArchive(id)
+    setSaveError('')
     const next = isArchivedId(id) ? archived.filter(a => a !== id) : [...archived, id]
-    await onSaveArchived(next)
+    try {
+      await onSaveArchived(next)
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Archiveren mislukt.')
+    }
     setBusyArchive(null)
   }
 
@@ -547,11 +583,11 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
   // modal — the rename inputs' own onKeyDown already handles that case.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && renamingDept === null && renamingEmp === null) onClose()
+      if (e.key === 'Escape' && renamingDept === null && renamingEmp === null) requestClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, renamingDept, renamingEmp])
+  }, [requestClose, renamingDept, renamingEmp])
   const [dragOverDept, setDragOverDept] = useState<number | null>(null)
 
   // Drag state for employees
@@ -583,6 +619,7 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
 
   function addEmployee(deptIdx: number, contactId: string) {
     if (!contactId) return
+    setExcludedDraft(prev => { const next = new Set(prev); next.delete(contactId); return next })
     setDepts(prev => prev.map((d, i) =>
       i === deptIdx ? { ...d, employees: [...d.employees, contactId] } : d
     ))
@@ -598,7 +635,8 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
     const ok = confirm(
       `${naam} uit het rooster halen?\n\n` +
       `Zijn eventuele ingevulde dagen blijven bewaard en komen terug zodra je ` +
-      `hem weer toevoegt — ook in een andere afdeling.\n\n` +
+      `hem weer toevoegt — ook in een andere afdeling. Hij wordt niet meer ` +
+      `automatisch in "${UNASSIGNED_DEPT}" gezet.\n\n` +
       `Gaat het om iemand die er niet meer werkt, gebruik dan archiveren: dan ` +
       `blijven oude weken gewoon zichtbaar.`
     )
@@ -608,6 +646,9 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
       if (i !== deptIdx) return d
       return { ...d, employees: d.employees.filter((_, ei) => ei !== empIdx) }
     }))
+    // Staat hij nog in een andere afdeling, dan is er niets uit te sluiten;
+    // handleSave haalt wie geplaatst is sowieso van de lijst.
+    setExcludedDraft(prev => new Set(prev).add(id))
   }
 
   // ─── Add/delete dept ────────────────────────────────────────────────────────
@@ -626,14 +667,19 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
     if (dept.employees.length > 0) {
       const ok = confirm(
         `Afdeling "${dept.name}" verwijderen?\n\n` +
-        `De ${dept.employees.length} medewerker(s) hierin verdwijnen ook uit deze afdeling — ` +
-        `een Team-lid krijgt bij de volgende synchronisatie gewoon opnieuw een plek in "${UNASSIGNED_DEPT}".\n\n` +
-        `Hun bestaande planning staat op deze afdelingsnaam en blijft daarop staan: ` +
-        `die is daarna nergens meer te zien. Wil je ze behouden, sleep ze dan eerst ` +
-        `naar een andere afdeling — dan verhuist de planning mee.`
+        `Wie hierin staat en nergens anders, gaat mee uit het rooster en wordt ` +
+        `niet automatisch teruggezet. Wil je ze houden, sleep ze dan eerst naar ` +
+        `een andere afdeling.\n\n` +
+        `Hun ingevulde dagen gaan niet verloren: die hangen aan de persoon, niet ` +
+        `aan de afdeling, en komen terug zodra je hen weer toevoegt.`
       )
       if (!ok) return
     }
+    setExcludedDraft(prev => {
+      const next = new Set(prev)
+      for (const id of dept.employees) next.add(id)
+      return next
+    })
     setDepts(prev => prev.filter((_, i) => i !== idx))
     if (renamingDept === idx) setRenamingDept(null)
   }
@@ -740,6 +786,14 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
     try {
       // Geen verhuizingen meer. Van afdeling wisselen verplaatst niets in de
       // database: een planningsdag hangt aan een contact, niet aan een plek.
+      // Eerst de uitsluitlijst: mislukt daarna het rooster, dan staat er
+      // hooguit iemand op de lijst die nog in het rooster staat, en dat doet
+      // niets. Omgekeerd zou de aanvulling iemand terugzetten die je net
+      // weghaalde.
+      const placed = new Set(depts.flatMap(d => d.employees))
+      const nextExcluded = [...excludedDraft].filter(id => !placed.has(id)).sort()
+      const prevExcluded = [...excluded].sort()
+      if (nextExcluded.join(',') !== prevExcluded.join(',')) await onSaveExcluded(nextExcluded)
       await onSave(depts.map(d => ({ name: d.name, employees: [...d.employees] })))
       onClose()
     } catch (e) {
@@ -753,9 +807,12 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Planning configuratie"
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+      onClick={e => { if (e.target === e.currentTarget) requestClose() }}
     >
       <div
         className="relative flex flex-col w-full max-w-[540px] bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl"
@@ -766,7 +823,7 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
         <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800 flex-shrink-0">
           <h2 className="text-sm font-semibold text-zinc-200">Planning configuratie</h2>
           <button
-            onClick={onClose}
+            onClick={requestClose}
             aria-label="Sluiten"
             title="Sluiten"
             className="tap-target w-7 h-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
@@ -1121,7 +1178,7 @@ export default function PlanningConfigModal({ departments, onSave, archived, onS
         <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-zinc-800 flex-shrink-0">
           {saveError && <p className="mr-auto text-[11px] text-red-400">{saveError}</p>}
           <button
-            onClick={onClose}
+            onClick={requestClose}
             disabled={saving}
             className="px-4 py-2 rounded-lg text-xs text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 border border-zinc-800 transition-colors disabled:opacity-50"
           >
