@@ -1,17 +1,30 @@
-import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/server'
 import Anthropic from '@anthropic-ai/sdk'
+import { requireFreelancers, parseBody } from '@/features/freelancers/lib/server'
+import { matchSchema } from '@/features/freelancers/lib/schemas'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
 export const maxDuration = 300
 
 export async function POST(req: Request) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return new Response('Unauthorized', { status: 401 })
+  // Beheren: de match hoort bij het aanmaken van een opdracht, en kost tokens.
+  const auth = await requireFreelancers('beheren')
+  if ('error' in auth) return auth.error
 
-  const { description, freelancers } = await req.json()
-  if (!description?.trim()) return new Response('description required', { status: 400 })
+  const body = await parseBody(req, matchSchema)
+  if ('error' in body) return body.error
+  const { description } = body.data
+  const requestedIds = [...new Set(body.data.freelancers.map(f => f.id))]
+  if (!requestedIds.length) return Response.json([])
+
+  // De profielen komen uit de database, niet uit de browser: van wat die
+  // meestuurt tellen alleen de ids.
+  const { data: freelancers, error: flError } = await auth.supabase
+    .from('freelancers')
+    .select('*, freelancer_projects(id, score)')
+    .in('id', requestedIds)
+  if (flError) return new Response(flError.message, { status: 500 })
   if (!freelancers?.length) return Response.json([])
 
   // ── Fetch full project history for all freelancers ──────────────────────────

@@ -1,11 +1,11 @@
-import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { requireFreelancers, parseBody } from '@/features/freelancers/lib/server'
+import { freelancerCreateSchema } from '@/features/freelancers/lib/schemas'
 
 export async function GET() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return new Response('Unauthorized', { status: 401 })
+  const auth = await requireFreelancers('bekijken')
+  if ('error' in auth) return auth.error
 
-  const { data, error } = await supabase
+  const { data, error } = await auth.supabase
     .from('freelancers')
     .select('*, freelancer_projects(id, score)')
     .order('name')
@@ -14,48 +14,34 @@ export async function GET() {
   return Response.json(data ?? [])
 }
 
+// Maakt alleen het freelancerprofiel aan. Er wordt bewust GEEN Auth-account
+// meer gemaakt: freelancers krijgen geen login (zie
+// docs/freelancers-redesign.md). Wie vroeger zo'n account kreeg, behoudt het
+// tot Fase 6 van het herontwerp; nieuwe freelancers krijgen er geen.
 export async function POST(req: Request) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return new Response('Unauthorized', { status: 401 })
+  const auth = await requireFreelancers('beheren')
+  if ('error' in auth) return auth.error
 
-  const body = await req.json()
-  const { name, email, phone, specialties, hourly_rate, bio,
-          types, tested, price_info, rating, portfolio_url, notes } = body
-  if (!name?.trim()) return new Response('Name required', { status: 400 })
+  const body = await parseBody(req, freelancerCreateSchema)
+  if ('error' in body) return body.error
+  const f = body.data
 
-  const { data, error } = await supabase
+  const { data, error } = await auth.supabase
     .from('freelancers')
     .insert({
-      name: name.trim(),
-      email: email?.trim() || null,
-      phone: phone?.trim() || null,
-      specialties: specialties ?? [],
-      hourly_rate: hourly_rate || null,
-      bio: bio?.trim() || null,
-      types: types ?? [],
-      tested: tested || null,
-      price_info: price_info?.trim() || null,
-      rating: rating || null,
-      portfolio_url: portfolio_url?.trim() || null,
-      notes: notes?.trim() || null,
+      name: f.name,
+      email: f.email ?? null,
+      phone: f.phone ?? null,
+      types: f.types ?? [],
+      tested: f.tested ?? null,
+      price_info: f.price_info ?? null,
+      rating: f.rating ?? null,
+      portfolio_url: f.portfolio_url ?? null,
+      notes: f.notes ?? null,
     })
     .select('*, freelancer_projects(id, score)')
     .single()
 
   if (error) return new Response(error.message, { status: 500 })
-
-  // Pre-create Supabase Auth account so freelancer can log in when signups are disabled
-  if (email?.trim()) {
-    const admin = createAdminClient()
-    await admin.auth.admin.createUser({
-      email: email.trim(),
-      user_metadata: { full_name: name.trim() },
-      app_metadata: { freelancer: true },
-      email_confirm: true,
-    })
-    // Ignore error if user already exists
-  }
-
   return Response.json(data, { status: 201 })
 }

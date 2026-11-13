@@ -31,6 +31,7 @@
 // een sleutel in de catalogus nergens meer gecontroleerd wordt.
 
 import { PROJECTKALENDER_ENABLED, CHAT_ENABLED } from '@/lib/features'
+import { withImpliedSections } from '@/lib/auth-permissions'
 
 export interface AccessLevel {
   key: string
@@ -71,9 +72,14 @@ const ALL_MODULES: AccessModule[] = [
   },
   {
     key: 'freelancers', label: 'Freelancers', group: 'Mensen',
+    hint: 'Bekijken ziet alles, maar kan niets wijzigen.',
     levels: [
-      { key: 'geen',    label: 'Geen',    adds: [] },
-      { key: 'beheren', label: 'Beheren', adds: ['freelancers'] },
+      { key: 'geen',     label: 'Geen',     adds: [] },
+      // Nieuw onder het bestaande niveau. De sleutel van "beheren" blijft
+      // 'freelancers' — zo betekent wat al in app_metadata staat precies
+      // hetzelfde als voorheen. Zie IMPLIED_SECTIONS in auth-permissions.
+      { key: 'bekijken', label: 'Bekijken', adds: ['freelancers_bekijken'] },
+      { key: 'beheren',  label: 'Beheren',  adds: ['freelancers'] },
     ],
   },
 
@@ -293,7 +299,7 @@ export function cleanOverrides(roleLevels: AccessLevels | null | undefined, over
 // het hoogste niveau per module waarvan álle sleutels er zijn. Zo toont het
 // scherm iets zinnigs en verandert opslaan niets wat al klopte.
 export function levelsFromSections(sections: string[]): AccessLevels {
-  const have = new Set(sections)
+  const have = new Set(withImpliedSections(sections))
   const out: AccessLevels = {}
   for (const mod of ACCESS_MODULES) {
     let reached = lowestLevel(mod)

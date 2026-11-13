@@ -1,25 +1,17 @@
-import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { isAdminUser } from '@/lib/auth-permissions'
-
-async function requireFreelancerAdmin() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-  const sections: string[] = user.app_metadata?.permissions?.sections ?? []
-  const ok = isAdminUser(user) || sections.includes('freelancers')
-  return ok ? user : null
-}
+import { createAdminClient } from '@/lib/supabase/server'
+import { requireFreelancers, parseBody, isUuid } from '@/features/freelancers/lib/server'
+import { projectCreateSchema } from '@/features/freelancers/lib/schemas'
 
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return new Response('Unauthorized', { status: 401 })
+  const auth = await requireFreelancers('bekijken')
+  if ('error' in auth) return auth.error
 
   const { id } = await params
-  const { data, error } = await supabase
+  if (!isUuid(id)) return new Response('Niet gevonden', { status: 404 })
+  const { data, error } = await auth.supabase
     .from('freelancer_projects')
     .select('*')
     .eq('freelancer_id', id)
@@ -33,13 +25,14 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await requireFreelancerAdmin()
-  if (!user) return new Response('Forbidden', { status: 403 })
+  const auth = await requireFreelancers('beheren')
+  if ('error' in auth) return auth.error
 
   const { id } = await params
-  const body = await req.json()
-  const { project_name, description, client_name, date, score, notes } = body
-  if (!project_name?.trim()) return new Response('project_name required', { status: 400 })
+  if (!isUuid(id)) return new Response('Niet gevonden', { status: 404 })
+  const body = await parseBody(req, projectCreateSchema)
+  if ('error' in body) return body.error
+  const { project_name, description, client_name, date, score, notes } = body.data
 
   const admin = createAdminClient()
 
@@ -48,12 +41,12 @@ export async function POST(
     .from('freelancer_projects')
     .insert({
       freelancer_id: id,
-      project_name: project_name.trim(),
-      description: description?.trim() || null,
-      client_name: client_name?.trim() || null,
-      date: date || null,
-      score: score || null,
-      notes: notes?.trim() || null,
+      project_name,
+      description: description ?? null,
+      client_name: client_name ?? null,
+      date: date ?? null,
+      score: score ?? null,
+      notes: notes ?? null,
     })
     .select()
     .single()

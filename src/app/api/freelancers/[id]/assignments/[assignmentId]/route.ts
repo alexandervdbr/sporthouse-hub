@@ -1,46 +1,34 @@
-import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/server'
 import { trashFile } from '@/lib/drive-storage'
-import { isAdminUser } from '@/lib/auth-permissions'
+import { requireFreelancers, parseBody, isUuid } from '@/features/freelancers/lib/server'
+import { assignmentUpdateSchema } from '@/features/freelancers/lib/schemas'
 
-async function assertAdmin() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-  return isAdminUser(user) ? user : null
-}
+// Elke query filtert ook op het freelancer-id uit de URL: vroeger volstond
+// het opdracht-id, ongeacht onder welke freelancer het gevraagd werd.
 
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string; assignmentId: string }> }
 ) {
-  if (!await assertAdmin()) return new Response('Forbidden', { status: 403 })
-  const { assignmentId } = await params
-  const body = await req.json()
+  const auth = await requireFreelancers('beheren')
+  if ('error' in auth) return auth.error
+  const { id, assignmentId } = await params
+  if (!isUuid(id) || !isUuid(assignmentId)) return new Response('Niet gevonden', { status: 404 })
 
-  const updates: Record<string, unknown> = {}
-  if ('title' in body) updates.title = body.title?.trim()
-  if ('briefing' in body) updates.briefing = body.briefing?.trim() || null
-  if ('deadline' in body) updates.deadline = body.deadline || null
-  if ('client_name' in body) updates.client_name = body.client_name?.trim() || null
-  if ('status' in body) {
-    if (!['nieuw', 'in_behandeling', 'afgerond'].includes(body.status)) {
-      return new Response('invalid status', { status: 400 })
-    }
-    updates.status = body.status
-  }
-
-  if ('title' in updates && !updates.title) return new Response('title required', { status: 400 })
-  if (Object.keys(updates).length === 0) return new Response('nothing to update', { status: 400 })
+  const body = await parseBody(req, assignmentUpdateSchema)
+  if ('error' in body) return body.error
 
   const admin = createAdminClient()
   const { data, error } = await admin
     .from('freelancer_assignments')
-    .update(updates)
+    .update(body.data)
     .eq('id', assignmentId)
+    .eq('freelancer_id', id)
     .select('*, freelancer_assignment_files(*)')
-    .single()
+    .maybeSingle()
 
   if (error) return new Response(error.message, { status: 500 })
+  if (!data) return new Response('Niet gevonden', { status: 404 })
   return Response.json(data)
 }
 
@@ -48,9 +36,19 @@ export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string; assignmentId: string }> }
 ) {
-  if (!await assertAdmin()) return new Response('Forbidden', { status: 403 })
-  const { assignmentId } = await params
+  const auth = await requireFreelancers('beheren')
+  if ('error' in auth) return auth.error
+  const { id, assignmentId } = await params
+  if (!isUuid(id) || !isUuid(assignmentId)) return new Response('Niet gevonden', { status: 404 })
   const admin = createAdminClient()
+
+  const { data: assignment } = await admin
+    .from('freelancer_assignments')
+    .select('id')
+    .eq('id', assignmentId)
+    .eq('freelancer_id', id)
+    .maybeSingle()
+  if (!assignment) return new Response('Niet gevonden', { status: 404 })
 
   // Delete files from storage first (Supabase and/or Drive, depending on
   // when each was uploaded)
@@ -75,7 +73,7 @@ export async function DELETE(
   // 0034_client_delete_cascade_and_rls_backstop.sql) — this used to fail
   // silently whenever the assignment had file rows, since the error here
   // was never checked.
-  const { error } = await admin.from('freelancer_assignments').delete().eq('id', assignmentId)
+  const { error } = await admin.from('freelancer_assignments').delete().eq('id', assignmentId).eq('freelancer_id', id)
   if (error) {
     console.error('Freelancer-opdracht verwijderen mislukt:', error)
     return new Response(error.message, { status: 500 })

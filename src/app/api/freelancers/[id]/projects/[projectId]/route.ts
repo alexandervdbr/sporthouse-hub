@@ -1,26 +1,20 @@
-import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { isAdminUser } from '@/lib/auth-permissions'
-
-async function requireFreelancerAdmin() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-  const sections: string[] = user.app_metadata?.permissions?.sections ?? []
-  const ok = isAdminUser(user) || sections.includes('freelancers')
-  return ok ? user : null
-}
+import { createAdminClient } from '@/lib/supabase/server'
+import { requireFreelancers, isUuid } from '@/features/freelancers/lib/server'
 
 export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string; projectId: string }> }
 ) {
-  const user = await requireFreelancerAdmin()
-  if (!user) return new Response('Forbidden', { status: 403 })
+  const auth = await requireFreelancers('beheren')
+  if ('error' in auth) return auth.error
 
   const { id, projectId } = await params
+  if (!isUuid(id) || !isUuid(projectId)) return new Response('Niet gevonden', { status: 404 })
   const admin = createAdminClient()
 
-  const { error } = await admin.from('freelancer_projects').delete().eq('id', projectId)
+  // Alleen een project van deze freelancer: vroeger volstond het project-id,
+  // en werd daarna de rating van een willekeurige andere freelancer herberekend.
+  const { error } = await admin.from('freelancer_projects').delete().eq('id', projectId).eq('freelancer_id', id)
   if (error) return new Response(error.message, { status: 500 })
 
   // Recalculate rating after deletion

@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import { DriveThumbnail } from '@/components/shared/DrivePreview'
 import { ALLOWED_UPLOAD_HINT } from '@/lib/upload-policy'
-import { hasSection } from '@/lib/auth-permissions'
+import { canManageFreelancers } from '@/features/freelancers/lib/access'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -254,7 +254,6 @@ function AddFreelancerModal({ onClose, onAdded }: {
           rating: rating || null,
           portfolio_url: portfolioUrl.trim() || null,
           notes: notes.trim() || null,
-          specialties: [],
         }),
       })
       const data = await r.json()
@@ -763,10 +762,12 @@ function FreelancerDetail({ freelancer, onClose, onDeleted, onUpdated, onProject
                   <p className="text-[10px] text-zinc-500 uppercase tracking-wider">
                     Opdrachten <span className="text-zinc-600">({assignments.length})</span>
                   </p>
-                  <button onClick={() => setAddingAssignment(true)}
-                    className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-200 transition-colors">
-                    <Plus size={12} /> Opdracht
-                  </button>
+                  {isAdmin && (
+                    <button onClick={() => setAddingAssignment(true)}
+                      className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-200 transition-colors">
+                      <Plus size={12} /> Opdracht
+                    </button>
+                  )}
                 </div>
 
                 {loadingAssignments ? (
@@ -777,11 +778,11 @@ function FreelancerDetail({ freelancer, onClose, onDeleted, onUpdated, onProject
                   <div className="space-y-2">
                     {assignments.map(a => (
                       <AssignmentAdminRow key={a.id} assignment={a}
-                        onClick={() => setEditingAssignment(a)}
-                        onDelete={async () => {
+                        onClick={isAdmin ? () => setEditingAssignment(a) : undefined}
+                        onDelete={isAdmin ? async () => {
                           await fetch(`/api/freelancers/${freelancer.id}/assignments/${a.id}`, { method: 'DELETE' })
                           setAssignments(prev => prev.filter(x => x.id !== a.id))
-                        }}
+                        } : undefined}
                       />
                     ))}
                   </div>
@@ -896,15 +897,16 @@ const ASSIGNMENT_STATUS_LABELS: Record<string, { label: string; color: string }>
 
 function AssignmentAdminRow({ assignment: a, onClick, onDelete }: {
   assignment: FreelancerAssignment
-  onClick: () => void
-  onDelete: () => Promise<void>
+  // Zonder beheerrecht: geen bewerken en geen verwijderknop (verborgen, niet uitgeschakeld).
+  onClick?: () => void
+  onDelete?: () => Promise<void>
 }) {
   const [confirmDel, setConfirmDel] = useState(false)
   const [deleting,   setDeleting]   = useState(false)
   const st = ASSIGNMENT_STATUS_LABELS[a.status] ?? { label: a.status, color: '#71717a' }
 
   return (
-    <div onClick={onClick} className="px-3 py-2.5 rounded-lg cursor-pointer transition-colors hover:bg-white/[0.06]"
+    <div onClick={onClick} className={`px-3 py-2.5 rounded-lg transition-colors ${onClick ? 'cursor-pointer hover:bg-white/[0.06]' : ''}`}
       style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
@@ -920,7 +922,7 @@ function AssignmentAdminRow({ assignment: a, onClick, onDelete }: {
             {a.freelancer_assignment_files.length > 0 && <span>{a.freelancer_assignment_files.length} bestand{a.freelancer_assignment_files.length !== 1 ? 'en' : ''}</span>}
           </div>
         </div>
-        {confirmDel ? (
+        {!onDelete ? null : confirmDel ? (
           <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
             <button onClick={async () => { setDeleting(true); await onDelete(); setDeleting(false) }} disabled={deleting}
               className="text-[10px] font-medium text-red-400 hover:text-red-300 transition-colors">
@@ -1546,7 +1548,7 @@ export default function FreelancersPage() {
     import('@/lib/supabase/client').then(({ createClient }) => {
       createClient().auth.getUser().then(({ data: { user } }) => {
         // Dezelfde regel als de API's: Freelancers op niveau Beheren, of beheer.
-        setIsAdmin(hasSection(user, 'freelancers'))
+        setIsAdmin(canManageFreelancers(user))
       })
     })
     fetch('/api/freelancers')
@@ -1609,8 +1611,9 @@ export default function FreelancersPage() {
         )}
       </div>
 
-      {/* AI Match */}
+      {/* AI Match — alleen bij Beheren, zoals de API */}
       <div className="flex-shrink-0 px-4 sm:px-6 pt-4 pb-3 border-b border-zinc-800">
+        {isAdmin && (<>
         <div className="flex gap-2">
           <div className="relative flex-1">
             <Sparkles size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" />
@@ -1642,6 +1645,7 @@ export default function FreelancersPage() {
             Top {matchResults.length} beste {matchResults.length === 1 ? 'match' : 'matches'} — gerangschikt van beste naar minste fit
           </p>
         )}
+        </>)}
 
         {/* Type filter chips */}
         {usedTypes.length > 0 && !matchResults && (

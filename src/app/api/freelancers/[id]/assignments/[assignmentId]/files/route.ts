@@ -1,16 +1,23 @@
 import { Readable } from 'stream'
-import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/server'
 import { isDriveStorageConfigured, uploadFile, trashFile, downloadFile, getOrCreateFolderPath, driveRootFolderId } from '@/lib/drive-storage'
-import { isAdminUser } from '@/lib/auth-permissions'
 import { isAllowedUploadExt, ALLOWED_UPLOAD_HINT } from '@/lib/upload-policy'
+import { requireFreelancers, parseBody, isUuid } from '@/features/freelancers/lib/server'
+import { fileDeleteSchema } from '@/features/freelancers/lib/schemas'
 
 export const maxDuration = 300
 
-async function assertAdmin() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-  return isAdminUser(user) ? user : null
+// Hoort deze opdracht bij de freelancer uit de URL? Elke methode vraagt het
+// eerst, zodat een opdracht-id onder een andere freelancer niets oplevert.
+async function assignmentOf(admin: ReturnType<typeof createAdminClient>, freelancerId: string, assignmentId: string) {
+  if (!isUuid(freelancerId) || !isUuid(assignmentId)) return null
+  const { data } = await admin
+    .from('freelancer_assignments')
+    .select('id, title')
+    .eq('id', assignmentId)
+    .eq('freelancer_id', freelancerId)
+    .maybeSingle()
+  return data
 }
 
 // Staff-facing download — there was previously no equivalent to the
@@ -19,13 +26,16 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string; assignmentId: string }> }
 ) {
-  if (!await assertAdmin()) return new Response('Forbidden', { status: 403 })
-  const { assignmentId } = await params
+  const auth = await requireFreelancers('bekijken')
+  if ('error' in auth) return auth.error
+  const { id: freelancerId, assignmentId } = await params
   const { searchParams } = new URL(req.url)
   const fileId = searchParams.get('fileId')
   if (!fileId) return new Response('fileId required', { status: 400 })
+  if (!isUuid(fileId)) return new Response('Not found', { status: 404 })
 
   const admin = createAdminClient()
+  if (!await assignmentOf(admin, freelancerId, assignmentId)) return new Response('Not found', { status: 404 })
   const { data: file } = await admin
     .from('freelancer_assignment_files')
     .select('file_name, file_url, storage_provider, drive_file_id')
@@ -60,7 +70,8 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string; assignmentId: string }> }
 ) {
-  if (!await assertAdmin()) return new Response('Forbidden', { status: 403 })
+  const auth = await requireFreelancers('beheren')
+  if ('error' in auth) return auth.error
   const { id: freelancerId, assignmentId } = await params
 
   if (!isDriveStorageConfigured()) {
@@ -76,9 +87,9 @@ export async function POST(
 
   const admin = createAdminClient()
 
-  const [{ data: freelancer }, { data: assignment }] = await Promise.all([
-    admin.from('freelancers').select('name').eq('id', freelancerId).single(),
-    admin.from('freelancer_assignments').select('title').eq('id', assignmentId).single(),
+  const [{ data: freelancer }, assignment] = await Promise.all([
+    admin.from('freelancers').select('name').eq('id', freelancerId).maybeSingle(),
+    assignmentOf(admin, freelancerId, assignmentId),
   ])
   if (!freelancer || !assignment) return new Response('Not found', { status: 404 })
 
@@ -124,11 +135,15 @@ export async function DELETE(
   req: Request,
   { params }: { params: Promise<{ id: string; assignmentId: string }> }
 ) {
-  if (!await assertAdmin()) return new Response('Forbidden', { status: 403 })
-  const { assignmentId } = await params
-  const { fileId } = await req.json()
+  const auth = await requireFreelancers('beheren')
+  if ('error' in auth) return auth.error
+  const { id: freelancerId, assignmentId } = await params
+  const body = await parseBody(req, fileDeleteSchema)
+  if ('error' in body) return body.error
+  const { fileId } = body.data
 
   const admin = createAdminClient()
+  if (!await assignmentOf(admin, freelancerId, assignmentId)) return new Response('Not found', { status: 404 })
   const { data: file } = await admin
     .from('freelancer_assignment_files')
     .select('file_url, storage_provider, drive_file_id')

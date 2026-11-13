@@ -13,7 +13,7 @@ import { useFavorites } from '@/contexts/FavoritesContext'
 import { cn } from '@/lib/utils'
 import { getLogo } from '@/lib/logos'
 import { usePreview } from '@/lib/preview-context'
-import { isAdminUser } from '@/lib/auth-permissions'
+import { isAdminUser, withImpliedSections } from '@/lib/auth-permissions'
 import { clearPlanningCache } from '@/lib/planning-cache'
 import { useToolStatus } from '@/contexts/ToolStatusContext'
 import { toolForPath, isInDevelopment } from '@/lib/tool-status'
@@ -178,7 +178,7 @@ export default function Sidebar({ clients }: SidebarProps) {
   function canSeeSection(key: string) {
     if (isAdmin) return true
     if (!permissions) return true  // no restrictions configured → show everything
-    return permissions.sections.includes(key)
+    return withImpliedSections(permissions.sections).includes(key)
   }
 
   function visibleClients() {
@@ -296,7 +296,7 @@ export default function Sidebar({ clients }: SidebarProps) {
             { href: '/materiaal',   icon: Camera,          label: 'Materiaal',      section: 'materiaal',      external: false },
             { href: '/poolwagens',  icon: Car,             label: 'Poolwagens',     section: 'poolwagens',     external: false },
             { href: '/team',        icon: Users,           label: 'Team',           section: 'team',           external: false },
-            { href: '/freelancers', icon: UserCheck,       label: 'Freelancers',    section: 'freelancers',    external: false },
+            { href: '/freelancers', icon: UserCheck,       label: 'Freelancers',    section: 'freelancers_bekijken', external: false },
             ...(CHAT_ENABLED ? [{ href: '/chat', icon: MessageSquare, label: 'Chat', section: 'chat', external: false }] : []),
             { href: '/passwords',   icon: Lock,            label: 'Wachtwoorden',    section: 'wachtwoorden_bekijken', external: false },
             { href: '/preassist',   icon: Layers,          label: 'Pré-assist',      section: 'preassist',             external: false },
