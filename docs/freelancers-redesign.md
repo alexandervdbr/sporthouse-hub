@@ -66,7 +66,7 @@ Status: **plan, niets gewijzigd behalve dit document.** Branch: `feature/freelan
 
 ## 2. Datamodel en SQL-migratie (concept)
 
-Volgnummer: `0092_freelancers_redesign.sql`. Het ontwerp volgt `<target_design>`, met de afwijkingen uit §7. **Twee stappen:**
+Volgnummer: **`0093_freelancers_datamodel.sql`** (0092 werd de RLS-migratie van Fase 1). De definitieve SQL staat in het bestand zelf; het concept hieronder is het ontwerp van Fase 0. Het ontwerp volgt `<target_design>`, met de afwijkingen uit §7. **Twee stappen:**
 
 - **0092** voegt toe, kopieert en zet over. Er wordt **niets verwijderd**, zodat de huidige code tot Fase 6 blijft werken.
 - **0093** (pas in Fase 6, met jouw akkoord) dropt de oude kolommen, `freelancer_projects` en de oude check constraint.
@@ -607,3 +607,69 @@ De pagina's in `src/app/` zijn dun: de server-check plus het component uit featu
 **Volgorde bij uitrol:** voer migratie 0092 uit vóór of samen met de deploy. Zonder de migratie geeft `freelancer_picker` een fout en blijft de freelancerkeuze in de materiaalplanner leeg; de rest blijft werken.
 
 **Nog niet in Fase 1** (volgt in Fase 3): uploads en downloads lopen nog via onze function, en `listBuckets()` bij de avatar blijft.
+
+### Fase 1 — aanvulling (na de review)
+
+**Lezers van `freelancers` buiten de tool en het portaal** (gecontroleerd vóór 0092, bewaakt door `src/lib/__tests__/freelancer-picker.test.ts`):
+
+| Plek | Client | Gevolg na 0092 |
+|---|---|---|
+| `src/app/api/materiaal/options/route.ts:20` (keuzelijst) | gebruikersclient → nu `rpc('freelancer_picker')` | blijft werken via de security definer-functie; **zonder 0092 is de lijst leeg** |
+| `src/lib/gear/mail-server.ts:132` (e-mail van de freelancer) | service-role | geen gevolg |
+| `gear_resolve_holder` (`0072:139`, aangeroepen door `gear_create_booking`/`gear_update_booking`, 0074/0083/0085) | security definer | geen gevolg |
+| boekingen en overzichten van de materiaalplanner | lezen `gear_bookings.person_name` (snapshot), niet `freelancers` | geen gevolg |
+| `gear_bookings.freelancer_id` FK | FK-controles negeren RLS | geen gevolg |
+| `src/components/admin/UsersPage.tsx:1079,1358` (badge) | `GET /api/freelancers` → `requireFreelancers('bekijken')`; Beheer → Gebruikers is alleen voor admins (`admin/layout.tsx:12`) | geen gevolg |
+| `src/app/auth/callback/route.ts:46` | service-role | geen gevolg |
+| `src/app/api/admin/users/[id]/route.ts:79,82` | service-role | geen gevolg |
+| portaal (`src/app/portal/*`, `src/app/api/portal/*`) | service-role | **breekt niet** door 0092 |
+
+Er staan geen views of policies van andere tabellen die `freelancers` lezen.
+
+**De knop "Freelancer uitnodigen"** in Beheer → Gebruikers is verborgen (`FREELANCER_INVITE_ENABLED = false`). In Fase 6 verdwijnt hij definitief.
+
+### Fase 2 — Datamodel en migratie (klaar, niet uitgevoerd)
+
+| Bestand | Wat |
+|---|---|
+| `supabase/migrations/0093_freelancers_datamodel.sql` | De migratie. Voegt toe en zet over; verwijdert niets. Begint met voorwaarden (stopt vóór elke wijziging) en eindigt met een controle (breekt af als een oude waarde geen plek kreeg). |
+| `supabase/freelancers/0093_dryrun.sql` | **Vóór de migratie.** Eén SELECT, alleen lezen: rijen per tabel, blokkerende problemen, per freelancer de oude rating, overall_rating en review_avg, en waar elke rij terechtkomt. |
+| `supabase/freelancers/0093_test.sql` | **Na de migratie.** In `begin … rollback`: structuur, overgezette data, triggers, view, picker en rate limit. |
+| `src/lib/__tests__/freelancers-migration.test.ts` | Statische controle van de drie bestanden. |
+
+**Afwijkingen tegenover het concept in §2:**
+
+- `rate_amount` en `agreed_amount` zijn `numeric` zonder schaal, zodat er geen afrondingsverlies is.
+- `freelancer_links` heeft een extra kolom `lockout_window_start`, voor de escalerende blokkering (V3).
+- Bestanden hebben een extra kolom `public_permission_id`, nodig om een Drive-deling in te trekken.
+- `freelancer_projects` krijgt geen nieuwe inserts meer (de policy is weg); de tabel en de rijen blijven.
+- Een trigger controleert dat elke discipline bestaat.
+- Archiveren trekt de link in via een trigger.
+- Een nieuwe opdracht staat standaard op `concept`.
+
+**Gevolg voor de oude code:** de oude opdrachtroutes en het portaal schrijven status `nieuw` en een e-mailadres in `created_by`. Na 0093 werken ze niet meer voor opdrachten. Draai 0093 daarom samen met de code van Fase 3. De functie is niet in gebruik, dus dat is aanvaard.
+
+### Fase 2 — aanvulling: volgorde en proefdraai
+
+**Aanleiding:** 0093 werd gedraaid vóór 0092 en stopte op `user_can_view_freelancers() does not exist`. Er bleef niets achter: de SQL-editor draait een script als één transactie.
+
+**Wat er veranderd is:**
+
+- **0093 controleert nu eerst of 0092 er is** (functies, policies, en dat de open policies weg zijn). Zo niet, dan stopt ze met "draai eerst 0092", vóór er iets verandert.
+- **De dry-run hangt niet af van 0092 of 0093.** Sectie 0 zoekt alleen op of ze al gedraaid zijn.
+- **Nieuwe scripts:**
+  - `supabase/freelancers/0092_test.sql`: rechten per soort gebruiker, uitgevoerd als `authenticated` met nagemaakte claims.
+  - `0092_proefdraai.sql` en `0093_proefdraai.sql`: gegenereerd door `scripts/freelancers-proefdraai.mjs`. Een test faalt als ze verouderd zijn.
+  - `0093_test.sql` controleert nu ook de rechten op de nieuwe tabellen.
+
+**Volgorde (SQL-editor van Supabase):**
+
+| Stap | Script | Verwacht resultaat |
+|---|---|---|
+| 1 | `supabase/freelancers/0093_dryrun.sql` | één tabel; sectie 0: beide "uitgevoerd: false"; sectie 2 leeg |
+| 2 | `supabase/freelancers/0092_proefdraai.sql` | "Proefdraai 0092 geslaagd — er is niets blijven staan" |
+| 3 | `supabase/freelancers/0093_proefdraai.sql` | "Proefdraai 0092 + 0093 geslaagd — er is niets blijven staan" |
+| 4 | `supabase/migrations/0092_freelancers_rls_niveaus.sql`, vlak voor de deploy van Fase 1 | "Success. No rows returned" |
+| 5 | `supabase/freelancers/0092_test.sql` | "Alle tests van 0092 geslaagd — er is niets blijven staan" |
+| 6 | `supabase/migrations/0093_freelancers_datamodel.sql`, samen met de deploy van Fase 3 | "Success. No rows returned" |
+| 7 | `supabase/freelancers/0093_test.sql` | "Alle tests van 0093 geslaagd — er is niets blijven staan" |

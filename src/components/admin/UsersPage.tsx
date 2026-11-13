@@ -931,6 +931,12 @@ function PermissionsPanel({
 }
 
 // ─── Freelancer Invite Modal ──────────────────────────────────────────────────
+// Verborgen: freelancers krijgen geen account meer, maar een persoonlijke link
+// met pincode (docs/freelancers-redesign.md). Sinds Fase 1 maakt deze modal
+// ook geen login meer aan, dus de tekst erin klopt niet meer. Verdwijnt
+// definitief in Fase 6, samen met de badge.
+const FREELANCER_INVITE_ENABLED = false
+
 
 function FreelancerInviteModal({ onClose, onInvited }: { onClose: () => void; onInvited: () => void }) {
   const [name,    setName]    = useState('')
@@ -1156,12 +1162,14 @@ export default function UsersPage() {
               className="w-8 h-8 flex items-center justify-center rounded-lg border border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700 transition-colors disabled:opacity-40 flex-shrink-0">
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
             </button>
-            <button onClick={() => setShowFreelanceInvite(true)}
-              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-purple-300 rounded-lg transition-colors border flex-shrink-0"
-              style={{ backgroundColor: 'rgba(124,58,237,0.12)', borderColor: 'rgba(124,58,237,0.35)' }}>
-              <UserCheck size={14} />
-              Freelancer
-            </button>
+            {FREELANCER_INVITE_ENABLED && (
+              <button onClick={() => setShowFreelanceInvite(true)}
+                className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-purple-300 rounded-lg transition-colors border flex-shrink-0"
+                style={{ backgroundColor: 'rgba(124,58,237,0.12)', borderColor: 'rgba(124,58,237,0.35)' }}>
+                <UserCheck size={14} />
+                Freelancer
+              </button>
+            )}
             <button onClick={() => setShowInvite(true)}
               className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors flex-shrink-0"
               style={{ backgroundColor: '#3A913F' }}>
