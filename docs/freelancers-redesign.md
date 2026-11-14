@@ -800,3 +800,36 @@ $job$);
 ### Ongebruikte kolommen (opruimen in een latere migratie)
 
 - `freelancer_assignments.agreed_amount`: sinds 2026-11-14 nergens meer gebruikt (zie de beslissing in §8). Verwijderen vraagt een eigen migratie met akkoord.
+
+### Fase 5 — Interne UI (klaar)
+
+**Pagina's** (server-side controle op het niveau):
+
+| Pagina | Niveau |
+|---|---|
+| `/freelancers` (tabbladen Freelancers en Opdrachten, `?opdracht=` opent het zijpaneel) | bekijken |
+| `/freelancers/[id]` (profiel) | bekijken |
+| `/freelancers/opdrachten/[id]` (losse pagina) | bekijken |
+| `/freelancers/opdrachten/nieuw` | beheren |
+
+**Componenten** (`src/features/freelancers/internal/`, elk onder 300 regels):
+
+| Map | Inhoud |
+|---|---|
+| `list/` | filter-, sorteer- en groeperingslogica (puur), filters (mobiel in een bottom sheet), tabel (desktop) en kaarten (mobiel, met bel- en mailknoppen) |
+| `assignments/` | overzicht, zijpaneel met statusstepper, primaire actie en menu "Meer", bijlagen met directe upload, activiteitenlog, review-, bericht- en bewerkdialoog, nieuw formulier met suggesties en AI |
+| `profile/` | kop, overzichtskaarten (elk apart te bewerken), opdrachten, link & pincode |
+
+Daarnaast `AddFreelancerModal`, `LinkReveal` (pincode één keer tonen, kopiëren, delen), `useUrlState`, `PageScroll` en `ui.tsx`.
+
+**Hergebruikt:** `materiaal/ui` (Button, Field, Select, inputCls, ErrorLine, send), poolwagens `Modal` en `ClientPicker`, materiaal `Toast`, `putFileToDrive`, en `DeliveryUpload` van de link (configureerbaar gemaakt).
+
+**Rechten in de UI:** bij "bekijken" bestaan wijzigknoppen niet (niet uitgeschakeld, gewoon weg). Getest door profielkop en -kaarten op de server te renderen.
+
+**Bewuste keuzes:**
+
+- **Statusfilter op mobiel:** de statustabs blijven zichtbaar; disciplines en "nu beschikbaar" staan in de bottom sheet.
+- **Nieuwe opdracht:** een freelancer is verplicht, ook voor een concept (`freelancer_id` is verplicht in de database).
+- **Delen gebeurt ná het uploaden van de bijlagen**, zodat de freelancer ze meteen heeft.
+- **De oude `FreelancersPage.tsx`** wordt niet meer gebruikt; hij verdwijnt in Fase 6.
+- **AppShell** zet `/freelancers` op `overflow: hidden`, dus de nieuwe pagina's scrollen zelf (`PageScroll`). AppShell zelf is ongewijzigd.

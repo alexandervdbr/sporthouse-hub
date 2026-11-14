@@ -13,7 +13,15 @@ import { fileSize } from './format'
 
 type Item = { key: string; file: File; progress: number; status: 'bezig' | 'klaar' | 'fout'; error?: string }
 
-export default function DeliveryUpload({ assignmentId, onUploaded }: { assignmentId: string; onUploaded: () => void }) {
+/** Welke API de upload gebruikt: de publieke link (standaard) of de interne API (team). */
+export interface UploadClient {
+  uploadSession: (id: string, files: { name: string; size: number; mimeType: string }[]) => Promise<{ uploadUrls: string[] }>
+  finalize: (id: string, uploads: { uploadUrl: string; size: number }[]) => Promise<{ results: ({ ok: true; id: string; name: string } | { ok: false; error: string })[] }>
+}
+
+export default function DeliveryUpload({ assignmentId, onUploaded, client = api, title = 'Bestanden toevoegen' }: {
+  assignmentId: string; onUploaded: () => void; client?: UploadClient; title?: string
+}) {
   const [items, setItems] = useState<Item[]>([])
   const input = useRef<HTMLInputElement>(null)
   const busy = items.some(i => i.status === 'bezig')
@@ -31,7 +39,7 @@ export default function DeliveryUpload({ assignmentId, onUploaded }: { assignmen
   async function send(batch: Item[]) {
     let urls: string[]
     try {
-      urls = (await api.uploadSession(assignmentId, batch.map(i => ({ name: i.file.name, size: i.file.size, mimeType: i.file.type || 'application/octet-stream' })))).uploadUrls
+      urls = (await client.uploadSession(assignmentId, batch.map(i => ({ name: i.file.name, size: i.file.size, mimeType: i.file.type || 'application/octet-stream' })))).uploadUrls
     } catch (err) {
       batch.forEach(i => update(i.key, { status: 'fout', error: (err as Error).message }))
       return
@@ -48,7 +56,7 @@ export default function DeliveryUpload({ assignmentId, onUploaded }: { assignmen
     const sent = done.filter((d): d is { item: Item; url: string } => !!d)
     if (!sent.length) return
     try {
-      const { results } = await api.finalize(assignmentId, sent.map(d => ({ uploadUrl: d.url, size: d.item.file.size })))
+      const { results } = await client.finalize(assignmentId, sent.map(d => ({ uploadUrl: d.url, size: d.item.file.size })))
       results.forEach((r, n) => update(sent[n].item.key, r.ok ? { status: 'klaar', progress: 100 } : { status: 'fout', error: r.error }))
       if (results.some(r => r.ok)) onUploaded()
     } catch (err) {
@@ -71,7 +79,7 @@ export default function DeliveryUpload({ assignmentId, onUploaded }: { assignmen
 
   return (
     <section aria-labelledby="opleveren" className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
-      <h2 id="opleveren" className="text-base font-semibold text-white">Bestanden toevoegen</h2>
+      <h2 id="opleveren" className="text-base font-semibold text-white">{title}</h2>
       <label onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); pick(e.dataTransfer.files) }}
         className="mt-3 flex min-h-[96px] cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed
           border-zinc-700 px-4 py-5 text-center text-base text-zinc-300 hover:border-zinc-500 focus-within:ring-2 focus-within:ring-[#3A913F]/50">

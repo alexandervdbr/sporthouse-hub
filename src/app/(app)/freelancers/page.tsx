@@ -1,7 +1,8 @@
+import { Suspense } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import FreelancersPage from '@/components/freelancers/FreelancersPage'
-import { canViewFreelancers } from '@/features/freelancers/lib/access'
+import { canManageFreelancers, canViewFreelancers } from '@/features/freelancers/lib/access'
+import FreelancersShell from '@/features/freelancers/internal/FreelancersShell'
 
 export const metadata = { title: 'Freelancers — Sporthouse' }
 
@@ -10,9 +11,12 @@ export default async function Page() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // Bekijken of beheren. Een account zonder ingestelde permissies krijgt hier
-  // niets — vroeger wel (permissions === null liet iedereen door).
+  // Bekijken of beheren. Een account zonder ingestelde permissies krijgt hier niets.
   if (!canViewFreelancers(user)) redirect('/dashboard')
 
-  return <FreelancersPage />
+  return (
+    <Suspense>
+      <FreelancersShell canManage={canManageFreelancers(user)} />
+    </Suspense>
+  )
 }
