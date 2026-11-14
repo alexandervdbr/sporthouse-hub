@@ -14,7 +14,7 @@ export const STATS_COLUMNS = 'freelancer_id, review_avg, review_count, active_as
 
 export const ASSIGNMENT_COLUMNS = [
   'id', 'freelancer_id', 'title', 'discipline', 'briefing', 'client_id', 'client_name',
-  'deadline', 'agreed_amount', 'status', 'is_historical', 'created_by', 'created_by_email',
+  'deadline', 'status', 'is_historical', 'created_by', 'created_by_email',
   'shared_at', 'first_viewed_at', 'status_changed_at', 'created_at', 'updated_at',
 ].join(', ')
 

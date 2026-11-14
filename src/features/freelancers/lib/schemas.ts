@@ -92,7 +92,6 @@ export const assignmentCreateSchema = z.strictObject({
   client_id: z.uuid().nullable().optional(),
   client_name: optText(200),
   deadline: optDate,
-  agreed_amount: amount,
   /** true = meteen delen (concept → gedeeld), anders een concept. */
   share: z.boolean().optional(),
 })
@@ -105,7 +104,6 @@ export const assignmentUpdateSchema = z.strictObject({
   client_id: z.uuid().nullable().optional(),
   client_name: optText(200),
   deadline: optDate,
-  agreed_amount: amount,
 }).refine(o => Object.keys(o).length > 0, 'Niets om te wijzigen')
 
 export const transitionSchema = z.strictObject({

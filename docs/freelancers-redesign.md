@@ -492,7 +492,7 @@ src/features/freelancers/
 │   ├── rate-limit.ts            rateHit(bucket, req)
 │   ├── files.ts                 uploadfolder, finalize, downloadRedirect (optie A/B)
 │   ├── match.ts                 voorfilter + Claude tool-use
-│   └── format.ts                bedrag, tarief, relatieve deadline, beoordelingstekst
+│   └── format.ts                tarief, relatieve deadline, beoordelingstekst
 ├── internal/
 │   ├── FreelancersShell.tsx     tabs Freelancers|Opdrachten + 2 knoppen, URL-state
 │   ├── list/
@@ -573,6 +573,7 @@ De pagina's in `src/app/` zijn dun: de server-check plus het component uit featu
 | — | Shared Drive (V1, interne download) | **Nog niet bekend → tijdelijke deling als standaard.** Omschakelen kan met één regel: `INTERNAL_DOWNLOAD_MODE` in `src/features/freelancers/lib/config.ts`. |
 | — | Data | **Alle freelancertabellen zijn leeg** (dry-run, 2026-11-13): 0 freelancers, projecten, opdrachten en bestanden; 0 materiaalboekingen met een freelancer; 0 accounts met de freelancervlag. Geen extra werk aan achterwaartse compatibiliteit van data. |
 | — | Planning | **Fase 6** = alleen code verwijderen (er zijn geen accounts op te ruimen). **Fase 7** (spreadsheet importeren) is niet langer optioneel en komt direct na Fase 5. |
+| — | Bedrag per opdracht (`agreed_amount`) | **Beslist (2026-11-14):** volledig weg uit de app. Bedragen horen in offertes en facturen, niet in deze tool. Weg uit de publieke link (API en UI), uit de interne API en de Zod-schema's, uit het formulier "Nieuwe opdracht" en de interne UI; de AI-match gebruikte het niet. **De kolom `freelancer_assignments.agreed_amount` blijft voorlopig in de database staan, ongebruikt**, en kan later met een aparte migratie weg. Het tarief op het profiel (`rate_amount`, `rate_unit`, `rate_note`) blijft wel. Tests: `agreed_amount`/`agreedAmount` staan bij de verboden velden van de publieke link, de interne API weigert het veld, en geen code in `src/` gebruikt het nog. |
 | V12 | Juridische teksten | **Open**, buiten het domein: in Fase 6 opnieuw vragen. |
 | V13 | Checks op freelancer-accounts in planning, poolwagens en gear | **Open**, buiten het domein: in Fase 6 opnieuw vragen. |
 | — | Model voor de match | **Beslist:** eerst `claude-sonnet-4-6`, daarna (2026-11-14) **`claude-sonnet-5-5`**, in één constante (`config.ts`). Met de server-side fallback bij weigeringen (`fallbacks: "default"`); een weigering van de hele keten geeft een fout, geen gegokte lijst. |
@@ -795,3 +796,7 @@ $job$);
 - **0092:** uitgevoerd op productie; `0092_test.sql` groen.
 - **0093:** uitgevoerd op productie ("Success. No rows returned"); `0093_test.sql` groen ("Alle tests van 0093 geslaagd — er is niets blijven staan").
 - **Gevolg:** de oude freelancerpagina en het portaal op main werken niet meer voor opdrachten. Aanvaard: de functie is niet in gebruik, en Fase 5 vervangt ze.
+
+### Ongebruikte kolommen (opruimen in een latere migratie)
+
+- `freelancer_assignments.agreed_amount`: sinds 2026-11-14 nergens meer gebruikt (zie de beslissing in §8). Verwijderen vraagt een eigen migratie met akkoord.

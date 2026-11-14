@@ -2,10 +2,10 @@
 
 import { ArrowLeft, Download, File, FileImage, FileText, FileVideo, Mail } from 'lucide-react'
 import { api, type Detail } from './api'
-import { fileSize, longDate, money, relativeDeadline, STATUS_TEXT } from './format'
+import { fileSize, longDate, relativeDeadline, STATUS_TEXT } from './format'
 import DeliveryUpload from './DeliveryUpload'
 
-// Eén opdracht: titel, klant, deadline, bedrag, briefing (witregels blijven
+// Eén opdracht: titel, klant, deadline, briefing (witregels blijven
 // staan), bijlagen (tik = downloaden), de feedback van het team (nieuwste
 // bovenaan) en wie je kan contacteren. De acties staan in de vaste balk
 // onderaan (ActionBar), de opleverzone in de pagina zelf.
@@ -54,7 +54,7 @@ export default function AssignmentDetail({ a, onBack, onUploaded }: { a: Detail;
       <header>
         <p className="text-sm font-medium text-zinc-400">{STATUS_TEXT[a.status] ?? a.status}{a.feedback ? ' · feedback ontvangen' : ''}</p>
         <h1 className="mt-1 text-2xl font-semibold text-white break-words">{a.title}</h1>
-        <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 text-base sm:grid-cols-3">
+        <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 text-base sm:grid-cols-2">
           {a.client && <div><dt className="text-sm text-zinc-500">Klant</dt><dd className="text-zinc-200">{a.client}</dd></div>}
           {a.deadline && deadline && (
             <div>
@@ -64,7 +64,6 @@ export default function AssignmentDetail({ a, onBack, onUploaded }: { a: Detail;
               </dd>
             </div>
           )}
-          {a.agreedAmount != null && <div><dt className="text-sm text-zinc-500">Bedrag</dt><dd className="text-zinc-200">{money(a.agreedAmount)}</dd></div>}
         </dl>
       </header>
 

@@ -5,10 +5,10 @@ import { RECENT_DAYS_ON_LINK } from './config'
 // VELD VOOR VELD opgebouwd uit expliciete kolommen: wat niet in deze
 // functies staat, bestaat voor de link niet.
 //
-// Zichtbaar: titel, briefing, deadline, klantnaam, bedrag, status, bijlagen,
+// Zichtbaar: titel, briefing, deadline, klantnaam, status, bijlagen,
 // de events die voor de freelancer bedoeld zijn, en naam + e-mail van de
 // medewerker die de opdracht maakte.
-// NOOIT: notes, overall_rating(_note), reviews, de status van de freelancer
+// NOOIT: bedragen van een opdracht, notes, overall_rating(_note), reviews, de status van de freelancer
 // in de tool (kandidaat, …), interne events, andere freelancers, klantcontacten.
 // src/lib/__tests__/freelancers-public.test.ts controleert dat op veldnaam.
 
@@ -25,11 +25,11 @@ export function isVisibleOnLink(status: string, statusChangedAt: string | null, 
   return false // concept, geannuleerd, onbekend
 }
 
-const ASSIGNMENT_SELECT = 'id, title, briefing, deadline, client_name, agreed_amount, status, status_changed_at, first_viewed_at, is_historical, created_by, created_by_email, client:clients(name)'
+const ASSIGNMENT_SELECT = 'id, title, briefing, deadline, client_name, status, status_changed_at, first_viewed_at, is_historical, created_by, created_by_email, client:clients(name)'
 
 interface Row {
   id: string; title: string; briefing: string | null; deadline: string | null; client_name: string | null
-  agreed_amount: number | null; status: string; status_changed_at: string | null; first_viewed_at: string | null
+  status: string; status_changed_at: string | null; first_viewed_at: string | null
   is_historical: boolean; created_by: string | null; created_by_email: string | null; client: { name: string } | null
 }
 
@@ -40,7 +40,6 @@ export interface PublicCard {
 
 export interface PublicDetail extends Omit<PublicCard, 'isNew'> {
   briefing: string | null
-  agreedAmount: number | null
   statusChangedAt: string | null
   contact: { name: string | null; email: string | null }
   files: { id: string; name: string; size: number | null; type: string | null; kind: string; fromYou: boolean }[]
@@ -116,7 +115,6 @@ export async function detailFor(db: Db, r: Row): Promise<PublicDetail> {
     status: r.status,
     feedback: feedback.has(r.id),
     briefing: r.briefing,
-    agreedAmount: r.agreed_amount,
     statusChangedAt: r.status_changed_at,
     contact,
     files: (files ?? []).map(f => ({

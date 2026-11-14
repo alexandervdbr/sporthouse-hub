@@ -106,7 +106,7 @@ let token1 = '', token2 = '', pinHash = ''
 const SECRET_FIELDS = { notes: 'GEHEIME NOTITIE', overall_rating: 2, overall_rating_note: 'GEHEIME BEOORDELING', status: 'kandidaat', email: 'freelancer@example.com', rate_note: 'GEHEIM TARIEF' }
 const assignment = (id: string, freelancer_id: string, status: string, extra: Row = {}) => ({
   id, freelancer_id, status, title: `Opdracht ${id.slice(0, 2)}`, briefing: 'Regel 1\n\nRegel 2', deadline: '2026-12-01',
-  client_name: null, client: { name: 'KRC Genk', contact_email: 'GEHEIM@klant.example' }, agreed_amount: 500,
+  client_name: null, client: { name: 'KRC Genk', contact_email: 'GEHEIM@klant.example' }, agreed_amount: 4321.5,
   status_changed_at: new Date().toISOString(), first_viewed_at: null, is_historical: false,
   created_by: 'staff-1', created_by_email: 'sara@sporthouse.example', discipline: 'video', shared_at: null, ...extra,
 })
@@ -296,8 +296,10 @@ describe('wat de freelancer ziet', () => {
 describe('geen interne gegevens in publieke antwoorden', () => {
   const FORBIDDEN_KEYS = ['notes', 'overall_rating', 'overall_rating_note', 'score', 'score_quality', 'score_deadline', 'score_communication',
     'comment', 'reviewer_id', 'review', 'visible_to_freelancer', 'actor_id', 'actor_type', 'created_by', 'created_by_email', 'pin_hash',
-    'token_hash', 'token_encrypted', 'freelancer_id', 'web_view_link', 'drive_file_id', 'rate_note', 'contact_email', 'is_historical', 'discipline']
-  const FORBIDDEN_VALUES = ['GEHEIME NOTITIE', 'GEHEIME BEOORDELING', 'GEHEIME REVIEW', 'INTERN: niet meer boeken', 'kandidaat', 'GEHEIM TARIEF', 'GEHEIM@klant', 'freelancer@example.com', 'https://drive/intern']
+    'token_hash', 'token_encrypted', 'freelancer_id', 'web_view_link', 'drive_file_id', 'rate_note', 'contact_email', 'is_historical', 'discipline',
+    // Bedragen horen in offertes en facturen, nooit op de link.
+    'agreed_amount', 'agreedAmount', 'amount', 'rate_amount', 'rate_unit']
+  const FORBIDDEN_VALUES = ['GEHEIME NOTITIE', 'GEHEIME BEOORDELING', 'GEHEIME REVIEW', 'INTERN: niet meer boeken', 'kandidaat', 'GEHEIM TARIEF', 'GEHEIM@klant', 'freelancer@example.com', 'https://drive/intern', '4321', '€']
 
   function keysOf(v: unknown, out = new Set<string>()): Set<string> {
     if (Array.isArray(v)) v.forEach(x => keysOf(x, out))

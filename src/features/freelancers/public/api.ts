@@ -5,7 +5,7 @@
 export interface Card { id: string; title: string; client: string | null; deadline: string | null; status: string; isNew: boolean; feedback: boolean }
 export interface Me { firstName: string; availability: string; availableFrom: string | null; assignments: Card[] }
 export interface Detail extends Omit<Card, 'isNew'> {
-  briefing: string | null; agreedAmount: number | null; statusChangedAt: string | null
+  briefing: string | null; statusChangedAt: string | null
   contact: { name: string | null; email: string | null }
   files: { id: string; name: string; size: number | null; type: string | null; kind: string; fromYou: boolean }[]
   messages: { message: string; at: string; kind: 'feedback' | 'weigering' | 'bericht' }[]

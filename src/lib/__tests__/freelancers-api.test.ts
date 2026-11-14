@@ -418,6 +418,26 @@ describe('reviews en beoordeling', () => {
   })
 })
 
+describe('geen bedragen per opdracht', () => {
+  beforeEach(() => { state.user = user(MANAGE) })
+
+  it('nieuwe opdracht en opdracht-PATCH weigeren agreed_amount', async () => {
+    expect((await assignments.POST(json('POST', { freelancer_id: F, title: 'X', agreed_amount: 500 }))).status).toBe(400)
+    expect((await assignment.PATCH(json('PATCH', { agreed_amount: 500 }), pid(A))).status).toBe(400)
+    expect(writes()).toEqual([])
+  })
+
+  it('geen code buiten de migraties gebruikt agreed_amount (de kolom is ongebruikt)', () => {
+    const root = path.resolve(__dirname, '../../..')
+    const walk = (d: string): string[] => fs.readdirSync(d).flatMap(n => {
+      const p = path.join(d, n)
+      return fs.statSync(p).isDirectory() ? (n === '__tests__' ? [] : walk(p)) : /\.(ts|tsx)$/.test(n) ? [p] : []
+    })
+    const hits = walk(path.join(root, 'src')).filter(p => /agreed_?amount/i.test(fs.readFileSync(p, 'utf8'))).map(p => path.relative(root, p))
+    expect(hits).toEqual([])
+  })
+})
+
 describe('cron en match', () => {
   it('cron zonder of met fout geheim → 401, zonder database', async () => {
     expect((await cron.GET(new Request('http://hub.test/api/cron/freelancer-shares'))).status).toBe(401)

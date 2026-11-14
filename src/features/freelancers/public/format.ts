@@ -18,10 +18,6 @@ export function longDate(date: string) {
   return new Date(date.length === 10 ? `${date}T00:00:00` : date).toLocaleDateString('nl-BE', { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
-export function money(amount: number) {
-  return new Intl.NumberFormat('nl-BE', { style: 'currency', currency: 'EUR' }).format(amount)
-}
-
 export function fileSize(bytes: number | null) {
   if (bytes == null) return ''
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} kB`
