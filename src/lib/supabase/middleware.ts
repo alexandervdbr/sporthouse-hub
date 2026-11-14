@@ -3,8 +3,19 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { getSessionUser } from '@/lib/supabase/claims'
 import { isFreelancerUser } from '@/lib/auth-permissions'
 import { GOOGLE_SITE_VERIFICATION_FILE } from '@/lib/site-url'
+import { isFreelancerLinkPath, linkSecurityHeaders } from '@/features/freelancers/lib/public-paths'
 
 export async function updateSession(request: NextRequest) {
+  // De persoonlijke freelancerlink (/f, /api/public/f/*): geen medewerker-
+  // login, geen Supabase-sessie. De routes controleren zelf token, pincode
+  // en cookie (src/features/freelancers/lib/public-server.ts). Deze cookie
+  // opent niets anders: elke andere route ziet hier geen gebruiker → 401.
+  if (isFreelancerLinkPath(request.nextUrl.pathname)) {
+    const res = NextResponse.next({ request })
+    for (const [k, v] of Object.entries(linkSecurityHeaders())) res.headers.set(k, v)
+    return res
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(

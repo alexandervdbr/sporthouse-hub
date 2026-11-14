@@ -696,6 +696,62 @@ create trigger freelancers_revoke_links_on_archive
   after update of archived_at on public.freelancers
   for each row execute function public.freelancers_revoke_links_on_archive();
 
+-- Pincodepogingen, atomair: twee gelijktijdige foute pogingen tellen allebei,
+-- en niemand glipt langs de blokkering. Alleen voor de service-role.
+--   na p_max fouten         → locked_until = nu + p_lock_minutes, teller terug op 0
+--   blokkeringen per venster → lockout_count; vanaf p_hard binnen p_window_hours
+--                              blijft de link dicht tot er een nieuwe pincode is
+create or replace function public.freelancer_link_pin_failed(
+  p_link_id uuid, p_max int, p_lock_minutes int, p_hard int, p_window_hours int
+) returns table (failed int, locked_until timestamptz, lockout_count int, needs_new_pin boolean)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  l public.freelancer_links%rowtype;
+  v_in_window boolean;
+begin
+  select * into l from public.freelancer_links where id = p_link_id and revoked_at is null for update;
+  if not found then return; end if;
+
+  l.failed_pin_attempts := l.failed_pin_attempts + 1;
+  if l.failed_pin_attempts >= p_max then
+    v_in_window := l.lockout_window_start is not null
+                   and l.lockout_window_start > now() - make_interval(hours => p_window_hours);
+    l.lockout_count := case when v_in_window then l.lockout_count + 1 else 1 end;
+    l.lockout_window_start := case when v_in_window then l.lockout_window_start else now() end;
+    l.locked_until := now() + make_interval(mins => p_lock_minutes);
+    l.failed_pin_attempts := 0;
+  end if;
+
+  update public.freelancer_links set
+    failed_pin_attempts = l.failed_pin_attempts, locked_until = l.locked_until,
+    lockout_count = l.lockout_count, lockout_window_start = l.lockout_window_start
+  where id = p_link_id;
+
+  return query select l.failed_pin_attempts, l.locked_until, l.lockout_count,
+    (l.lockout_count >= p_hard and l.lockout_window_start > now() - make_interval(hours => p_window_hours));
+end $$;
+revoke all on function public.freelancer_link_pin_failed(uuid, int, int, int, int) from public, anon, authenticated;
+grant execute on function public.freelancer_link_pin_failed(uuid, int, int, int, int) to service_role;
+
+-- Juiste pincode: teller terug op 0 en "laatst geopend" bijwerken. De
+-- blokkeringsgeschiedenis (lockout_count) blijft: die gaat pas weg met een
+-- nieuwe pincode.
+create or replace function public.freelancer_link_pin_ok(p_link_id uuid)
+returns void
+language sql
+security definer
+set search_path = ''
+as $$
+  update public.freelancer_links
+     set failed_pin_attempts = 0, last_opened_at = now()
+   where id = p_link_id and revoked_at is null;
+$$;
+revoke all on function public.freelancer_link_pin_ok(uuid) from public, anon, authenticated;
+grant execute on function public.freelancer_link_pin_ok(uuid) to service_role;
+
 -- ════════════════════════════════════════════════════════════════════════════
 -- 10. Rate limiting voor de publieke link (V2)
 -- ════════════════════════════════════════════════════════════════════════════
@@ -1040,6 +1096,39 @@ begin
   if exists (select 1 from public.freelancer_picker() where id = v_f) then
     raise exception 'TEST MISLUKT: gearchiveerde freelancer staat in freelancer_picker';
   end if;
+
+  -- Pincode: 5 fouten → 15 min dicht; 3 blokkeringen in 24 u → nieuwe pincode nodig.
+  update public.freelancers set archived_at = null where id = v_f;
+  insert into public.freelancer_links (freelancer_id, token_hash, token_encrypted, pin_hash)
+  values (v_f, decode(repeat('ee', 32), 'hex'), '\x00', 'scrypt$test');
+  declare
+    v_l uuid := (select id from public.freelancer_links where freelancer_id = v_f and revoked_at is null);
+    r record;
+  begin
+    for i in 1..4 loop
+      select * into r from public.freelancer_link_pin_failed(v_l, 5, 15, 3, 24);
+    end loop;
+    if r.failed <> 4 or r.locked_until is not null then
+      raise exception 'TEST MISLUKT: na 4 fouten al geblokkeerd of verkeerd geteld';
+    end if;
+    select * into r from public.freelancer_link_pin_failed(v_l, 5, 15, 3, 24);
+    if r.locked_until is null or r.locked_until < now() + interval '14 minutes' or r.failed <> 0 or r.lockout_count <> 1 or r.needs_new_pin then
+      raise exception 'TEST MISLUKT: na 5 fouten niet 15 minuten geblokkeerd';
+    end if;
+    for j in 1..10 loop
+      select * into r from public.freelancer_link_pin_failed(v_l, 5, 15, 3, 24);
+    end loop;
+    if r.lockout_count <> 3 or not r.needs_new_pin then
+      raise exception 'TEST MISLUKT: na 3 blokkeringen geen nieuwe pincode vereist (count %)', r.lockout_count;
+    end if;
+    perform public.freelancer_link_pin_ok(v_l);
+    if (select failed_pin_attempts from public.freelancer_links where id = v_l) <> 0
+       or (select last_opened_at from public.freelancer_links where id = v_l) is null then
+      raise exception 'TEST MISLUKT: freelancer_link_pin_ok zet de teller niet terug';
+    end if;
+  end;
+  -- Terug gearchiveerd: de controles verderop rekenen daarop.
+  update public.freelancers set archived_at = now() where id = v_f;
 
   -- Rate limit: 2 toegelaten, de derde niet.
   if not public.public_rate_hit('test-0093', decode(repeat('ef', 32), 'hex'), 2, 60)

@@ -752,3 +752,40 @@ $job$);
    - (a) alleen `/api/cron/freelancer-shares` toelaten;
    - (b) `/api/cron/*` toelaten; dat herstelt meteen de bestaande crons, en elke cronroute controleert zelf `CRON_SECRET`.
 2. **`getFileMetadata()` en `uploadFile()` in `src/lib/drive-storage.ts` delen elk bestand blijvend met "iedereen met de link"** (`sharePublicly`). Dat geldt voor alle uploads via finalize: gewone bestanden, pré-assist, poolwagens-schade en de interne documenten van Sporthouse (`sporthouse/documents/finalize`). Bij die laatste staat in de code dat ze bewust geïsoleerd moeten blijven. Of het delen echt lukt, hangt af van de instellingen van de Shared Drive: de fout wordt stil gelogd. De freelancercode gebruikt die functies niet.
+
+### Fase 4 — Persoonlijke link (klaar)
+
+**API** (`/api/public/f/*`; alleen de service-role; de freelancer volgt altijd uit de link):
+
+| Route | Wat |
+|---|---|
+| `session` | staat van de link voor deze browser: ok / pin / geblokkeerd / ongeldig |
+| `pin` | pincode controleren |
+| `me` | voornaam, beschikbaarheid, opdrachtkaarten |
+| `availability` | beschikbaarheid zetten |
+| `assignments/[id]` | detail; zet `first_viewed_at` |
+| `assignments/[id]/action` | accepteren / weigeren / opleveren, via `applyTransition` |
+| `assignments/[id]/upload-session`, `finalize` | opleveren, direct naar Drive |
+| `files/[fileId]` | 302 na een tijdelijke deling |
+
+**Lib** (`src/features/freelancers/lib/`): `link-session.ts`, `rate-limit.ts`, `public-server.ts`, `public-select.ts`, `public-schemas.ts`, `public-paths.ts` en `notify.ts`.
+
+**UI:** `src/app/f/` met `src/features/freelancers/public/` (`LinkApp`, `Shell`, `PinScreen`, `Home`, `AvailabilityCard`, `AssignmentCard`, `AssignmentDetail`, `ActionBar`, `DeliveryUpload`, `api.ts`, `format.ts`).
+
+**Migratie 0093 aangevuld** (nog niet uitgevoerd): `freelancer_link_pin_failed()` en `freelancer_link_pin_ok()`, atomair en alleen voor de service-role. Ze staan ook in `0093_test.sql`, en de proefdraai is opnieuw gegenereerd. **Draai `0093_proefdraai.sql` opnieuw vóór 0093.**
+
+**Afwijkingen en aanvullingen:**
+
+- **De cookie-MAC rekent ook een vingerafdruk van de pincode-hash mee**, zonder dat die in de cookie staat. Een nieuwe pincode maakt zo elke bestaande sessie meteen ongeldig. De cookie bevat nog altijd alleen link-id en vervaldatum.
+- **Elke POST/PUT moet van onze eigen Origin komen**, bovenop SameSite=Strict (CSRF).
+- **Beschikbaarheid wijzigen schrijft geen opdracht-event:** een event hoort altijd bij een opdracht. De bron en het tijdstip staan in `availability_updated_by` / `availability_updated_at`.
+- **Push-meldingen** (de bestaande `pushToUsers`) gaan alleen uit bij accepteren, weigeren en opleveren, naar wie de opdracht maakte.
+- **Downloads door een freelancer** gaan altijd via de tijdelijke deling: die heeft geen toegang tot onze Drive.
+- **`/f` is een statische client-pagina:** de server kent het token niet, want dat staat achter `#`.
+- **Middleware:** `/f`, `/f/*` en `/api/public/f/*` gaan door vóór de Supabase-sessie, met X-Robots-Tag, Referrer-Policy, Cache-Control en CSP. De bestaande uitzonderingen zijn ongewijzigd.
+
+**Tests:**
+
+- **`freelancers-public.test.ts`:** een in-memory database die filters echt toepast en volledige rijen teruggeeft, mét verboden velden. Elke gevraagde garantie is getest, en 4 mutaties (interne events, archief, eigenaarschap, concepten) worden gevangen.
+- **`middleware-public-pages.test.ts`:** met alleen de linkcookie geeft elke interne API-route een 401 (alle `route.ts` onder `src/app/api` worden afgelopen).
+- **De drie downloadroutes die buiten de middleware-matcher vallen**, controleren zelf de Supabase-gebruiker. Met alleen de linkcookie geven ook zij een 401.

@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NextRequest } from 'next/server'
+import fs from 'fs'
+import path from 'path'
 
 // Who gets to see what without signing in. The homepage, /privacy and /terms
 // must answer anonymous visitors — Google's OAuth verification checks them —
@@ -91,4 +93,77 @@ describe('middleware matcher', () => {
     'still runs on %s', (url) => {
       expect(runs(url)).toBe(true)
     })
+})
+
+
+// ── De persoonlijke freelancerlink ──────────────────────────────────────────
+// Alleen /f(/…) en /api/public/f/* zijn zonder medewerker-login bereikbaar.
+// De linkcookie is GEEN Supabase-sessie: met alleen die cookie geeft elke
+// interne API-route 401 en elke interne pagina gaat naar /login.
+
+const LINK_COOKIE = 'sh_fl=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.9999999999.' + 'A'.repeat(43)
+
+async function visitWithLinkCookie(p: string) {
+  const req = new NextRequest(new URL(p, 'https://hub.example.com'), { headers: { cookie: LINK_COOKIE } })
+  const res = await updateSession(req)
+  const location = res.headers.get('location')
+  return { status: res.status, to: location ? new URL(location).pathname : null, headers: res.headers }
+}
+
+// Elke API-route in de code, als pad (dynamische segmenten ingevuld).
+function apiRoutes(): string[] {
+  const root = path.resolve(__dirname, '../../app/api')
+  const out: string[] = []
+  const walk = (dir: string) => {
+    for (const n of fs.readdirSync(dir)) {
+      const p = path.join(dir, n)
+      if (fs.statSync(p).isDirectory()) walk(p)
+      else if (n === 'route.ts') out.push('/api/' + path.relative(root, dir).split(path.sep).join('/').replace(/\[[^\]]+\]/g, '11111111-1111-4111-8111-111111111111'))
+    }
+  }
+  walk(root)
+  return out.sort()
+}
+
+// Routes die al vóór de link zonder login bereikbaar waren (eigen controle in
+// de route) — de link voegt hier niets aan toe.
+const OWN_AUTH = ['/api/save-reel', '/api/planning/mine', '/api/materiaal/mail/due', '/api/cron/freelancer-shares']
+const isPublicLink = (p: string) => p.startsWith('/api/public/f/')
+const internal = apiRoutes().filter(p => !isPublicLink(p) && !OWN_AUTH.some(o => p === o || p.startsWith(o + '/')))
+
+describe('middleware: persoonlijke freelancerlink', () => {
+  beforeEach(() => { sessionUser = null })
+
+  it.each(['/f', '/f/', '/api/public/f/session', '/api/public/f/me', '/api/public/f/assignments/x'])('%s is bereikbaar zonder login, met de beveiligingsheaders', async (p) => {
+    const res = await updateSession(new NextRequest(new URL(p, 'https://hub.example.com')))
+    expect(res.status).toBe(200)
+    expect(res.headers.get('location')).toBe(null)
+    expect(res.headers.get('x-robots-tag')).toBe('noindex, nofollow')
+    expect(res.headers.get('referrer-policy')).toBe('no-referrer')
+    expect(res.headers.get('cache-control')).toBe('no-store')
+    expect(res.headers.get('content-security-policy')).toMatch(/frame-ancestors 'none'/)
+  })
+
+  it.each(['/fx', '/freelancers', '/f-test', '/api/public', '/api/public/fx', '/api/public/g/me'])('%s valt NIET onder de link', async (p) => {
+    const r = await visit(p)
+    expect(r.status === 401 || r.to === '/login').toBe(true)
+  })
+
+  it('er zijn interne API-routes om te controleren', () => {
+    expect(internal.length).toBeGreaterThan(100)
+    expect(internal).toContain('/api/freelancers')
+  })
+
+  it('met alleen de linkcookie geeft ELKE interne API-route 401', async () => {
+    const open: string[] = []
+    for (const p of internal) {
+      const r = await visitWithLinkCookie(p)
+      if (r.status !== 401) open.push(`${p} → ${r.status}`)
+    }
+    expect(open).toEqual([])
+  })
+
+  it.each(['/dashboard', '/freelancers', '/freelancers/x', '/admin', '/portal'])('met alleen de linkcookie gaat %s naar /login', async (p) => {
+    expect((await visitWithLinkCookie(p)).to).toBe('/login')
+  })
 })
