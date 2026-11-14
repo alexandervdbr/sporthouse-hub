@@ -5,6 +5,8 @@ import { Message } from '@/types/database'
 
 export const maxDuration = 300
 
+const CHAT_MODEL = 'claude-sonnet-5-5'
+
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
 })
@@ -101,9 +103,16 @@ Als de informatie niet in de documenten staat, geef dat dan eerlijk aan.`
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        const streamResponse = anthropic.messages.stream({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 4096,
+        // claude-sonnet-4-20250514 is op 15 juni 2026 uitgefaseerd; requests
+        // daarnaar mislukken. Sonnet 5.5 denkt standaard (adaptive) — die
+        // denkblokken worden hieronder niet doorgestuurd, alleen de tekst.
+        // Weigert het model (stop_reason "refusal"), dan probeert de API zelf
+        // een ander model binnen dezelfde call (server-side fallback).
+        const streamResponse = anthropic.beta.messages.stream({
+          model: CHAT_MODEL,
+          max_tokens: 16000,
+          betas: ['server-side-fallback-2026-07-01'],
+          fallbacks: 'default',
           system: systemPrompt,
           messages: anthropicMessages,
         })
@@ -116,6 +125,12 @@ Als de informatie niet in de documenten staat, geef dat dan eerlijk aan.`
             const data = JSON.stringify({ text: event.delta.text })
             controller.enqueue(encoder.encode(`data: ${data}\n\n`))
           }
+        }
+
+        const final = await streamResponse.finalMessage()
+        if (final.stop_reason === 'refusal') {
+          const data = JSON.stringify({ error: 'De assistent kan deze vraag niet beantwoorden.' })
+          controller.enqueue(encoder.encode(`data: ${data}\n\n`))
         }
 
         controller.enqueue(encoder.encode('data: [DONE]\n\n'))
