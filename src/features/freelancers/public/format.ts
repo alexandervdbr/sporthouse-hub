@@ -34,5 +34,5 @@ export function time(iso: string) {
 }
 
 export const STATUS_TEXT: Record<string, string> = {
-  gedeeld: 'Nieuw', geaccepteerd: 'Bezig', opgeleverd: 'Opgeleverd', afgerond: 'Afgerond', geweigerd: 'Geweigerd',
+  gedeeld: 'Wacht op jouw antwoord', geaccepteerd: 'Bezig', opgeleverd: 'Opgeleverd', afgerond: 'Afgerond', geweigerd: 'Geweigerd',
 }

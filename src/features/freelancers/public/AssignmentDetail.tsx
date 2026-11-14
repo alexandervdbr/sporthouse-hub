@@ -59,8 +59,8 @@ export default function AssignmentDetail({ a, onBack, onUploaded }: { a: Detail;
           {a.deadline && deadline && (
             <div>
               <dt className="text-sm text-zinc-500">Deadline</dt>
-              <dd className={deadline.late && a.status !== 'afgerond' ? 'font-medium text-red-400' : 'text-zinc-200'}>
-                {longDate(a.deadline)} <span className="text-zinc-500">({deadline.text})</span>
+              <dd className={deadline.late && (a.status === 'gedeeld' || a.status === 'geaccepteerd') ? 'font-medium text-red-400' : 'text-zinc-200'}>
+                {longDate(a.deadline)}{(a.status === 'gedeeld' || a.status === 'geaccepteerd') && <span className="text-zinc-500"> ({deadline.text})</span>}
               </dd>
             </div>
           )}
@@ -96,8 +96,9 @@ export default function AssignmentDetail({ a, onBack, onUploaded }: { a: Detail;
         <section aria-label="Contact" className="rounded-2xl border border-zinc-800 px-4 py-3 text-base text-zinc-300">
           Vragen? {a.contact.name && <span className="text-white">{a.contact.name}</span>}
           {a.contact.email && (
-            <a href={`mailto:${a.contact.email}`} className="mt-1 flex min-h-[44px] items-center gap-2 text-[#5fbf64] underline-offset-2 hover:underline">
-              <Mail size={16} aria-hidden /> {a.contact.email}
+            <a href={`mailto:${a.contact.email}`} className="mt-1 flex min-h-[44px] min-w-0 items-center gap-2 text-[#5fbf64] underline-offset-2 hover:underline">
+              <Mail size={16} className="flex-shrink-0" aria-hidden />
+              <span className="min-w-0 break-all">{a.contact.email}</span>
             </a>
           )}
         </section>

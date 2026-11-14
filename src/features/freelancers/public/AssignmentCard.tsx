@@ -4,7 +4,8 @@ import { relativeDeadline, STATUS_TEXT } from './format'
 
 export default function AssignmentCard({ a, onOpen }: { a: Card; onOpen: () => void }) {
   const deadline = a.deadline ? relativeDeadline(a.deadline) : null
-  const done = a.status === 'afgerond' || a.status === 'geweigerd'
+  // Na het opleveren is de deadline niet meer de zorg van de freelancer: niet meer tonen (en zeker niet in het rood).
+  const showDeadline = a.status === 'gedeeld' || a.status === 'geaccepteerd'
   return (
     <button type="button" onClick={onOpen}
       className="w-full min-h-[64px] rounded-2xl border border-zinc-800 bg-zinc-900/60 px-4 py-3 text-left flex items-center gap-3
@@ -17,10 +18,10 @@ export default function AssignmentCard({ a, onOpen }: { a: Card; onOpen: () => v
         </div>
         <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-sm text-zinc-400">
           {a.client && <span>{a.client}</span>}
-          {deadline && !done && (
+          {deadline && showDeadline && (
             <span className={deadline.late ? 'font-medium text-red-400' : ''}>Deadline {deadline.text}</span>
           )}
-          <span>{STATUS_TEXT[a.status] ?? a.status}</span>
+          {!a.isNew && <span>{STATUS_TEXT[a.status] ?? a.status}</span>}
         </div>
       </div>
       <ChevronRight size={20} className="flex-shrink-0 text-zinc-500" aria-hidden />

@@ -21,6 +21,12 @@ export default function PinScreen({ token, initial, onOk }: {
   const refs = useRef<(HTMLInputElement | null)[]>([])
   const blocked = status.state === 'geblokkeerd'
 
+  // Na elke poging (en bij het openen) terug naar het eerste vakje, zodra de
+  // vakjes weer ingeschakeld zijn — een uitgeschakeld vakje kan geen focus krijgen.
+  useEffect(() => {
+    if (!busy && !blocked) refs.current[0]?.focus()
+  }, [busy, blocked])
+
   // Een tijdelijke blokkering heft zichzelf op: daarna mag het opnieuw.
   const until = status.state === 'geblokkeerd' && !status.needsNewPin ? status.until : null
   useEffect(() => {
@@ -38,7 +44,6 @@ export default function PinScreen({ token, initial, onOk }: {
       if (r.state === 'pin' || r.state === 'geblokkeerd') setStatus(r)
       if (r.state === 'ongeldig') setError('Deze link is niet (meer) geldig.')
       setDigits(['', '', '', ''])
-      refs.current[0]?.focus()
     } catch {
       setError('Er ging iets mis. Probeer opnieuw.')
     } finally {
