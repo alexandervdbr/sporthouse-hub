@@ -1,19 +1,15 @@
-import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { isAdminUser } from '@/lib/auth-permissions'
+import { createAdminClient } from '@/lib/supabase/server'
+import { requireFreelancers, parseBody, isUuid } from '@/features/freelancers/lib/server'
+import { assignmentCreateSchema } from '@/features/freelancers/lib/schemas'
 
-async function assertAdmin() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-  const isAdmin = isAdminUser(user)
-  return isAdmin ? user : null
-}
-
+// Was alleen voor admins, terwijl de knoppen zichtbaar waren voor iedereen
+// met het freelancerrecht. Nu: bekijken leest, beheren schrijft.
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const user = await assertAdmin()
-  if (!user) return new Response('Forbidden', { status: 403 })
+  const auth = await requireFreelancers('bekijken')
+  if ('error' in auth) return auth.error
 
   const { id } = await params
+  if (!isUuid(id)) return new Response('Niet gevonden', { status: 404 })
   const admin = createAdminClient()
   const { data, error } = await admin
     .from('freelancer_assignments')
@@ -26,23 +22,25 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const user = await assertAdmin()
-  if (!user) return new Response('Forbidden', { status: 403 })
+  const auth = await requireFreelancers('beheren')
+  if ('error' in auth) return auth.error
 
   const { id } = await params
-  const { title, briefing, deadline, client_name } = await req.json()
-  if (!title?.trim()) return new Response('title required', { status: 400 })
+  if (!isUuid(id)) return new Response('Niet gevonden', { status: 404 })
+  const body = await parseBody(req, assignmentCreateSchema)
+  if ('error' in body) return body.error
+  const a = body.data
 
   const admin = createAdminClient()
   const { data, error } = await admin
     .from('freelancer_assignments')
     .insert({
       freelancer_id: id,
-      title: title.trim(),
-      briefing: briefing?.trim() || null,
-      deadline: deadline || null,
-      client_name: client_name?.trim() || null,
-      created_by: user.email,
+      title: a.title,
+      briefing: a.briefing ?? null,
+      deadline: a.deadline ?? null,
+      client_name: a.client_name ?? null,
+      created_by: auth.user.email,
       status: 'nieuw',
     })
     .select('*, freelancer_assignment_files(*)')

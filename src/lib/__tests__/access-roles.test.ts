@@ -30,6 +30,9 @@ const OUDE_VAKJES = [
   'mijn-gedacht', 'mijn_gedacht_types_beheren',
   // Nieuw sinds de rollen (module Poolwagens).
   'poolwagens', 'poolwagens_beheren',
+  // Nieuw: Freelancers kreeg een niveau "bekijken" onder het bestaande
+  // 'freelancers' (= beheren). Zie freelancers-access.test.ts.
+  'freelancers_bekijken',
 ]
 
 // Zolang een onderdeel in de koelkast staat (src/lib/features.ts), geeft geen niveau

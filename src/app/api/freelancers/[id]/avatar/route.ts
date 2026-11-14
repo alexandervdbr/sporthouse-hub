@@ -1,6 +1,5 @@
-import { createClient } from '@/lib/supabase/server'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
-import { isAdminUser } from '@/lib/auth-permissions'
+import { requireFreelancers, isUuid } from '@/features/freelancers/lib/server'
 
 function adminClient() {
   return createSupabaseClient(
@@ -9,25 +8,17 @@ function adminClient() {
   )
 }
 
-async function requireFreelancerAdmin() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-  const sections: string[] = user.app_metadata?.permissions?.sections ?? []
-  const ok = isAdminUser(user) || sections.includes('freelancers')
-  return ok ? user : null
-}
-
 const BUCKET = 'freelancer-avatars'
 
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await requireFreelancerAdmin()
-  if (!user) return new Response('Forbidden', { status: 403 })
+  const auth = await requireFreelancers('beheren')
+  if ('error' in auth) return auth.error
 
   const { id } = await params
+  if (!isUuid(id)) return new Response('Niet gevonden', { status: 404 })
 
   let formData: FormData
   try { formData = await req.formData() } catch {
@@ -85,10 +76,11 @@ export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await requireFreelancerAdmin()
-  if (!user) return new Response('Forbidden', { status: 403 })
+  const auth = await requireFreelancers('beheren')
+  if ('error' in auth) return auth.error
 
   const { id } = await params
+  if (!isUuid(id)) return new Response('Niet gevonden', { status: 404 })
   const admin = adminClient()
 
   const { data: existing } = await admin.storage.from(BUCKET).list(id)

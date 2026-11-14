@@ -19,8 +19,27 @@ export function isFreelancerUser(user: PermissionUser): boolean {
   return user?.app_metadata?.freelancer === true
 }
 
+// Sleutels die een andere sleutel insluiten, omdat er later een lager niveau
+// onder een bestaande sleutel is geschoven. 'freelancers' was het enige
+// niveau ("beheren") tot "bekijken" erbij kwam als 'freelancers_bekijken'.
+// Wie al 'freelancers' had, mag dus ook bekijken — ook als zijn sleutellijst
+// nog nooit opnieuw is berekend sinds die wijziging. Zonder deze regel zou
+// zo iemand na de deploy de zijbalk en de pagina kwijt zijn.
+//
+// Alleen toevoegen, nooit weghalen: dit mag niemand ooit rechten kosten. De
+// SQL-kant doet hetzelfde door beide sleutels te aanvaarden (0092).
+export const IMPLIED_SECTIONS: Readonly<Record<string, readonly string[]>> = {
+  freelancers: ['freelancers_bekijken'],
+}
+
+export function withImpliedSections(sections: readonly string[]): string[] {
+  const out = new Set(sections)
+  for (const s of sections) for (const extra of IMPLIED_SECTIONS[s] ?? []) out.add(extra)
+  return [...out]
+}
+
 export function getSections(user: PermissionUser): string[] {
-  return user?.app_metadata?.permissions?.sections ?? []
+  return withImpliedSections(user?.app_metadata?.permissions?.sections ?? [])
 }
 
 export function isAdminUser(user: PermissionUser): boolean {

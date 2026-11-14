@@ -17,7 +17,7 @@ export async function GET() {
 
   const [accounts, freelancers, clients, projects] = await Promise.all([
     createAdminClient().auth.admin.listUsers({ perPage: 1000 }),
-    supabase.from('freelancers').select('id, name').order('name'),
+    supabase.rpc('freelancer_picker'),
     supabase.from('clients').select('id, name, color').order('name'),
     supabase.from('projects').select('id, name, client_id').neq('status', 'voltooid').order('name'),
   ])
