@@ -3,13 +3,14 @@
 import { useRef, useState } from 'react'
 import Link from 'next/link'
 import { Camera, Check, Copy, ExternalLink, Mail, Phone } from 'lucide-react'
-import { Select, buttonCls, send } from '@/components/materiaal/ui'
+import { ErrorLine, Select, buttonCls, send } from '@/components/materiaal/ui'
 import { createClient } from '@/lib/supabase/client'
 import { internalApi } from '../api'
 import { Avatar, AvailabilityDot, Chip } from '../ui'
 import { FREELANCER_STATUS, availabilitySource, ratingText, shortDate } from '../format'
 import { useCopy } from '../LinkReveal'
 import type { Freelancer } from '../types'
+import { saveStatus } from '../logic'
 
 // Bovenaan het profiel: foto, naam, status (inline te wijzigen bij beheren),
 // disciplines, beoordeling, beschikbaarheid, contact, portfolio en de knop
@@ -20,21 +21,24 @@ export default function ProfileHeader({ f, labels, canManage, onChange }: {
   const { copied, copy } = useCopy()
   const fileInput = useRef<HTMLInputElement>(null)
   const [photoBusy, setPhotoBusy] = useState(false)
+  const [error, setError] = useState('')
 
   async function setStatus(status: Freelancer['status']) {
-    onChange(await internalApi.update(f.id, { status }))
+    setError('')
+    const r = await saveStatus(internalApi.update, f.id, status)
+    if (r.ok) onChange(r.freelancer); else setError(r.error)
   }
 
   // Foto rechtstreeks naar Storage (signed upload); de server controleert en koppelt.
   async function uploadPhoto(file: File | undefined) {
     if (!file) return
-    setPhotoBusy(true)
+    setPhotoBusy(true); setError('')
     try {
       const { path, token } = await send<{ path: string; token: string }>(`/api/freelancers/${f.id}/avatar`, 'POST', { contentType: file.type, size: file.size })
       const { error } = await createClient().storage.from('freelancer-avatars').uploadToSignedUrl(path, token, file, { contentType: file.type })
       if (error) throw error
       onChange(await send<Freelancer>(`/api/freelancers/${f.id}/avatar`, 'PUT', { path }))
-    } catch { /* de foto blijft zoals ze was */ } finally { setPhotoBusy(false) }
+    } catch (err) { setError((err as Error).message || 'Kon de foto niet opslaan.') } finally { setPhotoBusy(false) }
   }
 
   const contact = [f.phone, f.email].filter(Boolean).join(' · ')
@@ -63,6 +67,7 @@ export default function ProfileHeader({ f, labels, canManage, onChange }: {
             ) : <span>{FREELANCER_STATUS[f.status]}</span>}
             {f.archived_at && <span className="rounded border border-zinc-700 px-1.5 py-0.5 text-[11px] text-zinc-400">Gearchiveerd</span>}
           </div>
+          <ErrorLine>{error}</ErrorLine>
         </div>
       </div>
 

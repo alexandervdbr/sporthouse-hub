@@ -6,7 +6,9 @@ import { reviewOf } from '../types'
 
 export type StatusFilter = Freelancer['status'] | 'alle'
 export type SortKey = 'beoordeling' | 'laatste' | 'tarief'
-export const DEFAULT_STATUSES: Freelancer['status'][] = ['vast', 'proefopdracht']
+// Standaard iedereen behalve inactief: een nieuwe freelancer start als kandidaat
+// en mag na het toevoegen niet uit de lijst verdwijnen.
+export const DEFAULT_STATUSES: Freelancer['status'][] = ['vast', 'proefopdracht', 'kandidaat']
 
 export interface ListFilters { q: string; statuses: Freelancer['status'][] | 'alle'; disciplines: string[]; nowAvailable: boolean; sort: SortKey }
 
@@ -85,7 +87,8 @@ export function groupOf(a: AssignmentRow, now = Date.now()): GroupKey | null {
     case 'gedeeld': return 'gedeeld'
     case 'geaccepteerd': return 'lopend'
     case 'concept': return 'concepten'
-    case 'geweigerd': case 'geannuleerd': return now - Date.parse(a.status_changed_at) < 30 * 86400_000 ? 'recent' : null
+    // Geweigerd en geannuleerd zijn niet "afgerond": niet in het bord (wel op het profiel).
+    case 'geweigerd': case 'geannuleerd': return null
     default: return null
   }
 }

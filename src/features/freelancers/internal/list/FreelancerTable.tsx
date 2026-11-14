@@ -35,8 +35,8 @@ export function FreelancerTable({ list, labels }: { list: Freelancer[]; labels: 
           <th className="w-[13%] py-2 pr-3 font-medium">Beschikbaarheid</th>
           <th className="w-[14%] py-2 pr-3 font-medium">Beoordeling</th>
           <th className="w-[11%] py-2 pr-3 font-medium">Tarief</th>
-          <th className="w-[6%] py-2 pr-3 font-medium">Laatste</th>
-          <th className="w-[4%] py-2 font-medium text-right" title="Lopende opdrachten">Lop.</th>
+          <th className="w-[6%] py-2 pr-3 font-medium" title="Datum van de laatste opdracht">Laatste opdracht</th>
+          <th className="w-[4%] py-2 font-medium text-right" title="Opdrachten die nu lopen">Lopend</th>
         </tr>
       </thead>
       <tbody>

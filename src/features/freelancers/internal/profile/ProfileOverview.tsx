@@ -7,23 +7,24 @@ import { AvailabilityDot, Chip, Stars } from '../ui'
 import { availabilitySource, rateText, shortDate } from '../format'
 import type { Discipline, Freelancer } from '../types'
 import EditableCard from './EditableCard'
+import { seed } from '../logic'
 
 // Tabblad Overzicht: kaarten die elk apart te bewerken zijn.
 export default function ProfileOverview({ f, disciplines, canManage, onChange }: {
   f: Freelancer; disciplines: Discipline[]; canManage: boolean; onChange: (f: Freelancer) => void
 }) {
-  const [c, setC] = useState({ name: f.name, phone: f.phone ?? '', email: f.email ?? '', disciplines: f.disciplines })
-  const [r, setR] = useState({ amount: f.rate_amount != null ? String(f.rate_amount) : '', unit: f.rate_unit ?? '', note: f.rate_note ?? '' })
-  const [av, setAv] = useState({ availability: f.availability, from: f.available_from ?? '' })
-  const [rating, setRating] = useState({ value: f.overall_rating, note: f.overall_rating_note ?? '' })
-  const [links, setLinks] = useState(f.portfolio_links.map(l => `${l.label} | ${l.url}`).join('\n'))
-  const [notes, setNotes] = useState(f.notes ?? '')
+  const [c, setC] = useState(() => seed.contact(f))
+  const [r, setR] = useState(() => seed.rate(f))
+  const [av, setAv] = useState(() => seed.availability(f))
+  const [rating, setRating] = useState(() => seed.rating(f))
+  const [links, setLinks] = useState(() => seed.links(f))
+  const [notes, setNotes] = useState(() => seed.notes(f))
   const save = async (body: object) => onChange(await internalApi.update(f.id, body))
   const empty = <span className="text-sm text-zinc-500">—</span>
 
   return (
     <div className="grid gap-3 lg:grid-cols-2">
-      <EditableCard title="Contact" canEdit={canManage}
+      <EditableCard title="Contact" canEdit={canManage} onEdit={() => setC(seed.contact(f))}
         view={<div className="space-y-1 text-sm text-zinc-200"><div>{f.phone || empty}</div><div className="break-all">{f.email || empty}</div></div>}
         edit={<>
           <Field label="Naam"><input value={c.name} onChange={e => setC({ ...c, name: e.target.value })} className={inputCls} /></Field>
@@ -34,7 +35,7 @@ export default function ProfileOverview({ f, disciplines, canManage, onChange }:
         </>}
         onSave={() => save({ name: c.name, phone: c.phone || null, email: c.email || null, disciplines: c.disciplines })} />
 
-      <EditableCard title="Tarief" canEdit={canManage}
+      <EditableCard title="Tarief" canEdit={canManage} onEdit={() => setR(seed.rate(f))}
         view={<p className="text-sm text-zinc-200">{rateText(f) || empty}</p>}
         edit={<>
           <div className="grid grid-cols-2 gap-2">
@@ -50,7 +51,7 @@ export default function ProfileOverview({ f, disciplines, canManage, onChange }:
           return save({ rate_amount: amount, rate_unit: amount != null ? r.unit : null, rate_note: r.note || null })
         }} />
 
-      <EditableCard title="Beschikbaarheid" canEdit={canManage}
+      <EditableCard title="Beschikbaarheid" canEdit={canManage} onEdit={() => setAv(seed.availability(f))}
         view={<div className="text-sm text-zinc-200"><AvailabilityDot value={f.availability} />
           {f.available_from && f.availability !== 'beschikbaar' && <span className="text-zinc-500"> · vanaf {shortDate(f.available_from)}</span>}
           {availabilitySource(f) && <p className="mt-1 text-xs text-zinc-500">{availabilitySource(f)}</p>}</div>}
@@ -61,7 +62,7 @@ export default function ProfileOverview({ f, disciplines, canManage, onChange }:
         </>}
         onSave={() => save({ availability: av.availability, available_from: av.availability === 'beschikbaar' ? null : av.from || null })} />
 
-      <EditableCard title="Beoordeling" canEdit={canManage}
+      <EditableCard title="Beoordeling" canEdit={canManage} onEdit={() => setRating(seed.rating(f))}
         view={<div className="space-y-1 text-sm">
           <div className="flex items-center gap-2"><Stars value={f.overall_rating} /><span className="text-zinc-400">{f.overall_rating ? `${f.overall_rating}/5 (team)` : 'nog geen totaalcijfer'}</span></div>
           {f.stats?.review_avg != null && <p className="text-zinc-400">Opdrachten: {String(f.stats.review_avg).replace('.', ',')} gemiddeld over {f.stats.review_count}</p>}
@@ -73,7 +74,7 @@ export default function ProfileOverview({ f, disciplines, canManage, onChange }:
         </>}
         onSave={async () => onChange(await internalApi.rating(f.id, rating.value, rating.note || null))} />
 
-      <EditableCard title="Portfolio" canEdit={canManage}
+      <EditableCard title="Portfolio" canEdit={canManage} onEdit={() => setLinks(seed.links(f))}
         view={f.portfolio_links.length ? <ul className="space-y-1 text-sm">{f.portfolio_links.map(l => <li key={l.url} className="break-all"><a href={l.url} target="_blank" rel="noopener noreferrer" className="text-[#5fbf64] hover:underline">{l.label}</a></li>)}</ul> : empty}
         edit={<Field label="Eén link per regel: label | https://…"><textarea value={links} onChange={e => setLinks(e.target.value)} className={textareaCls} /></Field>}
         onSave={() => save({ portfolio_links: links.split('\n').map(l => l.trim()).filter(Boolean).map(l => {
@@ -81,7 +82,7 @@ export default function ProfileOverview({ f, disciplines, canManage, onChange }:
           return { label: label || 'Portfolio', url }
         }) })} />
 
-      <EditableCard title="Notities (intern)" canEdit={canManage}
+      <EditableCard title="Notities (intern)" canEdit={canManage} onEdit={() => setNotes(seed.notes(f))}
         view={f.notes ? <p className="whitespace-pre-wrap break-words text-sm text-zinc-300">{f.notes}</p> : empty}
         edit={<textarea value={notes} onChange={e => setNotes(e.target.value)} className={`${textareaCls} min-h-[8rem]`} aria-label="Notities" />}
         onSave={() => save({ notes: notes || null })} />

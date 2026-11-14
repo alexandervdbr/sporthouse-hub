@@ -9,6 +9,7 @@ import { internalApi, shareMessage } from '../api'
 import { ASSIGNMENT_STATUS, longDate, relativeDeadline } from '../format'
 import type { AssignmentDetail } from '../types'
 import LinkReveal from '../LinkReveal'
+import { disciplineLabel } from '../logic'
 import StatusStepper from './StatusStepper'
 import AssignmentActions, { type PanelAction } from './AssignmentActions'
 import AssignmentFiles from './AssignmentFiles'
@@ -36,11 +37,13 @@ export default function AssignmentPanel({ id, canManage, asPage, onClose, onChan
   const [dialog, setDialog] = useState<null | 'review' | 'edit' | keyof typeof DIALOGS>(null)
   const [reveal, setReveal] = useState<{ url: string; pin: string } | null>(null)
   const [toast, setToast] = useState<ToastData | null>(null)
+  const [labels, setLabels] = useState<Record<string, string>>({})
 
   const load = useCallback(() => internalApi.assignment(id).then(setA).catch(err => setError((err as Error).message)), [id])
   useEffect(() => {
     let alive = true
     internalApi.assignment(id).then(d => { if (alive) setA(d) }).catch(err => { if (alive) setError((err as Error).message) })
+    internalApi.disciplines().then(d => { if (alive) setLabels(Object.fromEntries(d.map(x => [x.key, x.label]))) }).catch(() => {})
     return () => { alive = false }
   }, [id])
   const refresh = () => { void load(); onChanged?.() }
@@ -103,7 +106,7 @@ export default function AssignmentPanel({ id, canManage, asPage, onClose, onChan
               <div><dt className="text-xs text-zinc-500">Klant</dt><dd className="text-zinc-200">{a.client?.name ?? a.client_name ?? '—'}</dd></div>
               <div><dt className="text-xs text-zinc-500">Deadline</dt><dd className={deadline?.late && ['gedeeld', 'geaccepteerd'].includes(a.status) ? 'text-red-400' : 'text-zinc-200'}>
                 {a.deadline ? `${longDate(a.deadline)}${['gedeeld', 'geaccepteerd'].includes(a.status) && deadline ? ` (${deadline.text})` : ''}` : '—'}</dd></div>
-              <div><dt className="text-xs text-zinc-500">Discipline</dt><dd className="text-zinc-200">{a.discipline ?? '—'}</dd></div>
+              <div><dt className="text-xs text-zinc-500">Discipline</dt><dd className="text-zinc-200">{disciplineLabel(a.discipline, labels)}</dd></div>
               <div><dt className="text-xs text-zinc-500">Status</dt><dd className="text-zinc-200">{ASSIGNMENT_STATUS[a.status]?.label}{a.first_viewed_at ? ' · gezien' : ''}</dd></div>
             </dl>
 

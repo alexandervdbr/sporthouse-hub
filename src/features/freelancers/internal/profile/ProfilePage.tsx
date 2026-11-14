@@ -15,6 +15,7 @@ import ProfileHeader from './ProfileHeader'
 import ProfileOverview from './ProfileOverview'
 import ProfileAssignments from './ProfileAssignments'
 import LinkTab from './LinkTab'
+import { mergeFreelancer } from '../logic'
 
 // /freelancers/[id]. Desktop: links de profielinfo (sticky), rechts de
 // tabbladen. Gsm: één kolom, tabbladen als segmented control, en een vaste
@@ -47,7 +48,7 @@ export default function ProfilePage({ id, canManage }: { id: string; canManage: 
   if (canManage) tabs.push({ key: 'link', label: 'Link & pincode' })
 
   async function toggleArchive() {
-    try { setF(await internalApi.archive(f!.id, !f!.archived_at)); setArchiving(false) } catch (err) { setError((err as Error).message) }
+    try { const next = await internalApi.archive(f!.id, !f!.archived_at); setF(prev => mergeFreelancer(prev, next)); setArchiving(false) } catch (err) { setError((err as Error).message) }
   }
 
   return (
@@ -56,7 +57,7 @@ export default function ProfilePage({ id, canManage }: { id: string; canManage: 
         <Link href="/freelancers" className="-ml-2 mb-3 inline-flex min-h-[44px] items-center gap-1.5 rounded-lg px-2 text-sm text-zinc-400 hover:text-zinc-200"><ArrowLeft size={16} /> Freelancers</Link>
         <div className="grid gap-6 md:grid-cols-[minmax(260px,320px)_1fr]">
           <aside className="md:sticky md:top-5 md:self-start">
-            <ProfileHeader f={f} labels={labels} canManage={canManage} onChange={setF} />
+            <ProfileHeader f={f} labels={labels} canManage={canManage} onChange={next => setF(prev => mergeFreelancer(prev, next))} />
             {canManage && (
               <button type="button" onClick={() => setArchiving(true)} className="mt-6 min-h-[44px] text-sm text-zinc-500 hover:text-zinc-300">
                 {f.archived_at ? 'Terugzetten uit het archief' : 'Archiveren'}
@@ -66,7 +67,7 @@ export default function ProfilePage({ id, canManage }: { id: string; canManage: 
           <div className="min-w-0 space-y-4">
             <TabBar value={tab} tabs={tabs} onChange={t => set({ tab: t === 'overzicht' ? null : t }, 'push')} />
             <ErrorLine>{error}</ErrorLine>
-            {tab === 'overzicht' && <ProfileOverview key={f.id} f={f} disciplines={disciplines} canManage={canManage} onChange={setF} />}
+            {tab === 'overzicht' && <ProfileOverview key={f.id} f={f} disciplines={disciplines} canManage={canManage} onChange={next => setF(prev => mergeFreelancer(prev, next))} />}
             {tab === 'opdrachten' && <ProfileAssignments freelancerId={f.id} canManage={canManage} reloadKey={reloadKey} onOpen={a => set({ opdracht: a }, 'push')} />}
             {tab === 'link' && canManage && <LinkTab f={f} />}
           </div>

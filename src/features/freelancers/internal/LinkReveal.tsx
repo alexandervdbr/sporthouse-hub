@@ -17,12 +17,13 @@ export function useCopy() {
   return { copied, copy }
 }
 
-export default function LinkReveal({ name, url, pin, onClose }: { name: string; url?: string | null; pin?: string | null; onClose: () => void }) {
+export default function LinkReveal({ name, url, pin, note, onClose }: { name: string; url?: string | null; pin?: string | null; note?: string; onClose: () => void }) {
   const { copied, copy } = useCopy()
   const message = url ? shareMessage(name, url) : ''
   const canShare = typeof navigator !== 'undefined' && 'share' in navigator
   return (
     <Modal title={pin ? 'Bewaar deze pincode nu' : 'Link'} onClose={onClose} footer={<Button variant="primary" data-primary onClick={onClose}>Klaar</Button>}>
+      {note && <p role="alert" className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">{note}</p>}
       {pin && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
           <p className="text-xs text-amber-200">Pincode voor {name} — wordt maar één keer getoond</p>

@@ -25,8 +25,8 @@ const mk = (o: Partial<Freelancer>): Freelancer => ({ ...base, ...o, stats: o.st
 const labels = { video: 'Video', foto: 'Foto' }
 
 describe('filters uit de URL', () => {
-  it('standaard: Vast + Proefopdracht, sorteren op beoordeling', () => {
-    expect(filtersFromParams(new URLSearchParams())).toEqual({ q: '', statuses: ['vast', 'proefopdracht'], disciplines: [], nowAvailable: false, sort: 'beoordeling' })
+  it('standaard: iedereen behalve inactief, sorteren op beoordeling', () => {
+    expect(filtersFromParams(new URLSearchParams())).toEqual({ q: '', statuses: ['vast', 'proefopdracht', 'kandidaat'], disciplines: [], nowAvailable: false, sort: 'beoordeling' })
   })
   it('leest status, disciplines, zoekterm, nu beschikbaar en sortering; negeert onzin', () => {
     const f = filtersFromParams(new URLSearchParams('status=kandidaat,onzin&d=video,foto&q=jan&nu=1&sort=tarief'))

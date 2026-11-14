@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
@@ -13,6 +13,7 @@ import PageScroll from '../PageScroll'
 import LinkReveal from '../LinkReveal'
 import FreelancerSuggestions from './FreelancerSuggestions'
 import PendingFiles, { uploadPending, type Pending } from './PendingFiles'
+import { assignableClients, submitAssignment, type SubmitState } from '../logic'
 
 // Nieuwe opdracht: één formulier, geen wizard. Titel + discipline → briefing
 // → klant · deadline → bijlagen → freelancer. "Opslaan als concept" of
@@ -32,12 +33,15 @@ export default function NewAssignmentForm({ initialFreelancer }: { initialFreela
   const [files, setFiles] = useState<Pending[]>([])
   const [busy, setBusy] = useState<false | 'concept' | 'delen'>(false)
   const [error, setError] = useState('')
-  const [reveal, setReveal] = useState<{ url: string; pin: string; then: string } | null>(null)
+  const [reveal, setReveal] = useState<{ url: string; pin: string; then: string; warnings: string[] } | null>(null)
+  // Onthoudt wat al gelukt is, zodat 'opnieuw proberen' geen tweede opdracht maakt.
+  const progress = useRef<SubmitState>({ createdId: null, uploaded: false })
+  const [savedAt, setSavedAt] = useState<string | null>(null)
 
   useEffect(() => {
     let alive = true
     Promise.all([internalApi.list(), internalApi.disciplines(), fetch('/api/clients').then(r => (r.ok ? r.json() : []))])
-      .then(([f, d, c]) => { if (alive) { setFreelancers(f); setDisciplines(d); setClients((c as ClientRef[]).map(x => ({ id: x.id, name: x.name }))) } })
+      .then(([f, d, c]) => { if (alive) { setFreelancers(f); setDisciplines(d); setClients(assignableClients(c as (ClientRef & { category?: string | null })[]).map(x => ({ id: x.id, name: x.name }))) } })
       .catch(err => { if (alive) setError((err as Error).message) })
     return () => { alive = false }
   }, [])
@@ -50,20 +54,21 @@ export default function NewAssignmentForm({ initialFreelancer }: { initialFreela
     if (!freelancerId) { setError('Kies een freelancer.'); return }
     setBusy(share ? 'delen' : 'concept'); setError('')
     try {
-      const { assignment } = await internalApi.createAssignment({
-        freelancer_id: freelancerId, title, discipline: discipline || null, briefing: briefing || null,
-        client_id: matched?.id ?? null, client_name: matched ? null : client.trim() || null, deadline: deadline || null,
-      })
-      const warnings = await uploadPending(assignment.id, files, (key, pct) => setFiles(fs => fs.map(f => (f.key === key ? { ...f, progress: pct } : f))))
-      const then = `/freelancers?tab=opdrachten&opdracht=${assignment.id}`
-      if (share) {
-        const r = await internalApi.transition(assignment.id, 'gedeeld')
-        if (r.link) { setReveal({ ...r.link, then }); return }
-      }
-      if (warnings.length) setError(warnings.join(' '))
+      const { id, link, warnings } = await submitAssignment({
+        create: async () => (await internalApi.createAssignment({
+          freelancer_id: freelancerId, title, discipline: discipline || null, briefing: briefing || null,
+          client_id: matched?.id ?? null, client_name: matched ? null : client.trim() || null, deadline: deadline || null,
+        })).assignment,
+        upload: aid => uploadPending(aid, files, (key, pct) => setFiles(fs => fs.map(f => (f.key === key ? { ...f, progress: pct } : f)))),
+        share: aid => internalApi.transition(aid, 'gedeeld'),
+      }, progress.current, share)
+      const then = `/freelancers?tab=opdrachten&opdracht=${id}`
+      if (link) { setReveal({ ...link, then, warnings }); return }
+      if (warnings.length) { setError(`De opdracht is bewaard, maar: ${warnings.join(' ')}`); setSavedAt(then); setBusy(false); return }
       router.push(then)
     } catch (err) {
-      setError((err as Error).message); setBusy(false)
+      const saved = progress.current.createdId ? ' De opdracht zelf is al bewaard; opnieuw proberen maakt geen tweede.' : ''
+      setError((err as Error).message + saved); setBusy(false)
     }
   }
 
@@ -92,13 +97,14 @@ export default function NewAssignmentForm({ initialFreelancer }: { initialFreela
         </section>
 
         <ErrorLine>{error}</ErrorLine>
+        {savedAt && <Link href={savedAt} className="inline-flex min-h-[44px] items-center text-sm text-[#5fbf64] hover:underline">Naar de opdracht →</Link>}
         <div className="fixed inset-x-0 bottom-0 z-20 flex gap-2 border-t border-zinc-800 bg-zinc-950/95 px-4 py-3 backdrop-blur md:static md:justify-end md:border-0 md:bg-transparent md:p-0"
           style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
           <Button className="!h-12 flex-1 md:!h-9 md:flex-none" busy={busy === 'concept'} disabled={!!busy} onClick={() => submit(false)}>Opslaan als concept</Button>
           <Button variant="primary" className="!h-12 flex-1 md:!h-9 md:flex-none" busy={busy === 'delen'} disabled={!!busy} onClick={() => submit(true)}>Delen</Button>
         </div>
       </div>
-      {reveal && chosen && <LinkReveal name={chosen.name} url={reveal.url} pin={reveal.pin} onClose={() => router.push(reveal.then)} />}
+      {reveal && chosen && <LinkReveal name={chosen.name} url={reveal.url} pin={reveal.pin} note={reveal.warnings.join(' ')} onClose={() => router.push(reveal.then)} />}
     </PageScroll>
   )
 }
