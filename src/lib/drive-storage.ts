@@ -141,7 +141,13 @@ export async function withDriveRetry<T>(label: string, fn: () => Promise<T>, att
   throw lastError
 }
 
-async function sharePublicly(fileId: string) {
+// Een bestand delen met "iedereen met de link" (lezen). Gebeurt NOOIT meer
+// vanzelf: uploadFile() en getFileMetadata() deelden vroeger elk bestand,
+// ook de interne Sporthouse-documenten en de schadefoto's van poolwagens.
+// Roep dit alleen aan waar een publieke link bewust nodig is, en zet die plek
+// in de lijst van src/lib/__tests__/drive-sharing.test.ts — die test faalt bij
+// elke andere aanroeper.
+export async function shareWithAnyoneWithLink(fileId: string) {
   try {
     const drive = getClient()
     await drive.permissions.create({
@@ -161,6 +167,8 @@ export async function uploadFile(
   filename: string,
   mimeType: string,
   folderId: string,
+  // Standaard NIET gedeeld. public: true deelt het bestand met iedereen die de
+  // link heeft — alleen bewust, en dan ook in de lijst van drive-sharing.test.ts.
   options?: { public?: boolean }
 ): Promise<DriveUploadedFile> {
   const drive = getClient()
@@ -173,7 +181,7 @@ export async function uploadFile(
   }))
 
   const fileId = file.data.id!
-  if (options?.public !== false) await sharePublicly(fileId)
+  if (options?.public === true) await shareWithAnyoneWithLink(fileId)
 
   return {
     id:             fileId,
@@ -241,7 +249,8 @@ export async function createResumableUploadSession(
 // Called after the browser has PUT the file bytes straight to the session
 // URL above — fetches canonical metadata via our own service-account
 // credentials (rather than trusting whatever the client claims), which also
-// doubles as an existence/ownership check on the given file id.
+// doubles as an existence/ownership check on the given file id. Deelt het
+// bestand NIET (dat deed het vroeger wel, voor elke upload via finalize).
 export async function getFileMetadata(fileId: string): Promise<DriveUploadedFile> {
   const drive = getClient()
   const res = await drive.files.get({
@@ -249,7 +258,6 @@ export async function getFileMetadata(fileId: string): Promise<DriveUploadedFile
     fields: 'id, name, mimeType, size, webViewLink, webContentLink, thumbnailLink, parents',
     supportsAllDrives: true,
   })
-  await sharePublicly(fileId)
   return {
     id:             res.data.id!,
     name:           res.data.name!,
