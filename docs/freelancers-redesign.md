@@ -789,3 +789,9 @@ $job$);
 - **`freelancers-public.test.ts`:** een in-memory database die filters echt toepast en volledige rijen teruggeeft, mét verboden velden. Elke gevraagde garantie is getest, en 4 mutaties (interne events, archief, eigenaarschap, concepten) worden gevangen.
 - **`middleware-public-pages.test.ts`:** met alleen de linkcookie geeft elke interne API-route een 401 (alle `route.ts` onder `src/app/api` worden afgelopen).
 - **De drie downloadroutes die buiten de middleware-matcher vallen**, controleren zelf de Supabase-gebruiker. Met alleen de linkcookie geven ook zij een 401.
+
+### Stand database (2026-11-14)
+
+- **0092:** uitgevoerd op productie; `0092_test.sql` groen.
+- **0093:** uitgevoerd op productie ("Success. No rows returned"); `0093_test.sql` groen ("Alle tests van 0093 geslaagd — er is niets blijven staan").
+- **Gevolg:** de oude freelancerpagina en het portaal op main werken niet meer voor opdrachten. Aanvaard: de functie is niet in gebruik, en Fase 5 vervangt ze.
