@@ -63,11 +63,9 @@ export async function createDriveFile(
     fields: 'id, name, mimeType, webViewLink',
   })
 
-  // Share: anyone with the link can edit
-  await drive.permissions.create({
-    fileId: file.data.id!,
-    requestBody: { role: 'writer', type: 'anyone' },
-  })
+  // Niet meer gedeeld met "iedereen met de link" (dat was als BEWERKER):
+  // wie het document wil openen of bewerken, heeft toegang nodig via de
+  // Shared Drive of een expliciete deling in Drive zelf.
 
   return {
     id:          file.data.id!,

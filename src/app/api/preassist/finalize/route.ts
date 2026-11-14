@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { getFileMetadata, trashFile, getResumableUploadResult, getOrCreateFolderPath, driveRootFolderId } from '@/lib/drive-storage'
+import { getFileMetadata, trashFile, getResumableUploadResult, getOrCreateFolderPath, driveRootFolderId, shareWithAnyoneWithLink } from '@/lib/drive-storage'
 import { hasOpenSection, hasClientAccess } from '@/lib/auth-permissions'
 import { isAllowedPreassistExt, ALLOWED_PREASSIST_HINT } from '@/lib/upload-policy'
 import { preassistFolderSegments, preassistRequiresClient } from '@/lib/preassist-upload'
@@ -127,6 +127,13 @@ export async function POST(request: NextRequest) {
     try { await trashFile(driveFile.id) } catch { /* best effort cleanup */ }
     return NextResponse.json({ error: `Dit bestandstype wordt niet ondersteund. Toegestaan: ${ALLOWED_PREASSIST_HINT}.` }, { status: 400 })
   }
+
+  // BEWUSTE publieke deling (de enige in de app): de downloadknop van
+  // Pré-assist is de Drive-link zelf, zodat een video niet door onze function
+  // hoeft (zie PreassistPage.tsx). Vroeger deelde getFileMetadata() dit — en
+  // elk ander bestand — vanzelf. Of dit zo blijft, wordt beslist na de
+  // Drive-audit (scripts/audit-drive-public-shares.mjs).
+  await shareWithAnyoneWithLink(driveFile.id)
 
   const userName = (user.user_metadata?.full_name as string | undefined) ?? user.email ?? 'Onbekend'
   // title is waar de inzending onder hangt: bij Content het project, bij
