@@ -40,6 +40,21 @@ describe('middleware: public pages and redirects', () => {
     expect((await visit('/api/clients')).status).toBe(401)
   })
 
+  // Optie a uit docs/freelancers-redesign.md: alleen deze ene cronroute komt
+  // zonder login door (ze controleert zelf CRON_SECRET).
+  it('the freelancer share cron passes without a login', async () => {
+    expect(await visit('/api/cron/freelancer-shares')).toEqual({ status: 200, to: null })
+    expect(await visit('/api/cron/freelancer-shares?modus=nacht')).toEqual({ status: 200, to: null })
+  })
+
+  it.each([
+    '/api/cron/expire-users', '/api/cron/purge-trash', '/api/cron/iets-nieuws',
+    '/api/cron/freelancer-shares/x', '/api/cron/freelancer-shares-extra', '/api/cron',
+    '/api/freelancers', '/api/freelancers/match', '/api/admin/users', '/api/files/finalize',
+  ])('anonymous call to %s still gets 401', async (path) => {
+    expect((await visit(path)).status).toBe(401)
+  })
+
   it.each(['/', '/login'])('signed-in staff on %s goes to /dashboard', async (path) => {
     sessionUser = staff
     expect(await visit(path)).toEqual({ status: 307, to: '/dashboard' })

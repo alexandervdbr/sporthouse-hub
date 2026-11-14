@@ -12,10 +12,9 @@ export const maxDuration = 300
 //                             delingen die nooit in de database stonden, en logt
 // Beveiligd met CRON_SECRET (Authorization: Bearer …), zoals de andere crons.
 //
-// LET OP: de middleware laat deze route nog niet door zonder login, net
-// zoals de bestaande /api/cron/*-routes. Zie docs/freelancers-redesign.md
-// (Fase 3, open punten) — tot dat beslist is, ruimt elke download de
-// verlopen delingen op (after() in de downloadroute).
+// De middleware laat precies deze route door zonder login (optie a); de
+// andere /api/cron/*-routes niet. Daarnaast ruimt elke download de verlopen
+// delingen op (after() in de downloadroute), als vangnet.
 export async function GET(req: Request) {
   const auth = (await headers()).get('authorization')
   if (!isValidCronSecret(auth)) return new Response('Unauthorized', { status: 401 })

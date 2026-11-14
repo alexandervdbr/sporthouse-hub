@@ -2,7 +2,7 @@
 // één regel te wijzigen.
 
 /** Model voor de AI-match. Andere Claude-calls in de app volgen dit niet. */
-export const MATCH_MODEL = 'claude-sonnet-4-6'
+export const MATCH_MODEL = 'claude-sonnet-5-5'
 
 /**
  * Hoe een medewerker een bijlage downloadt.

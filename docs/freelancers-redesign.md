@@ -575,7 +575,8 @@ De pagina's in `src/app/` zijn dun: de server-check plus het component uit featu
 | — | Planning | **Fase 6** = alleen code verwijderen (er zijn geen accounts op te ruimen). **Fase 7** (spreadsheet importeren) is niet langer optioneel en komt direct na Fase 5. |
 | V12 | Juridische teksten | **Open**, buiten het domein: in Fase 6 opnieuw vragen. |
 | V13 | Checks op freelancer-accounts in planning, poolwagens en gear | **Open**, buiten het domein: in Fase 6 opnieuw vragen. |
-| — | Model voor de match | **Beslist:** `claude-sonnet-4-6`, in één constante in de freelancermodule. De andere Claude-calls blijven ongewijzigd. |
+| — | Model voor de match | **Beslist:** eerst `claude-sonnet-4-6`, daarna (2026-11-14) **`claude-sonnet-5-5`**, in één constante (`config.ts`). Met de server-side fallback bij weigeringen (`fallbacks: "default"`); een weigering van de hele keten geeft een fout, geen gegokte lijst. |
+| — | Cron-uitzondering in de middleware | **Beslist: optie a.** Alleen `/api/cron/freelancer-shares` komt zonder login door; de andere `/api/cron/*`- en `/api/*`-routes geven nog altijd 401 (getest in `middleware-public-pages.test.ts`). Over optie b voor de bestaande crons beslist de gebruiker na het onderzoek. |
 | — | Twee migraties | **Beslist:** akkoord. **Nummering:** 0092 = RLS (Fase 1), 0093 = datamodel (Fase 2), 0094 = opruimen (Fase 6). |
 
 ## 9. Testaanpak

@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod'
+import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod'
 import { z } from 'zod'
 import { MATCH_MODEL } from './config'
 
@@ -86,14 +86,20 @@ ${candidates.map(c => profile(c, labels)).join('\n\n---\n\n')}
 
 Kies de beste ${Math.min(3, candidates.length)}, van beste naar minder goede match. Weeg mee: hoe goed de disciplines en notities bij de opdracht passen, de totaalbeoordeling van het team en het gemiddelde van de reviews (beide op 1–5; met weinig reviews zegt een gemiddelde minder), of iemand vast is of nog getest moet worden, en het tarief als de opdracht een budget noemt. Verwijs in de reden naar concrete gegevens uit het profiel. Gebruik de exacte ID's.`
 
-  const response = await client.messages.parse({
+  // Sonnet 5.5 kan een verzoek weigeren (stop_reason "refusal"). Met de
+  // server-side fallback ("default") neemt de API dan zelf een ander model,
+  // binnen dezelfde call. Weigert ook dat, dan geen match in plaats van gokken.
+  const response = await client.beta.messages.parse({
     model: MATCH_MODEL,
     max_tokens: 16000,
     thinking: { type: 'adaptive' },
+    betas: ['server-side-fallback-2026-07-01'],
+    fallbacks: 'default',
     messages: [{ role: 'user', content: prompt }],
-    output_config: { effort: 'medium', format: zodOutputFormat(ResultSchema) },
+    output_config: { effort: 'medium', format: betaZodOutputFormat(ResultSchema) },
   })
 
+  if (response.stop_reason === 'refusal') throw new Error('Het model weigerde deze opdracht te beoordelen.')
   const parsed = response.parsed_output
   if (!parsed) throw new Error(`Geen bruikbaar antwoord van het model (stop_reason: ${response.stop_reason}).`)
 

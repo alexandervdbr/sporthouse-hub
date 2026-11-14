@@ -73,7 +73,7 @@ vi.mock('@/features/freelancers/lib/drive-files', () => ({
 vi.mock('@anthropic-ai/sdk', () => {
   class APIError extends Error { status = 500 }
   class RateLimitError extends APIError {}
-  return { default: Object.assign(class { messages = { parse: async (p: unknown) => { state.claude.push(p); return { parsed_output: { matches: [] }, stop_reason: 'end_turn' } } } }, { APIError, RateLimitError }) }
+  return { default: Object.assign(class { beta = { messages: { parse: async (p: unknown) => { state.claude.push(p); return { parsed_output: { matches: [] }, stop_reason: 'end_turn' } } } } }, { APIError, RateLimitError }) }
 })
 
 process.env.FREELANCER_LINK_SECRET = 'test-geheim-dat-zeker-lang-genoeg-is-0123456789'
@@ -449,15 +449,24 @@ describe('cron en match', () => {
     expect(prefilter(all, { discipline: 'video', deadline: '2026-12-10', today: '2026-11-13' }).map(f => f.id)).toEqual(['a', 'd'])
     expect(prefilter(all, { discipline: 'video', deadline: null, today: '2026-11-13' }).map(f => f.id)).toEqual(['a'])
 
-    const fake = { messages: { parse: async (p: unknown) => { state.claude.push(p); return { parsed_output: { matches: [
+    const fake = { beta: { messages: { parse: async (p: unknown) => { state.claude.push(p); return { parsed_output: { matches: [
       { id: 'verzonnen', reden: 'x', aandachtspunt: null }, { id: 'a', reden: 'Past goed', aandachtspunt: ' ' }, { id: 'a', reden: 'dubbel', aandachtspunt: null },
-    ] }, stop_reason: 'end_turn' } } } }
+    ] }, stop_reason: 'end_turn' } } } } }
     const r = await rankWithClaude('video', [all[0]], {}, fake as never)
     expect(r).toEqual([{ id: 'a', rank: 1, reden: 'Past goed', aandachtspunt: null }])
     const sent = JSON.stringify(state.claude[0])
-    expect(sent).toContain('"model":"claude-sonnet-4-6"')
+    expect(sent).toContain('"model":"claude-sonnet-5-5"')
+    expect(sent).toContain('"fallbacks":"default"')
+    expect(sent).toContain('server-side-fallback-2026-07-01')
     expect(sent).toContain('1–5')
     expect(sent).not.toContain('/10')
+  })
+
+  it('match: een weigering van het model wordt een fout, geen lege of gegokte lijst', async () => {
+    const { rankWithClaude } = await import('@/features/freelancers/lib/match')
+    const refusing = { beta: { messages: { parse: async () => ({ parsed_output: null, stop_reason: 'refusal' }) } } }
+    const c = { id: 'a', name: 'A', disciplines: [], status: 'vast', availability: 'beschikbaar', available_from: null, archived_at: null, overall_rating: null, rate_amount: null, rate_unit: null, rate_note: null, notes: null, review_avg: null, review_count: 0 }
+    await expect(rankWithClaude('x', [c], {}, refusing as never)).rejects.toThrow(/weigerde/)
   })
 
   it('match zonder kandidaten roept het model niet aan', async () => {

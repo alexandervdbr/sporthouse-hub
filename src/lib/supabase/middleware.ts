@@ -72,9 +72,14 @@ export async function updateSession(request: NextRequest) {
   // De dagelijkse herinneringen van de materiaalplanner: aangeroepen door een
   // Apps Script-trigger zonder login; de route controleert zelf het gedeelde geheim.
   const isMaterialMailPage = pathname === '/api/materiaal/mail/due'
+  // Het intrekken van tijdelijke Drive-delingen van freelancerbestanden:
+  // aangeroepen door een scheduler zonder login; de route controleert zelf
+  // CRON_SECRET. Alleen deze ene cronroute — de andere /api/cron/*-routes
+  // blijven een login vragen (zie docs/freelancers-redesign.md, Fase 3).
+  const isFreelancerSharesCron = pathname === '/api/cron/freelancer-shares'
 
   // Unauthenticated → login (API routes get a 401 instead of a redirect)
-  if (!user && !isLoginPage && !isCallbackPage && !isSaveReelApiPage && !isPublicPage && !isSharePage && !isPlanningLinkPage && !isMaterialMailPage) {
+  if (!user && !isLoginPage && !isCallbackPage && !isSaveReelApiPage && !isPublicPage && !isSharePage && !isPlanningLinkPage && !isMaterialMailPage && !isFreelancerSharesCron) {
     if (isApiPage) {
       return new NextResponse(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
