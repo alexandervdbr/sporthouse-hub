@@ -1,166 +1,53 @@
-import { createAdminClient } from '@/lib/supabase/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { requireFreelancers, parseBody } from '@/features/freelancers/lib/server'
 import { matchSchema } from '@/features/freelancers/lib/schemas'
+import { prefilter, rankWithClaude, type MatchCandidate } from '@/features/freelancers/lib/match'
+import { todayInBrussels } from '@/lib/gear/dates'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+export const maxDuration = 120
 
-export const maxDuration = 300
-
+// POST (beheren) {description, discipline?, deadline?} — top 3 met reden en
+// aandachtspunt. De server haalt zelf de freelancers en hun cijfers op; de
+// browser stuurt alleen de opdracht. Zie src/features/freelancers/lib/match.ts.
 export async function POST(req: Request) {
-  // Beheren: de match hoort bij het aanmaken van een opdracht, en kost tokens.
   const auth = await requireFreelancers('beheren')
   if ('error' in auth) return auth.error
 
   const body = await parseBody(req, matchSchema)
   if ('error' in body) return body.error
-  const { description } = body.data
-  const requestedIds = [...new Set(body.data.freelancers.map(f => f.id))]
-  if (!requestedIds.length) return Response.json([])
 
-  // De profielen komen uit de database, niet uit de browser: van wat die
-  // meestuurt tellen alleen de ids.
-  const { data: freelancers, error: flError } = await auth.supabase
-    .from('freelancers')
-    .select('*, freelancer_projects(id, score)')
-    .in('id', requestedIds)
-  if (flError) return new Response(flError.message, { status: 500 })
-  if (!freelancers?.length) return Response.json([])
+  const [{ data: freelancers, error }, { data: stats }, { data: disciplines }] = await Promise.all([
+    auth.supabase.from('freelancers')
+      .select('id, name, disciplines, status, availability, available_from, archived_at, overall_rating, rate_amount, rate_unit, rate_note, notes')
+      .is('archived_at', null),
+    auth.supabase.from('freelancer_stats').select('freelancer_id, review_avg, review_count'),
+    auth.supabase.from('freelancer_disciplines').select('key, label'),
+  ])
+  if (error) return new Response('Kon de freelancers niet ophalen.', { status: 500 })
 
-  // ── Fetch full project history for all freelancers ──────────────────────────
-  const admin = createAdminClient()
-  const freelancerIds = freelancers.map((f: { id: string }) => f.id)
+  const statsById = new Map((stats ?? []).map(s => [s.freelancer_id as string, s]))
+  const all: MatchCandidate[] = (freelancers ?? []).map(f => {
+    const s = statsById.get(f.id as string)
+    return {
+      ...(f as unknown as Omit<MatchCandidate, 'review_avg' | 'review_count'>),
+      review_avg: s?.review_avg != null ? Number(s.review_avg) : null,
+      review_count: Number(s?.review_count ?? 0),
+    }
+  })
+  const candidates = prefilter(all, { discipline: body.data.discipline, deadline: body.data.deadline, today: todayInBrussels() })
+  const labels = Object.fromEntries((disciplines ?? []).map(d => [d.key as string, d.label as string]))
 
-  const { data: allProjects } = await admin
-    .from('freelancer_projects')
-    .select('freelancer_id, project_name, client_name, date, score, notes')
-    .in('freelancer_id', freelancerIds)
-    .order('date', { ascending: false })
-
-  const projectsByFreelancer = (allProjects ?? []).reduce<Record<string, typeof allProjects>>((acc, p) => {
-    if (!acc[p.freelancer_id]) acc[p.freelancer_id] = []
-    acc[p.freelancer_id]!.push(p)
-    return acc
-  }, {})
-
-  // ── Build rich profiles ─────────────────────────────────────────────────────
-  const profiles = freelancers.map((f: {
-    id: string
-    name: string
-    types: string[]
-    tested: string | null
-    price_info: string | null
-    rating: number | null
-    portfolio_url: string | null
-    notes: string | null
-    email: string | null
-    phone: string | null
-    // legacy
-    specialties: string[]
-    hourly_rate: number | null
-    bio: string | null
-  }) => {
-    const projects = projectsByFreelancer[f.id] ?? []
-    const scores = projects.map(p => p.score).filter((s): s is number => s != null)
-    const avgScore = scores.length
-      ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)
-      : null
-
-    const types = [...(f.types ?? []), ...(f.specialties ?? [])].filter(Boolean)
-    const testedLabel = f.tested === 'ja' ? 'Vaste freelancer (getest)' : f.tested === 'weinig' ? 'Weinig getest' : 'Nog niet getest'
-
-    const projectLines = projects.slice(0, 5).map(p => {
-      const parts = [`  • ${p.project_name}`]
-      if (p.client_name) parts.push(`(${p.client_name})`)
-      if (p.score != null) parts.push(`score ${p.score}/10`)
-      if (p.notes) parts.push(`— "${p.notes}"`)
-      return parts.join(' ')
-    })
-
-    return [
-      `ID: ${f.id}`,
-      `Naam: ${f.name}`,
-      `Types/specialiteiten: ${types.length ? types.join(', ') : 'niet opgegeven'}`,
-      `Status: ${testedLabel}`,
-      `Beoordeling: ${f.rating ? `${f.rating}/5 sterren` : 'geen beoordeling'}`,
-      `Prijs: ${f.price_info || f.hourly_rate ? (f.price_info || `€${f.hourly_rate}/uur`) : 'onbekend'}`,
-      `Notities: ${f.notes || f.bio || '—'}`,
-      `Portfolio: ${f.portfolio_url || 'niet opgegeven'}`,
-      `Projectgeschiedenis (${projects.length} projecten, gem. score: ${avgScore ? `${avgScore}/10` : 'n/a'}):`,
-      ...(projectLines.length ? projectLines : ['  (geen projecten)']),
-    ].join('\n')
-  }).join('\n\n---\n\n')
-
-  // ── Prompt ──────────────────────────────────────────────────────────────────
-  const prompt = `Je bent een slimme matchmaker voor Sporthouse Group, een sportmediabedrijf. Je taak is de TOP 3 beste freelancers vinden voor een specifiek project of vraag.
-
-PROJECT/VRAAG VAN DE KLANT:
-"${description}"
-
-BESCHIKBARE FREELANCERS:
-${profiles}
-
-INSTRUCTIES:
-- Geef ALTIJD exact 3 freelancers terug (of minder als er minder dan 3 beschikbaar zijn).
-- Rangschik van beste naar minder goede match — nummer 1 is de absolute topkeuze.
-- Een perfecte match op type is niet vereist: iemand die "Allround" is kan soms beter passen dan een specialist.
-- Weeg deze factoren mee:
-  1. Types/specialiteiten: hoe goed sluit het type werk aan bij de vraag?
-  2. Projectervaring: heeft de freelancer vergelijkbare projecten gedaan? Hoe waren de scores en notities?
-  3. Status: een vaste freelancer is bewezen; "te testen" kan risico meebrengen.
-  4. Beoordeling (1-5 sterren) en gemiddelde projectscore: hoge scores = betrouwbare kwaliteit.
-  5. Prijs: relevant als de klant budget noemt.
-  6. Notities: bevatten vaak cruciale info over stijl, sterktes of beperkingen.
-- De "reason" moet concreet en informatief zijn (2-3 zinnen). Verwijs naar specifieke projecten, scores, of notities als die relevant zijn.
-- De "concern" is een eerlijk aandachtspunt (bijv. weinig ervaring, hogere prijs, niet eerder getest). Null als er geen bezwaar is.
-- Gebruik de exacte ID uit het profiel.
-
-Antwoord ALLEEN in geldig JSON (geen uitleg erbuiten):
-[
-  {
-    "id": "<exacte freelancer UUID>",
-    "rank": 1,
-    "reason": "<waarom dit de beste keuze is, 2-3 zinnen, concreet>",
-    "concern": "<eerlijk aandachtspunt of null>"
-  },
-  ...
-]`
-
-  // ── Call Claude ─────────────────────────────────────────────────────────────
-  let message
   try {
-    message = await anthropic.messages.create({
-      model: 'claude-opus-4-8',
-      max_tokens: 1024,
-      messages: [{ role: 'user', content: prompt }],
+    const ranked = await rankWithClaude(body.data.description, candidates, labels)
+    const byId = new Map(candidates.map(c => [c.id, c]))
+    return Response.json({
+      kandidaten: candidates.length,
+      matches: ranked.map(r => ({ ...r, freelancer: { id: r.id, name: byId.get(r.id)!.name } })),
     })
   } catch (err) {
-    console.error('Freelancer match Claude error:', err)
-    return Response.json({ error: 'Kon geen match genereren. Probeer opnieuw.' }, { status: 500 })
+    if (err instanceof Anthropic.RateLimitError) return new Response('De AI is even overbelast. Probeer zo opnieuw.', { status: 429 })
+    if (err instanceof Anthropic.APIError) console.error(`Freelancers: match-fout ${err.status}:`, err.message)
+    else console.error('Freelancers: match mislukt:', (err as Error).message)
+    return new Response('Kon geen match maken. Probeer opnieuw.', { status: 502 })
   }
-
-  const text = message.content[0].type === 'text' ? message.content[0].text : '[]'
-  const jsonMatch = text.match(/\[[\s\S]*\]/)
-  if (!jsonMatch) return Response.json([])
-
-  let ranked: { id: string; rank: number; reason: string; concern: string | null }[] = []
-  try {
-    ranked = JSON.parse(jsonMatch[0])
-  } catch {
-    return Response.json([])
-  }
-
-  // Sort by rank just in case, cap at 3
-  ranked = ranked.sort((a, b) => a.rank - b.rank).slice(0, 3)
-
-  // Attach full freelancer data, match by UUID
-  const result = ranked
-    .map(r => {
-      const f = freelancers.find((fl: { id: string }) => fl.id === r.id)
-      if (!f) return null
-      return { ...f, match_reason: r.reason, match_concern: r.concern, match_rank: r.rank }
-    })
-    .filter(Boolean)
-
-  return Response.json(result)
 }

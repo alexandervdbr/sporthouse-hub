@@ -1,7 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/server'
 import { trashFile } from '@/lib/drive-storage'
 import { requireFreelancers, parseBody, isUuid } from '@/features/freelancers/lib/server'
-import { assignmentUpdateSchema } from '@/features/freelancers/lib/schemas'
+import { assignmentUpdateSchema } from '@/features/freelancers/lib/schemas-legacy'
 
 // Elke query filtert ook op het freelancer-id uit de URL: vroeger volstond
 // het opdracht-id, ongeacht onder welke freelancer het gevraagd werd.

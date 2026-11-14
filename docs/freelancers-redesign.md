@@ -570,6 +570,9 @@ De pagina's in `src/app/` zijn dun: de server-check plus het component uit featu
 | V9 | Linkformaat | **Beslist:** `/f#token`. |
 | V10 | Zod | **Beslist:** toegevoegd als dependency. |
 | V11 | `FREELANCER_LINK_SECRET` | **Beslist:** de gebruiker zet de waarde zelf. De code leest hem uit `process.env` en faalt duidelijk als hij ontbreekt. De naam komt in `.env.example`, zonder waarde (in Fase 3, als de code hem leest). |
+| — | Shared Drive (V1, interne download) | **Nog niet bekend → tijdelijke deling als standaard.** Omschakelen kan met één regel: `INTERNAL_DOWNLOAD_MODE` in `src/features/freelancers/lib/config.ts`. |
+| — | Data | **Alle freelancertabellen zijn leeg** (dry-run, 2026-11-13): 0 freelancers, projecten, opdrachten en bestanden; 0 materiaalboekingen met een freelancer; 0 accounts met de freelancervlag. Geen extra werk aan achterwaartse compatibiliteit van data. |
+| — | Planning | **Fase 6** = alleen code verwijderen (er zijn geen accounts op te ruimen). **Fase 7** (spreadsheet importeren) is niet langer optioneel en komt direct na Fase 5. |
 | V12 | Juridische teksten | **Open**, buiten het domein: in Fase 6 opnieuw vragen. |
 | V13 | Checks op freelancer-accounts in planning, poolwagens en gear | **Open**, buiten het domein: in Fase 6 opnieuw vragen. |
 | — | Model voor de match | **Beslist:** `claude-sonnet-4-6`, in één constante in de freelancermodule. De andere Claude-calls blijven ongewijzigd. |
@@ -673,3 +676,78 @@ Er staan geen views of policies van andere tabellen die `freelancers` lezen.
 | 5 | `supabase/freelancers/0092_test.sql` | "Alle tests van 0092 geslaagd — er is niets blijven staan" |
 | 6 | `supabase/migrations/0093_freelancers_datamodel.sql`, samen met de deploy van Fase 3 | "Success. No rows returned" |
 | 7 | `supabase/freelancers/0093_test.sql` | "Alle tests van 0093 geslaagd — er is niets blijven staan" |
+
+### Fase 3 — Interne API (klaar, niet gecommit)
+
+**PR #264** (alleen Fase 1, tot `9b6775c`) staat klaar, met de vermelding dat 0092 al gedraaid heeft.
+
+**Nieuwe en gewijzigde routes** (rechten: §3.1):
+
+- `/api/freelancers` (GET, POST)
+- `/[id]` (GET, PATCH, DELETE)
+- `/[id]/archive`, `/[id]/rating`
+- `/[id]/link`, `/link/pin`, `/link/url`
+- `/[id]/avatar` (signed upload)
+- `/api/freelancers/assignments` (GET, POST)
+- `/assignments/[id]` (GET, PATCH), `/transition`, `/review`
+- `/assignments/[id]/files/upload-session`, `/finalize`, `/[fileId]` (GET = 302, DELETE)
+- `/api/freelancers/disciplines` (+ `/[key]`)
+- `/api/freelancers/match`
+- `/api/cron/freelancer-shares`
+
+**Lib** (`src/features/freelancers/lib/`):
+
+| Bestand | Inhoud |
+|---|---|
+| `config.ts` | model, downloadmodus, limieten |
+| `statuses.ts` | de enige overgangstabel |
+| `assignments-server.ts` | `applyTransition` met optimistische controle, en events |
+| `link-crypto.ts` | token, AES-GCM, gepeperde scrypt |
+| `links-server.ts` | links beheren |
+| `share.ts` | delen, met zo nodig eerst een link |
+| `drive-files.ts` | Drive zonder automatisch delen |
+| `files-server.ts` | upload, finalize, download, intrekken |
+| `match.ts` | voorfilter + `messages.parse` met een Zod-schema |
+| `columns.ts`, `schemas.ts` | kolomlijsten en whitelists; `schemas-legacy.ts` voor de oude geneste routes |
+
+**Tests:**
+
+- `freelancers-transitions.test.ts`: alle 98 combinaties (7 × 7 statussen × 2 actoren); er zijn er precies 12 toegelaten.
+- `freelancers-link-crypto.test.ts`
+- `freelancers-api.test.ts`: rechten per route; overgangen via de route; delen met link en pincode; download = 302 zonder bytes; finalize gelooft Drive; reviews; dat alleen `/rating` `overall_rating` schrijft; cron; match.
+
+**Bekend en aanvaard:** de oude pagina `FreelancersPage.tsx` spreekt de API nog aan met het oude model. Aanmaken, bewerken, match en avatar geven nu een 400. Fase 5 vervangt de pagina; de functie is niet in gebruik.
+
+**Voorstel: delingen elk uur intrekken (V1, pg_cron)**
+
+- **Probleem:** de route `/api/cron/freelancer-shares` moet zonder login bereikbaar zijn, beveiligd met `CRON_SECRET`. De middleware laat dat nu niet toe (zie hieronder).
+- **Uitvoering:** pg_cron + pg_net zijn Supabase-extensies, geen npm-dependency. Het geheim staat in Supabase Vault.
+
+```sql
+create extension if not exists pg_cron;
+create extension if not exists pg_net;
+-- eenmalig, met de waarde van CRON_SECRET:
+--   select vault.create_secret('<CRON_SECRET>', 'cron_secret');
+select cron.schedule('freelancer-shares-uur', '5 * * * *', $job$
+  select net.http_get(
+    url := 'https://sporthouse-hub-ten.vercel.app/api/cron/freelancer-shares?modus=uur',
+    headers := jsonb_build_object('Authorization', 'Bearer ' ||
+      (select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret')));
+$job$);
+select cron.schedule('freelancer-shares-nacht', '15 3 * * *', $job$
+  select net.http_get(
+    url := 'https://sporthouse-hub-ten.vercel.app/api/cron/freelancer-shares?modus=nacht',
+    headers := jsonb_build_object('Authorization', 'Bearer ' ||
+      (select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret')));
+$job$);
+```
+
+- **Waarom ook de nachtronde via pg_cron:** de bestaande Vercel-crons komen niet door de middleware (zie hieronder).
+- **Tot dit draait** trekt elke download de verlopen delingen in, na het antwoord (`after()`). Dat is een vangnet, geen garantie op "binnen het uur".
+
+**Open punten (buiten het domein, vragen akkoord):**
+
+1. **Middleware en cron.** `src/lib/supabase/middleware.ts` geeft op elk `/api/*`-verzoek zonder login een 401, ook op `/api/cron/*`. De bestaande Vercel-crons `expire-users` en `purge-trash` (`vercel.json`) worden dus vermoedelijk al een tijd tegengehouden, nog vóór hun `CRON_SECRET`-controle. Voor de freelancer-cron is een uitzondering nodig, en dat botst met "exact `/f/*` en `/api/public/f/*`". Opties:
+   - (a) alleen `/api/cron/freelancer-shares` toelaten;
+   - (b) `/api/cron/*` toelaten; dat herstelt meteen de bestaande crons, en elke cronroute controleert zelf `CRON_SECRET`.
+2. **`getFileMetadata()` en `uploadFile()` in `src/lib/drive-storage.ts` delen elk bestand blijvend met "iedereen met de link"** (`sharePublicly`). Dat geldt voor alle uploads via finalize: gewone bestanden, pré-assist, poolwagens-schade en de interne documenten van Sporthouse (`sporthouse/documents/finalize`). Bij die laatste staat in de code dat ze bewust geïsoleerd moeten blijven. Of het delen echt lukt, hangt af van de instellingen van de Shared Drive: de fout wordt stil gelogd. De freelancercode gebruikt die functies niet.

@@ -60,7 +60,7 @@ describe('materiaalplanner — freelancers kiezen', () => {
     expect(fn).toMatch(/revoke all on function public\.freelancer_picker\(\) from public, anon/)
   })
 
-  it('buiten de freelancertool en het portaal leest geen code de tabel met de gewone gebruikersclient', () => {
+  it('buiten de freelancertool (app/api/freelancers, features/freelancers) en het portaal leest geen code de tabel met de gewone gebruikersclient', () => {
     // Toegelaten: de service-role (createAdminClient / admin.) — die valt niet
     // onder RLS. De lijst staat in docs/freelancers-redesign.md §10.
     const allowed = new Set([
@@ -75,7 +75,7 @@ describe('materiaalplanner — freelancers kiezen', () => {
         if (fs.statSync(p).isDirectory()) { if (name !== '__tests__') walk(p); continue }
         if (!/\.(ts|tsx)$/.test(name)) continue
         const rel = path.relative(ROOT, p)
-        if (rel.startsWith('src/app/api/freelancers/') || rel.startsWith('src/app/api/portal/') || rel.startsWith('src/app/portal/')) continue
+        if (rel.startsWith('src/app/api/freelancers/') || rel.startsWith('src/features/freelancers/') || rel.startsWith('src/app/api/portal/') || rel.startsWith('src/app/portal/')) continue
         const src = fs.readFileSync(p, 'utf8')
         if (/from\(['"]freelancer(s|_projects)['"]\)/.test(src) && !allowed.has(rel)) offenders.push(rel)
       }

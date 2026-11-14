@@ -221,6 +221,15 @@ describe('0093 — regels uit het plan', () => {
     expect(MIGRATION).toContain("public.user_has_section(''freelancers'')")
   })
 
+  it('0093_test.sql controleert de picker als gebruiker met alleen materiaalrecht: actief wel, gearchiveerd niet', () => {
+    const t = read('supabase/freelancers/0093_test.sql')
+    const block = t.slice(t.indexOf('"sections":["materiaal"]'))
+    expect(block).toMatch(/freelancer_picker\(\) where name = 'TEST 0093 actief'/)
+    expect(block).toMatch(/gearchiveerde freelancer staat in freelancer_picker/)
+    // De gearchiveerde testfreelancer is vóór die controle gearchiveerd.
+    expect(t.indexOf("set archived_at = now() where id = v_f")).toBeLessThan(t.indexOf('"sections":["materiaal"]'))
+  })
+
   it('freelancer_picker laat gearchiveerde freelancers weg en geeft alleen id en naam', () => {
     const fn = MIGRATION.slice(MIGRATION.indexOf('create or replace function public.freelancer_picker()'))
     expect(fn).toMatch(/returns table \(id uuid, name text\)/)

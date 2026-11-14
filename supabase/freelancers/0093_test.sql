@@ -165,7 +165,27 @@ end $$;
 -- De testfreelancer, -opdracht, -review en -link van hierboven bestaan nog
 -- (binnen deze transactie).
 
+-- Een tweede, niet-gearchiveerde testfreelancer (als postgres), naast de
+-- gearchiveerde 'TEST 0093' van hierboven.
+insert into public.freelancers (name) values ('TEST 0093 actief');
+
 set local role authenticated;
+
+-- Alleen materiaalrecht: de keuzelijst toont wél de actieve en níet de
+-- gearchiveerde freelancer, en de tabel zelf blijft dicht.
+select set_config('request.jwt.claims', '{"role":"authenticated","app_metadata":{"permissions":{"sections":["materiaal"]}}}', true);
+do $$
+begin
+  if not exists (select 1 from public.freelancer_picker() where name = 'TEST 0093 actief') then
+    raise exception 'TEST MISLUKT: een actieve freelancer staat niet in freelancer_picker()';
+  end if;
+  if exists (select 1 from public.freelancer_picker() where name = 'TEST 0093') then
+    raise exception 'TEST MISLUKT: een gearchiveerde freelancer staat in freelancer_picker()';
+  end if;
+  if exists (select 1 from public.freelancers) then
+    raise exception 'TEST MISLUKT: met alleen materiaalrecht is de tabel freelancers zichtbaar';
+  end if;
+end $$;
 
 -- Geen freelancerrecht: niets zichtbaar, ook de cijfers niet.
 select set_config('request.jwt.claims', '{"role":"authenticated","app_metadata":{"permissions":{"sections":["team"]}}}', true);

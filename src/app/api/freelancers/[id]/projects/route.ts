@@ -1,6 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/server'
 import { requireFreelancers, parseBody, isUuid } from '@/features/freelancers/lib/server'
-import { projectCreateSchema } from '@/features/freelancers/lib/schemas'
+import { projectCreateSchema } from '@/features/freelancers/lib/schemas-legacy'
 
 export async function GET(
   _req: Request,

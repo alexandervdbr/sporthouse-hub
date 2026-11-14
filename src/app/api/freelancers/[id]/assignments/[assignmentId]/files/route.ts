@@ -3,7 +3,7 @@ import { createAdminClient } from '@/lib/supabase/server'
 import { isDriveStorageConfigured, uploadFile, trashFile, downloadFile, getOrCreateFolderPath, driveRootFolderId } from '@/lib/drive-storage'
 import { isAllowedUploadExt, ALLOWED_UPLOAD_HINT } from '@/lib/upload-policy'
 import { requireFreelancers, parseBody, isUuid } from '@/features/freelancers/lib/server'
-import { fileDeleteSchema } from '@/features/freelancers/lib/schemas'
+import { fileDeleteSchema } from '@/features/freelancers/lib/schemas-legacy'
 
 export const maxDuration = 300
 
