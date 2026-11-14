@@ -67,11 +67,6 @@ export interface Meeting {
   created_at: string
 }
 
-export interface Message {
-  role: 'user' | 'assistant'
-  content: string
-}
-
 export interface ReelInspiration {
   id: string
   // null bij een reel via de teamtoken van de gedeelde snelkoppeling
