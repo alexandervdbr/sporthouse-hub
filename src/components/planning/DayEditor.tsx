@@ -376,7 +376,7 @@ export default function DayEditor({
                       halveDag === v ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'
                     }`}
                   >
-                    {v ? 'Halve dagen' : 'Hele dag'}
+                    {v ? 'Halve dag' : 'Hele dag'}
                   </button>
                 ))}
               </div>
