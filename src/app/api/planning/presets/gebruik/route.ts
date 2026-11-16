@@ -1,5 +1,6 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { isAdminUser } from '@/lib/auth-permissions'
+import { statusFilter } from '@/lib/planning-like'
 
 // GET ?name=PS — op hoeveel dagen staat deze status?
 //
@@ -24,10 +25,8 @@ export async function GET(req: Request) {
   // Hoofdletterongevoelig: de dag-editor slaat de status in hoofdletters op
   // ("VERLOF"), terwijl de preset "Verlof" heet. Met een exacte vergelijking
   // stond hier voor zulke presets altijd 0.
-  const patroon = (v: string) => `"${v.replace(/[\\%_"]/g, c => '\\' + c)}"`
-  const filter = ['value', 'value_pm']
-    .flatMap(kol => [name, `${name} - THUIS`].map(v => `${kol}.ilike.${patroon(v)}`))
-    .join(',')
+  const namen = [name, `${name} - THUIS`]
+  const filter = [statusFilter('value', namen), statusFilter('value_pm', namen)].join(',')
   const admin = createAdminClient()
   const { count, error } = await admin
     .from('planning_entries')

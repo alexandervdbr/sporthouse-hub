@@ -1,6 +1,8 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { isAdminUser } from '@/lib/auth-permissions'
 import { canReadPlanning } from '@/lib/planning-access'
+import { likeEscape, statusFilter } from '@/lib/planning-like'
+import { THUIS_SUFFIX } from '@/lib/planning-status'
 
 // Vaste kleur-presets voor de planning (SHG, FOS, …). Iedereen mag ze lezen om
 // de knopjes te tonen; enkel beheerders mogen de lijst aanpassen.
@@ -78,7 +80,43 @@ export async function PATCH(req: Request) {
     .single()
 
   if (error) return new Response(error.message, { status: 500 })
+
+  // Een cel bewaart zijn eigen kleur. Zonder dit bleven bestaande dagen in de
+  // oude kleur staan en kregen alleen nieuwe dagen de nieuwe — twee kleuren
+  // voor dezelfde status in hetzelfde raster.
+  if (typeof update.color === 'string') {
+    const fout = await herkleurCellen(admin, data.name, update.color)
+    if (fout) {
+      console.error('planning/presets herkleuren', fout)
+      return new Response(`Kleur bewaard, maar bestaande dagen niet bijgewerkt: ${fout}`, { status: 500 })
+    }
+  }
+
   return Response.json(data)
+}
+
+// De cellen met deze status, in de voormiddag/hele dag en in de namiddag.
+//
+// De THUIS-variant ("PS - THUIS") hoort erbij zolang er geen eigen preset
+// voor bestaat: dan neemt hij de kleur van zijn basis over (zie thuisColor),
+// dus moet hij ook mee veranderen. Heeft hij een eigen preset, dan heeft hij
+// ook een eigen kleur, en blijft hij staan.
+async function herkleurCellen(
+  admin: ReturnType<typeof createAdminClient>, naam: string, kleur: string,
+): Promise<string | null> {
+  const namen = [naam]
+  if (!naam.toUpperCase().endsWith(THUIS_SUFFIX)) {
+    const thuis = naam + THUIS_SUFFIX
+    const { data: eigen, error } = await admin.from('planning_presets').select('id').ilike('name', likeEscape(thuis)).limit(1)
+    if (error) return error.message
+    if (!eigen?.length) namen.push(thuis)
+  }
+
+  const [vm, nm] = await Promise.all([
+    admin.from('planning_entries').update({ bg_color: kleur }).or(statusFilter('value', namen)),
+    admin.from('planning_entries').update({ bg_color_pm: kleur }).or(statusFilter('value_pm', namen)),
+  ])
+  return vm.error?.message ?? nm.error?.message ?? null
 }
 
 export async function DELETE(req: Request) {

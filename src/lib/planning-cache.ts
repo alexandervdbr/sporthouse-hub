@@ -49,6 +49,20 @@ export interface CachedMonth {
 // ignored instead of being read as if it still matched.
 const CACHE_KEY = 'planning-month-cache-v3'
 
+// Vorige versies. Een nieuwe versie liet de oude kopie gewoon staan: tot
+// honderden kB aan planning die niemand meer las, en die ook bij uitloggen
+// bleef liggen. Bij een volgende versie komt de huidige hier bij.
+const LEGACY_CACHE_KEYS = ['planning-month-cache-v1', 'planning-month-cache-v2']
+
+let legacyGewist = false
+function wisOudeVersies() {
+  if (legacyGewist) return
+  legacyGewist = true
+  for (const key of LEGACY_CACHE_KEYS) {
+    try { localStorage.removeItem(key) } catch { /* niet beschikbaar */ }
+  }
+}
+
 // Wie je bent in het rooster, en onder welk account die keuze gemaakt is.
 // Die tweede sleutel bestaat omdat de keuze zelf een bewuste handeling is
 // ("Niet jij? Wissel van naam") en dus niet zomaar overschreven mag worden —
@@ -78,6 +92,7 @@ export function monthCacheKey(year: number, month: number) {
 }
 
 function readStore(): Store {
+  wisOudeVersies()
   try {
     const raw = localStorage.getItem(CACHE_KEY)
     if (!raw) return {}
@@ -177,7 +192,7 @@ export function patchCachedMonth(
 // planningsgegevens, en de sectievoorkeuren hangen al aan een identiteit —
 // iemand anders leest ze dus niet, en jij verliest ze niet bij elke logout.
 export function clearPlanningCache() {
-  for (const key of [CACHE_KEY, IDENTITY_KEY, IDENTITY_ACCOUNT_KEY, CONFIG_CACHE_KEY]) {
+  for (const key of [CACHE_KEY, ...LEGACY_CACHE_KEYS, IDENTITY_KEY, IDENTITY_ACCOUNT_KEY, CONFIG_CACHE_KEY]) {
     try {
       localStorage.removeItem(key)
     } catch {

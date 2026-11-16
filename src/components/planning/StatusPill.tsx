@@ -10,10 +10,14 @@ import { cellHalves, cellLabel, isHalfDay, type CellData } from '@/lib/planning-
 // een halve dag per helft moet, anders loopt de kleur van de ene helft niet
 // tot de rand.
 export default function StatusPill({
-  cell, className = '', pad = 'px-1.5 py-1', mutedColor = '#a1a1aa', title, center = true,
+  cell, className = '', pad = 'px-1.5 py-1', mutedColor = '#a1a1aa', title, center = true, compact = false,
 }: {
   cell: CellData
   center?: boolean
+  // Voor cellen te smal voor twee woorden (het maandoverzicht van het team):
+  // een halve dag toont dan per helft alleen de eerste letters, groot genoeg
+  // om te herkennen. De volledige tekst staat in de tooltip.
+  compact?: boolean
   className?: string
   pad?: string
   mutedColor?: string
@@ -38,9 +42,21 @@ export default function StatusPill({
             borderLeft: half && i === 1 ? '1px solid rgba(0,0,0,0.45)' : undefined,
           }}
         >
-          {h.value}
+          {compact && half ? afkorting(h.value) : h.value}
         </span>
       ))}
     </span>
   )
+}
+
+// "RECUP" → "RE", "PS - THUIS" → "PS⌂", "SPORT VL" → "SV". Twee tekens: meer
+// past niet in een halve cel van het maandoverzicht.
+function afkorting(value: string): string {
+  const thuis = / - THUIS$/i.test(value)
+  const basis = value.replace(/ - THUIS$/i, '').trim()
+  const woorden = basis.split(/\s+/).filter(Boolean)
+  const kort = woorden.length > 1
+    ? woorden.slice(0, 2).map(w => w[0]).join('')
+    : basis.slice(0, 2)
+  return kort.toUpperCase() + (thuis ? '⌂' : '')
 }
