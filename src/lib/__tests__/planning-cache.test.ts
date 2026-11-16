@@ -69,7 +69,7 @@ describe('lezen en schrijven', () => {
   })
 
   it('geeft null als de opslag onleesbare rommel bevat', () => {
-    storage.setItem('planning-month-cache-v2', 'geen json')
+    storage.setItem('planning-month-cache-v3', 'geen json')
     expect(readCachedMonth(2026, 10)).toBeNull()
   })
 })
@@ -140,6 +140,16 @@ describe('wissen', () => {
     expect(storage.getItem(IDENTITY_KEY)).toBeNull()
     expect(storage.getItem(IDENTITY_ACCOUNT_KEY)).toBeNull()
     expect(storage.getItem(CONFIG_CACHE_KEY)).toBeNull()
+  })
+
+  it('clearPlanningCache ruimt ook kopieën van vorige versies op', () => {
+    storage.setItem('planning-month-cache-v1', '{}')
+    storage.setItem('planning-month-cache-v2', '{}')
+
+    clearPlanningCache()
+
+    expect(storage.getItem('planning-month-cache-v1')).toBeNull()
+    expect(storage.getItem('planning-month-cache-v2')).toBeNull()
   })
 
   it('laat weergavevoorkeuren staan — die horen bij het toestel, niet bij de persoon', () => {

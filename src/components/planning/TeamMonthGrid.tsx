@@ -337,7 +337,7 @@ export default function TeamMonthGrid({
                     className={`group relative border-b border-zinc-800/60 border-r h-7 flex items-center justify-center ${locked ? '' : 'cursor-pointer'}`}
                   >
                     {cell.value ? (
-                      <StatusPill cell={cell} className="w-full h-full items-stretch text-[8px] font-semibold" pad="px-0.5 flex items-center justify-center" />
+                      <StatusPill cell={cell} className="w-full h-full items-stretch text-[8px] font-semibold" pad="px-0.5 flex items-center justify-center" compact />
                     ) : (
                       !locked && <span className="text-zinc-800 text-[9px] opacity-0 group-hover:opacity-100 transition-opacity">+</span>
                     )}

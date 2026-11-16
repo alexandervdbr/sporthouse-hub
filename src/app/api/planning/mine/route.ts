@@ -65,5 +65,10 @@ export async function GET(req: Request) {
 
   touchPlanningLink(link.token)
 
-  return Response.json({ contactId: link.contact_id, rows })
+  // Zonder wie de dag laatst wijzigde: dat is het e-mailadres van een
+  // collega, en dit antwoord is voor iedereen met de link leesbaar. De pagina
+  // toonde het al niet, maar het stond wel in het antwoord.
+  const publiek = rows.map(r => ({ ...r, updated_by: null, updated_at: null }))
+
+  return Response.json({ contactId: link.contact_id, rows: publiek })
 }
