@@ -2,11 +2,16 @@ import { createClient } from '@/lib/supabase/server'
 import { hasSection } from '@/lib/auth-permissions'
 import { fetchAllRows } from '@/lib/planning-paginate'
 import { dayParts } from '@/lib/planning-week'
+import { afwezigeDagen } from '@/lib/planning-stats'
+import { presetCategory } from '@/lib/planning-presets'
 
 // GET — per-contact, per-status, per-month day counts for one year: de
 // optelling achter het tabblad Statistieken.
 // Een halve dag telt per helft 0,5 (zie dayParts), dus count kan een half
 // getal zijn.
+//
+// Daarnaast `dagen`: elke afwezige dag van dat jaar met zijn notitie, voor de
+// lijst die openklapt onder een status. Zie planning-stats.ts.
 //
 // Achter planning_statistieken (of beheer). Lezen van planning_entries zelf
 // staat sinds 0090 ook in de database achter het planningsrecht.
@@ -31,13 +36,13 @@ export async function GET(req: Request) {
   // maanden naast elkaar. Er was hier ook een ?month= om één maand op te
   // halen; die is weg sinds die weergave weg is. Een parameter die niemand
   // meegeeft is een parameter die stilletjes stopt met werken.
-  type Rij = { contact_id: string; month: number; value: string; value_pm: string | null }
+  type Rij = { contact_id: string; month: number; day: number; value: string; value_pm: string | null; note: string | null }
   let data: Rij[]
   try {
     data = await fetchAllRows<Rij>(() => {
       return supabase
         .from('planning_entries')
-        .select('contact_id, month, value, value_pm')
+        .select('contact_id, month, day, value, value_pm, note')
         .eq('year', year)
         .order('id', { ascending: true })
     })
@@ -60,6 +65,14 @@ export async function GET(req: Request) {
     return { contactId, month: Number(m), value, count }
   })
 
+  // Welke statussen afwezigheid zijn, volgens de presets. Lukt dat niet, dan
+  // komen de tellingen nog gewoon door, alleen zonder de lijst eronder.
+  const { data: presets } = await supabase.from('planning_presets').select('name, category')
+  const afwezig = new Set(
+    (presets ?? []).filter(p => presetCategory(p) === 'afwezig').map(p => p.name.toUpperCase()),
+  )
+  const dagen = afwezigeDagen(data, s => afwezig.has(s))
+
   // Welke jaren er überhaupt planning hebben. Zonder dit stond er in de
   // jaarkiezer een vast venster van vorig/dit/volgend jaar, en wie iets in
   // 2028 inplande kon dat hier niet terugvinden — het jaar bestond niet in de
@@ -75,6 +88,7 @@ export async function GET(req: Request) {
 
   return Response.json({
     tellingen,
+    dagen,
     minYear: eerste.data?.year ?? null,
     maxYear: laatste.data?.year ?? null,
   })

@@ -1,16 +1,17 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Loader2, RefreshCw, Search, X } from 'lucide-react'
+import { ChevronRight, Loader2, RefreshCw, Search, X } from 'lucide-react'
 import { DUTCH_MONTHS, normName, type Person } from '@/lib/planning-config'
 import {
   presetCategory, isArchived, telMeeInStats, type PlanningPreset,
 } from '@/lib/planning-presets'
 import { splitThuis } from '@/lib/planning-status'
 import { formatDays } from '@/lib/planning-week'
+import type { AfwezigeDag } from '@/lib/planning-stats'
 
 interface StatRow { contactId: string; month: number; value: string; count: number }
-interface StatsAntwoord { tellingen: StatRow[]; minYear: number | null; maxYear: number | null }
+interface StatsAntwoord { tellingen: StatRow[]; dagen?: AfwezigeDag[]; minYear: number | null; maxYear: number | null }
 
 // Mensen met planning die nergens in het rooster staan. Komt voor wanneer
 // iemand er tijdelijk uitgehaald is — sinds de planning aan contact-id's hangt
@@ -49,7 +50,8 @@ const OVERIG_KLEUR = '#71717a'
 const IEDEREEN = '__iedereen__'
 
 interface StatusRij { label: string; kleur: string; hoort: (statusKey: string) => boolean }
-interface Cel { rij: StatusRij; waarden: number[]; totaal: number }
+// `dagen`: de afwezige dagen achter deze telling, voor de lijst die openklapt.
+interface Cel { rij: StatusRij; waarden: number[]; totaal: number; dagen: AfwezigeDag[] }
 interface Blok { id: string; naam: string; dept: string; cellen: Cel[]; totaal: number }
 
 export default function PlanningStats({
@@ -77,6 +79,7 @@ export default function PlanningStats({
   const [opgehaald, setOpgehaald] = useState<Date | null>(null)
 
   const [rows, setRows] = useState<StatRow[]>([])
+  const [dagen, setDagen] = useState<AfwezigeDag[]>([])
   const [bereik, setBereik] = useState<{ min: number | null; max: number | null }>({ min: null, max: null })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -98,6 +101,7 @@ export default function PlanningStats({
       })
       .then(body => {
         setRows(body.tellingen)
+        setDagen(body.dagen ?? [])
         setBereik({ min: body.minYear, max: body.maxYear })
         setOpgehaald(new Date())
       })
@@ -214,10 +218,25 @@ export default function PlanningStats({
 
   // ── De blokjes ────────────────────────────────────────────────────────────
 
+  const naamVan = useMemo(() => {
+    const m = new Map(mensen.map(p => [p.id, p.naam]))
+    return (id: string) => m.get(id) ?? '—'
+  }, [mensen])
+
   const zoekend = zoek.trim().length > 0
   // Zoek je een naam, dan wil je dat blokje zien, ook als er nul in staat.
   // Anders lijkt het of de naam niet bestaat terwijl hij enkel geen verlof nam.
   const verbergLege = !toonLege && !zoekend
+
+  const dagenPerPersoon = useMemo(() => {
+    const m = new Map<string, AfwezigeDag[]>()
+    for (const d of dagen) {
+      const lijst = m.get(d.contactId)
+      if (lijst) lijst.push(d)
+      else m.set(d.contactId, [d])
+    }
+    return m
+  }, [dagen])
 
   const { iedereen, blokken, verborgen } = useMemo(() => {
     const q = normName(zoek)
@@ -232,7 +251,11 @@ export default function PlanningStats({
             for (let i = 0; i < 12; i++) waarden[i] += maanden[i]
           }
         }
-        return { rij, waarden, totaal: waarden.reduce((a, b) => a + b, 0) }
+        const celDagen = ids
+          .flatMap(pid => dagenPerPersoon.get(pid) ?? [])
+          .filter(d => rij.hoort(splitThuis(d.value).base.toUpperCase()))
+          .sort((a, b) => a.month - b.month || a.day - b.day)
+        return { rij, waarden, totaal: waarden.reduce((a, b) => a + b, 0), dagen: celDagen }
       })
       return { id, naam, dept, cellen, totaal: cellen.reduce((a, c) => a + c.totaal, 0) }
     }
@@ -245,7 +268,7 @@ export default function PlanningStats({
       blokken: getoond,
       verborgen: alle.length - getoond.length,
     }
-  }, [mensen, statusRijen, tellingen, zoek, zoekend, verbergLege])
+  }, [mensen, statusRijen, tellingen, dagenPerPersoon, zoek, zoekend, verbergLege])
 
   return (
     <div className="flex flex-col h-full gap-3">
@@ -315,7 +338,7 @@ export default function PlanningStats({
           <>
             {/* De ploeg als geheel bovenaan: "hoeveel verlof ging eruit in
                 juli" is de enige vraag die niet over één persoon gaat. */}
-            <PersoonsBlok blok={iedereen} year={year} samen />
+            <PersoonsBlok blok={iedereen} year={year} samen naamVan={naamVan} />
 
             {blokken.map(b => <PersoonsBlok key={b.id} blok={b} year={year} />)}
 
@@ -333,7 +356,22 @@ export default function PlanningStats({
 
 // ── Eén persoon: zijn statussen onder elkaar, twaalf maanden ernaast ────────
 
-function PersoonsBlok({ blok, year, samen }: { blok: Blok; year: number; samen?: boolean }) {
+function PersoonsBlok({ blok, year, samen, naamVan }: {
+  blok: Blok; year: number; samen?: boolean
+  // Alleen voor "Iedereen": daar staat bij elke dag van wie hij is.
+  naamVan?: (contactId: string) => string
+}) {
+  // Welke statussen opengeklapt zijn. Standaard dicht: de tabel blijft dan
+  // het overzicht, en de dagen zijn één klik weg.
+  const [open, setOpen] = useState<Set<string>>(() => new Set())
+  const toggle = (label: string) => setOpen(prev => {
+    const next = new Set(prev)
+    if (next.has(label)) next.delete(label)
+    else next.add(label)
+    return next
+  })
+  const openCellen = blok.cellen.filter(c => open.has(c.rij.label) && c.dagen.length > 0)
+
   return (
     <section
       className={`rounded-xl border overflow-hidden flex-shrink-0 ${
@@ -378,7 +416,22 @@ function PersoonsBlok({ blok, year, samen }: { blok: Blok; year: number; samen?:
                 className="sticky left-0 z-10 bg-zinc-950 px-2 sm:px-3 py-1.5 border-r border-zinc-800 whitespace-nowrap font-medium truncate max-w-24 sm:max-w-none"
                 style={{ color: cel.totaal > 0 ? cel.rij.kleur : '#52525b' }}
               >
-                {cel.rij.label}
+                {cel.dagen.length > 0 ? (
+                  <button
+                    onClick={() => toggle(cel.rij.label)}
+                    aria-expanded={open.has(cel.rij.label)}
+                    title={open.has(cel.rij.label) ? 'Verberg de dagen' : 'Toon de dagen en notities'}
+                    className="flex items-center gap-1 max-w-full hover:underline underline-offset-2"
+                  >
+                    <ChevronRight
+                      size={11}
+                      className={`flex-shrink-0 transition-transform ${open.has(cel.rij.label) ? 'rotate-90' : ''}`}
+                    />
+                    <span className="truncate">{cel.rij.label}</span>
+                  </button>
+                ) : (
+                  <span className="block truncate pl-4">{cel.rij.label}</span>
+                )}
               </td>
               {cel.waarden.map((n, i) => (
                 <Cijfer key={MAANDEN[i]} n={n} kleur={cel.rij.kleur} />
@@ -389,7 +442,55 @@ function PersoonsBlok({ blok, year, samen }: { blok: Blok; year: number; samen?:
         </tbody>
       </table>
       </div>
+
+      {/* Onder de tabel en niet erin: de tabel schuift opzij op een gsm, en
+          een lijst met notities moet gewoon de volle breedte lezen. */}
+      {openCellen.map(cel => (
+        <DagenLijst key={cel.rij.label} cel={cel} year={year} naamVan={samen ? naamVan : undefined} />
+      ))}
     </section>
+  )
+}
+
+const KORTE_DAGEN = ['zo', 'ma', 'di', 'wo', 'do', 'vr', 'za']
+const HELFT_KORT = { vm: '½ VM', nm: '½ NM' } as const
+
+// De dagen achter één telling, met hun notitie. Eén regel per dag, op datum.
+function DagenLijst({ cel, year, naamVan }: {
+  cel: Cel; year: number
+  naamVan?: (contactId: string) => string
+}) {
+  const metNotitie = cel.dagen.filter(d => d.note).length
+  return (
+    <div className="border-t border-zinc-800 px-3 py-2.5">
+      <p className="text-[11px] mb-1.5" style={{ color: cel.rij.kleur }}>
+        <span className="font-semibold">{cel.rij.label}</span>
+        <span className="text-zinc-600">
+          {' · '}{formatDays(cel.totaal)} {cel.totaal === 1 ? 'dag' : 'dagen'}
+          {metNotitie > 0 && ` · ${metNotitie} met notitie`}
+        </span>
+      </p>
+      <ul className={`grid sm:grid-cols-2 gap-x-6 ${naamVan ? 'max-h-72 overflow-y-auto pr-1' : ''}`}>
+        {cel.dagen.map((d, i) => {
+          const wd = new Date(year, d.month - 1, d.day).getDay()
+          return (
+            <li key={`${d.contactId}-${d.month}-${d.day}-${d.helft}-${i}`}
+              className="flex items-baseline gap-2 py-1 text-xs border-b border-zinc-900 min-w-0">
+              <span className="w-[4.5rem] flex-shrink-0 tabular-nums text-zinc-500">
+                {KORTE_DAGEN[wd]} {d.day} {DUTCH_MONTHS[d.month - 1].slice(0, 3).toLowerCase()}
+              </span>
+              {d.helft !== 'dag' && (
+                <span className="flex-shrink-0 rounded px-1 text-[10px] text-zinc-400 bg-zinc-800">{HELFT_KORT[d.helft]}</span>
+              )}
+              {naamVan && <span className="flex-shrink-0 max-w-[35%] truncate text-zinc-400">{naamVan(d.contactId)}</span>}
+              <span className={`min-w-0 break-words ${d.note ? 'text-zinc-200' : 'text-zinc-700'}`}>
+                {d.note ?? '—'}
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
   )
 }
 
