@@ -8,6 +8,7 @@ import {
 } from '@/lib/planning-config'
 import {
   addMonths, addWeeks, dateCellKey, getMonthWeeks, getWeekDates, groupDeletes, groupWeekByMonth, weekDayCellKey, weekLabel,
+  rowToCell, cellToRowFields,
   type CellData, type PlanningWeekData, type Target, type WeekDay,
 } from '@/lib/planning-week'
 import { isAdminUser } from '@/lib/auth-permissions'
@@ -711,15 +712,6 @@ export default function PlanningApp() {
 
   const groupKey = (g: { year: number; month: number }) => monthCacheKey(g.year, g.month)
 
-  function rowToCell(r: PlanningRow) {
-    return {
-      value: r.value, bold: r.bold ?? true,
-      textColor: r.text_color ?? '#ffffff', bgColor: r.bg_color ?? null,
-      note: r.note ?? null,
-      updatedBy: r.updated_by ?? null, updatedAt: r.updated_at ?? null,
-    }
-  }
-
   const rowKey = (r: PlanningRow) => dateCellKey(r.year, r.month, r.day, r.contact_id)
 
   const newestOf = (rows: PlanningRow[], floor: string) =>
@@ -1079,21 +1071,9 @@ export default function PlanningApp() {
               forgetKey(old.year!, old.month!, key)
               return
             }
-            const row = payload.new as {
-              year: number; month: number; day: number; contact_id: string
-              value: string; bold: boolean | null; text_color: string | null; bg_color: string | null; note: string | null
-              updated_by: string | null; updated_at: string | null
-            }
+            const row = payload.new as PlanningRow
             const key = dateCellKey(row.year, row.month, row.day, row.contact_id)
-            setData(prev => ({
-              ...prev,
-              [key]: {
-                value: row.value, bold: row.bold ?? true,
-                textColor: row.text_color ?? '#ffffff', bgColor: row.bg_color ?? null,
-                note: row.note ?? null,
-                updatedBy: row.updated_by ?? null, updatedAt: row.updated_at ?? null,
-              },
-            }))
+            setData(prev => ({ ...prev, [key]: rowToCell(row) }))
             rememberKey(row.year, row.month, key)
           }
         )
@@ -1209,8 +1189,7 @@ export default function PlanningApp() {
       if (e.cell) {
         bucket.upserts.push({
           year: e.wd.year, month: e.wd.month, day: e.wd.day, contact_id: e.contactId,
-          value: e.cell.value, bold: e.cell.bold,
-          text_color: e.cell.textColor, bg_color: e.cell.bgColor, note: e.cell.note,
+          ...cellToRowFields(e.cell),
           updated_by: e.cell.updatedBy ?? null,
           updated_at: e.cell.updatedAt ?? null,
         })
@@ -1248,7 +1227,7 @@ export default function PlanningApp() {
     if (toUpsert.length > 0) {
       const rows = toUpsert.map(e => ({
         year: e.wd.year, month: e.wd.month, day: e.wd.day, contact_id: e.contactId,
-        value: e.cell!.value, bold: e.cell!.bold, text_color: e.cell!.textColor, bg_color: e.cell!.bgColor, note: e.cell!.note,
+        ...cellToRowFields(e.cell!),
         // updated_at wordt bewust niet meegestuurd: een trigger op de tabel
         // zet hem met de klok van de database. De planning zoekt op die
         // tijdstempel om alleen wijzigingen op te halen, en een browserklok

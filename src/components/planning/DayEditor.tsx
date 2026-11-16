@@ -9,7 +9,13 @@ import {
   allStatusOptions, pickerStatusOptions, splitThuis, matchStatus, thuisColor,
   THUIS_SUFFIX,
 } from '@/lib/planning-status'
-import type { CellData, WeekDay } from '@/lib/planning-week'
+import { isHalfDay, type CellData, type HalfCell, type WeekDay } from '@/lib/planning-week'
+import StatusPill from './StatusPill'
+
+// Wat er per helft gekozen is. Bij een hele dag is alleen de eerste in
+// gebruik; bij een halve dag is [0] de voormiddag en [1] de namiddag.
+interface Keuze { statusName: string | null; thuis: boolean }
+const HELFT_LABELS = ['Voormiddag', 'Namiddag'] as const
 
 // Maandag eerst, zoals overal in deze planning.
 const WEEKDAG_KOPJES = ['ma', 'di', 'wo', 'do', 'vr', 'za', 'zo']
@@ -66,9 +72,30 @@ export default function DayEditor({
   const keuzes = pickerStatusOptions(presets)
   const herkenbaar = allStatusOptions(presets)
   const matched = matchStatus(initialCell, herkenbaar)
+  const matchedPm = isHalfDay(initialCell)
+    ? matchStatus({ ...initialCell, value: initialCell.pm!.value }, herkenbaar)
+    : null
 
-  const [statusName, setStatusName] = useState<string | null>(matched?.name ?? null)
-  const [thuis, setThuis] = useState(matched?.thuis ?? false)
+  const [halveDag, setHalveDag] = useState(isHalfDay(initialCell))
+  const [keuzes2, setKeuzes2] = useState<[Keuze, Keuze]>(() => {
+    const vm: Keuze = { statusName: matched?.name ?? null, thuis: matched?.thuis ?? false }
+    const nm: Keuze = matchedPm ? { statusName: matchedPm.name, thuis: matchedPm.thuis } : vm
+    return [vm, nm]
+  })
+  // Welke helft de kiezer nu bewerkt. Bij een hele dag altijd 0.
+  const [helft, setHelft] = useState<0 | 1>(0)
+  const actief = halveDag ? helft : 0
+  const statusName = keuzes2[actief].statusName
+  const thuis = keuzes2[actief].thuis
+  function zetKeuze(patch: Partial<Keuze>) {
+    setKeuzes2(prev => {
+      const next: [Keuze, Keuze] = [{ ...prev[0] }, { ...prev[1] }]
+      next[actief] = { ...next[actief], ...patch }
+      return next
+    })
+  }
+  const setStatusName = (name: string | null) => zetKeuze({ statusName: name })
+  const setThuis = (f: (v: boolean) => boolean) => zetKeuze({ thuis: f(thuis) })
   const [note, setNote] = useState(initialCell.note ?? '')
 
   // Drag/ctrl/shift-click on the "Dagen" pool, same gestures as the main
@@ -185,8 +212,31 @@ export default function DayEditor({
 
   // Een cel met een waarde die geen (bestaande) status is: zonder nieuwe
   // keuze blijft die staan, en kan je alleen de notitie aanpassen.
-  const behoudOudeWaarde = !selectedOption && !matched && initialCell.value.trim() !== ''
-  const kanOpslaan = !!selectedOption || behoudOudeWaarde
+  // Alleen bij een hele dag: een halve dag bestaat pas sinds er presets zijn,
+  // dus daar staat nooit een oude vrije-tekstwaarde in.
+  const behoudOudeWaarde = !halveDag && !selectedOption && !matched && initialCell.value.trim() !== ''
+
+  const optieVoor = (k: Keuze) => herkenbaar.find(o => o.name === k.statusName) ?? null
+  // Een halve dag moet beide helften hebben. Eén helft leeg laten is wat de
+  // hele-dagknop al doet — en een lege helft zou in de statistieken een halve
+  // dag zijn die nergens bij hoort.
+  const ontbrekendeHelft = halveDag
+    ? ([0, 1] as const).find(i => !optieVoor(keuzes2[i])) ?? null
+    : null
+  const kanOpslaan = halveDag ? ontbrekendeHelft === null : (!!selectedOption || behoudOudeWaarde)
+
+  // De opgeslagen waarde blijft "PS - THUIS": oude cellen, de statistieken
+  // en de kleuren in het raster blijven daardoor kloppen. Alleen de kiezer
+  // toont het als een schakelaar.
+  function alsHelft(k: Keuze): HalfCell {
+    const opt = optieVoor(k)!
+    const thuisAan = k.thuis && opt.category === 'werk'
+    return {
+      value: (thuisAan ? opt.name + THUIS_SUFFIX : opt.name).toUpperCase(),
+      textColor: '#ffffff',
+      bgColor: thuisAan ? thuisColor(presets, opt) : opt.color,
+    }
+  }
 
   function handleSave() {
     const trimmedNote = note.trim() || null
@@ -200,6 +250,16 @@ export default function DayEditor({
     // cel met een oude waarde waar je alleen de notitie van aanpaste, terwijl
     // het scherm net "of laat staan" had gezegd. Wissen is nu altijd de knop
     // Wissen; Opslaan zonder status houdt de oude waarde.
+    if (halveDag) {
+      if (ontbrekendeHelft !== null) return
+      const vm = alsHelft(keuzes2[0])
+      const nm = alsHelft(keuzes2[1])
+      // Twee keer hetzelfde is gewoon een hele dag.
+      const zelfde = vm.value === nm.value
+      onSave({ ...vm, bold: true, note: trimmedNote, pm: zelfde ? null : nm })
+      return
+    }
+
     if (!selectedOption) {
       if (behoudOudeWaarde) {
         onSave({
@@ -208,22 +268,13 @@ export default function DayEditor({
           textColor: initialCell.textColor,
           bgColor: initialCell.bgColor,
           note: trimmedNote,
+          pm: null,
         })
       }
       return
     }
 
-    // De opgeslagen waarde blijft "PS - THUIS": oude cellen, de statistieken
-    // en de kleuren in het raster blijven daardoor kloppen. Alleen de kiezer
-    // toont het als een schakelaar.
-    const thuisAan = thuis && selectedOption.category === 'werk'
-    onSave({
-      value: (thuisAan ? selectedOption.name + ' - THUIS' : selectedOption.name).toUpperCase(),
-      bold: true,
-      textColor: '#ffffff',
-      bgColor: thuisAan ? thuisColor(presets, selectedOption) : selectedOption.color,
-      note: trimmedNote,
-    })
+    onSave({ ...alsHelft(keuzes2[0]), bold: true, note: trimmedNote, pm: null })
   }
 
   return (
@@ -253,12 +304,14 @@ export default function DayEditor({
           // volledig te lezen.
           <div className="px-5 py-5 space-y-3">
             {initialCell.value.trim() ? (
-              <span
-                className="inline-block rounded-md px-2.5 py-1 text-xs font-semibold"
-                style={{ backgroundColor: initialCell.bgColor ?? 'rgba(255,255,255,0.08)', color: initialCell.bgColor ? '#fff' : '#a1a1aa' }}
-              >
-                {initialCell.value}
-              </span>
+              <div className="space-y-1.5">
+                <StatusPill cell={initialCell} className="inline-flex max-w-full rounded-md text-xs font-semibold" pad="px-2.5 py-1" />
+                {isHalfDay(initialCell) && (
+                  <p className="text-[11px] text-zinc-500">
+                    Voormiddag {initialCell.value} · namiddag {initialCell.pm!.value}
+                  </p>
+                )}
+              </div>
             ) : (
               <p className="text-sm text-zinc-500">Niets ingepland.</p>
             )}
@@ -308,6 +361,49 @@ export default function DayEditor({
                 </div>
               </div>
             )}
+
+            {/* Hele dag of halve dagen. Een halve dag is vaak een halve dag
+                recup, verlof of ziek, met de andere helft gewoon gewerkt —
+                beide helften krijgen hun eigen status, en tellen in de
+                statistieken elk als 0,5. */}
+            <div>
+              <div className="grid grid-cols-2 gap-1 p-0.5 rounded-lg bg-zinc-800/60 mb-2">
+                {([false, true] as const).map(v => (
+                  <button
+                    key={String(v)}
+                    onClick={() => { setHalveDag(v); setHelft(0) }}
+                    className={`py-1.5 rounded-md text-xs font-medium transition-colors ${
+                      halveDag === v ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    {v ? 'Halve dagen' : 'Hele dag'}
+                  </button>
+                ))}
+              </div>
+              {halveDag && (
+                <div className="grid grid-cols-2 gap-1.5">
+                  {([0, 1] as const).map(i => {
+                    const opt = optieVoor(keuzes2[i])
+                    const open = helft === i
+                    return (
+                      <button
+                        key={i}
+                        onClick={() => setHelft(i)}
+                        className={`px-2.5 py-2 rounded-lg text-left border transition-colors ${
+                          open ? 'border-zinc-500 bg-zinc-800' : 'border-zinc-800 bg-zinc-800/30 hover:border-zinc-700'
+                        }`}
+                      >
+                        <span className="block text-[10px] uppercase tracking-widest text-zinc-500">{HELFT_LABELS[i]}</span>
+                        <span className="flex items-center gap-1.5 mt-0.5 text-xs font-medium text-zinc-200 truncate">
+                          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: opt?.color ?? '#3f3f46' }} />
+                          {opt ? opt.name + (keuzes2[i].thuis && opt.category === 'werk' ? ' · thuis' : '') : 'Kies een status'}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
 
             <div>
               {/* Gegroepeerd op categorie: waar je werkt staat boven, afwezig
@@ -435,7 +531,9 @@ export default function DayEditor({
               </button>
               <button onClick={handleSave}
                 disabled={!kanOpslaan}
-                title={kanOpslaan ? undefined : 'Kies eerst een status — wissen doe je met Wissen'}
+                title={kanOpslaan ? undefined
+                  : ontbrekendeHelft !== null ? `Kies ook een status voor de ${HELFT_LABELS[ontbrekendeHelft].toLowerCase()}`
+                  : 'Kies eerst een status — wissen doe je met Wissen'}
                 className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{ backgroundColor: '#3A913F' }}>
                 <Check size={14} /> Opslaan

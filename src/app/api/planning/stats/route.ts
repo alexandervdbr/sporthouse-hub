@@ -1,14 +1,15 @@
 import { createClient } from '@/lib/supabase/server'
 import { hasSection } from '@/lib/auth-permissions'
 import { fetchAllRows } from '@/lib/planning-paginate'
+import { dayParts } from '@/lib/planning-week'
 
 // GET — per-contact, per-status, per-month day counts for one year: de
 // optelling achter het tabblad Statistieken.
-// Gated on the planning_statistieken permission (or beheer) at the route
-// level too, mirroring the rest of this app's convention, even though
-// planning_entries itself is already readable by any authenticated user
-// (see the RLS note in 0024_client_scoped_rls_policies.sql) — this is about
-// which UI users see the tab, same intent as the permission itself.
+// Een halve dag telt per helft 0,5 (zie dayParts), dus count kan een half
+// getal zijn.
+//
+// Achter planning_statistieken (of beheer). Lezen van planning_entries zelf
+// staat sinds 0090 ook in de database achter het planningsrecht.
 export async function GET(req: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -30,23 +31,28 @@ export async function GET(req: Request) {
   // maanden naast elkaar. Er was hier ook een ?month= om één maand op te
   // halen; die is weg sinds die weergave weg is. Een parameter die niemand
   // meegeeft is een parameter die stilletjes stopt met werken.
-  let data: { contact_id: string; month: number; value: string }[]
+  type Rij = { contact_id: string; month: number; value: string; value_pm: string | null }
+  let data: Rij[]
   try {
-    data = await fetchAllRows<{ contact_id: string; month: number; value: string }>(() => {
+    data = await fetchAllRows<Rij>(() => {
       return supabase
         .from('planning_entries')
-        .select('contact_id, month, value')
+        .select('contact_id, month, value, value_pm')
         .eq('year', year)
         .order('id', { ascending: true })
     })
   } catch (e) {
-    return new Response(e instanceof Error ? e.message : 'Ophalen mislukt', { status: 500 })
+    // Supabase gooit een PostgrestError, geen Error: log de echte oorzaak.
+    console.error('planning/stats', e)
+    return new Response('Ophalen mislukt', { status: 500 })
   }
 
   const counts = new Map<string, number>()
   for (const row of data) {
-    const key = `${row.contact_id}\u0000${row.month}\u0000${row.value}`
-    counts.set(key, (counts.get(key) ?? 0) + 1)
+    for (const part of dayParts(row.value, row.value_pm)) {
+      const key = `${row.contact_id}\u0000${row.month}\u0000${part.value}`
+      counts.set(key, (counts.get(key) ?? 0) + part.weight)
+    }
   }
 
   const tellingen = [...counts.entries()].map(([key, count]) => {

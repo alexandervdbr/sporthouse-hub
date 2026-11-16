@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { MoreVertical, Copy, ClipboardPaste, Trash2, Check, X } from 'lucide-react'
 import { DUTCH_MONTHS } from '@/lib/planning-config'
 import { emptyCell, getMonthWeeks, weekDayCellKey, type CellData, type PlanningWeekData, type Target, type WeekDay } from '@/lib/planning-week'
+import StatusPill from './StatusPill'
 import type { PlanningPreset } from '@/lib/planning-presets'
 import type { Person } from '@/lib/planning-config'
 import DayEditor from './DayEditor'
@@ -303,13 +304,7 @@ export default function MyMonthWeeks({
                   >
                     {cell.value ? (
                       <>
-                        <span
-                          className="w-full text-center truncate rounded-md px-1.5 py-1 text-[11px] font-semibold"
-                          style={{ backgroundColor: cell.bgColor ?? 'rgba(255,255,255,0.08)', color: cell.bgColor ? '#fff' : '#a1a1aa' }}
-                          title={cell.note ? `${cell.value} — ${cell.note}` : cell.value}
-                        >
-                          {cell.value}
-                        </span>
+                        <StatusPill cell={cell} className="w-full rounded-md text-[11px] font-semibold" />
                         {cell.note && (
                           <span className="w-full text-center truncate text-[9px] text-zinc-500 px-1" title={cell.note}>{cell.note}</span>
                         )}

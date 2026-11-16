@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest'
 import {
   getWeekDates, getMonthWeeks, groupWeekByMonth, addMonths, addWeeks,
   dateCellKey, weekLabel, groupDeletes,
+  rowToCell, cellToRowFields, isHalfDay, cellHalves, cellLabel, dayParts, formatDays,
 } from '@/lib/planning-week'
+import type { PlanningRow } from '@/lib/planning-cache'
 
 // Datumrekenen is waar dit soort code stilletjes fout gaat: een week die over
 // een maandgrens loopt, een maand die op zondag begint, een schrikkeljaar. Het
@@ -150,5 +152,74 @@ describe('groupDeletes', () => {
 
   it('returns nothing for nothing', () => {
     expect(groupDeletes([])).toEqual([])
+  })
+})
+
+const rij = (extra: Partial<PlanningRow> = {}): PlanningRow => ({
+  year: 2026, month: 11, day: 3, contact_id: 'a', value: 'RECUP',
+  bold: true, text_color: '#ffffff', bg_color: '#f59e0b', note: null,
+  updated_by: null, updated_at: null, ...extra,
+})
+
+describe('halve dagen', () => {
+  it('leest een rij zonder namiddag als een hele dag', () => {
+    const cel = rowToCell(rij())
+    expect(isHalfDay(cel)).toBe(false)
+    expect(cellHalves(cel)).toHaveLength(1)
+    expect(cellLabel(cel)).toBe('RECUP')
+  })
+
+  it('leest een rij uit een oude browserkopie, zonder de nieuwe kolommen', () => {
+    const oud = rij()
+    delete oud.value_pm
+    expect(isHalfDay(rowToCell(oud))).toBe(false)
+  })
+
+  it('leest een namiddag als een halve dag', () => {
+    const cel = rowToCell(rij({ value_pm: 'PS', bg_color_pm: '#2563eb' }))
+    expect(isHalfDay(cel)).toBe(true)
+    expect(cellHalves(cel).map(h => h.value)).toEqual(['RECUP', 'PS'])
+    expect(cellHalves(cel)[1].bgColor).toBe('#2563eb')
+    expect(cellLabel(cel)).toBe('VM RECUP · NM PS')
+  })
+
+  it('ziet een lege namiddag niet als halve dag', () => {
+    expect(isHalfDay(rowToCell(rij({ value_pm: '  ' })))).toBe(false)
+  })
+
+  it('schrijft een hele dag met een lege namiddag, zodat een gesplitste dag weer heel wordt', () => {
+    const velden = cellToRowFields({ ...rowToCell(rij()), pm: null })
+    expect(velden).toMatchObject({ value: 'RECUP', value_pm: null, text_color_pm: null, bg_color_pm: null })
+  })
+
+  it('schrijft en leest een halve dag zonder iets te verliezen', () => {
+    const cel = rowToCell(rij({ value_pm: 'PS - THUIS', text_color_pm: '#ffffff', bg_color_pm: '#1d4ed8', note: 'tot 12u' }))
+    const terug = rowToCell(rij(cellToRowFields(cel)))
+    expect(terug.pm).toEqual(cel.pm)
+    expect(terug.note).toBe('tot 12u')
+  })
+})
+
+describe('dayParts', () => {
+  it('telt een hele dag als 1', () => {
+    expect(dayParts('VERLOF', null)).toEqual([{ value: 'VERLOF', weight: 1 }])
+  })
+
+  it('telt elke helft van een halve dag als 0,5', () => {
+    expect(dayParts('VERLOF', 'PS')).toEqual([
+      { value: 'VERLOF', weight: 0.5 },
+      { value: 'PS', weight: 0.5 },
+    ])
+  })
+
+  it('telt twee keer dezelfde helft als één hele dag', () => {
+    expect(dayParts('ZIEK', 'ZIEK')).toEqual([{ value: 'ZIEK', weight: 1 }])
+  })
+})
+
+describe('formatDays', () => {
+  it('toont halve dagen met een komma', () => {
+    expect(formatDays(2.5)).toBe('2,5')
+    expect(formatDays(3)).toBe('3')
   })
 })

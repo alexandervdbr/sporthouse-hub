@@ -19,12 +19,20 @@ export async function GET(req: Request) {
   if (!name) return new Response('Naam ontbreekt', { status: 400 })
 
   // De THUIS-variant hoort erbij: die cellen dragen dezelfde status en raken
-  // hem op dezelfde manier kwijt.
+  // hem op dezelfde manier kwijt. En de namiddag van een halve dag ook.
+  //
+  // Hoofdletterongevoelig: de dag-editor slaat de status in hoofdletters op
+  // ("VERLOF"), terwijl de preset "Verlof" heet. Met een exacte vergelijking
+  // stond hier voor zulke presets altijd 0.
+  const patroon = (v: string) => `"${v.replace(/[\\%_"]/g, c => '\\' + c)}"`
+  const filter = ['value', 'value_pm']
+    .flatMap(kol => [name, `${name} - THUIS`].map(v => `${kol}.ilike.${patroon(v)}`))
+    .join(',')
   const admin = createAdminClient()
   const { count, error } = await admin
     .from('planning_entries')
     .select('contact_id', { count: 'exact', head: true })
-    .in('value', [name, `${name} - THUIS`])
+    .or(filter)
 
   if (error) return new Response(error.message, { status: 500 })
   return Response.json({ count: count ?? 0 })

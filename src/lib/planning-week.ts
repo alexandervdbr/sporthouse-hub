@@ -1,4 +1,12 @@
 import { DUTCH_DAYS, DUTCH_MONTHS } from '@/lib/planning-config'
+import type { PlanningRow } from '@/lib/planning-cache'
+
+// De namiddag van een halve dag. Zie CellData.pm.
+export interface HalfCell {
+  value:     string
+  textColor: string | null
+  bgColor:   string | null
+}
 
 export interface CellData {
   value:     string
@@ -10,6 +18,10 @@ export interface CellData {
   // any specifics (a client, a time, a reason) shown as a secondary note
   // instead of becoming a one-off status of its own.
   note: string | null
+  // Halve dag: dan zijn value/textColor/bgColor de voormiddag en dit de
+  // namiddag. Leeg (of afwezig) = één status voor de hele dag, zoals altijd.
+  // De notitie blijft één veld voor de hele dag.
+  pm?: HalfCell | null
   // Who touched this cell last, and when — set on every write (see
   // PlanningApp's writeEntries). Absent on rows written before this existed,
   // and never populated on a freshly-opened empty cell, so its presence
@@ -183,4 +195,64 @@ export function groupDeletes(cells: { year: number; month: number; day: number; 
     }
   }
   return [...groups.values()]
+}
+
+// ── Van rij naar cel en terug ────────────────────────────────────────────────
+//
+// Eén plek voor de vertaling, want ze stond op vijf plaatsen (volledig laden,
+// sync, realtime, schrijven, de link) en een nieuwe kolom moest dan vijf keer
+// mee — en werd een keer vergeten.
+
+export function rowToCell(r: PlanningRow): CellData {
+  const pmValue = r.value_pm?.trim() ? r.value_pm : null
+  return {
+    value: r.value, bold: r.bold ?? true,
+    textColor: r.text_color ?? '#ffffff', bgColor: r.bg_color ?? null,
+    note: r.note ?? null,
+    pm: pmValue
+      ? { value: pmValue, textColor: r.text_color_pm ?? '#ffffff', bgColor: r.bg_color_pm ?? null }
+      : null,
+    updatedBy: r.updated_by ?? null, updatedAt: r.updated_at ?? null,
+  }
+}
+
+// De kolommen die een cel vult. Een hele dag zet de namiddag expliciet op
+// null, zodat een dag die eerst gesplitst was ook echt weer heel wordt.
+export function cellToRowFields(cell: CellData) {
+  const pm = isHalfDay(cell) ? cell.pm! : null
+  return {
+    value: cell.value, bold: cell.bold,
+    text_color: cell.textColor, bg_color: cell.bgColor, note: cell.note,
+    value_pm: pm?.value ?? null,
+    text_color_pm: pm?.textColor ?? null,
+    bg_color_pm: pm?.bgColor ?? null,
+  }
+}
+
+export function isHalfDay(cell: CellData | null | undefined): boolean {
+  return !!cell?.pm && cell.pm.value.trim() !== ''
+}
+
+// De helften om te tekenen: één voor een hele dag, twee voor een halve.
+export function cellHalves(cell: CellData): HalfCell[] {
+  const vm: HalfCell = { value: cell.value, textColor: cell.textColor, bgColor: cell.bgColor }
+  return isHalfDay(cell) ? [vm, cell.pm!] : [vm]
+}
+
+// Als tekst: "PS" of "VM Recup · NM PS". Voor tooltips, de link en de AI.
+export function cellLabel(cell: CellData): string {
+  return isHalfDay(cell) ? `VM ${cell.value} · NM ${cell.pm!.value}` : cell.value
+}
+
+// Hoeveel van een dag elke status is: een hele dag telt 1, elke helft van een
+// halve dag 0,5. Voormiddag en namiddag met dezelfde status samen weer 1.
+export function dayParts(value: string, valuePm: string | null | undefined): { value: string; weight: number }[] {
+  if (!valuePm?.trim()) return [{ value, weight: 1 }]
+  if (valuePm === value) return [{ value, weight: 1 }]
+  return [{ value, weight: 0.5 }, { value: valuePm, weight: 0.5 }]
+}
+
+// Een aantal dagen zoals het in de statistieken staat: "3", "2,5".
+export function formatDays(n: number): string {
+  return n.toLocaleString('nl-BE', { maximumFractionDigits: 1 })
 }

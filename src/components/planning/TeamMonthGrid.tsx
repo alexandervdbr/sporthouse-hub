@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Star, ChevronDown, ChevronRight } from 'lucide-react'
 import { DUTCH_MONTHS, personKey, type Person } from '@/lib/planning-config'
 import { dayInfo, emptyCell, weekDayCellKey, type CellData, type PlanningWeekData, type Target, type WeekDay } from '@/lib/planning-week'
+import StatusPill from './StatusPill'
 import type { PlanningPreset } from '@/lib/planning-presets'
 import DayEditor from './DayEditor'
 
@@ -336,13 +337,7 @@ export default function TeamMonthGrid({
                     className={`group relative border-b border-zinc-800/60 border-r h-7 flex items-center justify-center ${locked ? '' : 'cursor-pointer'}`}
                   >
                     {cell.value ? (
-                      <span
-                        className="w-full h-full flex items-center justify-center truncate text-[8px] font-semibold px-0.5"
-                        style={{ backgroundColor: cell.bgColor ?? 'rgba(255,255,255,0.08)', color: cell.bgColor ? '#fff' : '#a1a1aa' }}
-                        title={cell.note ? `${cell.value} — ${cell.note}` : cell.value}
-                      >
-                        {cell.value}
-                      </span>
+                      <StatusPill cell={cell} className="w-full h-full items-stretch text-[8px] font-semibold" pad="px-0.5 flex items-center justify-center" />
                     ) : (
                       !locked && <span className="text-zinc-800 text-[9px] opacity-0 group-hover:opacity-100 transition-opacity">+</span>
                     )}
