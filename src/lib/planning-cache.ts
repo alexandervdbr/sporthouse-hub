@@ -25,12 +25,17 @@ export interface PlanningRow {
   text_color: string | null
   bg_color: string | null
   note: string | null
+  // De namiddag, alleen bij een halve dag. Leeg = value geldt de hele dag.
+  // Optioneel in het type: rijen in een oude browserkopie hebben ze niet.
+  value_pm?: string | null
+  text_color_pm?: string | null
+  bg_color_pm?: string | null
   updated_by: string | null
   updated_at: string | null
 }
 
 export const SELECT_COLS =
-  'year, month, day, contact_id, value, bold, text_color, bg_color, note, updated_by, updated_at'
+  'year, month, day, contact_id, value, bold, text_color, bg_color, note, value_pm, text_color_pm, bg_color_pm, updated_by, updated_at'
 
 export interface CachedMonth {
   rows: PlanningRow[]
@@ -42,7 +47,7 @@ export interface CachedMonth {
 
 // Bumped if PlanningRow or the key format ever changes, so an old copy is
 // ignored instead of being read as if it still matched.
-const CACHE_KEY = 'planning-month-cache-v2'
+const CACHE_KEY = 'planning-month-cache-v3'
 
 // Wie je bent in het rooster, en onder welk account die keuze gemaakt is.
 // Die tweede sleutel bestaat omdat de keuze zelf een bewuste handeling is

@@ -7,6 +7,7 @@ import {
   presetCategory, isArchived, telMeeInStats, type PlanningPreset,
 } from '@/lib/planning-presets'
 import { splitThuis } from '@/lib/planning-status'
+import { formatDays } from '@/lib/planning-week'
 
 interface StatRow { contactId: string; month: number; value: string; count: number }
 interface StatsAntwoord { tellingen: StatRow[]; minYear: number | null; maxYear: number | null }
@@ -346,7 +347,7 @@ function PersoonsBlok({ blok, year, samen }: { blok: Blok; year: number; samen?:
         {blok.dept && <span className="text-[11px] text-zinc-600 truncate">{blok.dept}</span>}
         {samen && <span className="text-[11px] text-zinc-600">{year}</span>}
         <span className="ml-auto text-[11px] text-zinc-500 tabular-nums flex-shrink-0">
-          {blok.totaal} {blok.totaal === 1 ? 'dag' : 'dagen'}
+          {formatDays(blok.totaal)} {blok.totaal === 1 ? 'dag' : 'dagen'}
         </span>
       </header>
 
@@ -406,7 +407,7 @@ function Cijfer({ n, kleur, sterk, links }: {
         ? { color: kleur, fontWeight: sterk ? 700 : 600, backgroundColor: `${kleur}14` }
         : { color: '#3f3f46' }}
     >
-      {n > 0 ? n : '–'}
+      {n > 0 ? formatDays(n) : '–'}
     </td>
   )
 }

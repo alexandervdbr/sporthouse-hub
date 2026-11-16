@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 import { DUTCH_MONTHS } from '@/lib/planning-config'
-import { dateCellKey, type PlanningWeekData } from '@/lib/planning-week'
+import { rowToCell, dateCellKey, type PlanningWeekData } from '@/lib/planning-week'
 import type { PlanningRow } from '@/lib/planning-cache'
 import MyMonthCalendar from './MyMonthCalendar'
 import MyMonthWeeks from './MyMonthWeeks'
@@ -50,13 +50,9 @@ export default function MyPlanningLink({
       if (requestId !== requestIdRef.current) return
       const map: PlanningWeekData = {}
       for (const r of body.rows) {
-        map[dateCellKey(r.year, r.month, r.day, r.contact_id)] = {
-          value: r.value,
-          bold: r.bold ?? true,
-          textColor: r.text_color ?? '#ffffff',
-          bgColor: r.bg_color ?? null,
-          note: r.note ?? null,
-        }
+        // Zonder wie het laatst wijzigde: dat is een e-mailadres van een
+        // collega, en deze pagina is publiek.
+        map[dateCellKey(r.year, r.month, r.day, r.contact_id)] = { ...rowToCell(r), updatedBy: null, updatedAt: null }
       }
       setData(map)
     } catch {

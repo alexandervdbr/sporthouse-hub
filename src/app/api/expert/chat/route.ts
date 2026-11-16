@@ -53,6 +53,7 @@ function nextMonth(year: number, month: number) {
 
 type PlanningContextRow = {
   day: number; year: number; month: number; contact_id: string; value: string
+  value_pm: string | null
 }
 
 // Het rooster met namen erbij: planning_config houdt alleen contact-id's bij.
@@ -102,7 +103,7 @@ async function fetchPlanningMonth(
     return await fetchAllRows<PlanningContextRow>(() =>
       supabase
         .from('planning_entries')
-        .select('day, year, month, contact_id, value')
+        .select('day, year, month, contact_id, value, value_pm')
         .eq('year', year)
         .eq('month', month)
         .order('id', { ascending: true })
@@ -130,7 +131,11 @@ function formatPlanning(
   for (const e of entries) {
     if (!e.value?.trim()) continue
     if (!byDay[e.day]) byDay[e.day] = {}
-    byDay[e.day][e.contact_id] = e.value
+    // Halve dag: beide helften, zodat de AI niet denkt dat iemand de hele
+    // dag afwezig is.
+    byDay[e.day][e.contact_id] = e.value_pm?.trim()
+      ? `VM ${e.value} · NM ${e.value_pm}`
+      : e.value
   }
 
   const days = Object.keys(byDay).map(Number).sort((a, b) => a - b)

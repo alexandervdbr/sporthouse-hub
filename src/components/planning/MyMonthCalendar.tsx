@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Check, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { DUTCH_MONTHS, getDaysInMonth, type Person } from '@/lib/planning-config'
 import { dateCellKey, emptyCell, type CellData, type PlanningWeekData, type Target, type WeekDay } from '@/lib/planning-week'
+import StatusPill from './StatusPill'
 import type { PlanningPreset } from '@/lib/planning-presets'
 import DayEditor from './DayEditor'
 
@@ -203,15 +204,7 @@ export default function MyMonthCalendar({
                     {d.day}
                   </span>
                   {cell.value ? (
-                    <span
-                      className="flex-1 flex items-center rounded px-1 text-[9px] font-semibold leading-tight truncate"
-                      style={{
-                        backgroundColor: cell.bgColor ?? 'rgba(255,255,255,0.08)',
-                        color: cell.bgColor ? '#fff' : '#a1a1aa',
-                      }}
-                    >
-                      {cell.value}
-                    </span>
+                    <StatusPill cell={cell} className="flex-1 items-stretch rounded text-[9px] font-semibold leading-tight" pad="px-1 flex items-center" center={false} />
                   ) : (
                     <span className="flex-1" />
                   )}
@@ -275,12 +268,7 @@ export default function MyMonthCalendar({
                     {d.dayName.slice(0, 2).toUpperCase()} {d.day}
                   </span>
                   {cell.value ? (
-                    <span
-                      className="flex-1 min-w-0 truncate rounded-md px-2 py-1.5 text-xs font-semibold"
-                      style={{ backgroundColor: cell.bgColor ?? 'rgba(255,255,255,0.08)', color: cell.bgColor ? '#fff' : '#a1a1aa' }}
-                    >
-                      {cell.value}
-                    </span>
+                    <StatusPill cell={cell} className="flex-1 min-w-0 rounded-md text-xs font-semibold" pad="px-2 py-1.5" center={false} />
                   ) : (
                     <span className="flex-1 text-xs text-zinc-700">—</span>
                   )}
@@ -327,7 +315,13 @@ export default function MyMonthCalendar({
                     <span className={`text-xs ${d.isToday ? 'text-emerald-400 font-bold' : 'text-zinc-400'}`}>{d.day}</span>
                     <span
                       className="w-1.5 h-1.5 rounded-full"
-                      style={{ backgroundColor: cell.value ? (cell.bgColor ?? '#71717a') : 'transparent' }}
+                      style={{
+                        // Halve dag: links de voormiddag, rechts de namiddag.
+                        background: !cell.value ? 'transparent'
+                          : cell.pm?.value
+                            ? `linear-gradient(90deg, ${cell.bgColor ?? '#71717a'} 50%, ${cell.pm.bgColor ?? '#71717a'} 50%)`
+                            : (cell.bgColor ?? '#71717a'),
+                      }}
                     />
                   </button>
                 )
@@ -346,12 +340,7 @@ export default function MyMonthCalendar({
               return (
                 <>
                   {cell.value ? (
-                    <span
-                      className="inline-flex rounded-lg px-3 py-2 text-base font-semibold"
-                      style={{ backgroundColor: cell.bgColor ?? 'rgba(255,255,255,0.08)', color: cell.bgColor ? '#fff' : '#d4d4d8' }}
-                    >
-                      {cell.value}
-                    </span>
+                    <StatusPill cell={cell} className="inline-flex max-w-full rounded-lg text-base font-semibold" pad="px-3 py-2" mutedColor="#d4d4d8" center={false} />
                   ) : (
                     <span className="text-sm text-zinc-600">
                       {readOnly ? 'Niets ingepland.' : 'Niets ingepland — tik om in te vullen.'}

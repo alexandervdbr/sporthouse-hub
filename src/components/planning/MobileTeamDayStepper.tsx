@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react'
 import { DUTCH_MONTHS, type Person } from '@/lib/planning-config'
 import { emptyCell, weekDayCellKey, type CellData, type PlanningWeekData, type Target, type WeekDay } from '@/lib/planning-week'
+import StatusPill from './StatusPill'
 import type { PlanningPreset } from '@/lib/planning-presets'
 import DayEditor from './DayEditor'
 
@@ -88,12 +89,7 @@ export default function MobileTeamDayStepper({
                   {day.dayName.slice(0, 2).toUpperCase()} {day.day}
                 </span>
                 {cell.value ? (
-                  <span
-                    className="flex-1 min-w-0 truncate rounded-md px-2 py-1 text-xs font-semibold"
-                    style={{ backgroundColor: cell.bgColor ?? 'rgba(255,255,255,0.08)', color: cell.bgColor ? '#fff' : '#a1a1aa' }}
-                  >
-                    {cell.value}
-                  </span>
+                  <StatusPill cell={cell} className="flex-1 min-w-0 rounded-md text-xs font-semibold" pad="px-2 py-1" center={false} />
                 ) : (
                   <span className="text-xs text-zinc-600">—</span>
                 )}
@@ -198,12 +194,7 @@ export default function MobileTeamDayStepper({
                       <span className="flex-1 text-sm font-medium text-zinc-200 truncate">{person.emp}</span>
                       {cell.value ? (
                         <div className="max-w-[45%] space-y-0.5">
-                          <span
-                            className="block truncate rounded-md px-2 py-1 text-[11px] font-semibold"
-                            style={{ backgroundColor: cell.bgColor ?? 'rgba(255,255,255,0.08)', color: cell.bgColor ? '#fff' : '#a1a1aa' }}
-                          >
-                            {cell.value}
-                          </span>
+                          <StatusPill cell={cell} className="rounded-md text-[11px] font-semibold" pad="px-2 py-1" center={false} />
                           {cell.note && <span className="block truncate text-[9px] text-zinc-500 text-right px-0.5">{cell.note}</span>}
                         </div>
                       ) : (
