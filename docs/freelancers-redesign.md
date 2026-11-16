@@ -833,3 +833,8 @@ Daarnaast `AddFreelancerModal`, `LinkReveal` (pincode één keer tonen, kopiëre
 - **Delen gebeurt ná het uploaden van de bijlagen**, zodat de freelancer ze meteen heeft.
 - **De oude `FreelancersPage.tsx`** wordt niet meer gebruikt; hij verdwijnt in Fase 6.
 - **AppShell** zet `/freelancers` op `overflow: hidden`, dus de nieuwe pagina's scrollen zelf (`PageScroll`). AppShell zelf is ongewijzigd.
+
+### Herwerking — stap 1 en 2 (november 2026)
+
+- **Stap 1 (bugs):** tien bugs in de interne schermen hersteld, met een test per bug (`src/lib/__tests__/freelancers-bugs.test.ts`, logica in `internal/logic.ts`). Commit 446a7cb.
+- **Stap 2 (voorstel):** klikbaar prototype op `/freelancers/prototype`, alleen voor admins, met nepdata (`src/features/freelancers/prototype/`). Leest en schrijft niets in de database. De lijst "wat verandert, wat verdwijnt en waarom" staat in het prototype (knop "Wat verandert er?", `prototype/Changes.tsx`). Wacht op feedback voor de echte schermen herbouwd worden (stap 3); daarna verdwijnt het prototype.
