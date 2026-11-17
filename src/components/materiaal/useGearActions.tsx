@@ -21,8 +21,9 @@ import { dropEntry, emptyStacks, isTextTarget, isUndoShortcut, markUndone, pushE
 // Elke ordeningsactie (verhuis, volgorde, categorie verwijderen, kit
 // opheffen, status) komt ook op een stapel: Ctrl+Z / Cmd+Z maakt de laatste
 // ongedaan, Ctrl+Shift+Z / Cmd+Shift+Z doet ze opnieuw. Niet in een tekstveld
-// en niet als er een venster open staat. Boekingen komen er nooit op, en
-// opnieuw doen past boekingen nooit aan.
+// en niet als er een venster open staat. Van de boekingen komt alleen
+// samenvoegen erop (en het toevoegen aan een bestaande boeking bij boeken);
+// opnieuw doen van een verhuis past boekingen nooit aan.
 
 let toastId = 0
 
@@ -158,6 +159,9 @@ export function useGearActions({ catalog, reload, onError }: {
     let updated: GearMoveEffect[] = [], failed: GearMoveEffect[] = []
     try { ({ updated, failed } = await execute(steps, cat)) }
     catch (e) { onError(e instanceof Error ? e.message : 'Verplaatsen mislukt.') }
+    // Eén actie, één wijzigingsmail per persoon voor alle boekingen die meegingen
+    // (ook als de verhuis uit meerdere stappen bestond). Mislukt dat, dan geen fout op het scherm.
+    if (updated.length) send('/api/materiaal/bookings/changed', 'POST', { ids: [...new Set(updated.map(u => u.booking_id))] }).catch(() => {})
     await reload()
     setBusy(false)
     const inverse = invertPlan(cat, steps)
@@ -252,6 +256,15 @@ export function useGearActions({ catalog, reload, onError }: {
     return updated
   }, [record])
 
+  /**
+   * Een actie van buiten (samenvoegen) op de stapel, met een melding
+   * "… · Ongedaan maken" zoals de andere ordeningsacties.
+   */
+  const announce = useCallback((entry: UndoEntry, message: string, undoneMessage: string) => {
+    record(entry)
+    setToast({ id: ++toastId, message, action: { label: 'Ongedaan maken', onClick: () => undoFromToast(entry, undoneMessage) } })
+  }, [record, undoFromToast])
+
   const ui: ReactNode = (
     <>
       {dialog && <MoveDialog title={dialog.title} entries={dialog.entries} onCancel={() => dialog.resolve(null)} onConfirm={u => dialog.resolve(u)} />}
@@ -259,5 +272,5 @@ export function useGearActions({ catalog, reload, onError }: {
     </>
   )
 
-  return { run, deleteCategory, dissolveKit, setItemStatus, record, busy, ui, notify: (message: string, tone: 'info' | 'warn' = 'info') => setToast({ id: ++toastId, message, tone, ms: 4000 }) }
+  return { run, deleteCategory, dissolveKit, setItemStatus, record, announce, busy, ui, notify: (message: string, tone: 'info' | 'warn' = 'info') => setToast({ id: ++toastId, message, tone, ms: 4000 }) }
 }

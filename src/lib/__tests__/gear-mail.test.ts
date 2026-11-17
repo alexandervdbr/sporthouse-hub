@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { MAIL_HEADER, MAIL_SIGNATURE, calendarEvent, mailPeriod, cancellationMail, confirmationKey, confirmationMail, isEmail, mailConfig, mailErrorText, mailRecipients, reminderMail, shouldConfirm, whatShort, type MailBooking } from '@/lib/gear/mail'
+import { MAIL_HEADER, MAIL_SIGNATURE, calendarEvent, changeKey, changeMail, groupByRecipient, mailPeriod, isEmail, mailConfig, mailErrorText, mailRecipients, reminderMail, shouldMail, whatShort, type MailBooking } from '@/lib/gear/mail'
 
 const b: MailBooking = {
   id: 'abc', start: '2026-11-03', end: '2026-11-07', person: 'Bram Kreike', client: 'NoStrezz', project: 'Teaser',
@@ -29,15 +29,19 @@ describe('ontvangers', () => {
       .toEqual(['bram@sporthouse.be', 'jan@example.com'])
     expect(isEmail(undefined)).toBe(false)
   })
-  it('sleutel van de bevestiging hangt aan de data', () => {
-    expect(confirmationKey('2026-11-03', '2026-11-07')).toBe('2026-11-03|2026-11-07')
+  it('sleutel van de wijziging hangt aan data, uren en materiaal (niet aan de volgorde)', () => {
+    const k = changeKey({ start: '2026-11-03', end: '2026-11-07', itemIds: ['a', 'b'] })
+    expect(k.startsWith('2026-11-03|2026-11-07|2:')).toBe(true)
+    expect(changeKey({ start: '2026-11-03', end: '2026-11-07', itemIds: ['b', 'a'] })).toBe(k)
+    expect(changeKey({ start: '2026-11-03', end: '2026-11-07', itemIds: ['a', 'c'] })).not.toBe(k)
+    expect(changeKey({ start: '2026-11-03', end: '2026-11-07', startTime: '14:00', itemIds: ['a', 'b'] })).not.toBe(k)
   })
 })
 
 describe('inhoud', () => {
-  it('bevestiging: wat, periode, voor wie, project, verantwoordelijke, link', () => {
-    const m = confirmationMail(b, false)
-    expect(m.subject).toBe('Materiaal geboekt: FX3 A-kit, Rode mic <pro> · 3–7 nov 2026')
+  it('wijziging: wat, periode, voor wie, project, verantwoordelijke, link', () => {
+    const m = changeMail([b])
+    expect(m.subject).toBe('Boeking gewijzigd: FX3 A-kit, Rode mic <pro> · 3–7 nov 2026')
     expect(m.text).toContain('- FX3 A-kit (FX3 A, 24-70 #1)')
     expect(m.text).toContain('Voor: Bram Kreike · NoStrezz')
     expect(m.text).toContain('Project: Teaser')
@@ -46,11 +50,14 @@ describe('inhoud', () => {
     expect(m.html).not.toContain('<pro>')
     expect(m.html).toContain('https://hub.example/materiaal?view=day&amp;date=2026-11-03')
   })
-  it('gewijzigde data zeggen dat', () => {
-    expect(confirmationMail(b, true).subject.startsWith('Boeking gewijzigd:')).toBe(true)
+  it('wijziging van meerdere boekingen in één actie: één mail met een blok per boeking', () => {
+    const m = changeMail([{ ...b, id: 'x', start: '2026-11-10', end: '2026-11-11', loose: ['Lens'] , kits: [] }, b])
+    expect(m.subject.startsWith('2 boekingen gewijzigd:')).toBe(true)
+    expect(m.text.indexOf('3–7 nov 2026')).toBeLessThan(m.text.indexOf('10–11 nov 2026'))
+    expect(m.text).toContain('- Lens')
   })
   it('herinnering: vandaag terugbrengen, zonder verantwoordelijke-blok', () => {
-    const m = reminderMail(b)
+    const m = reminderMail([b])
     expect(m.subject).toBe('Vandaag terugbrengen: FX3 A-kit, Rode mic <pro>')
     expect(m.text).not.toContain('Bespreek dit eerst')
   })
@@ -58,7 +65,7 @@ describe('inhoud', () => {
     expect(whatShort({ kits: [{ name: 'A', parts: [] }], loose: ['B', 'C', 'D'] })).toBe('A, B +2')
   })
   it('geen regeleinden in het onderwerp', () => {
-    expect(confirmationMail({ ...b, kits: [], loose: ['A\r\nBcc: x@y.z'] }, false).subject).not.toMatch(/[\r\n]/)
+    expect(changeMail([{ ...b, kits: [], loose: ['A\r\nBcc: x@y.z'] }]).subject).not.toMatch(/[\r\n]/)
   })
 })
 
@@ -68,24 +75,37 @@ describe('mailErrorText', () => {
   })
 })
 
-describe('shouldConfirm (achteraf boeken)', () => {
-  it('geen bevestiging voor een boeking die al voorbij is; wel als ze tot vandaag of later loopt', () => {
-    expect(shouldConfirm('2026-11-04', '2026-11-06')).toBe(false)
-    expect(shouldConfirm('2026-11-06', '2026-11-06')).toBe(true)
-    expect(shouldConfirm('2026-11-09', '2026-11-06')).toBe(true)
+describe('shouldMail (achteraf boeken)', () => {
+  it('geen mail voor een boeking die al voorbij is; wel als ze tot vandaag of later loopt', () => {
+    expect(shouldMail('2026-11-04', '2026-11-06')).toBe(false)
+    expect(shouldMail('2026-11-06', '2026-11-06')).toBe(true)
+    expect(shouldMail('2026-11-09', '2026-11-06')).toBe(true)
   })
 })
 
-describe('cancellationMail', () => {
-  it('"Geannuleerd: …" met wat en periode, zonder verantwoordelijke-blok', () => {
-    const m = cancellationMail(b)
-    expect(m.subject).toBe('Geannuleerd: FX3 A-kit, Rode mic <pro> · 3–7 nov 2026')
-    expect(m.text).toContain('Deze boeking is geannuleerd.')
-    expect(m.text).not.toContain('Bespreek dit eerst')
+describe('herinnering per persoon', () => {
+  const late = { ...b, id: 'late', endTime: '17:00', kits: [], loose: ['Statief'] }
+  const early = { ...b, id: 'early', endTime: '09:30', kits: [], loose: ['Mic'] }
+  const allDay = { ...b, id: 'dag', endTime: null, kits: [], loose: ['Kabel'] }
+  it('meerdere boekingen: één mail, per boeking, op volgorde van het uur (hele dag achteraan)', () => {
+    const m = reminderMail([allDay, late, early])
+    expect(m.text).toContain('Vandaag breng je materiaal van 3 boekingen terug')
+    const i = (s: string) => m.text.indexOf(s)
+    expect(i('Terug om 09:30')).toBeLessThan(i('Terug om 17:00'))
+    expect(i('Terug om 17:00')).toBeLessThan(i('Terug vandaag (hele dag)'))
+    expect(i('- Mic')).toBeLessThan(i('- Statief'))
   })
-  it('geen annuleringsmail voor een boeking die al voorbij was (zelfde regel als de bevestiging)', () => {
-    expect(shouldConfirm('2026-11-05', '2026-11-06')).toBe(false)
-    expect(shouldConfirm('2026-11-06', '2026-11-06')).toBe(true)
+  it('groepeert per ontvanger: elke ontvanger één keer, met al zijn boekingen', () => {
+    const g = groupByRecipient([
+      { item: 'b1', to: ['Bram@x.be', 'maker@x.be'] },
+      { item: 'b2', to: ['bram@x.be'] },
+      { item: 'b3', to: ['jan@x.be', 'geen-adres'] },
+    ])
+    expect(g).toEqual([
+      { to: 'bram@x.be', items: ['b1', 'b2'] },
+      { to: 'maker@x.be', items: ['b1'] },
+      { to: 'jan@x.be', items: ['b3'] },
+    ])
   })
 })
 
@@ -94,13 +114,10 @@ describe('uren in de mail', () => {
   it('periode met uren', () => {
     expect(mailPeriod(timed)).toBe('3 nov 14:00 – 7 nov 10:00 2026')
     expect(mailPeriod(b)).toBe('3–7 nov 2026')
-    expect(confirmationMail(timed, false).subject).toContain('3 nov 14:00 – 7 nov 10:00 2026')
+    expect(changeMail([timed]).subject).toContain('3 nov 14:00 – 7 nov 10:00 2026')
   })
   it('herinnering met het uur van terugbrengen', () => {
-    expect(reminderMail({ ...b, endTime: '17:00' }).text).toContain('om 17:00')
-  })
-  it('nieuwe uren = nieuwe bevestiging (andere sleutel)', () => {
-    expect(confirmationKey('2026-11-03', '2026-11-07', '14:00', null)).not.toBe(confirmationKey('2026-11-03', '2026-11-07'))
+    expect(reminderMail([{ ...b, endTime: '17:00' }]).text).toContain('om 17:00')
   })
 })
 
@@ -113,7 +130,7 @@ describe('kop en handtekening', () => {
     expect(MAIL_SIGNATURE).toContain('border-top:1px solid')
   })
   it('elke soort mail eindigt met de handtekening en heeft geen bijlage meer nodig', () => {
-    for (const m of [confirmationMail(b, false), cancellationMail(b), reminderMail(b)]) {
+    for (const m of [changeMail([b]), changeMail([b, { ...b, id: 'y' }]), reminderMail([b]), reminderMail([b, { ...b, id: 'y' }])]) {
       expect(m.html.endsWith(`${MAIL_SIGNATURE}</div>`)).toBe(true)
       expect(m.html.indexOf('cid:logo')).toBeGreaterThan(m.html.indexOf(MAIL_HEADER))
       expect(m.text).not.toContain('.ics')
