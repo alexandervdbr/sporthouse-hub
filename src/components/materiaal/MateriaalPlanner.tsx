@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import Link from 'next/link'
-import { Camera, ChevronLeft, ChevronRight, Loader2, Plus, Search, Settings, X } from 'lucide-react'
+import { Camera, ChevronLeft, ChevronRight, ListChecks, Loader2, Plus, Search, Settings, X } from 'lucide-react'
 import AddGearDialog from '@/components/materiaal/AddGearDialog'
-import BookingForm from '@/components/materiaal/BookingForm'
+import BookingForm, { type SavedMerge } from '@/components/materiaal/BookingForm'
+import MijnBoekingen from '@/components/materiaal/MijnBoekingen'
+import { mergeUndoEntry } from '@/components/materiaal/MergeParts'
 import GearPanel, { type AddPrefill, type PanelTarget } from '@/components/materiaal/GearPanel'
 import { useGearActions } from '@/components/materiaal/useGearActions'
 import { planAddToKit } from '@/lib/gear/inventory'
@@ -12,7 +14,7 @@ import DayAgenda from '@/components/materiaal/DayAgenda'
 import MaterialGrid, { type GridTarget } from '@/components/materiaal/MaterialGrid'
 import { Button, ErrorLine, IconButton, Segmented, buttonCls, inputCls, send } from '@/components/materiaal/ui'
 import type { GearAccess } from '@/lib/gear/access'
-import { eachDay, todayInBrussels } from '@/lib/gear/dates'
+import { addDays, eachDay, todayInBrussels } from '@/lib/gear/dates'
 import { buildDayList, type DayFilter } from '@/lib/gear/day-list'
 import { buildGrid, busyFor } from '@/lib/gear/grid'
 import { gapTimes, suggestTimes, type Slot } from '@/lib/gear/times'
@@ -45,14 +47,17 @@ function storedView(): PlannerView | null {
 
 type Dialog =
   | { kind: 'new'; kitIds: string[]; itemIds: string[]; start: string; end: string; startTime?: string | null; endTime?: string | null }
-  | { kind: 'open'; booking: GearBooking }
+  // Vanuit "Mijn boekingen": de boekingen rond die periode, voor de botsingen in het formulier.
+  | { kind: 'open'; booking: GearBooking; edit?: boolean; around?: { bookings: GearBooking[]; window: { start: string; end: string } } }
 
-export default function MateriaalPlanner({ userId, access, initialView, initialDate }: {
+export default function MateriaalPlanner({ userId, access, initialView, initialDate, initialTab }: {
   userId: string
   access: GearAccess
   /** Uit de URL; ontbreekt die, dan de laatst gekozen weergave. */
   initialView?: string
   initialDate?: string
+  /** ?tab=mijn: meteen "Mijn boekingen". */
+  initialTab?: string
 }) {
   const today = todayInBrussels()
   const ready = useSyncExternalStore(noSubscribe, () => true, () => false)
@@ -76,6 +81,8 @@ export default function MateriaalPlanner({ userId, access, initialView, initialD
   // Welke kits opengeklapt zijn (hun onderdelen zichtbaar).
   const [openKits, setOpenKits] = useState<Set<string>>(new Set())
   const [dialog, setDialog] = useState<Dialog | null>(null)
+  // De planner, of de lijst "Mijn boekingen" (ook op de telefoon).
+  const [tab, setTab] = useState<'planner' | 'mijn'>(initialTab === 'mijn' ? 'mijn' : 'planner')
   // Na opslaan of annuleren de periode opnieuw laden.
   const [reload, setReload] = useState(0)
   const [error, setError] = useState('')
@@ -86,8 +93,9 @@ export default function MateriaalPlanner({ userId, access, initialView, initialD
     const url = new URL(window.location.href)
     url.searchParams.set('view', view)
     url.searchParams.set('date', date)
+    if (tab === 'mijn') url.searchParams.set('tab', 'mijn'); else url.searchParams.delete('tab')
     window.history.replaceState(null, '', url)
-  }, [ready, view, date])
+  }, [ready, view, date, tab])
 
   const shown: PlannerView = phone ? 'day' : view
   const { start: rangeStart, end: rangeEnd } = viewRange(shown, date)
@@ -128,6 +136,25 @@ export default function MateriaalPlanner({ userId, access, initialView, initialD
   }
 
   const openBooking = (id: string) => { const b = bookingById.get(id); if (b) setDialog({ kind: 'open', booking: b }) }
+  // Vanuit de lijst: eerst de boekingen rond die periode, zodat het formulier botsingen ziet.
+  const openFromList = async (b: GearBooking, edit: boolean) => {
+    const win = { start: addDays(b.start_date, -7), end: addDays(b.end_date, 7) }
+    try {
+      const around = await send<GearBooking[]>(`/api/materiaal/bookings?start=${win.start}&end=${win.end}`, 'GET')
+      setDialog({ kind: 'open', booking: b, edit, around: { bookings: around, window: win } })
+    } catch (e) { setError(e instanceof Error ? e.message : 'Laden mislukt.') }
+  }
+  // Na opslaan; was het "Ja, toevoegen" aan een bestaande boeking, dan met ongedaan maken.
+  const onSaved = (merged?: SavedMerge) => {
+    setDialog(null)
+    setReload(r => r + 1)
+    if (!merged) return
+    const label = 'Toegevoegd aan je bestaande boeking'
+    actions.announce(mergeUndoEntry({
+      mergeId: merged.mergeId, ids: [merged.targetId, merged.createdId], keepFrom: merged.keepFrom, label,
+      onChange: () => setReload(r => r + 1),
+    }), label, 'Teruggezet als aparte boeking.')
+  }
   // Klik of sleep: met de uren waarop het vrij is ("tot 10:00 weg" → ophalen 10:00).
   // Botst er dan nog iets, dan zegt het formulier welk deel.
   const onSelectRange = useCallback((target: GridTarget, from: number, to: number) => {
@@ -183,10 +210,10 @@ export default function MateriaalPlanner({ userId, access, initialView, initialD
       {/* Telefoon: titel en knoppen bovenaan, de datum als eigen volle regel eronder. */}
       <div className="flex-shrink-0 flex flex-wrap items-center gap-x-4 gap-y-2 px-4 sm:px-6 py-3 lg:py-4 border-b border-zinc-800">
         <h1 className="order-1 text-base sm:text-lg font-semibold text-zinc-100">Materiaal</h1>
-        <div className="order-2 hidden lg:block w-48 flex-shrink-0">
+        <div className={`order-2 hidden ${tab === 'planner' ? 'lg:block' : ''} w-48 flex-shrink-0`}>
           <Segmented label="Weergave" value={view} options={VIEW_OPTIONS} onChange={chooseView} />
         </div>
-        <div className="order-4 lg:order-3 w-full lg:w-auto flex items-center gap-1">
+        <div className={`order-4 lg:order-3 w-full lg:w-auto flex items-center gap-1 ${tab === 'mijn' ? '!hidden' : ''}`}>
           <IconButton label={`Vorige ${UNIT[shown]}`} onClick={() => setDate(d => shiftView(shown, d, -1))}><ChevronLeft size={16} /></IconButton>
           <span className={`flex-1 lg:flex-none min-w-0 ${LABEL_W[shown]} text-center text-sm font-medium text-zinc-200 whitespace-nowrap truncate`}>
             {phone ? shortDayLabel(date, today) : viewLabel(shown, date)}
@@ -196,7 +223,7 @@ export default function MateriaalPlanner({ userId, access, initialView, initialD
           {loading && <Loader2 size={14} className="ml-2 animate-spin text-zinc-600" />}
         </div>
         <div className="order-2 lg:order-4 ml-auto flex items-center gap-2">
-          {!noUnits && (
+          {!noUnits && tab === 'planner' && (
             <div className="relative hidden lg:block">
               <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Zoek materiaal of houder…" aria-label="Zoek materiaal"
@@ -211,6 +238,10 @@ export default function MateriaalPlanner({ userId, access, initialView, initialD
               <Plus size={14} /> Boeken
             </Button>
           )}
+          <Button variant={tab === 'mijn' ? 'primary' : 'secondary'} aria-pressed={tab === 'mijn'}
+            onClick={() => setTab(t => (t === 'mijn' ? 'planner' : 'mijn'))}>
+            <ListChecks size={14} /> <span className="sm:hidden">Mijn</span><span className="hidden sm:inline">Mijn boekingen</span>
+          </Button>
           {access.manageCatalog && (
             <Link href="/materiaal/beheer" className={buttonCls('secondary')}>
               <Settings size={14} /> Beheer
@@ -241,6 +272,12 @@ export default function MateriaalPlanner({ userId, access, initialView, initialD
               </Link>
             )}
           </div>
+        </div>
+      ) : tab === 'mijn' ? (
+        <div className="flex-1 overflow-y-auto">
+          <MijnBoekingen userId={userId} access={access} catalog={catalog} today={today} reloadKey={reload}
+            onOpen={openFromList} onCancelled={() => setReload(r => r + 1)} announce={actions.announce}
+            onBook={() => setDialog({ kind: 'new', kitIds: [], itemIds: [], start: today, end: today })} />
         </div>
       ) : shown === 'day' ? (
         <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
@@ -309,15 +346,16 @@ export default function MateriaalPlanner({ userId, access, initialView, initialD
           key={dialog.kind === 'open' ? dialog.booking.id : `${dialog.kitIds.join()}-${dialog.itemIds.join()}-${dialog.start}-${dialog.end}`}
           catalog={catalog}
           options={options}
-          bookings={bookings}
-          loadedWindow={window_}
+          bookings={dialog.kind === 'open' && dialog.around ? dialog.around.bookings : bookings}
+          loadedWindow={dialog.kind === 'open' && dialog.around ? dialog.around.window : window_}
           today={today}
           userId={userId}
           access={access}
           initial={dialog.kind === 'new' ? dialog : undefined}
           booking={dialog.kind === 'open' ? dialog.booking : undefined}
+          startEditing={dialog.kind === 'open' && dialog.edit}
           onClose={() => setDialog(null)}
-          onSaved={() => { setDialog(null); setReload(r => r + 1) }}
+          onSaved={onSaved}
         />
       )}
     </div>

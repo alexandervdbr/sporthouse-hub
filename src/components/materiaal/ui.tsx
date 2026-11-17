@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from 'react'
-import { AlertCircle, ChevronDown, Loader2 } from 'lucide-react'
+import { useEffect, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from 'react'
+import { AlertCircle, ChevronDown, Loader2, MoreHorizontal } from 'lucide-react'
 import { STATUS_LABEL, type UnitStatus } from '@/lib/gear/status'
 import type { GearClientRef } from '@/lib/gear/types'
 
@@ -140,6 +140,42 @@ export function IconButton({ label, onClick, danger, children }: { label: string
         danger ? 'text-zinc-500 hover:text-red-400' : 'text-zinc-500 hover:text-zinc-200'}`}>
       {children}
     </button>
+  )
+}
+
+/**
+ * Het ⋯-menu van een rij: een knop met een kleine lijst acties eronder.
+ * Sluit bij een klik erbuiten, Escape of een keuze.
+ */
+export function RowMenu({ label, items }: {
+  label: string
+  items: { label: string; onClick: () => void; danger?: boolean }[]
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey) }
+  }, [open])
+  if (!items.length) return <span className="w-8 h-8 flex-shrink-0" aria-hidden />
+  return (
+    <div ref={ref} className="relative flex-shrink-0" onClick={e => e.stopPropagation()}>
+      <IconButton label={label} onClick={() => setOpen(o => !o)}><MoreHorizontal size={15} /></IconButton>
+      {open && (
+        <div role="menu" className="absolute right-0 top-full mt-1 z-30 min-w-36 py-1 rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl">
+          {items.map(i => (
+            <button key={i.label} type="button" role="menuitem" onClick={() => { setOpen(false); i.onClick() }}
+              className={`block w-full text-left px-3 py-2 sm:py-1.5 text-sm hover:bg-zinc-800 ${i.danger ? 'text-red-400' : 'text-zinc-200'}`}>
+              {i.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 

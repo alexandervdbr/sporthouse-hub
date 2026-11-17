@@ -1,6 +1,7 @@
 // Ongedaan maken met Ctrl+Z / Cmd+Z: een stapel per sessie (per pagina) van
 // ordeningsacties — verplaatsen, volgorde, categorie verwijderen, kit
-// opheffen, status. Boekingen komen er nooit op. Elke actie weet zelf hoe ze
+// opheffen, status, en boekingen samenvoegen. Andere boekingswijzigingen
+// komen er niet op. Elke actie weet zelf hoe ze
 // teruggaat en hoe ze opnieuw gaat; de stapel houdt alleen de volgorde bij.
 
 export interface UndoEntry {

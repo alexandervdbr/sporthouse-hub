@@ -6,9 +6,9 @@ import { sendDueReminders } from '@/lib/gear/mail-server'
 // POST — de herinneringen van vandaag versturen. Aangeroepen door de
 // dagelijkse trigger in het Apps Script-project (scripts/apps-script/
 // materiaal-mail), met het gedeelde geheim als Bearer-token; geen login.
-// De hub stuurt de mails zelf via hetzelfde script als de bevestigingen,
+// De hub stuurt de mails zelf via hetzelfde script als de wijzigingsmails,
 // zodat er één manier van versturen en één logboek is: twee keer aanroepen
-// verstuurt niets twee keer.
+// verstuurt niets twee keer. Eén mail per ontvanger met al zijn boekingen.
 
 function validSecret(header: string | null, secret: string): boolean {
   const a = Buffer.from(header ?? '')

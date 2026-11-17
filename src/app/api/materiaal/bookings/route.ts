@@ -1,17 +1,16 @@
-import { createAdminClient } from '@/lib/supabase/server'
 import { after } from 'next/server'
 import { requireGear, dbErrorResponse, needsResponsibleAck, RESPONSIBLE_ACK_TEXT } from '@/lib/gear/server'
-import { sendBookingConfirmation } from '@/lib/gear/mail-server'
+import { calendarAfterMerge, syncBookingCalendar } from '@/lib/gear/mail-server'
 import { isISODate } from '@/lib/gear/dates'
-import { normalizeTime } from '@/lib/gear/times'
 import { parseBookingInput } from '@/lib/gear/booking-input'
-import type { GearBooking } from '@/lib/gear/types'
+import { BOOKING_SELECT, shapeBookings } from '@/lib/gear/booking-rows'
+import type { MergeResult } from '@/lib/gear/types'
 
 // GET ?start=&end= — de niet-geannuleerde boekingen die dat venster raken
 // (de planner vraagt één maand tegelijk, niet de hele tabel).
 // POST — boeken via gear_create_booking; de database controleert alles.
-// Daarna, los van het antwoord, de bevestigingsmail (een mislukte mail houdt
-// de boeking nooit tegen).
+// Daarna, los van het antwoord, de afspraak in de agenda. Geen mail bij
+// boeken. Met merge_into: meteen toevoegen aan een bestaande boeking.
 
 export async function GET(req: Request) {
   const auth = await requireGear('view')
@@ -25,41 +24,13 @@ export async function GET(req: Request) {
 
   const { data, error } = await supabase
     .from('gear_bookings')
-    .select('id, start_date, end_date, start_time, end_time, booked_for_user_id, freelancer_id, external_name, person_name, client_id, project_id, note, created_by, created_by_name, created_at, gear_booking_items(item_id, via_kit_id, via_kit_name)')
+    .select(BOOKING_SELECT)
     .is('cancelled_at', null)
     .lte('start_date', end)
     .gte('end_date', start)
     .order('start_date')
   if (error) return dbErrorResponse(error)
-
-  type Row = Omit<GearBooking, 'lines' | 'client' | 'project'> & {
-    client_id: string | null
-    project_id: string | null
-    gear_booking_items: GearBooking['lines']
-  }
-  const rows = (data ?? []) as Row[]
-
-  // Klant- en projectnamen via de server: die zijn per klant afgeschermd,
-  // maar wie de planner ziet, moet kunnen lezen voor wie iets weg is.
-  const clientIds = [...new Set(rows.map(r => r.client_id).filter((x): x is string => !!x))]
-  const projectIds = [...new Set(rows.map(r => r.project_id).filter((x): x is string => !!x))]
-  const admin = createAdminClient()
-  const [clients, projects] = await Promise.all([
-    clientIds.length ? admin.from('clients').select('id, name, color').in('id', clientIds) : Promise.resolve({ data: [] }),
-    projectIds.length ? admin.from('projects').select('id, name').in('id', projectIds) : Promise.resolve({ data: [] }),
-  ])
-  const clientById = new Map((clients.data ?? []).map(c => [c.id, c]))
-  const projectById = new Map((projects.data ?? []).map(p => [p.id, p]))
-
-  const bookings: GearBooking[] = rows.map(({ client_id, project_id, gear_booking_items, ...b }) => ({
-    ...b,
-    start_time: normalizeTime(b.start_time),
-    end_time: normalizeTime(b.end_time),
-    lines: gear_booking_items,
-    client: client_id ? clientById.get(client_id) ?? null : null,
-    project: project_id ? projectById.get(project_id) ?? null : null,
-  }))
-  return Response.json(bookings)
+  return Response.json(await shapeBookings(data))
 }
 
 export async function POST(req: Request) {
@@ -74,8 +45,21 @@ export async function POST(req: Request) {
     return new Response(RESPONSIBLE_ACK_TEXT, { status: 400 })
   }
 
+  // "Ja, toevoegen" aan een bestaande boeking met exact dezelfde periode:
+  // boeken en samenvoegen in één stap in de database. Geen mail; de afspraak
+  // van de bestaande boeking krijgt het nieuwe materiaal erbij.
+  const into = typeof body?.merge_into === 'string' ? body.merge_into : null
+  if (into) {
+    const keep = body?.keep === 'new' ? 'new' : 'existing'
+    const { data, error } = await supabase.rpc('gear_create_booking_into', { p_into_booking_id: into, p_keep: keep, ...parsed.args })
+    if (error) return dbErrorResponse(error)
+    const r = data as MergeResult
+    after(() => calendarAfterMerge(r.target_id, r.absorbed_ids))
+    return Response.json({ id: r.target_id, merge_id: r.merge_id, created_id: r.created_id }, { status: 201 })
+  }
+
   const { data, error } = await supabase.rpc('gear_create_booking', parsed.args)
   if (error) return dbErrorResponse(error)
-  after(() => sendBookingConfirmation(data as string, false))
+  after(() => syncBookingCalendar(data as string))
   return Response.json({ id: data }, { status: 201 })
 }
