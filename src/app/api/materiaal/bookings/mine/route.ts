@@ -4,7 +4,7 @@ import { BOOKING_SELECT, shapeBookings } from '@/lib/gear/booking-rows'
 
 // GET — "Mijn boekingen": de niet-geannuleerde boekingen voor mij of door
 // mij gemaakt, die nog lopen of komen, plus de afgelopen tot `since`
-// (standaard 30 dagen terug; "meer tonen" schuift dat op).
+// (standaard 30 dagen terug; "Meer laden" schuift dat op, als er meer is).
 // ?all=1 — met Beheren: die van iedereen (filteren en zoeken doet het scherm).
 // Eén keer laden bij openen; geen timer.
 
@@ -28,5 +28,9 @@ export async function GET(req: Request) {
   if (!all) q = q.or(`created_by.eq.${user.id},booked_for_user_id.eq.${user.id}`)
   const { data, error } = await q.order('start_date').order('start_time', { nullsFirst: true }).limit(LIMIT)
   if (error) return dbErrorResponse(error)
-  return Response.json({ since, bookings: await shapeBookings(data), truncated: (data?.length ?? 0) >= LIMIT })
+  // Is er nog iets ouder? Dan pas "Meer laden" (één rij, geen telling).
+  let older = supabase.from('gear_bookings').select('id').is('cancelled_at', null).lt('end_date', since)
+  if (!all) older = older.or(`created_by.eq.${user.id},booked_for_user_id.eq.${user.id}`)
+  const { data: more } = await older.limit(1)
+  return Response.json({ since, bookings: await shapeBookings(data), truncated: (data?.length ?? 0) >= LIMIT, has_older: (more?.length ?? 0) > 0 })
 }

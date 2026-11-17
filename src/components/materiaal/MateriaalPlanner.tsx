@@ -276,7 +276,8 @@ export default function MateriaalPlanner({ userId, access, initialView, initialD
       ) : tab === 'mijn' ? (
         <div className="flex-1 overflow-y-auto">
           <MijnBoekingen userId={userId} access={access} catalog={catalog} today={today} reloadKey={reload}
-            onOpen={openFromList} onCancelled={() => setReload(r => r + 1)} announce={actions.announce} />
+            onOpen={openFromList} onCancelled={() => setReload(r => r + 1)} announce={actions.announce}
+            onBook={() => setDialog({ kind: 'new', kitIds: [], itemIds: [], start: today, end: today })} />
         </div>
       ) : shown === 'day' ? (
         <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
