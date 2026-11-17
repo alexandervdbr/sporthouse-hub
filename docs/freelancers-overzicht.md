@@ -364,6 +364,52 @@ Exporteren maakt een CSV van de huidige gefilterde en gesorteerde lijst.
 
 ---
 
+### 8.7 Zo is importeren en exporteren gebouwd (Fase 2)
+
+De code staat in `features/freelancers/lib/csv.ts` en `spreadsheet.ts` (puur, getest), `components/freelancers/overzicht/Import.tsx` en `POST /api/freelancers/import`.
+
+**Lezen**
+- Het bestand blijft in de browser. De server krijgt na de bevestiging alleen de rijen, in één verzoek, en valideert elke rij opnieuw met dezelfde whitelists als het formulier. Hooguit 2000 rijen per keer.
+- Het scheidingsteken is `;`, `,` of tab (plakken rechtstreeks uit de spreadsheet). Waarden tussen aanhalingstekens, regeleinden in een cel en een BOM worden goed gelezen. Excel-bestanden van Windows (Windows-1252) worden herkend.
+- Kolomnamen mogen in een andere volgorde staan en andere hoofdletters hebben. Ook gangbare varianten worden herkend: Telefoon voor Nummer, E-mail voor Mailadres, Tarief voor Prijs. Onbekende kolommen worden getoond en genegeerd.
+
+**Prijs**
+- Precies één bedrag en precies één eenheid (uur, dag of project) wordt bedrag + eenheid.
+- Staat er nog meer bij (bv. "excl. btw"), dan blijft ook de originele tekst als notitie.
+- Al het andere gaat volledig naar de notitie: twee bedragen, een bereik, "halve dag", geen eenheid of geen bedrag.
+- Afwijking van het plan: was de prijs eenduidig, dan blijft de notitie leeg. Het plan zette de originele tekst er altijd in, maar dan staat "€450/dag" twee keer in het paneel.
+
+**Wat?**
+- Gesplitst op komma en slash, maar een bestaand label met een slash ("Foto/Video", "Video (vfx/motion)") blijft heel.
+- Een onbekende waarde staat aangevinkt als nieuwe discipline. Vink je ze uit, dan komt ze in de notities.
+- Een nieuwe rij zonder enige discipline wordt overgeslagen, want Wat is verplicht.
+
+**Getest:** ja → vast, weinig → proef, nee of leeg → nog niet getest. Ook "inactief" wordt herkend, zodat een eigen export weer inleest.
+
+**Beoordeling:** een geheel getal van 1 tot 5 ("4", "4/5", "★★★★"). Iets anders blijft leeg, met een waarschuwing.
+
+**Portfolio en e-mail**
+- Elke URL in de cel wordt een link; `www.` krijgt `https://` ervoor.
+- Tekst zonder link, een ongeldig e-mailadres of een tweede e-mailadres gaat met een waarschuwing naar de notities. Er gaat niets verloren.
+
+**Dubbels**
+- Met de bestaande lijst, ook de gearchiveerden: hetzelfde e-mailadres (zonder hoofdletters), anders dezelfde naam, zolang de e-mailadressen elkaar niet tegenspreken.
+- Standaard staat een dubbel op "overslaan".
+- **Bijwerken:**
+  - alleen ingevulde cellen overschrijven;
+  - Wat?, Portfolio en Notities worden samengevoegd met wat er al staat;
+  - een lege Getest laat de status ongemoeid.
+- Een dubbel binnen hetzelfde bestand wordt altijd overgeslagen, met het nummer van de eerdere rij.
+
+**Opslaan**
+- Volgorde: eerst de nieuwe disciplines, dan de nieuwe freelancers in één keer, dan de rijen die bijgewerkt worden.
+- Faalt de groep nieuwe freelancers (bv. een e-mailadres dat intussen bestaat), dan probeert de server ze één voor één opnieuw. Alleen de foute rijen vallen weg, met hun rijnummer in de samenvatting.
+
+**Exporteren**
+- In de browser: precies de lijst die je ziet, gefilterd en gesorteerd.
+- Een bedrag met een notitie wordt "€450/dag — €250 halve dag", en importeren leest dat weer als bedrag + notitie.
+- Portfolio-links staan met een spatie ertussen. De labels gaan verloren: na een nieuwe import is het label de domeinnaam.
+
 ## 9. Beslissingen (17 november 2026)
 
 | # | Beslist |

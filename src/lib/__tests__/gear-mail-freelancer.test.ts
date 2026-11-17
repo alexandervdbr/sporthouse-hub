@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// De materiaalplanner mailt de freelancer voor wie geboekt is, op het adres
-// uit freelancers.email (gear_bookings.freelancer_id → freelancers.id), en
-// zet hem als gast in de agenda-afspraak. Het freelanceroverzicht
-// (docs/freelancers-overzicht.md) mag daar niets aan veranderen.
+// De materiaalplanner mailt de freelancer voor wie geboekt is (wijzigingsmail
+// en herinnering), op het adres uit freelancers.email
+// (gear_bookings.freelancer_id → freelancers.id), en zet hem als gast in de
+// agenda-afspraak. Het freelanceroverzicht (docs/freelancers-overzicht.md)
+// mag daar niets aan veranderen.
 
 const F = '11111111-1111-4111-8111-111111111111'
 const state: { calls: string[]; mailLog: { recipient: string }[]; scriptCalls: Record<string, unknown>[] } = { calls: [], mailLog: [], scriptCalls: [] }
@@ -28,7 +29,7 @@ function builder(table: string) {
     if (table === 'freelancers') return { data: { email: 'jana@example.com' }, error: null }
     return { data: null, error: null }
   }
-  q.then = (resolve: (v: unknown) => void) => resolve({ data: op === 'select' ? [] : null, error: null })
+  q.then = (resolve: (v: unknown) => void) => resolve({ data: op === 'select' ? (table === 'gear_bookings' ? [{ id: 'b1' }] : []) : null, error: null })
   return q
 }
 
@@ -38,7 +39,7 @@ const admin = {
 }
 vi.mock('@/lib/supabase/server', () => ({ createAdminClient: () => admin, createClient: async () => admin }))
 
-const { sendBookingConfirmation } = await import('@/lib/gear/mail-server')
+const { sendBookingChanges, sendDueReminders } = await import('@/lib/gear/mail-server')
 
 beforeEach(() => {
   state.calls = []; state.mailLog = []; state.scriptCalls = []
@@ -51,15 +52,21 @@ beforeEach(() => {
 })
 
 describe('materiaalplanner — mail naar de freelancer', () => {
-  it('zoekt het e-mailadres op in freelancers via freelancer_id en mailt het', async () => {
-    await sendBookingConfirmation('b1', false)
+  it('wijzigingsmail: zoekt het e-mailadres op in freelancers via freelancer_id en mailt het', async () => {
+    await sendBookingChanges(['b1'])
     expect(state.calls).toContain(`freelancers.eq:id=${F}`)
     expect(state.mailLog.map(r => r.recipient)).toContain('jana@example.com')
     expect(state.mailLog.map(r => r.recipient)).toContain('maker@sporthouse.be')
   })
 
+  it('herinnering: gaat ook naar de freelancer', async () => {
+    await sendDueReminders('2099-05-02')
+    expect(state.calls).toContain(`freelancers.eq:id=${F}`)
+    expect(state.mailLog.map(r => r.recipient)).toContain('jana@example.com')
+  })
+
   it('zet de freelancer als gast in de agenda-afspraak (en de maker niet)', async () => {
-    await sendBookingConfirmation('b1', false)
+    await sendBookingChanges(['b1'])
     const agenda = state.scriptCalls.find(c => c.action === 'agenda') as { event: { guests?: string[] } } | undefined
     expect(agenda).toBeTruthy()
     expect(JSON.stringify(agenda!.event)).toContain('jana@example.com')

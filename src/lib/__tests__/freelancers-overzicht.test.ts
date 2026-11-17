@@ -168,6 +168,12 @@ describe('bekijken en beheren', () => {
     expect(renderToStaticMarkup(createElement(Overview, { canManage: false, clients: [] }))).not.toContain('Freelancer toevoegen')
     expect(renderToStaticMarkup(createElement(Overview, { canManage: true, clients: [] }))).toContain('Freelancer toevoegen')
   })
+  it('bekijken: Exporteren wel, Importeren niet', () => {
+    const view = renderToStaticMarkup(createElement(Overview, { canManage: false, clients: [] }))
+    expect(view).toContain('Exporteren')
+    expect(view).not.toContain('Importeren')
+    expect(renderToStaticMarkup(createElement(Overview, { canManage: true, clients: [] }))).toContain('Importeren')
+  })
   it('"+ Freelancer" opent hetzelfde paneel, leeg en meteen als formulier', () => {
     const html = panel(true, null)
     expect(html).toContain('Nieuwe freelancer')
