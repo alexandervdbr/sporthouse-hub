@@ -82,8 +82,7 @@ async function fetchThumbnailAsBase64(
 
 // Isolated, single-purpose call — deliberately not the Expert AI's system
 // prompt/persona/conversation context. This is a narrow structured-data task
-// (caption + thumbnail in, media type + tags out), same shape as
-// freelancers/match/route.ts. `mediaTypes` is the current live list from
+// (caption + thumbnail in, media type + tags out). `mediaTypes` is the current live list from
 // reel_media_types (fetched by the caller) — permitted staff can add new
 // ones (e.g. "3D"), so the valid set is never hardcoded here.
 export async function classifyReel(input: {

@@ -6,7 +6,6 @@ export interface PreviewUser {
   email: string
   name: string
   permissions: { sections: string[]; clients: string[] } | null
-  isFreelancer: boolean
 }
 
 interface PreviewContextType {

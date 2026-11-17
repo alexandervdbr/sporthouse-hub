@@ -27,8 +27,7 @@ export default function PreviewBanner() {
       <span className="flex-1 truncate">
         Je bekijkt het platform als <span className="font-bold">{preview.name || preview.email}</span>
         {' '}<span className="opacity-60">({preview.email})</span>
-        {preview.isFreelancer && <span className="ml-1 opacity-70">— Freelancer</span>}
-        {!preview.permissions && !preview.isFreelancer && <span className="ml-1 opacity-70">— Volledige toegang</span>}
+        {!preview.permissions && <span className="ml-1 opacity-70">— Volledige toegang</span>}
       </span>
       <button
         onClick={exitPreview}

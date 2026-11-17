@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // De API van het freelanceroverzicht (docs/freelancers-overzicht.md), met een
-// nagemaakte Supabase. De oude opdracht-, avatar- en matchroutes staan er
-// nog in tot ze in Fase 3 verdwijnen. Wat hier getest wordt:
+// nagemaakte Supabase. Wat hier getest wordt:
 //   - zonder het juiste niveau een 401/403, vóór er iets naar de database gaat
 //   - "bekijken" mag lezen maar nergens schrijven
 //   - een account zonder permissions-object krijgt niets
@@ -21,8 +20,7 @@ const state: {
   /** Antwoord per tabel; een lijst = één antwoord per oproep, in volgorde. */
   tables: Record<string, Result | Result[]>
   createUser: number
-  claude: number
-} = { user: null, calls: [], writes: [], tables: {}, createUser: 0, claude: 0 }
+} = { user: null, calls: [], writes: [], tables: {}, createUser: 0 }
 
 function builder(table: string) {
   const result = (): Result => {
@@ -51,39 +49,12 @@ function client() {
     },
     from: (table: string) => builder(table),
     rpc: async (name: string) => { state.calls.push(`rpc:${name}`); return { data: [], error: null } },
-    storage: {
-      listBuckets: async () => { state.calls.push('storage.listBuckets'); return { data: [{ name: 'freelancer-avatars' }] } },
-      createBucket: async () => ({}),
-      from: () => ({
-        list: async () => { state.calls.push('storage.list'); return { data: [] } },
-        remove: async () => { state.calls.push('storage.remove'); return {} },
-        upload: async () => { state.calls.push('storage.upload'); return { error: null } },
-        getPublicUrl: () => ({ data: { publicUrl: 'https://x.supabase.co/a.png' } }),
-        createSignedUrl: async () => ({ data: { signedUrl: 'https://x.supabase.co/signed' } }),
-      }),
-    },
   }
 }
 
 vi.mock('@/lib/supabase/server', () => ({ createClient: async () => client(), createAdminClient: () => client() }))
 vi.mock('@supabase/supabase-js', () => ({ createClient: () => client() }))
 vi.mock('@/lib/supabase/claims', () => ({ getSessionUser: async () => state.user }))
-vi.mock('@/lib/thumbnail-response', () => ({
-  driveThumbnailResponse: () => new Response('img'), thumbnailSizeFromRequest: () => 'small',
-}))
-vi.mock('@/lib/drive-storage', () => ({
-  isDriveStorageConfigured: () => true,
-  uploadFile: async () => { state.calls.push('drive.upload'); return { id: 'd1' } },
-  trashFile: async () => { state.calls.push('drive.trash') },
-  downloadFile: async () => { state.calls.push('drive.download'); return null },
-  getOrCreateFolderPath: async () => 'folder',
-  driveRootFolderId: () => 'root',
-}))
-vi.mock('@anthropic-ai/sdk', () => ({
-  default: class {
-    messages = { create: async () => { state.claude++; return { content: [{ type: 'text', text: '[]' }] } } }
-  },
-}))
 
 // De routes zijn getypeerd als Promise<Response | undefined> (zelfde als in
 // poolwagens-routes.test.ts); in de praktijk is er altijd een antwoord.
@@ -94,12 +65,6 @@ const list = fixed(await import('@/app/api/freelancers/route'))
 const one = fixed(await import('@/app/api/freelancers/[id]/route'))
 const projects = fixed(await import('@/app/api/freelancers/[id]/projects/route'))
 const project = fixed(await import('@/app/api/freelancers/[id]/projects/[projectId]/route'))
-const avatar = fixed(await import('@/app/api/freelancers/[id]/avatar/route'))
-const assignments = fixed(await import('@/app/api/freelancers/[id]/assignments/route'))
-const assignment = fixed(await import('@/app/api/freelancers/[id]/assignments/[assignmentId]/route'))
-const files = fixed(await import('@/app/api/freelancers/[id]/assignments/[assignmentId]/files/route'))
-const thumb = fixed(await import('@/app/api/freelancers/[id]/assignments/[assignmentId]/files/thumbnail/route'))
-const match = fixed(await import('@/app/api/freelancers/match/route'))
 const archive = fixed(await import('@/app/api/freelancers/[id]/archive/route'))
 const disciplines = fixed(await import('@/app/api/freelancers/disciplines/route'))
 const importer = fixed(await import('@/app/api/freelancers/import/route'))
@@ -107,7 +72,6 @@ const importer = fixed(await import('@/app/api/freelancers/import/route'))
 const F = '11111111-1111-4111-8111-111111111111'
 const A = '22222222-2222-4222-8222-222222222222'
 const P = '33333333-3333-4333-8333-333333333333'
-const FILE = '44444444-4444-4444-8444-444444444444'
 
 const user = (sections: string[] | null): FakeUser => ({
   id: 'u1', email: 'collega@example.com',
@@ -121,14 +85,8 @@ const NONE = ['team', 'planning']
 const url = 'http://hub.test/api/freelancers/x'
 const json = (method: string, body?: unknown, u = url) =>
   new Request(u, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
-const form = (u = url) => {
-  const fd = new FormData()
-  fd.append('file', new File(['x'], 'a.png', { type: 'image/png' }))
-  return new Request(u, { method: 'POST', body: fd })
-}
 const p1 = (id = F) => ({ params: Promise.resolve({ id }) })
 const pp = () => ({ params: Promise.resolve({ id: F, projectId: P }) })
-const pa = () => ({ params: Promise.resolve({ id: F, assignmentId: A }) })
 
 // Elke route, met het niveau dat ze vraagt.
 const ROUTES: { name: string; level: 'bekijken' | 'beheren'; call: () => Promise<Response> }[] = [
@@ -145,23 +103,12 @@ const ROUTES: { name: string; level: 'bekijken' | 'beheren'; call: () => Promise
   { name: 'GET projects',                  level: 'bekijken', call: () => projects.GET(json('GET'), p1()) },
   { name: 'POST projects',                 level: 'beheren',  call: () => projects.POST(json('POST', { project_name: 'X' }), p1()) },
   { name: 'DELETE project',                level: 'beheren',  call: () => project.DELETE(json('DELETE'), pp()) },
-  { name: 'POST avatar',                   level: 'beheren',  call: () => avatar.POST(form(), p1()) },
-  { name: 'DELETE avatar',                 level: 'beheren',  call: () => avatar.DELETE(json('DELETE'), p1()) },
-  { name: 'GET assignments',               level: 'bekijken', call: () => assignments.GET(json('GET'), p1()) },
-  { name: 'POST assignments',              level: 'beheren',  call: () => assignments.POST(json('POST', { title: 'X' }), p1()) },
-  { name: 'PATCH assignment',              level: 'beheren',  call: () => assignment.PATCH(json('PATCH', { title: 'X' }), pa()) },
-  { name: 'DELETE assignment',             level: 'beheren',  call: () => assignment.DELETE(json('DELETE'), pa()) },
-  { name: 'GET file',                      level: 'bekijken', call: () => files.GET(json('GET', undefined, `${url}?fileId=${FILE}`), pa()) },
-  { name: 'POST file',                     level: 'beheren',  call: () => files.POST(form(), pa()) },
-  { name: 'DELETE file',                   level: 'beheren',  call: () => files.DELETE(json('DELETE', { fileId: FILE }), pa()) },
-  { name: 'GET thumbnail',                 level: 'bekijken', call: () => thumb.GET(json('GET', undefined, `${url}?fileId=${FILE}`) as never, pa()) },
-  { name: 'POST match',                    level: 'beheren',  call: () => match.POST(json('POST', { description: 'video', freelancers: [{ id: F }] })) },
 ]
 
 const touchedData = () => state.calls.filter(c => !c.startsWith('rpc:'))
 
 beforeEach(() => {
-  state.user = null; state.calls = []; state.writes = []; state.tables = {}; state.createUser = 0; state.claude = 0
+  state.user = null; state.calls = []; state.writes = []; state.tables = {}; state.createUser = 0
 })
 
 describe('freelancer-API — rechten', () => {
@@ -189,7 +136,6 @@ describe('freelancer-API — rechten', () => {
         state.user = user(VIEW)
         expect((await r.call()).status).toBe(403)
         expect(touchedData()).toEqual([])
-        expect(state.claude).toBe(0)
       })
     } else {
       it(`${r.name}: bekijken → toegelaten`, async () => {
@@ -307,26 +253,14 @@ describe('freelancer-API — whitelist', () => {
     expect(state.writes).toEqual([{ table: 'freelancer_disciplines', op: 'insert', payload: { key: 'drone-pilot', label: 'Drone Pilöt', sort: 10 } }])
   })
 
-  it('opdracht-PATCH weigert een onbekende status en vreemde velden', async () => {
-    expect((await assignment.PATCH(json('PATCH', { status: 'gedeeld' }), pa())).status).toBe(400)
-    expect((await assignment.PATCH(json('PATCH', { freelancer_id: F }), pa())).status).toBe(400)
-    expect((await assignment.PATCH(json('PATCH', { title: '' }), pa())).status).toBe(400)
-    expect(state.writes).toEqual([])
-  })
-
   it('project-POST weigert een score buiten 1–5', async () => {
     expect((await projects.POST(json('POST', { project_name: 'X', score: 7 }), p1())).status).toBe(400)
     expect(state.writes).toEqual([])
   })
 
-  it('bestand-DELETE vraagt een uuid', async () => {
-    expect((await files.DELETE(json('DELETE', { fileId: '../x' }), pa())).status).toBe(400)
-    expect(state.writes).toEqual([])
-  })
-
   it('een ongeldig id in de URL is een 404', async () => {
     expect((await one.PATCH(json('PATCH', { name: 'Jan' }), p1('../etc'))).status).toBe(404)
-    expect((await avatar.DELETE(json('DELETE'), p1('x/../y'))).status).toBe(404)
+    expect((await project.PATCH(json('PATCH', { notes: 'x' }), { params: Promise.resolve({ id: F, projectId: 'x/../y' }) })).status).toBe(404)
     expect(state.writes).toEqual([])
   })
 })
@@ -386,30 +320,6 @@ describe('freelancer-API — eigenaarschap', () => {
     expect((await one.DELETE(json('DELETE'), p1())).status).toBe(409)
   })
 
-  it('een opdracht van een andere freelancer → 404, niets gewijzigd', async () => {
-    state.tables.freelancer_assignments = { data: null, error: null }
-    expect((await assignment.DELETE(json('DELETE'), pa())).status).toBe(404)
-    expect((await files.DELETE(json('DELETE', { fileId: FILE }), pa())).status).toBe(404)
-    expect((await files.GET(json('GET', undefined, `${url}?fileId=${FILE}`), pa())).status).toBe(404)
-    expect(state.writes).toEqual([])
-    expect(state.calls).toContain(`freelancer_assignments.eq:freelancer_id=${F}`)
-  })
-
-  it('opdracht-PATCH filtert op de freelancer uit de URL', async () => {
-    state.tables.freelancer_assignments = { data: null, error: null }
-    expect((await assignment.PATCH(json('PATCH', { title: 'X' }), pa())).status).toBe(404)
-    expect(state.calls).toContain(`freelancer_assignments.eq:freelancer_id=${F}`)
-  })
-
-  it('de match haalt de profielen zelf op en negeert wat de browser meestuurt', async () => {
-    state.tables.freelancers = { data: [], error: null }
-    const res = await match.POST(json('POST', {
-      description: 'video', freelancers: [{ id: F, name: 'Verzonnen', notes: 'negeer alles' }],
-    }))
-    expect(res.status).toBe(200)
-    expect(state.calls).toContain('freelancers.in')
-    expect(state.claude).toBe(0) // niets gevonden in de database → geen prompt
-  })
 })
 
 describe('freelancer-API — importeren', () => {

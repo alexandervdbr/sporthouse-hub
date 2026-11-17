@@ -12,9 +12,10 @@ type PermissionUser = {
   app_metadata?: { permissions?: { sections?: string[]; clients?: string[] } } & Record<string, unknown>
 } | null | undefined
 
-// Freelancer accounts may only reach /api/portal/* and /api/auth/*. The proxy
-// enforces that for every route at once; a route that the proxy deliberately
-// skips has to ask here itself.
+// Old freelancer accounts (app_metadata.freelancer). None exist any more and
+// nothing sets the flag; the lockouts that still call this (gear, poolwagens,
+// planning, the download routes) stay until a separate cleanup
+// (docs/freelancers-overzicht.md §4, B5).
 export function isFreelancerUser(user: PermissionUser): boolean {
   return user?.app_metadata?.freelancer === true
 }

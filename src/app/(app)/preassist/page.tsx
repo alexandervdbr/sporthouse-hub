@@ -11,8 +11,8 @@ export default async function Page() {
   if (!user) redirect('/login')
 
   // Stond er niet: de sidebar verbergt het item wel, maar wie /preassist
-  // intikte kwam binnen. De middleware let alleen op inloggen en
-  // freelancer-accounts, niet op secties, en de gedeelde (app)-layout ook
+  // intikte kwam binnen. De middleware let alleen op inloggen, niet op
+  // secties, en de gedeelde (app)-layout ook
   // niet — dus hoort die controle hier.
   if (!hasOpenSection(user, 'preassist')) redirect('/dashboard')
 

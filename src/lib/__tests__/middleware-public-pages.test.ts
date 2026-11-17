@@ -17,7 +17,9 @@ const { unstable_doesMiddlewareMatch } = await import('next/experimental/testing
 const VERIFICATION = '/google3bff64dd6bd354bb.html'
 
 const staff = { id: 's', email: 'staff@example.com', app_metadata: {} }
-const freelancer = { id: 'f', email: 'free@example.com', app_metadata: { freelancer: true } }
+// Een oud account met de freelancer-vlag (die bestaan niet meer, B4) wordt
+// behandeld als elk ander account: nooit meer naar een portaal.
+const flagged = { id: 'f', email: 'free@example.com', app_metadata: { freelancer: true } }
 
 async function visit(path: string) {
   const res = await updateSession(new NextRequest(new URL(path, 'https://hub.example.com')))
@@ -50,14 +52,14 @@ describe('middleware: public pages and redirects', () => {
     expect(await visit(path)).toEqual({ status: 200, to: null })
   })
 
-  it.each(['/', '/login', '/dashboard'])('freelancer on %s goes to /portal', async (path) => {
-    sessionUser = freelancer
-    expect(await visit(path)).toEqual({ status: 307, to: '/portal' })
+  it.each(['/', '/login'])('an account with the old freelancer flag on %s goes to /dashboard, not /portal', async (path) => {
+    sessionUser = flagged
+    expect(await visit(path)).toEqual({ status: 307, to: '/dashboard' })
   })
 
-  it.each(['/portal', '/privacy', '/terms', '/auth/callback'])('freelancer can open %s', async (path) => {
-    sessionUser = freelancer
-    expect(await visit(path)).toEqual({ status: 200, to: null })
+  it.each(['/dashboard', '/privacy', '/portal'])('nobody is redirected to a portal from %s', async (path) => {
+    sessionUser = flagged
+    expect((await visit(path)).to).not.toBe('/portal')
   })
 })
 

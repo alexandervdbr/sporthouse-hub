@@ -1,7 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { getSessionUser } from '@/lib/supabase/claims'
-import { isFreelancerUser } from '@/lib/auth-permissions'
 import { GOOGLE_SITE_VERIFICATION_FILE } from '@/lib/site-url'
 
 export async function updateSession(request: NextRequest) {
@@ -39,10 +38,7 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname
   const isLoginPage  = pathname.startsWith('/login')
-  const isPortalPage = pathname.startsWith('/portal')
   const isApiPage    = pathname.startsWith('/api')
-  const isPortalApiPage = pathname.startsWith('/api/portal')
-  const isAuthApiPage   = pathname.startsWith('/api/auth')
   const isCallbackPage = pathname.startsWith('/auth')
   // Called by the iOS shortcut with its own per-user bearer token instead of
   // a session cookie — see /api/save-reel's own auth check.
@@ -86,35 +82,15 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  if (user) {
-    const isFreelancer = isFreelancerUser(user)
-
-    // Freelancers only get /api/portal/* and /api/auth/* — every other API
-    // route serves staff-only business data and must never be reachable by
-    // a freelancer account, regardless of what any individual route checks.
-    if (isFreelancer && isApiPage && !isPortalApiPage && !isAuthApiPage && !isPlanningLinkPage) {
-      return new NextResponse(JSON.stringify({ error: 'Forbidden' }), {
-        status: 403,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    }
-
-    // Freelancer on login page or main app → portal (the policy pages stay readable)
-    if (isFreelancer && !isPortalPage && !isApiPage && !isCallbackPage && !isPlanningLinkPage && !isLegalPage) {
-      const url = request.nextUrl.clone()
-      url.pathname = '/portal'
-      return NextResponse.redirect(url)
-    }
-
-    // Logged-in non-freelancer on login page → dashboard
-    // (Supabase "disable signups" ensures only pre-created users reach here)
-    // Same for the public homepage: staff open the app on / out of habit, and
-    // it used to redirect them straight to the dashboard.
-    if (!isFreelancer && (isLoginPage || isHomePage)) {
-      const url = request.nextUrl.clone()
-      url.pathname = '/dashboard'
-      return NextResponse.redirect(url)
-    }
+  // Signed in, on the login page or the public homepage → dashboard.
+  // (Supabase "disable signups" ensures only pre-created users reach here.)
+  // Staff open the app on / out of habit; it always took them straight in.
+  // Freelancers have no accounts (docs/freelancers-overzicht.md), so there is
+  // no second destination any more.
+  if (user && (isLoginPage || isHomePage)) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/dashboard'
+    return NextResponse.redirect(url)
   }
 
   return supabaseResponse

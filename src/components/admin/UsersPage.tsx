@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import {
   Loader2, UserPlus, Search, X, AlertCircle,
-  Shield, RefreshCw, ChevronRight, ChevronDown, Check, UserCheck, Eye, RotateCcw,
+  Shield, RefreshCw, ChevronRight, ChevronDown, Check, Eye, RotateCcw,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import type { Person } from '@/lib/planning-config'
@@ -930,104 +930,6 @@ function PermissionsPanel({
   )
 }
 
-// ─── Freelancer Invite Modal ──────────────────────────────────────────────────
-
-function FreelancerInviteModal({ onClose, onInvited }: { onClose: () => void; onInvited: () => void }) {
-  const [name,    setName]    = useState('')
-  const [email,   setEmail]   = useState('')
-  const [phone,   setPhone]   = useState('')
-  const [saving,  setSaving]  = useState(false)
-  const [error,   setError]   = useState('')
-  const [success, setSuccess] = useState(false)
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!name.trim()) { setError('Naam is verplicht.'); return }
-    if (!email.trim()) { setError('E-mailadres is verplicht.'); return }
-    setSaving(true); setError('')
-    const r = await fetch('/api/freelancers', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name.trim(), email: email.trim(), phone: phone.trim() || null }),
-    })
-    if (!r.ok) { setError(await r.text()); setSaving(false); return }
-    setSuccess(true); setSaving(false); onInvited()
-    setTimeout(onClose, 1800)
-  }
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl w-full max-w-sm">
-        <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <UserCheck size={14} className="text-purple-400" />
-            <h2 className="text-sm font-semibold text-zinc-100">Freelancer uitnodigen</h2>
-          </div>
-          <button onClick={onClose} aria-label="Sluiten" className="text-zinc-600 hover:text-zinc-300 transition-colors"><X size={15} /></button>
-        </div>
-        {success ? (
-          <div className="px-5 py-8 text-center">
-            <div className="w-10 h-10 rounded-full bg-purple-900/40 border border-purple-700/40 flex items-center justify-center mx-auto mb-3">
-              <Check size={16} className="text-purple-400" />
-            </div>
-            <p className="text-sm font-medium text-zinc-200">Freelancer toegevoegd!</p>
-            <p className="text-xs text-zinc-500 mt-1">{email} kan nu inloggen via het portaal.</p>
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit}>
-            <div className="px-5 py-4 space-y-4">
-              <p className="text-xs text-zinc-500 leading-relaxed">
-                De freelancer kan inloggen via de gewone loginpagina met zijn/haar Google-account.
-                Ze krijgen automatisch toegang tot het freelancersportaal.
-              </p>
-              <div>
-                <label className="block text-xs text-zinc-500 uppercase tracking-wider mb-1.5">Naam *</label>
-                <input autoFocus type="text" value={name} onChange={e => setName(e.target.value)}
-                  placeholder="Voornaam Achternaam"
-                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors" />
-              </div>
-              <div>
-                <label className="block text-xs text-zinc-500 uppercase tracking-wider mb-1.5">E-mailadres *</label>
-                <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-                  placeholder="naam@voorbeeld.be"
-                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors" />
-              </div>
-              <div>
-                <label className="block text-xs text-zinc-500 uppercase tracking-wider mb-1.5">Telefoonnummer</label>
-                <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
-                  placeholder="+32 470 00 00 00"
-                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors" />
-              </div>
-              {error && (
-                <div className="flex items-start gap-2 px-3 py-2.5 bg-red-950/40 border border-red-900/40 rounded-lg">
-                  <AlertCircle size={13} className="text-red-400 mt-0.5 flex-shrink-0" />
-                  <p className="text-sm text-red-400">{error}</p>
-                </div>
-              )}
-            </div>
-            <div className="px-5 py-3 border-t border-zinc-800 flex flex-wrap items-center gap-2">
-              <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors">Annuleren</button>
-              <button type="submit" disabled={saving}
-                className="ml-auto flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 transition-colors"
-                style={{ backgroundColor: '#7c3aed' }}>
-                {saving && <Loader2 size={13} className="animate-spin" />}
-                Toevoegen
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
-    </div>
-  )
-}
-
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function UsersPage() {
@@ -1037,11 +939,9 @@ export default function UsersPage() {
   const [teamContacts, setTeamContacts] = useState<TeamContact[]>([])
   const [teamLoaded,   setTeamLoaded]   = useState(false)
   const [allClients,      setAllClients]      = useState<ClientOption[]>([])
-  const [freelancerEmails, setFreelancerEmails] = useState<Set<string>>(new Set())
   const [loading,         setLoading]         = useState(true)
   const [search,          setSearch]          = useState('')
   const [showInvite,      setShowInvite]       = useState(false)
-  const [showFreelanceInvite, setShowFreelanceInvite] = useState(false)
   const [selectedId,      setSelectedId]      = useState<string | null>(null)
   const [checked,         setChecked]         = useState<Set<string>>(new Set())
   const [bulkRole,        setBulkRole]        = useState('')
@@ -1075,15 +975,6 @@ export default function UsersPage() {
       .then(({ data }) => setAllClients((data ?? []) as ClientOption[]))
   }, [])
 
-  useEffect(() => {
-    fetch('/api/freelancers')
-      .then(r => r.ok ? r.json() : [])
-      .then((data: { email: string | null }[]) => {
-        setFreelancerEmails(new Set(data.map(f => f.email?.toLowerCase()).filter(Boolean) as string[]))
-      })
-      .catch(() => {})
-  }, [])
-
   useEffect(() => { loadUsers() }, [loadUsers])
 
   function handlePreviewAs(u: User) {
@@ -1091,7 +982,6 @@ export default function UsersPage() {
       email: u.email,
       name: u.full_name || u.email,
       permissions: u.permissions,
-      isFreelancer: freelancerEmails.has(u.email.toLowerCase()),
     })
     router.push('/dashboard')
   }
@@ -1134,7 +1024,7 @@ export default function UsersPage() {
   })
 
   const selectedUser = users.find(u => u.id === selectedId) ?? null
-  const selectable = filtered.filter(u => !freelancerEmails.has(u.email.toLowerCase()))
+  const selectable = filtered
 
   return (
     <div className="flex h-full min-h-0">
@@ -1155,12 +1045,6 @@ export default function UsersPage() {
             <button onClick={() => loadUsers()} disabled={loading} aria-label="Ververs gebruikerslijst"
               className="w-8 h-8 flex items-center justify-center rounded-lg border border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700 transition-colors disabled:opacity-40 flex-shrink-0">
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-            </button>
-            <button onClick={() => setShowFreelanceInvite(true)}
-              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-purple-300 rounded-lg transition-colors border flex-shrink-0"
-              style={{ backgroundColor: 'rgba(124,58,237,0.12)', borderColor: 'rgba(124,58,237,0.35)' }}>
-              <UserCheck size={14} />
-              Freelancer
             </button>
             <button onClick={() => setShowInvite(true)}
               className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors flex-shrink-0"
@@ -1241,7 +1125,6 @@ export default function UsersPage() {
               <tbody className="divide-y divide-zinc-800/60">
                 {filtered.map(u => {
                   const isSelected = u.id === selectedId
-                  const isFreelancer = freelancerEmails.has(u.email.toLowerCase())
                   const userRole = roles.find(r => r.id === u.access_role)
                   return (
                     <tr key={u.id}
@@ -1249,9 +1132,7 @@ export default function UsersPage() {
                       className="transition-colors cursor-pointer group"
                       style={{ backgroundColor: isSelected ? 'rgba(58,145,63,0.06)' : undefined }}>
                       <td className="pl-4 py-3 w-8" onClick={e => e.stopPropagation()}>
-                        {!isFreelancer && (
-                          <MiniCheck checked={checked.has(u.id)} onChange={() => toggleChecked(u.id)} label={`Selecteer ${u.full_name || u.email}`} />
-                        )}
+                        <MiniCheck checked={checked.has(u.id)} onChange={() => toggleChecked(u.id)} label={`Selecteer ${u.full_name || u.email}`} />
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
@@ -1263,12 +1144,7 @@ export default function UsersPage() {
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        {isFreelancer ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full"
-                            style={{ color: '#c084fc', backgroundColor: 'rgba(168,85,247,0.12)', border: '1px solid rgba(168,85,247,0.3)' }}>
-                            <UserCheck size={10} /> Freelancer
-                          </span>
-                        ) : userRole ? (
+                        {userRole ? (
                           <RoleBadge role={userRole} overrides={Object.keys(u.role_overrides ?? {}).length} />
                         ) : (
                           <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full"
@@ -1351,18 +1227,6 @@ export default function UsersPage() {
         <InviteModal clients={allClients} roles={roles} onClose={() => setShowInvite(false)} onInvited={() => loadUsers(true)} />
       )}
 
-      {showFreelanceInvite && (
-        <FreelancerInviteModal
-          onClose={() => setShowFreelanceInvite(false)}
-          onInvited={() => {
-            fetch('/api/freelancers')
-              .then(r => r.ok ? r.json() : [])
-              .then((data: { email: string | null }[]) => {
-                setFreelancerEmails(new Set(data.map(f => f.email?.toLowerCase()).filter(Boolean) as string[]))
-              })
-          }}
-        />
-      )}
     </div>
   )
 }

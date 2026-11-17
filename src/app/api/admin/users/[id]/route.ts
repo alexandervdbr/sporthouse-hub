@@ -53,9 +53,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return new Response(taken ? 'Er bestaat al een account met dat e-mailadres' : error.message, { status: taken ? 409 : 500 })
   }
 
-  // Het Team-contact en een eventuele freelancer hangen aan het account via
-  // het e-mailadres. Op het oude adres zoeken en meeveranderen, anders raakt
-  // de persoon zijn plek in Team (en de planning) of in het portaal kwijt.
+  // Het Team-contact hangt aan het account via het e-mailadres. Op het oude
+  // adres zoeken en meeveranderen, anders raakt de persoon zijn plek in Team
+  // (en de planning) kwijt. Freelancers hebben geen account meer
+  // (docs/freelancers-overzicht.md): hun e-mailadres verandert hier niet mee.
   // In JS vergelijken en niet met ilike — zie de uitleg bij het uitnodigen.
   const profileTouched = emailChanged || full_name !== undefined || phone !== undefined || job_role !== undefined
   if (profileTouched && oldEmail) {
@@ -73,15 +74,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (job_role !== undefined) patch.role = job_role?.trim() || null
       const { error: cErr } = await admin.from('contacts').update(patch).eq('id', contact.id)
       if (cErr) return new Response(`Account aangepast, maar Team niet: ${cErr.message}`, { status: 500 })
-    }
-
-    if (emailChanged) {
-      const { data: freelancers } = await admin.from('freelancers').select('id, email').not('email', 'is', null)
-      const fl = (freelancers ?? []).find((f: { email: string | null }) => f.email?.trim().toLowerCase() === oldEmail)
-      if (fl) {
-        const { error: fErr } = await admin.from('freelancers').update({ email: newEmail }).eq('id', fl.id)
-        if (fErr) return new Response(`Account aangepast, maar freelancer niet: ${fErr.message}`, { status: 500 })
-      }
     }
   }
 

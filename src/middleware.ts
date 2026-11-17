@@ -19,7 +19,7 @@ export const config = {
     // through the proxy on its way out can be billed twice for the same
     // bytes — on a 1 GB download, the difference between one gigabyte of
     // transfer and two. All three do their own authentication, their own
-    // access check and their own freelancer lockout; see the comment in each.
+    // access check (and the old freelancer lockout); see the comment in each.
     //
     // manifest.webmanifest is excluded because the browser fetches a manifest
     // without cookies unless the link tag says otherwise. This middleware

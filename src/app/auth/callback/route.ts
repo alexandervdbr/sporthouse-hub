@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/supabase/server'
 
 
 // Where to land after signing in, when the login was started from a shared
@@ -35,24 +35,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/login?error=auth`)
   }
 
-  // Freelancers go to /portal
-  const isFreelancer = user.app_metadata?.freelancer === true
-  if (isFreelancer) {
-    return NextResponse.redirect(`${origin}/portal`)
-  }
-
-  const admin = createAdminClient()
-  const { data: freelancerRow } = await admin
-    .from('freelancers')
-    .select('id')
-    .eq('email', user.email ?? '')
-    .maybeSingle()
-
-  if (freelancerRow) {
-    return NextResponse.redirect(`${origin}/portal`)
-  }
-
-  // Everyone else goes where they were headed, or to the dashboard —
-  // Supabase's "disable signups" ensures only pre-created accounts reach here
+  // Everyone goes where they were headed, or to the dashboard. Nobody is sent
+  // to a freelancer portal any more — not on an app_metadata flag and not
+  // because their e-mail address is also in the freelancer list
+  // (docs/freelancers-overzicht.md). Supabase's "disable signups" ensures only
+  // pre-created accounts reach here.
   return NextResponse.redirect(`${origin}${next ?? '/dashboard'}`)
 }
