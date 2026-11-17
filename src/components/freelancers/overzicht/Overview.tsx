@@ -200,7 +200,8 @@ function Table({ rows, fl, labels, onSort, onOpen, onCopied }: {
       </thead>
       <tbody>
         {rows.map(f => {
-          const rate = rateText(f)
+          const amount = f.rate_amount != null && f.rate_unit ? rateText({ ...f, rate_note: null }) : null
+          const note = f.rate_note?.trim() || null
           const rating = ratingText(f)
           return (
             <tr key={f.id} tabIndex={0} onClick={() => onOpen(f.id)} onKeyDown={e => { if (e.key === 'Enter') onOpen(f.id) }}
@@ -210,7 +211,12 @@ function Table({ rows, fl, labels, onSort, onOpen, onCopied }: {
               <td className="truncate py-2 pr-3 text-zinc-300" title={f.disciplines.map(d => labels[d] ?? d).join(', ')}>{f.disciplines.map(d => labels[d] ?? d).join(' · ') || '—'}</td>
               <td className="py-2 pr-3 text-zinc-300">{STATUS_LABEL[f.status]}</td>
               <td className="truncate py-2 pr-3 text-zinc-300" title={f.overall_rating_note ?? undefined}>{rating ?? <span className="text-zinc-600">—</span>}</td>
-              <td className="truncate py-2 pr-3 text-zinc-300" title={f.rate_note ?? undefined}>{rate ?? <span className="text-zinc-600">—</span>}</td>
+              <td className="py-2 pr-3" title={note ?? undefined}>
+                {/* Het bedrag als hoofdregel; de notitie klein eronder (of alleen die, als er geen bedrag is). */}
+                {amount && <span className="block truncate text-zinc-300">{amount}</span>}
+                {note && note !== amount && <span className="block truncate text-xs text-zinc-500">{note}</span>}
+                {!amount && !note && <span className="text-zinc-600">—</span>}
+              </td>
               <td className="py-1 pr-3"><ContactIcons f={f} onCopied={onCopied} /></td>
               <td className="py-1 pr-3"><PortfolioIcon f={f} /></td>
             </tr>
