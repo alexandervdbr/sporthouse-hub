@@ -210,7 +210,7 @@ describe('een bestand analyseren', () => {
     const p = buildPlan(a, { 3: 'bijwerken', 4: 'bijwerken' }, [], existing)
     expect(p.update).toEqual([
       { line: 3, id: 'e1', data: { name: 'JANA PEETERS', disciplines: ['video', 'foto'], email: 'jana@x.be', portfolio_links: [{ url: 'https://vimeo.com/jana' }, { url: 'https://instagram.com/jana' }] } },
-      { line: 4, id: 'e2', data: { name: 'Tom Wouters', disciplines: ['redacteur'], status: 'proefopdracht', rate_amount: null, rate_unit: null, rate_note: 'op aanvraag' } },
+      { line: 4, id: 'e2', data: { name: 'Tom Wouters', disciplines: ['redacteur'], status: 'proefopdracht', rate_amount: null, rate_unit: null, rate_note: 'op aanvraag', notes: 'Beoordeling: 9' } },
     ])
     for (const u of p.update) expect(freelancerUpdateSchema.safeParse(u.data).success, `rij ${u.line}`).toBe(true)
   })
@@ -250,3 +250,83 @@ describe('exporteren', () => {
     })))
   })
 })
+
+// ── Zoals Google Sheets onze kolommen exporteert ───────────────────────────
+
+describe('Google Sheets', () => {
+  it('Getest als vinkje: TRUE → vast, FALSE of leeg → nog niet getest; ja/weinig/nee blijven werken', () => {
+    expect(parseGetest('TRUE')).toEqual({ status: 'vast', given: true })
+    expect(parseGetest('true').status).toBe('vast')
+    expect(parseGetest('FALSE')).toEqual({ status: 'kandidaat', given: false })
+    expect(parseGetest('')).toEqual({ status: 'kandidaat', given: false })
+    expect(parseGetest('ja').status).toBe('vast')
+    expect(parseGetest('weinig').status).toBe('proefopdracht')
+    expect(parseGetest('nee')).toEqual({ status: 'kandidaat', given: true })
+  })
+  it('Getest met andere tekst: nog niet getest, en de tekst bij de notities', () => {
+    expect(parseGetest('één keer')).toMatchObject({ status: 'kandidaat', note: 'Getest: één keer' })
+  })
+
+  it('Beoordeling in sterren: de gevulde sterren tellen; geen enkele gevulde ster → leeg', () => {
+    expect(parseRating('★★★☆☆')).toEqual({ value: 3, links: [], note: null })
+    expect(parseRating('★★★★★')).toEqual({ value: 5, links: [], note: null })
+    expect(parseRating('★☆☆☆☆').value).toBe(1)
+    expect(parseRating('★ ★ ☆').value).toBe(2)
+    expect(parseRating('☆☆☆☆☆')).toEqual({ value: null, links: [], note: null })
+    expect(parseRating('4')).toEqual({ value: 4, links: [], note: null })
+  })
+  it('Beoordeling zonder sterren of cijfer: links naar het portfolio, tekst naar de notities, met een waarschuwing', () => {
+    const r = parseRating('Mag niet voor Pro League werken')
+    expect(r).toMatchObject({ value: null, links: [], note: 'Beoordeling: Mag niet voor Pro League werken' })
+    expect(r.warning).toMatch(/geen cijfer of sterren/)
+    const l = parseRating('Top! https://vimeo.com/reel')
+    expect(l).toMatchObject({ value: null, links: [{ url: 'https://vimeo.com/reel' }], note: 'Beoordeling: Top!' })
+    expect(parseRating('https://youtu.be/x')).toMatchObject({ links: [{ url: 'https://youtu.be/x' }], note: null })
+    expect(parseRating('4,5').note).toBe('Beoordeling: 4,5')
+    expect(parseRating('8/10').note).toBe('Beoordeling: 8/10')
+  })
+
+  it('Prijs "?" of "-" blijft leeg (geen notitie)', () => {
+    for (const s of ['?', '-', ' - ', '??', '–', '—']) expect(parsePrice(s), s).toEqual({ amount: null, unit: null, note: null, given: false })
+    expect(parsePrice('? per dag').note).toBe('? per dag')
+  })
+
+  it('"Motion Designer" in Wat? is de bestaande discipline "Video (vfx/motion)"', () => {
+    expect(parseWat('Motion Designer', D)).toEqual({ keys: ['video-vfx-motion'], unknown: [] })
+    expect(parseWat('motion designer, Video', D)).toEqual({ keys: ['video-vfx-motion', 'video'], unknown: [] })
+    // Zonder die discipline in de lijst: gewoon een voorstel, zoals elke onbekende waarde.
+    expect(parseWat('Motion Designer', D.filter(d => d.key !== 'video-vfx-motion'))).toEqual({ keys: [], unknown: ['Motion Designer'] })
+  })
+
+  it('een volledige Sheets-export: geen enkele cel gaat verloren', () => {
+    const csv = [
+      'Naam,Wat?,Nummer,Mailadres,Getest,Prijs,Beoordeling,Portfolio,Notities,Regio',
+      'An Jacobs,Motion Designer,0470 1,an@x.be,TRUE,?,★★★☆☆,https://behance.net/an,Snel,Antwerpen',
+      'Bo Smet,Foto,,bo@x.be,FALSE,-,Mag niet voor Pro League werken https://vimeo.com/bo,,Notitie,',
+      'Cas Peeters,Video,,,FALSE,450 per dag,☆☆☆☆☆,,,Gent',
+    ].join('\n')
+    const a = analyze(csv, D, [])
+    const [an, bo, cas] = a.rows.map(r => r.data)
+    expect(an).toMatchObject({ disciplines: ['video-vfx-motion'], unknown: [], status: 'vast', overall_rating: 3, notes: 'Snel\nRegio: Antwerpen' })
+    expect(an.price.given).toBe(false)
+    expect(bo).toMatchObject({ status: 'kandidaat', statusGiven: false, overall_rating: null, portfolio_links: [{ url: 'https://vimeo.com/bo' }], notes: 'Notitie\nBeoordeling: Mag niet voor Pro League werken' })
+    expect(a.rows[1].warnings.join(' ')).toMatch(/Beoordeling .* geen cijfer of sterren/)
+    expect(cas).toMatchObject({ overall_rating: null, notes: 'Regio: Gent' })
+    expect(cas.price).toMatchObject({ amount: 450, unit: 'dag' })
+    expect(a.proposals).toEqual([])
+    expect(a.ignoredColumns).toEqual(['Regio'])
+
+    // Elke niet-lege cel staat ergens in wat er opgeslagen wordt.
+    const saved = JSON.stringify(buildPlan(a, {}, [], []).create.map(c => c.data)).toLowerCase()
+    const cells = csv.split('\n').slice(1).flatMap(l => l.split(','))
+      .filter(c => c && !['TRUE', 'FALSE', '?', '-'].includes(c) && !/^[★☆]+$/.test(c))
+    const words = cells.flatMap(c => c.split(' ').filter(w => w.length > 2 && !['per', 'dag', 'Designer', 'Motion'].includes(w)))
+    expect(words.filter(w => !saved.includes(w.toLowerCase()))).toEqual([])
+  })
+
+  it('bijwerken met een leeg vinkje (FALSE) zet de status niet terug', () => {
+    const a = analyze('Naam,Wat?,Getest\nJan,Video,FALSE', D, [ex({ id: 'j', name: 'Jan' })])
+    expect(buildPlan(a, { 2: 'bijwerken' }, [], [ex({ id: 'j', name: 'Jan' })]).update[0].data).not.toHaveProperty('status')
+  })
+})
+

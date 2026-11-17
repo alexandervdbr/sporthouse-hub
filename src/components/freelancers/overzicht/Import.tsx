@@ -127,7 +127,7 @@ export default function Import({ disciplines, onClose, onDone }: { disciplines: 
       <Button onClick={() => setAnalysis(null)}>Terug</Button>
       <Button variant="primary" data-primary disabled={!todo} busy={busy} onClick={run}>{todo === 1 ? '1 rij verwerken' : `${todo} rijen verwerken`}</Button></>}>
       <p className="text-sm text-zinc-300">{analysis.rows.length} rijen · {warnCount} met waarschuwingen · {dupCount} dubbels</p>
-      {analysis.ignoredColumns.length > 0 && <p className="text-xs text-zinc-500">Genegeerde kolommen: {analysis.ignoredColumns.join(', ')}</p>}
+      {analysis.ignoredColumns.length > 0 && <p className="text-xs text-zinc-500">Kolommen zonder eigen veld (komen in de notities): {analysis.ignoredColumns.join(', ')}</p>}
       {analysis.proposals.length > 0 && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
           <p className="mb-2 text-sm text-amber-200">Onbekend in Wat? — toevoegen als discipline?</p>

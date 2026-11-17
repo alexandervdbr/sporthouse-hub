@@ -410,6 +410,13 @@ De code staat in `features/freelancers/lib/csv.ts` en `spreadsheet.ts` (puur, ge
 - Een bedrag met een notitie wordt "€450/dag — €250 halve dag", en importeren leest dat weer als bedrag + notitie.
 - Portfolio-links staan met een spatie ertussen. De labels gaan verloren: na een nieuwe import is het label de domeinnaam.
 
+**Aanpassingen na de eerste proef met de echte spreadsheet (Google Sheets)**
+- Vaste regel: geen enkele cel gaat verloren. Wat niet in een veld past, gaat met een waarschuwing naar de notities, met de kolomnaam ervoor. Dat geldt ook voor onbekende kolommen en cellen zonder kolomnaam.
+- Getest als vinkje: TRUE → vast, FALSE of leeg → nog niet getest. FALSE telt niet als ingevuld, dus bijwerken zet een vaste freelancer niet terug. Andere tekst wordt nog niet getest, en die tekst gaat naar de notities.
+- Beoordeling in sterren: "★★★☆☆" telt de gevulde sterren (3); "☆☆☆☆☆" blijft leeg. Zonder sterren of cijfer gaan links naar het portfolio en de rest naar de notities als "Beoordeling: …". Dat geldt ook voor "4,5" of "9".
+- Een prijs die alleen "?" of "-" is, blijft leeg (dit is de enige uitzondering op de vaste regel, op vraag).
+- "Motion Designer" (en "Motion design") in Wat? is de bestaande discipline "Video (vfx/motion)".
+
 ## 9. Beslissingen (17 november 2026)
 
 | # | Beslist |
