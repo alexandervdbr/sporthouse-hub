@@ -23,7 +23,7 @@ export interface SessionUser {
 // key set to verify against and no fallback round trip).
 //
 // The trade: a token is believed until it expires, typically an hour. Revoke
-// someone's access, or flip them to a freelancer account, and that takes
+// someone's access, and that takes
 // effect at their next token refresh rather than instantly. That's why this
 // is for reads only — anything that writes, deletes or moves still calls
 // getUser(), so the actions where stale access actually costs something are

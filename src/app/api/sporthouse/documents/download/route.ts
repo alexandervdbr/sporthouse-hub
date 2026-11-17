@@ -18,10 +18,10 @@ export async function GET(request: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Niet ingelogd.' }, { status: 401 })
 
   // This route is deliberately excluded from the proxy's matcher, so that a
-  // streamed file isn't billed twice on its way out. The proxy is also what
-  // keeps freelancer accounts out of every staff route at once — so that
-  // check has to be made here, where it would otherwise be missing. Do not
-  // remove without putting this route back behind the proxy.
+  // streamed file isn't billed twice on its way out. The lockout below is for
+  // old freelancer accounts (app_metadata.freelancer); none exist any more
+  // and the proxy no longer checks for them, but it stays until that cleanup
+  // is done separately (docs/freelancers-overzicht.md §4, B5).
   if (isFreelancerUser(user)) {
     return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 })
   }

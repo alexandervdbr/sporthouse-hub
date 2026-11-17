@@ -1,5 +1,5 @@
 // Shared allowlist for general-purpose uploads (client Bestanden, Sporthouse
-// documents, freelancer assignment files). Built from the exact extension
+// documents). Built from the exact extension
 // categories FileManager.tsx already defines for its own file-type icons —
 // those represent every format the app already anticipates handling — minus
 // .sh, the one category in there that's a real script/executable format

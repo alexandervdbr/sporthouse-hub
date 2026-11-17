@@ -428,7 +428,7 @@ De code staat in `features/freelancers/lib/csv.ts` en `spreadsheet.ts` (puur, ge
 | **B5** | De blokkades blijven staan (zie §4). Ze opruimen is later, apart werk. |
 | **B6** | De portaaltekst gaat apart, met V12, buiten dit project. |
 | **B7** | Hard verwijderen kan alleen met "beheren", met een bevestiging die zegt hoeveel samenwerkingen mee verdwijnen. |
-| **B8** | De TEST-gegevens mogen weg in Fase 4, maar ik vraag het opnieuw vóór Fase 4. |
+| **B8** | De TEST-gegevens mogen weg in Fase 4 (bevestigd op 17 november 2026). |
 | **B9** | `overall_rating_updated_at/by` gaan weg in Fase 4. |
 
 ## 10. Fasen en bewijs

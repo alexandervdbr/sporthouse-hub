@@ -8,7 +8,7 @@ import { LEGAL } from '@/lib/legal'
 
 // Public homepage. Anyone can open it — it is the homepage URL registered on
 // the Google OAuth consent screen. A signed-in user never sees it: the
-// middleware sends staff to /dashboard and freelancers to /portal first.
+// middleware sends them to /dashboard first.
 
 export const metadata: Metadata = {
   title: 'Sporthouse Hub — the internal platform of SporthouseGroup',

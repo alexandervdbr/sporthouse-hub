@@ -21,10 +21,10 @@ export async function GET(request: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Niet ingelogd.' }, { status: 401 })
 
   // Deze route staat met opzet niet in de matcher van de proxy, zodat een
-  // gestreamd bestand niet twee keer op de transferrekening komt. De proxy is
-  // ook wat freelancer-accounts in één keer uit alle medewerkersroutes houdt
-  // — dus moet die controle hier staan, waar hij anders zou ontbreken. Niet
-  // weghalen zonder de route terug achter de proxy te zetten.
+  // gestreamd bestand niet twee keer op de transferrekening komt. De blokkade
+  // hieronder is voor oude freelancer-accounts (app_metadata.freelancer); die
+  // bestaan niet meer, maar ze blijft tot die opruiming apart gebeurt
+  // (docs/freelancers-overzicht.md §4, B5).
   if (isFreelancerUser(user)) {
     return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 })
   }
