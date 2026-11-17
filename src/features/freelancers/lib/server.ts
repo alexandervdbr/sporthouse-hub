@@ -43,3 +43,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export function isUuid(value: unknown): value is string {
   return typeof value === 'string' && UUID.test(value)
 }
+
+/** Databasefouten → een zin voor de gebruiker; nooit de ruwe melding. */
+export function writeError(error: { code?: string }, fallback: string) {
+  if (error.code === '23505') return new Response('Er bestaat al een freelancer met dit e-mailadres.', { status: 409 })
+  if (error.code === '23503') return new Response('Een van de disciplines bestaat niet.', { status: 400 })
+  if (error.code === '23514') return new Response('Geef een bedrag én een eenheid, of geen van beide.', { status: 400 })
+  return new Response(fallback, { status: 500 })
+}

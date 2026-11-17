@@ -1,91 +1,100 @@
 import { z } from 'zod'
 
-// Whitelists voor elke schrijfroute van de freelancertool. Alles is strict:
-// een veld dat hier niet staat is een 400, nooit een stille doorgifte naar
-// de database. (De PATCH op een freelancer schreef vroeger de hele body weg,
-// dus ook id, created_at of avatar_url.)
+// Whitelists voor elke schrijfroute van het freelanceroverzicht
+// (docs/freelancers-overzicht.md). Alles is strict: een veld dat hier niet
+// staat is een 400, nooit een stille doorgifte naar de database.
 //
-// Dit zijn de velden van het huidige datamodel. Fase 2/3 van het herontwerp
-// (docs/freelancers-redesign.md) vervangt ze.
+// Bewust niet in de PATCH: archived_at (eigen route), en alles wat de
+// database zelf zet (id, created_at, updated_at).
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const DATE = /^\d{4}-\d{2}-\d{2}$/
+const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/
 
 /** Tekst die leeg mag zijn: getrimd, en '' wordt null. */
 const optText = (max: number) =>
   z.string().trim().max(max).nullable().optional().transform(v => (v === '' ? null : v))
-
 const requiredText = (max: number) => z.string().trim().min(1).max(max)
 
 const optEmail = z.string().trim().toLowerCase().max(320).nullable().optional()
   .transform(v => (v === '' ? null : v))
   .refine(v => v == null || EMAIL.test(v), 'Ongeldig e-mailadres')
 
-const optUrl = optText(2000).refine(v => v == null || /^https?:\/\/\S+$/i.test(v), 'Ongeldige link')
-
 const optDate = z.string().nullable().optional()
   .transform(v => (v === '' ? null : v))
   .refine(v => v == null || (DATE.test(v) && !Number.isNaN(Date.parse(v))), 'Ongeldige datum')
 
-const optScore = z.number().int().min(1).max(5).nullable().optional()
+export const httpUrl = z.string().trim().min(1).max(2000).refine(v => /^https?:\/\/\S+$/i.test(v), 'Ongeldige link')
+const score = z.number().int().min(1).max(5)
 
-export const TESTED_VALUES = ['nee', 'weinig', 'ja'] as const
-export const ASSIGNMENT_STATUSES = ['nieuw', 'in_behandeling', 'afgerond'] as const
+export const FREELANCER_STATUSES = ['vast', 'proefopdracht', 'kandidaat', 'inactief'] as const
+export const RATE_UNITS = ['uur', 'dag', 'project'] as const
 
-const freelancerFields = {
+export const disciplineKey = z.string().regex(SLUG).max(60)
+const disciplines = z.array(disciplineKey).min(1, 'Kies minstens één discipline').max(20)
+  .transform(a => [...new Set(a)])
+
+/** Een of meer links; het label is optioneel. */
+export const portfolioLinks = z.array(z.strictObject({
+  label: z.string().trim().max(80).nullish().transform(v => (v ? v : undefined)),
+  url: httpUrl,
+})).max(20).transform(a => a.map(l => (l.label ? { label: l.label, url: l.url } : { url: l.url })))
+
+// Een tarief heeft een bedrag én een eenheid, of geen van beide (de check
+// freelancers_rate_unit_with_amount in 0093).
+const rateConsistent = (o: { rate_amount?: number | null; rate_unit?: string | null }) =>
+  o.rate_amount === undefined && o.rate_unit === undefined
+    ? true
+    : (o.rate_amount ?? null) === null ? (o.rate_unit ?? null) === null : (o.rate_unit ?? null) !== null
+const RATE_MSG = { message: 'Geef een bedrag én een eenheid, of geen van beide', path: ['rate_unit'] }
+
+const fields = {
   email: optEmail,
   phone: optText(50),
-  types: z.array(z.string().trim().min(1).max(50)).max(30).optional(),
-  tested: z.enum(TESTED_VALUES).nullable().optional(),
-  price_info: optText(500),
-  rating: optScore,
-  portfolio_url: optUrl,
-  notes: optText(5000),
+  status: z.enum(FREELANCER_STATUSES).optional(),
+  rate_amount: z.number().nonnegative().max(10_000_000).nullable().optional(),
+  rate_unit: z.enum(RATE_UNITS).nullable().optional(),
+  rate_note: optText(500),
+  overall_rating: score.nullable().optional(),
+  overall_rating_note: optText(2000),
+  portfolio_links: portfolioLinks.optional(),
+  notes: optText(10_000),
 }
 
+/** "+ Freelancer": alleen naam en minstens één discipline zijn verplicht. */
 export const freelancerCreateSchema = z.strictObject({
   name: requiredText(200),
-  ...freelancerFields,
-})
+  disciplines,
+  ...fields,
+}).refine(rateConsistent, RATE_MSG)
 
+/** Het hele formulier van het paneel (of een deel ervan). */
 export const freelancerUpdateSchema = z.strictObject({
   name: requiredText(200).optional(),
-  ...freelancerFields,
-}).refine(o => Object.keys(o).length > 0, 'Niets om te wijzigen')
+  disciplines: disciplines.optional(),
+  ...fields,
+})
+  .refine(o => Object.keys(o).length > 0, 'Niets om te wijzigen')
+  .refine(rateConsistent, RATE_MSG)
 
-export const projectCreateSchema = z.strictObject({
-  project_name: requiredText(300),
-  description: optText(5000),
+const projectFields = {
   client_name: optText(200),
   date: optDate,
-  score: optScore,
+  score: score.nullable().optional(),
   notes: optText(5000),
-})
-
-const assignmentFields = {
-  briefing: optText(20000),
-  deadline: optDate,
-  client_name: optText(200),
 }
 
-export const assignmentCreateSchema = z.strictObject({
-  title: requiredText(300),
-  ...assignmentFields,
+/** Een samenwerking. */
+export const projectCreateSchema = z.strictObject({
+  project_name: requiredText(300),
+  ...projectFields,
 })
 
-export const assignmentUpdateSchema = z.strictObject({
-  title: requiredText(300).optional(),
-  ...assignmentFields,
-  status: z.enum(ASSIGNMENT_STATUSES).optional(),
+export const projectUpdateSchema = z.strictObject({
+  project_name: requiredText(300).optional(),
+  ...projectFields,
 }).refine(o => Object.keys(o).length > 0, 'Niets om te wijzigen')
 
-export const fileDeleteSchema = z.strictObject({
-  fileId: z.uuid(),
-})
-
-// De match leest alleen de ids uit wat de browser meestuurt; de profielen
-// haalt de server zelf op. Wat er verder in die objecten staat, telt niet.
-export const matchSchema = z.strictObject({
-  description: requiredText(4000),
-  freelancers: z.array(z.looseObject({ id: z.uuid() })).max(1000),
+export const disciplineCreateSchema = z.strictObject({
+  label: requiredText(60),
 })
