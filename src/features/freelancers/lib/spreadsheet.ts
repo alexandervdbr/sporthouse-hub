@@ -3,6 +3,10 @@ import { slugify } from './slug'
 
 // Importeren en exporteren in het formaat van de spreadsheet:
 //   Naam · Wat? · Nummer · Mailadres · Getest · Prijs · Beoordeling · Portfolio · Notities
+//
+// Vaste regel: geen enkele cel gaat verloren. Wat niet in een veld past,
+// gaat met een waarschuwing naar de notities (met de kolomnaam ervoor).
+// Uitzondering op vraag: een prijs die alleen "?" of "-" is, blijft leeg.
 // Alles hier is puur: de browser toont er het voorbeeld mee, de server
 // valideert daarna elke rij opnieuw (schemas.ts). Er wordt niets opgeslagen
 // zonder bevestiging.
@@ -46,14 +50,21 @@ const headerKey = (h: string) => norm(h).replace(/[?:*]/g, '').trim()
 
 export const GETEST_EXPORT: Record<Status, string> = { vast: 'ja', proefopdracht: 'weinig', kandidaat: 'nee', inactief: 'inactief' }
 
-/** ja → vast, weinig → proef, nee of leeg → nog niet getest. */
-export function parseGetest(cell: string): { status: Status; given: boolean; warning?: string } {
+/**
+ * ja → vast, weinig → proef, nee of leeg → nog niet getest. Een vinkje uit
+ * Google Sheets: TRUE → vast, FALSE → nog niet getest. FALSE telt (zoals een
+ * lege cel) niet als ingevuld: bij bijwerken zet een leeg vakje een vaste
+ * freelancer dus niet terug. Iets anders: nog niet getest, en de tekst gaat
+ * naar de notities.
+ */
+export function parseGetest(cell: string): { status: Status; given: boolean; warning?: string; note?: string } {
   const v = norm(cell)
-  if (!v || v === 'nee' || v === 'neen' || v === 'nog niet') return { status: 'kandidaat', given: !!v }
-  if (v === 'ja') return { status: 'vast', given: true }
+  if (!v || v === 'false' || v === 'onwaar') return { status: 'kandidaat', given: false }
+  if (v === 'nee' || v === 'neen' || v === 'nog niet') return { status: 'kandidaat', given: true }
+  if (v === 'ja' || v === 'true' || v === 'waar') return { status: 'vast', given: true }
   if (v === 'weinig') return { status: 'proefopdracht', given: true }
   if (v === 'inactief') return { status: 'inactief', given: true }
-  return { status: 'kandidaat', given: false, warning: `Getest "${cell.trim()}" is geen ja, weinig of nee → Nog niet getest` }
+  return { status: 'kandidaat', given: false, note: `Getest: ${cell.trim()}`, warning: `Getest "${cell.trim()}" is geen ja, weinig, nee, TRUE of FALSE → Nog niet getest, tekst bij de notities` }
 }
 
 // ── Prijs ───────────────────────────────────────────────────────────────────
@@ -88,7 +99,8 @@ export interface Price { amount: number | null; unit: Unit | null; note: string 
  */
 export function parsePrice(cell: string): Price {
   const s = cell.trim()
-  if (!s) return { amount: null, unit: null, note: null, given: false }
+  // Leeg, of alleen "?" of "-": niets ingevuld.
+  if (!s || /^[?\-–—]+$/.test(s)) return { amount: null, unit: null, note: null, given: false }
   const dash = s.split(/\s+—\s+/)
   if (dash.length === 2) {
     const head = parsePrice(dash[0])
@@ -113,14 +125,30 @@ export function parsePrice(cell: string): Price {
 
 // ── Beoordeling ─────────────────────────────────────────────────────────────
 
-/** Alleen een geheel getal van 1 tot 5 ("4", "4/5", "4,0", "★★★★"); anders leeg met een waarschuwing. */
-export function parseRating(cell: string): { value: number | null; warning?: string } {
+export interface Rating { value: number | null; links: Link[]; note: string | null; warning?: string }
+
+/**
+ * Sterren uit Google Sheets ("★★★☆☆" → 3; "☆☆☆☆☆" → leeg) of een geheel getal
+ * van 1 tot 5 ("4", "4/5", "4,0"). Iets anders gaat nooit verloren: links
+ * gaan naar het portfolio, de rest naar de notities als "Beoordeling: …".
+ */
+export function parseRating(cell: string): Rating {
   const s = cell.trim()
-  if (!s) return { value: null }
-  if (/^★{1,5}$/.test(s)) return { value: s.length }
+  const none: Rating = { value: null, links: [], note: null }
+  if (!s) return none
+  if (/^[★⭐☆✩\s]+$/.test(s)) {
+    const filled = [...s].filter(c => c === '★' || c === '⭐').length
+    if (filled === 0) return none
+    if (filled <= 5) return { ...none, value: filled }
+  }
   const m = s.match(/^([1-5])(?:[.,]0+)?(?:\s*\/\s*5)?$/)
-  if (m) return { value: Number(m[1]) }
-  return { value: null, warning: `Beoordeling "${s}" is geen geheel getal van 1 tot 5 → leeg gelaten` }
+  if (m) return { ...none, value: Number(m[1]) }
+  const pf = parsePortfolio(s)
+  const parts = [pf.links.length ? `${pf.links.length === 1 ? 'link' : 'links'} → portfolio` : null, pf.rest ? 'tekst → notities' : null].filter(Boolean)
+  return {
+    value: null, links: pf.links, note: pf.rest ? `Beoordeling: ${pf.rest}` : null,
+    warning: `Beoordeling "${s.length > 60 ? `${s.slice(0, 57)}…` : s}" is geen cijfer of sterren → ${parts.join(', ')}`,
+  }
 }
 
 // ── Wat? ────────────────────────────────────────────────────────────────────
@@ -130,9 +158,16 @@ export function parseRating(cell: string): { value: number | null; warning?: str
  * ("Foto/Video") blijft heel. Vergelijkt op label of sleutel, zonder
  * hoofdletters of accenten.
  */
+/** Andere namen voor een bestaande discipline (sleutel), zoals ze in de spreadsheet staan. */
+export const DISCIPLINE_ALIASES: Record<string, string> = {
+  'motion designer': 'video-vfx-motion',
+  'motion design': 'video-vfx-motion',
+}
+
 export function parseWat(cell: string, known: DisciplineRef[]): { keys: string[]; unknown: string[] } {
   const byNorm = new Map<string, string>()
   for (const d of known) { byNorm.set(norm(d.label), d.key); byNorm.set(norm(d.key), d.key) }
+  for (const [alias, key] of Object.entries(DISCIPLINE_ALIASES)) if (known.some(d => d.key === key)) byNorm.set(alias, key)
   const keys: string[] = [], unknown: string[] = []
   const add = (part: string) => {
     const p = part.trim().replace(/[?.]+$/, '').trim()
@@ -160,8 +195,10 @@ export function parsePortfolio(cell: string): { links: Link[]; rest: string | nu
   }
   let rest = cell
   for (const raw of found) rest = rest.replace(raw, ' ')
-  rest = rest.replace(/[\s,;|]+/g, ' ').trim()
-  return { links, rest: rest || null }
+  // Alleen de links eruit; de rest blijft zoals ze er stond (geen tekst kwijt).
+  if (!rest.replace(/[\s,;|]+/g, '')) return { links, rest: null }
+  rest = rest.replace(/[ \t]+/g, ' ').replace(/^[\s,;|]+|[\s,;|]+$/g, '').trim()
+  return { links, rest }
 }
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -199,7 +236,7 @@ export interface Analysis {
   rows: Row[]
   /** Onbekende waarden in Wat?, met de rijen waarin ze staan. */
   proposals: { label: string; lines: number[] }[]
-  /** Kolommen die we niet kennen (worden genegeerd). */
+  /** Kolommen die we niet kennen; hun cellen gaan naar de notities. */
   ignoredColumns: string[]
   /** Het bestand zelf is onbruikbaar (bv. geen kolom Naam). */
   error?: string
@@ -211,10 +248,11 @@ export function analyze(text: string, known: DisciplineRef[], existing: Existing
   const header = table[0].map(headerKey)
   const col: Partial<Record<Field, number>> = {}
   const ignoredColumns: string[] = []
+  const otherCols: number[] = []
   header.forEach((h, i) => {
     const f = HEADER[h]
     if (f && col[f] === undefined) col[f] = i
-    else if (h) ignoredColumns.push(table[0][i].trim())
+    else { otherCols.push(i); if (h) ignoredColumns.push(table[0][i].trim()) }
   })
   if (col.name === undefined) return { rows: [], proposals: [], ignoredColumns, error: 'Geen kolom "Naam" gevonden. De eerste regel moet de kolomnamen bevatten.' }
 
@@ -232,24 +270,39 @@ export function analyze(text: string, known: DisciplineRef[], existing: Existing
     const wat = parseWat(get('wat'), known)
     const getest = parseGetest(get('getest'))
     if (getest.warning) warnings.push(getest.warning)
+    if (getest.note) extra.push(getest.note)
     const price = parsePrice(get('prijs'))
     if (price.given && price.amount == null) warnings.push('Prijs niet eenduidig → volledig als notitie bij het tarief')
     const rating = parseRating(get('rating'))
     if (rating.warning) warnings.push(rating.warning)
+    if (rating.note) extra.push(rating.note)
     const pf = parsePortfolio(get('portfolio'))
     if (pf.rest) { warnings.push('Portfolio bevat tekst zonder link → bij de notities'); extra.push(`Portfolio: ${pf.rest}`) }
+    const links = [...pf.links, ...rating.links.filter(l => !pf.links.some(p => p.url === l.url))]
 
     const mails = get('email').split(/[\s,;]+/).map(m => m.trim().toLowerCase()).filter(Boolean)
     const email = mails.find(m => EMAIL.test(m)) ?? null
     const otherMails = mails.filter(m => m !== email)
     if (otherMails.length) { warnings.push(email ? 'Meer dan één e-mailadres → de andere bij de notities' : 'Ongeldig e-mailadres → bij de notities'); extra.push(`E-mail: ${otherMails.join(', ')}`) }
     if (wat.unknown.length) warnings.push(`Onbekend in Wat?: ${wat.unknown.join(', ')}`)
+    // Kolommen die we niet kennen (of een tweede kolom voor hetzelfde veld): naar de notities.
+    for (const i of otherCols) {
+      const v = (cells[i] ?? '').trim()
+      if (!v) continue
+      const label = table[0][i].trim() || `Kolom ${i + 1}`
+      extra.push(`${label}: ${v}`)
+      warnings.push(`Kolom "${label}" → bij de notities`)
+    }
+    for (let i = table[0].length; i < cells.length; i++) {
+      const v = (cells[i] ?? '').trim()
+      if (v) { extra.push(`Kolom ${i + 1}: ${v}`); warnings.push(`Cel zonder kolomnaam (kolom ${i + 1}) → bij de notities`) }
+    }
 
     const notes = [get('notes'), ...extra].filter(Boolean).join('\n') || null
     const data: Parsed = {
       name, disciplines: wat.keys, unknown: wat.unknown, status: getest.status, statusGiven: getest.given,
       phone: get('phone').replace(/\s+/g, ' ') || null, email, price, overall_rating: rating.value,
-      portfolio_links: pf.links, notes,
+      portfolio_links: links, notes,
     }
     for (const u of wat.unknown) {
       const k = norm(u)
