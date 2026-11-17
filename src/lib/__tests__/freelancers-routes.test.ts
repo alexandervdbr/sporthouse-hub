@@ -1,14 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// De interne API van de freelancertool, Fase 1 van het herontwerp
-// (docs/freelancers-redesign.md), met een nagemaakte Supabase. Wat hier
-// getest wordt:
+// De API van het freelanceroverzicht (docs/freelancers-overzicht.md), met een
+// nagemaakte Supabase. De oude opdracht-, avatar- en matchroutes staan er
+// nog in tot ze in Fase 3 verdwijnen. Wat hier getest wordt:
 //   - zonder het juiste niveau een 401/403, vóór er iets naar de database gaat
 //   - "bekijken" mag lezen maar nergens schrijven
 //   - een account zonder permissions-object krijgt niets
 //   - schrijfroutes weigeren elk veld dat niet in de whitelist staat
 //   - een freelancer aanmaken maakt nooit een Auth-account
-//   - opdrachten en projecten worden gezocht onder de freelancer uit de URL
+//   - opdrachten en samenwerkingen worden gezocht onder de freelancer uit de URL
+//   - het gemiddelde van de samenwerkingen wordt nergens weggeschreven
 
 type FakeUser = { id: string; email?: string; app_metadata: Record<string, unknown> } | null
 type Result = { data?: unknown; error?: { code?: string; message?: string } | null }
@@ -95,6 +96,8 @@ const assignment = fixed(await import('@/app/api/freelancers/[id]/assignments/[a
 const files = fixed(await import('@/app/api/freelancers/[id]/assignments/[assignmentId]/files/route'))
 const thumb = fixed(await import('@/app/api/freelancers/[id]/assignments/[assignmentId]/files/thumbnail/route'))
 const match = fixed(await import('@/app/api/freelancers/match/route'))
+const archive = fixed(await import('@/app/api/freelancers/[id]/archive/route'))
+const disciplines = fixed(await import('@/app/api/freelancers/disciplines/route'))
 
 const F = '11111111-1111-4111-8111-111111111111'
 const A = '22222222-2222-4222-8222-222222222222'
@@ -124,8 +127,13 @@ const pa = () => ({ params: Promise.resolve({ id: F, assignmentId: A }) })
 
 // Elke route, met het niveau dat ze vraagt.
 const ROUTES: { name: string; level: 'bekijken' | 'beheren'; call: () => Promise<Response> }[] = [
-  { name: 'GET /freelancers',              level: 'bekijken', call: () => list.GET() },
-  { name: 'POST /freelancers',             level: 'beheren',  call: () => list.POST(json('POST', { name: 'Jan' })) },
+  { name: 'GET /freelancers',              level: 'bekijken', call: () => list.GET(json('GET')) },
+  { name: 'POST /freelancers',             level: 'beheren',  call: () => list.POST(json('POST', { name: 'Jan', disciplines: ['video'] })) },
+  { name: 'POST archive',                  level: 'beheren',  call: () => archive.POST(json('POST'), p1()) },
+  { name: 'DELETE archive',                level: 'beheren',  call: () => archive.DELETE(json('DELETE'), p1()) },
+  { name: 'GET disciplines',               level: 'bekijken', call: () => disciplines.GET() },
+  { name: 'POST disciplines',              level: 'beheren',  call: () => disciplines.POST(json('POST', { label: 'Drone' })) },
+  { name: 'PATCH project',                 level: 'beheren',  call: () => project.PATCH(json('PATCH', { project_name: 'X' }), pp()) },
   { name: 'PATCH /freelancers/[id]',       level: 'beheren',  call: () => one.PATCH(json('PATCH', { name: 'Jan' }), p1()) },
   { name: 'DELETE /freelancers/[id]',      level: 'beheren',  call: () => one.DELETE(json('DELETE'), p1()) },
   { name: 'GET projects',                  level: 'bekijken', call: () => projects.GET(json('GET'), p1()) },
@@ -205,6 +213,19 @@ describe('freelancer-API — whitelist', () => {
     { email: 'geen-adres' },
     { portfolio_url: 'javascript:alert(1)' },
     { tested: 'misschien' },
+    { archived_at: '2026-01-01' },
+    { availability: 'beschikbaar' },
+    { overall_rating: 7 },
+    { overall_rating: 3.5 },
+    { status: 'getest' },
+    { disciplines: [] },
+    { disciplines: ['Geen Sleutel'] },
+    { rate_amount: 450 },
+    { rate_unit: 'dag', rate_amount: null },
+    { rate_unit: 'week', rate_amount: 1 },
+    { portfolio_links: [{ url: 'javascript:alert(1)' }] },
+    { portfolio_links: [{ url: 'https://x.be', extra: 1 }] },
+    { overall_rating_updated_by: 'u1' },
   ]
 
   for (const body of forbidden) {
@@ -232,10 +253,52 @@ describe('freelancer-API — whitelist', () => {
     expect(state.writes).toEqual([{ table: 'freelancers', op: 'update', payload: { name: 'Jan', email: 'jan@example.com', notes: null } }])
   })
 
-  it('POST weigert onbekende velden', async () => {
-    expect((await list.POST(json('POST', { name: 'Jan', rating_note: 'x' }))).status).toBe(400)
-    expect((await list.POST(json('POST', { email: 'a@b.be' }))).status).toBe(400)
+  it('POST weigert onbekende velden, en vraagt naam én minstens één discipline', async () => {
+    expect((await list.POST(json('POST', { name: 'Jan', disciplines: ['video'], rating_note: 'x' }))).status).toBe(400)
+    expect((await list.POST(json('POST', { email: 'a@b.be', disciplines: ['video'] }))).status).toBe(400)
+    expect((await list.POST(json('POST', { name: 'Jan' }))).status).toBe(400)
+    expect((await list.POST(json('POST', { name: 'Jan', disciplines: [] }))).status).toBe(400)
+    expect((await list.POST(json('POST', { name: ' ', disciplines: ['video'] }))).status).toBe(400)
     expect(state.writes).toEqual([])
+  })
+
+  it('PATCH met het hele formulier schrijft precies die velden', async () => {
+    state.tables.freelancers = { data: { id: F, freelancer_projects: [{ score: 4 }, { score: 5 }, { score: null }] }, error: null }
+    const body = {
+      name: 'Jan', disciplines: ['video', 'foto', 'video'], status: 'vast', phone: '0470', email: 'JAN@x.be',
+      rate_amount: 450, rate_unit: 'dag', rate_note: '€250 halve dag', overall_rating: 4, overall_rating_note: 'Sterk',
+      portfolio_links: [{ label: '', url: 'https://vimeo.com/jan' }, { label: 'IG', url: 'https://instagram.com/jan' }], notes: 'n',
+    }
+    const res = await one.PATCH(json('PATCH', body), p1())
+    expect(res.status).toBe(200)
+    expect(state.writes[0].payload).toEqual({
+      ...body, disciplines: ['video', 'foto'], email: 'jan@x.be',
+      portfolio_links: [{ url: 'https://vimeo.com/jan' }, { label: 'IG', url: 'https://instagram.com/jan' }],
+    })
+    // Het gemiddelde komt mee in het antwoord, maar wordt nooit weggeschreven.
+    expect(await res.json()).toMatchObject({ id: F, collab: { avg: 4.5, count: 3, scored: 2 } })
+    expect(JSON.stringify(state.writes)).not.toMatch(/collab|"rating"/)
+  })
+
+  it('een dubbel e-mailadres is een 409 met een leesbare zin, zonder de databasemelding', async () => {
+    state.tables.freelancers = { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "freelancers_email_key"' } }
+    const res = await one.PATCH(json('PATCH', { email: 'a@b.be' }), p1())
+    expect(res.status).toBe(409)
+    expect(await res.text()).toBe('Er bestaat al een freelancer met dit e-mailadres.')
+  })
+
+  it('samenwerking-PATCH weigert een score buiten 1–5 en een ander freelancer_id', async () => {
+    expect((await project.PATCH(json('PATCH', { score: 0 }), pp())).status).toBe(400)
+    expect((await project.PATCH(json('PATCH', { freelancer_id: F }), pp())).status).toBe(400)
+    expect((await projects.POST(json('POST', { project_name: 'X', freelancer_id: F }), p1())).status).toBe(400)
+    expect(state.writes).toEqual([])
+  })
+
+  it('discipline-POST maakt een sleutel uit het label', async () => {
+    state.tables.freelancer_disciplines = { data: { key: 'drone-pilot', label: 'Drone Piloot' }, error: null }
+    const res = await disciplines.POST(json('POST', { label: 'Drone Pilöt' }))
+    expect(res.status).toBe(201)
+    expect(state.writes).toEqual([{ table: 'freelancer_disciplines', op: 'insert', payload: { key: 'drone-pilot', label: 'Drone Pilöt', sort: 10 } }])
   })
 
   it('opdracht-PATCH weigert een onbekende status en vreemde velden', async () => {
@@ -266,15 +329,12 @@ describe('freelancer-API — geen Auth-accounts meer', () => {
   it('POST met e-mailadres maakt het profiel, maar nooit een Auth-gebruiker', async () => {
     state.user = user(MANAGE)
     state.tables.freelancers = { data: { id: F, name: 'Jan' }, error: null }
-    const res = await list.POST(json('POST', { name: 'Jan', email: 'jan@example.com' }))
+    const res = await list.POST(json('POST', { name: 'Jan', disciplines: ['video'], email: 'jan@example.com' }))
     expect(res.status).toBe(201)
     expect(state.createUser).toBe(0)
     expect(state.writes).toEqual([{
       table: 'freelancers', op: 'insert',
-      payload: {
-        name: 'Jan', email: 'jan@example.com', phone: null, types: [], tested: null,
-        price_info: null, rating: null, portfolio_url: null, notes: null,
-      },
+      payload: { name: 'Jan', disciplines: ['video'], email: 'jan@example.com' },
     }])
   })
 
@@ -288,9 +348,36 @@ describe('freelancer-API — geen Auth-accounts meer', () => {
 describe('freelancer-API — eigenaarschap', () => {
   beforeEach(() => { state.user = user(MANAGE) })
 
-  it('project verwijderen filtert op de freelancer uit de URL', async () => {
+  it('samenwerking verwijderen en bewerken filtert op de freelancer uit de URL', async () => {
     await project.DELETE(json('DELETE'), pp())
     expect(state.calls).toContain(`freelancer_projects.eq:freelancer_id=${F}`)
+    state.calls = []
+    state.tables.freelancer_projects = { data: null, error: null }
+    expect((await project.PATCH(json('PATCH', { notes: 'x' }), pp())).status).toBe(404)
+    expect(state.calls).toContain(`freelancer_projects.eq:freelancer_id=${F}`)
+  })
+
+  it('een samenwerking toevoegen hangt ze aan de freelancer uit de URL en raakt de beoordeling niet', async () => {
+    state.tables.freelancer_projects = { data: { id: P }, error: null }
+    const res = await projects.POST(json('POST', { project_name: 'Aftermovie', client_name: 'KV Mechelen', date: '2026-10-12', score: 5 }), p1())
+    expect(res.status).toBe(201)
+    expect(state.writes).toEqual([{
+      table: 'freelancer_projects', op: 'insert',
+      payload: { project_name: 'Aftermovie', client_name: 'KV Mechelen', date: '2026-10-12', score: 5, freelancer_id: F },
+    }])
+  })
+
+  it('de lijst laat gearchiveerden weg, tenzij ?archief=1', async () => {
+    await list.GET(json('GET'))
+    expect(state.calls).toContain('freelancers.is')
+    state.calls = []
+    await list.GET(json('GET', undefined, 'http://hub.test/api/freelancers?archief=1'))
+    expect(state.calls).not.toContain('freelancers.is')
+  })
+
+  it('hard verwijderen zegt het als er nog iets naar de freelancer verwijst', async () => {
+    state.tables.freelancers = { data: null, error: { code: '23503', message: 'fk' } }
+    expect((await one.DELETE(json('DELETE'), p1())).status).toBe(409)
   })
 
   it('een opdracht van een andere freelancer → 404, niets gewijzigd', async () => {

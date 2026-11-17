@@ -1,47 +1,39 @@
-import { requireFreelancers, parseBody } from '@/features/freelancers/lib/server'
+import { requireFreelancers, parseBody, writeError } from '@/features/freelancers/lib/server'
 import { freelancerCreateSchema } from '@/features/freelancers/lib/schemas'
+import { FREELANCER_COLUMNS, LIST_COLUMNS } from '@/features/freelancers/lib/columns'
+import { toListRow } from '@/features/freelancers/lib/rows'
 
-export async function GET() {
+// GET  (bekijken) — de hele lijst in één verzoek, met per freelancer het
+//      gemiddelde van zijn samenwerkingen. Standaard zonder gearchiveerden;
+//      ?archief=1 geeft iedereen.
+// POST (beheren)  — een nieuwe freelancer. Er wordt nooit een Auth-account
+//      gemaakt: freelancers hebben geen login.
+export async function GET(req: Request) {
   const auth = await requireFreelancers('bekijken')
   if ('error' in auth) return auth.error
 
-  const { data, error } = await auth.supabase
-    .from('freelancers')
-    .select('*, freelancer_projects(id, score)')
-    .order('name')
+  const archief = new URL(req.url).searchParams.get('archief') === '1'
+  let q = auth.supabase.from('freelancers').select(LIST_COLUMNS).order('name')
+  if (!archief) q = q.is('archived_at', null)
 
-  if (error) return new Response(error.message, { status: 500 })
-  return Response.json(data ?? [])
+  const { data, error } = await q
+  if (error) return new Response('Kon de freelancers niet ophalen.', { status: 500 })
+  return Response.json((data ?? []).map(r => toListRow(r as unknown as Record<string, unknown> & { freelancer_projects?: { score: number | null }[] })))
 }
 
-// Maakt alleen het freelancerprofiel aan. Er wordt bewust GEEN Auth-account
-// meer gemaakt: freelancers krijgen geen login (zie
-// docs/freelancers-redesign.md). Wie vroeger zo'n account kreeg, behoudt het
-// tot Fase 6 van het herontwerp; nieuwe freelancers krijgen er geen.
 export async function POST(req: Request) {
   const auth = await requireFreelancers('beheren')
   if ('error' in auth) return auth.error
 
   const body = await parseBody(req, freelancerCreateSchema)
   if ('error' in body) return body.error
-  const f = body.data
 
   const { data, error } = await auth.supabase
     .from('freelancers')
-    .insert({
-      name: f.name,
-      email: f.email ?? null,
-      phone: f.phone ?? null,
-      types: f.types ?? [],
-      tested: f.tested ?? null,
-      price_info: f.price_info ?? null,
-      rating: f.rating ?? null,
-      portfolio_url: f.portfolio_url ?? null,
-      notes: f.notes ?? null,
-    })
-    .select('*, freelancer_projects(id, score)')
+    .insert(body.data)
+    .select(FREELANCER_COLUMNS)
     .single()
 
-  if (error) return new Response(error.message, { status: 500 })
-  return Response.json(data, { status: 201 })
+  if (error) return writeError(error, 'Kon de freelancer niet opslaan.')
+  return Response.json({ ...(data as unknown as Record<string, unknown>), collab: { avg: null, count: 0, scored: 0 } }, { status: 201 })
 }

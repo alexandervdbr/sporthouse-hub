@@ -67,23 +67,28 @@ Branch: `feature/freelancers-overzicht` (vanaf main 9e37ce1).
 | `supabase/migrations/0093_freelancers_datamodel.sql` | idem | ongewijzigd (is al uitgevoerd) |
 | `features/freelancers/lib/schemas.ts` | idem | alleen het freelancer- en disciplinedeel; zonder beschikbaarheid, opdrachten, uploads, avatar of match; plus `projectSchema` (aanmaken en bijwerken) en `overall_rating` in hetzelfde formulier |
 | `features/freelancers/lib/columns.ts` | idem | alleen `FREELANCER_COLUMNS` (zonder availability en avatar), `PROJECT_COLUMNS` en `DISCIPLINE_COLUMNS` |
-| `features/freelancers/internal/useUrlState.ts` | `features/freelancers/overzicht/useUrlState.ts` | ongewijzigd |
-| `internal/list/filter.ts` | `overzicht/filter.ts` | zonder "nu beschikbaar" en opdrachtgroepen; sorteren op naam, wat, status, beoordeling en tarief; standaard op naam; archief als filter |
-| `internal/list/FreelancerTable.tsx` | `overzicht/Table.tsx` | nieuwe kolommen (§7) |
-| `internal/list/FreelancerFilters.tsx` en `prototype/bits.tsx` (`MultiSelect`) | `overzicht/Filters.tsx` | "Wat ▾" en "Status ▾", zonder pills |
-| `internal/types.ts` | `overzicht/types.ts` | zonder stats, availability, assignments en link |
-| `internal/format.ts` | `overzicht/format.ts` | alleen tarief, datum en score |
-| `internal/ui.tsx` (`Chip`, `ErrorLine`) | `overzicht/ui.tsx` | wat nodig is |
-| `internal/profile/ProfileOverview.tsx` (velden en seed-logica) | `overzicht/Panel.tsx` | één formulier, één Opslaan/Annuleren |
-| `internal/logic.ts` (`mergeFreelancer`, `seed`) | `overzicht/logic.ts` | zonder opdrachten |
+| `features/freelancers/internal/useUrlState.ts` | `components/freelancers/overzicht/useUrlState.ts` | ongewijzigd |
+| `internal/list/filter.ts`, `internal/logic.ts` (`seed`) | `components/freelancers/overzicht/logic.ts` | zoeken, filteren en sorteren (naam, wat, status, beoordeling, tarief; standaard op naam), URL, weergave, formulier |
+| `internal/list/FreelancerTable.tsx`, `FreelancerFilters.tsx`, `FreelancerList.tsx` | `components/freelancers/overzicht/Overview.tsx` | tabel, kaarten, "Wat ▾" en "Status ▾" zonder pills, bottom sheet |
+| `internal/types.ts` | `components/freelancers/overzicht/types.ts` | zonder stats, availability, opdrachten en link |
+| `internal/ui.tsx` en `prototype/bits.tsx` (`Chip`, `Stars`, `MultiSelect`, `Toggle`) | `components/freelancers/overzicht/ui.tsx` | plus `Sheet` en een toast |
+| `internal/profile/ProfileOverview.tsx` (velden) | `components/freelancers/overzicht/Panel.tsx` | één formulier, één Opslaan/Annuleren |
+| — | `components/freelancers/overzicht/Projects.tsx`, `Contact.tsx` | nieuw: samenwerkingen, contacticonen |
+
 | `api/freelancers/disciplines/route.ts` (POST) | idem | alleen toevoegen (voor de import) |
 | `api/freelancers/[id]/archive/route.ts` | idem | ongewijzigd |
 | `__tests__/freelancer-picker.test.ts` | idem | ongewijzigd: bewaakt `freelancer_picker()` |
-| `__tests__/freelancers-api.test.ts`, `freelancers-routes.test.ts`, `freelancers-ui.test.ts` | idem | alleen de cases die nog gelden, plus nieuwe |
+| `features/freelancers/lib/slug.ts` | idem | ongewijzigd (sleutel van een nieuwe discipline) |
+| `__tests__/freelancers-routes.test.ts` (main) | idem | bijgewerkt voor de nieuwe velden, plus samenwerkingen, archief en disciplines |
+| — | `__tests__/freelancers-overzicht.test.ts`, `gear-mail-freelancer.test.ts` | nieuw: lijstlogica, formulier, bekijken/beheren, migratie 0094; mail van de materiaalplanner |
+
+De schermcomponenten staan onder `src/components/` en niet onder `src/features/`: Tailwind scant alleen `src/components`, `src/app` en `src/pages`, en zo hoeft de Tailwind-config niet te veranderen.
+
+De oude whitelists voor de opdracht- en matchroutes van main staan tijdelijk in `features/freelancers/lib/schemas-legacy.ts`; ze verdwijnen in Fase 3 samen met die routes.
 
 **Niet overnemen:**
 - `/f`, `api/public/f/*` en `features/freelancers/public/*`
-- `lib/link-*`, `links-server`, `public-*`, `rate-limit`, `share`, `notify`, `files-server`, `drive-files`, `assignments-server`, `statuses`, `match`, `config`, `schemas-legacy`, `slug`
+- `lib/link-*`, `links-server`, `public-*`, `rate-limit`, `share`, `notify`, `files-server`, `drive-files`, `assignments-server`, `statuses`, `match`, `config`, `schemas-legacy` (die van de redesign-branch)
 - `api/cron/freelancer-shares` en alle opdrachtroutes onder `api/freelancers/assignments/**`
 - `[id]/link*`, `[id]/rating` (de beoordeling gaat mee in het formulier) en `[id]/avatar`
 - `internal/assignments/*`, `LinkReveal`, `LinkTab`, `ProfileAssignments`, `ProfileHeader`, `EditableCard` (vervangen door één formulier), `PageScroll` en `FreelancersShell`
@@ -151,8 +156,8 @@ Branch: `feature/freelancers-overzicht` (vanaf main 9e37ce1).
 Bestand: `0095_freelancers_opruimen.sql` (0094 is de migratie van B1).
 
 **Daarbij komen ook:**
-- `supabase/freelancers/0094_dryrun.sql`: alleen lezen, met aantallen per tabel.
-- `supabase/freelancers/0094_proefdraai.sql`: `begin; … migratie … controles …; rollback;`.
+- `supabase/freelancers/0095_dryrun.sql`: alleen lezen, met aantallen per tabel.
+- `supabase/freelancers/0095_proefdraai.sql`: `begin; … migratie … controles …; rollback;`.
 
 Jij voert ze uit, ik niet.
 

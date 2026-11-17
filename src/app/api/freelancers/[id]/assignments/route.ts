@@ -1,6 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/server'
 import { requireFreelancers, parseBody, isUuid } from '@/features/freelancers/lib/server'
-import { assignmentCreateSchema } from '@/features/freelancers/lib/schemas'
+import { assignmentCreateSchema } from '@/features/freelancers/lib/schemas-legacy'
 
 // Was alleen voor admins, terwijl de knoppen zichtbaar waren voor iedereen
 // met het freelancerrecht. Nu: bekijken leest, beheren schrijft.
