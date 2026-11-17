@@ -198,3 +198,11 @@ export interface GearMoveResult {
   updated: GearMoveEffect[]
   failed: GearMoveEffect[]
 }
+
+/** Wat gear_merge_bookings / gear_create_booking_into teruggeven. */
+export interface MergeResult {
+  target_id: string
+  merge_id: string
+  absorbed_ids: string[]
+  created_id?: string
+}

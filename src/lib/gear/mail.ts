@@ -8,13 +8,19 @@ import { periodLabel } from './views'
 // stuurt die met een gedeeld geheim naar het script, dat verstuurt met MailApp
 // als "Sporthouse Materiaal". Los van de poolwagenmail.
 //
-// - bevestiging: bij een nieuwe boeking of nieuwe data
-// - annulering: naar dezelfde ontvangers
-// - herinnering: de ochtend van de terugbrengdag
+// - wijziging: als de data, de uren of het materiaal van een boeking
+//   veranderen. Eén mail per ontvanger per actie: verandert één actie
+//   meerdere boekingen van dezelfde persoon (een kitonderdeel verhuist), dan
+//   staan ze samen in één mail.
+// - herinnering: de ochtend van de terugbrengdag, één mail per ontvanger met
+//   alles wat die dag terug moet, per boeking, op volgorde van het uur.
+//
+// Geen mail bij boeken, annuleren of samenvoegen: dat doe je zelf, en de
+// planner toont het meteen.
 //
 // De agenda loopt niet via een bijlage maar via een echte afspraak in Google
 // Calendar, die het script maakt, verplaatst of weghaalt (calendarEvent
-// hieronder), zonder mails van Google: de mails komen alleen van ons. Een .ics in een mail van
+// hieronder), zonder mails van Google (sendUpdates: none, gast al aanvaard). Een .ics in een mail van
 // MailApp toont Gmail niet als uitnodiging.
 //
 // Alles hier is puur (geen database, geen netwerk); mail-server.ts haalt de
@@ -52,14 +58,23 @@ export function mailRecipients(addresses: (string | null | undefined)[]): string
   return [...new Set(addresses.filter(isEmail).map(a => a.trim().toLowerCase()))]
 }
 
-/** Een bevestiging alleen als de boeking nog loopt of komt; achteraf ingevoerd en al voorbij: geen mail. */
-export function shouldConfirm(endDate: string, today: string): boolean {
+/** Alleen voor een boeking die nog loopt of komt; wat al voorbij is, krijgt geen mail. */
+export function shouldMail(endDate: string, today: string): boolean {
   return endDate >= today
 }
 
-/** Sleutel in het logboek: nieuwe data geven een nieuwe bevestiging, dezelfde data nooit twee keer. */
-export const confirmationKey = (start: string, end: string, startTime?: string | null, endTime?: string | null) =>
-  `${start}${startTime ? `T${startTime}` : ''}|${end}${endTime ? `T${endTime}` : ''}`
+/**
+ * Sleutel van een wijzigingsmail in het logboek: de data, de uren en het
+ * materiaal zoals ze nu zijn. Dezelfde toestand nooit twee keer; een nieuwe
+ * wijziging geeft een nieuwe sleutel.
+ */
+export function changeKey(b: { start: string; end: string; startTime?: string | null; endTime?: string | null; itemIds: string[] }): string {
+  const period = `${b.start}${b.startTime ? `T${b.startTime}` : ''}|${b.end}${b.endTime ? `T${b.endTime}` : ''}`
+  // Een korte, vaste vingerafdruk van de items (de volledige lijst kan lang zijn).
+  let h = 0
+  for (const c of [...b.itemIds].sort().join(',')) h = (Math.imul(h, 31) + c.charCodeAt(0)) | 0
+  return `${period}|${b.itemIds.length}:${(h >>> 0).toString(36)}`
+}
 
 export interface MailBooking {
   id: string
@@ -157,47 +172,85 @@ function wrap(body: string): string {
   return `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;color:#18181b;max-width:560px">${MAIL_HEADER}${body}${MAIL_SIGNATURE}</div>`
 }
 
-/** Bevestiging bij een nieuwe boeking, of bij een boeking met nieuwe data. */
-export function confirmationMail(b: MailBooking, changed: boolean): MailContent {
-  const what = whatShort(b)
-  const period = mailPeriod(b)
-  const subject = oneLine(`${changed ? 'Boeking gewijzigd' : 'Materiaal geboekt'}: ${what} · ${period}`)
-  const intro = changed ? 'De data van deze boeking zijn gewijzigd.' : 'Dit materiaal is voor je geboekt.'
-  const l = lines(b), d = details(b), w = warnings(b)
+/** Eén boeking als blok in een mail met meerdere: kop met de periode, dan wat en voor wie. */
+function block(b: MailBooking, heading: string, withWarnings: boolean): { text: string[]; html: string } {
+  const l = lines(b), d = details(b), w = withWarnings ? warnings(b) : { text: [], html: '' }
   return {
-    subject,
-    text: [intro, '', ...l.text, '', ...d.text, ...w.text, '', `Bekijk in de planner: ${b.link}`, '', '— Sporthouse Materiaal'].join('\n'),
-    html: wrap(`<p style="margin:0 0 12px">${esc(intro)}</p>${l.html}${d.html}${w.html}` +
-      `<p style="margin:0"><a href="${esc(b.link)}" style="color:#3A913F">Bekijk in de planner</a></p>`),
+    text: [heading, ...l.text, ...d.text, ...w.text],
+    html: `<p style="margin:16px 0 4px;font-weight:600">${esc(heading)}</p>${l.html}${d.html}${w.html}`,
   }
 }
 
-/** Annulering: zelfde ontvangers als de bevestiging (de afspraak in de agenda haalt het script weg). */
-export function cancellationMail(b: MailBooking): MailContent {
-  const subject = oneLine(`Geannuleerd: ${whatShort(b)} · ${mailPeriod(b)}`)
-  const intro = 'Deze boeking is geannuleerd. Het materiaal is weer vrij.'
-  const l = lines(b), d = details(b)
+const link = (b: MailBooking) => `<p style="margin:0"><a href="${esc(b.link)}" style="color:#3A913F">Bekijk in de planner</a></p>`
+
+/** Wanneer iets terug moet: het uur, of zonder uur het einde van de dag (achteraan). */
+const returnOrder = (b: MailBooking) => b.endTime ?? '24:00'
+
+/**
+ * Gewijzigd: één of meer boekingen van dezelfde ontvanger, met hoe ze nu zijn.
+ * Eén boeking: zoals altijd; meerdere: per boeking een blok.
+ */
+export function changeMail(bookings: MailBooking[]): MailContent {
+  const [first] = bookings
+  if (bookings.length === 1) {
+    const intro = 'Deze boeking is gewijzigd. Zo ziet ze er nu uit:'
+    const l = lines(first), d = details(first), w = warnings(first)
+    return {
+      subject: oneLine(`Boeking gewijzigd: ${whatShort(first)} · ${mailPeriod(first)}`),
+      text: [intro, '', ...l.text, '', ...d.text, ...w.text, '', `Bekijk in de planner: ${first.link}`, '', '— Sporthouse Materiaal'].join('\n'),
+      html: wrap(`<p style="margin:0 0 12px">${esc(intro)}</p>${l.html}${d.html}${w.html}${link(first)}`),
+    }
+  }
+  const sorted = [...bookings].sort((a, b) => a.start.localeCompare(b.start) || (a.startTime ?? '').localeCompare(b.startTime ?? ''))
+  const intro = `${bookings.length} boekingen zijn gewijzigd. Zo zien ze er nu uit:`
+  const blocks = sorted.map(b => block(b, mailPeriod(b), true))
   return {
-    subject,
-    text: [intro, '', ...l.text, '', ...d.text, '', '— Sporthouse Materiaal'].join('\n'),
-    html: wrap(`<p style="margin:0 0 12px">${esc(intro)}</p>${l.html}${d.html}`),
+    subject: oneLine(`${bookings.length} boekingen gewijzigd: ${whatShort({ kits: sorted.flatMap(b => b.kits), loose: sorted.flatMap(b => b.loose) })}`),
+    text: [intro, ...blocks.flatMap(x => ['', ...x.text]), '', `Bekijk in de planner: ${first.link}`, '', '— Sporthouse Materiaal'].join('\n'),
+    html: wrap(`<p style="margin:0 0 4px">${esc(intro)}</p>${blocks.map(x => x.html).join('')}${link(first)}`),
   }
 }
 
-/** Herinnering op de ochtend van de terugbrengdag. */
-export function reminderMail(b: MailBooking): MailContent {
-  const what = whatShort(b)
-  const subject = oneLine(`Vandaag terugbrengen: ${what}`)
-  const intro = b.endTime
-    ? `Vandaag is de laatste dag van deze boeking. Breng het materiaal vandaag terug, om ${b.endTime}.`
-    : 'Vandaag is de laatste dag van deze boeking. Breng het materiaal vandaag terug.'
-  const l = lines(b), d = details(b)
-  return {
-    subject,
-    text: [intro, '', ...l.text, '', ...d.text, '', `Bekijk in de planner: ${b.link}`, '', '— Sporthouse Materiaal'].join('\n'),
-    html: wrap(`<p style="margin:0 0 12px">${esc(intro)}</p>${l.html}${d.html}` +
-      `<p style="margin:0"><a href="${esc(b.link)}" style="color:#3A913F">Bekijk in de planner</a></p>`),
+/**
+ * Herinnering op de ochtend van de terugbrengdag: alles wat deze ontvanger
+ * vandaag terugbrengt, per boeking, op volgorde van het uur (zonder uur achteraan).
+ */
+export function reminderMail(bookings: MailBooking[]): MailContent {
+  const sorted = [...bookings].sort((a, b) => returnOrder(a).localeCompare(returnOrder(b)))
+  const [first] = sorted
+  const what = whatShort({ kits: sorted.flatMap(b => b.kits), loose: sorted.flatMap(b => b.loose) })
+  if (sorted.length === 1) {
+    const intro = first.endTime
+      ? `Vandaag is de laatste dag van deze boeking. Breng het materiaal vandaag terug, om ${first.endTime}.`
+      : 'Vandaag is de laatste dag van deze boeking. Breng het materiaal vandaag terug.'
+    const l = lines(first), d = details(first)
+    return {
+      subject: oneLine(`Vandaag terugbrengen: ${what}`),
+      text: [intro, '', ...l.text, '', ...d.text, '', `Bekijk in de planner: ${first.link}`, '', '— Sporthouse Materiaal'].join('\n'),
+      html: wrap(`<p style="margin:0 0 12px">${esc(intro)}</p>${l.html}${d.html}${link(first)}`),
+    }
   }
+  const intro = `Vandaag breng je materiaal van ${sorted.length} boekingen terug:`
+  const blocks = sorted.map(b => block(b, b.endTime ? `Terug om ${b.endTime}` : 'Terug vandaag (hele dag)', false))
+  return {
+    subject: oneLine(`Vandaag terugbrengen: ${what}`),
+    text: [intro, ...blocks.flatMap(x => ['', ...x.text]), '', `Bekijk in de planner: ${first.link}`, '', '— Sporthouse Materiaal'].join('\n'),
+    html: wrap(`<p style="margin:0 0 4px">${esc(intro)}</p>${blocks.map(x => x.html).join('')}${link(first)}`),
+  }
+}
+
+/**
+ * Per ontvanger de boekingen die hem aangaan: één mail per ontvanger.
+ * Volgorde van de ontvangers en de boekingen blijft zoals binnengekomen.
+ */
+export function groupByRecipient<T>(entries: { item: T; to: string[] }[]): { to: string; items: T[] }[] {
+  const out = new Map<string, T[]>()
+  for (const e of entries) for (const r of mailRecipients(e.to)) {
+    const list = out.get(r) ?? []
+    if (!list.includes(e.item)) list.push(e.item)
+    out.set(r, list)
+  }
+  return [...out].map(([to, items]) => ({ to, items }))
 }
 
 /** Een tijdstip zoals de Calendar API het wil: een datum (hele dag) of kloktijd met tijdzone. */

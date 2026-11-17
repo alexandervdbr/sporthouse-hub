@@ -4,28 +4,32 @@ import { todayInBrussels } from './dates'
 import { normalizeTime } from './times'
 import { effectiveResponsible, ownResponsible, responsibleWarning, type EffectiveResponsible } from './responsible'
 import {
-  calendarEvent, cancellationMail, confirmationKey, confirmationMail, mailConfig, mailErrorText, mailRecipients, reminderMail, shouldConfirm,
+  calendarEvent, changeKey, changeMail, groupByRecipient, mailConfig, mailErrorText, mailRecipients, reminderMail, shouldMail,
   type MailBooking, type MailConfig, type MailContent,
 } from './mail'
 import type { GearClientRef, GearResponsible } from './types'
 
-// Mails versturen voor de materiaalplanner (zie mail.ts voor de inhoud).
+// Mails versturen voor de materiaalplanner (zie mail.ts voor de inhoud):
+// alleen de wijzigingsmail en de herinnering op de terugbrengdag.
 //
 // Met de service key: de mail gaat ook naar wie de boeking niet zelf maakte,
-// en het logboek (gear_mail_log, 0082) is alleen voor de server. Elke mail
-// wordt eerst in het logboek gezet; de unieke sleutel daar zorgt dat dezelfde
-// mail nooit twee keer vertrekt. Mislukt het versturen, dan staat de fout in
-// het logboek — een boeking wordt er nooit door tegengehouden.
+// en het logboek (gear_mail_log, 0082) is alleen voor de server. Het logboek
+// houdt één rij per boeking × ontvanger bij, ook als meerdere boekingen in
+// één mail staan; de unieke sleutel daar zorgt dat dezelfde boeking nooit
+// twee keer in een mail aan dezelfde ontvanger vertrekt. Mislukt het
+// versturen, dan staat de fout in het logboek — een boeking wordt er nooit
+// door tegengehouden.
 //
 // Daarnaast de agenda: per boeking één afspraak in de agenda "Sporthouse
 // Materiaal" van het verzendaccount (via hetzelfde script), met alleen de
-// persoon voor wie geboekt is als gast (niet wie boekte, niet de contactpersoon). Het id staat op de boeking (0086); nieuwe data
-// verplaatsen de afspraak, annuleren haalt ze weg. Mislukt dat, dan staat de
-// fout op de boeking (calendar_error) en gaan boeking en mail gewoon door.
+// persoon voor wie geboekt is als gast. Google mailt daarbij niets
+// (sendUpdates: none). Het id staat op de boeking (0086); wijzigen verplaatst
+// de afspraak, annuleren haalt ze weg, samenvoegen houdt er één. Mislukt dat,
+// dan staat de fout op de boeking (calendar_error) en gaat de rest door.
 
 const TIMEOUT_MS = 20_000
 type Admin = ReturnType<typeof createAdminClient>
-type Kind = 'bevestiging' | 'herinnering' | 'annulering'
+type Kind = 'wijziging' | 'herinnering'
 
 function siteOrigin(): string {
   const env = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '')
@@ -48,6 +52,7 @@ interface Loaded {
   contactUserIds: string[]
   cancelled: boolean
   calendarEventId: string | null
+  itemIds: string[]
 }
 
 /** Een boeking met alles wat de mail nodig heeft: namen, onderdelen, verantwoordelijken. */
@@ -114,6 +119,7 @@ async function loadBooking(admin: Admin, bookingId: string): Promise<Loaded | nu
     contactUserIds: [...new Set([...resp.values()].map(x => x.contactUser).filter((x): x is string => !!x))],
     cancelled: !!b.cancelled_at,
     calendarEventId: b.calendar_event_id ?? null,
+    itemIds: lines.map(l => l.item_id),
   }
 }
 
@@ -182,30 +188,40 @@ async function syncCalendar(admin: Admin, config: MailConfig, l: Loaded, op: 'up
 }
 
 /**
- * Eén mail naar één ontvanger, hooguit één keer: eerst de rij in het logboek
- * (lukt dat niet omdat ze er al is, dan niets), dan versturen, dan de uitkomst.
+ * Eén mail naar één ontvanger over één of meer boekingen, en elke boeking
+ * hooguit één keer: eerst per boeking de rij in het logboek (bestaat ze al,
+ * dan valt die boeking weg), dan één mail met wat overblijft, dan de uitkomst
+ * op elke rij. Geeft terug wat er gebeurde.
  */
-async function sendOnce(admin: Admin, config: MailConfig, bookingId: string, kind: Kind, key: string, to: string, content: MailContent)
-  : Promise<'verstuurd' | 'al_verstuurd' | 'mislukt'> {
-  const { data, error } = await admin.from('gear_mail_log').insert({ booking_id: bookingId, kind, key, recipient: to }).select('id').single()
-  if (error) {
-    if (error.code === '23505') return 'al_verstuurd'
-    console.error('Materiaal: mail niet gelogd:', error.message)
-    return 'mislukt'
+async function sendOnceCombined(
+  admin: Admin, config: MailConfig, kind: Kind, to: string,
+  parts: { bookingId: string; key: string; mail: MailBooking }[],
+  content: (bookings: MailBooking[]) => MailContent,
+): Promise<'verstuurd' | 'al_verstuurd' | 'mislukt'> {
+  const logged: { id: string; mail: MailBooking }[] = []
+  for (const p of parts) {
+    const { data, error } = await admin.from('gear_mail_log').insert({ booking_id: p.bookingId, kind, key: p.key, recipient: to }).select('id').single()
+    if (error) {
+      if (error.code !== '23505') console.error('Materiaal: mail niet gelogd:', error.message)
+      continue
+    }
+    logged.push({ id: data.id, mail: p.mail })
   }
+  if (!logged.length) return 'al_verstuurd'
+  const ids = logged.map(l => l.id)
   try {
-    await post(config, to, content)
-    await admin.from('gear_mail_log').update({ sent_at: new Date().toISOString() }).eq('id', data.id)
+    await post(config, to, content(logged.map(l => l.mail)))
+    await admin.from('gear_mail_log').update({ sent_at: new Date().toISOString() }).in('id', ids)
     return 'verstuurd'
   } catch (e) {
     const msg = mailErrorText(e, config.secret)
     console.error('Materiaal: mail niet verstuurd:', msg)
-    await admin.from('gear_mail_log').update({ error: msg }).eq('id', data.id)
+    await admin.from('gear_mail_log').update({ error: msg }).in('id', ids)
     return 'mislukt'
   }
 }
 
-/** Wie een bevestiging of annulering krijgt: de persoon, de maker, en de contactpersonen. */
+/** Wie een wijziging krijgt: de persoon, de maker, en de contactpersonen. */
 async function bookingRecipients(admin: Admin, l: Loaded): Promise<string[]> {
   const contacts = await Promise.all(l.contactUserIds.map(id => emailOf(admin, id)))
   return mailRecipients([...(await holderEmails(admin, l)), ...contacts])
@@ -224,57 +240,115 @@ async function noteProblem(bookingId: string, what: string, err?: unknown, secre
 const NOT_CONFIGURED = 'Mail en agenda niet ingesteld (MATERIAAL_MAIL_WEBHOOK_URL / MATERIAAL_MAIL_SECRET ontbreekt of is ongeldig op deze omgeving)'
 
 /**
- * Bevestiging na boeken of nieuwe data: naar de persoon, de maker (als dat
- * iemand anders is) en de contactpersonen van verantwoordelijk materiaal.
- * Gooit nooit; loopt na het antwoord aan de gebruiker (after()).
+ * De afspraak van een boeking maken of bijwerken (nieuwe boeking, wijziging).
+ * Geen mail. Achteraf ingevoerd en al voorbij: geen afspraak. Gooit nooit;
+ * loopt na het antwoord aan de gebruiker (after()).
  */
-export async function sendBookingConfirmation(bookingId: string, changed: boolean): Promise<void> {
+export async function syncBookingCalendar(bookingId: string): Promise<void> {
   try {
     const config = mailConfig()
     if (!config) return noteProblem(bookingId, NOT_CONFIGURED)
     const admin = createAdminClient()
     const l = await loadBooking(admin, bookingId)
-    // Achteraf ingevoerd en al voorbij: geen mail en geen afspraak.
-    if (!l || l.cancelled || !shouldConfirm(l.mail.end, todayInBrussels())) return
-    const content = confirmationMail(l.mail, changed)
-    const to = await bookingRecipients(admin, l)
-    for (const r of to) {
-      await sendOnce(admin, config, l.mail.id, 'bevestiging', confirmationKey(l.mail.start, l.mail.end, l.mail.startTime, l.mail.endTime), r, content)
-    }
+    if (!l || l.cancelled || (!l.calendarEventId && !shouldMail(l.mail.end, todayInBrussels()))) return
     await syncCalendar(admin, config, l, 'upsert', await bookedForEmails(admin, l))
   } catch (e) {
-    await noteProblem(bookingId, 'Bevestiging mislukt', e)
+    await noteProblem(bookingId, 'Agenda bijwerken mislukt', e)
   }
 }
 
-/**
- * Annulering: naar dezelfde ontvangers als de bevestiging, en de afspraak uit
- * de agenda (zonder mail van Google). Geen mail voor een boeking die al
- * voorbij was, en hooguit één keer per ontvanger (logboek, sleutel 'annulering').
- */
-export async function sendBookingCancellation(bookingId: string): Promise<void> {
+/** Annuleren: de afspraak weg uit de agenda (zonder mail, ook niet van Google). */
+export async function removeBookingCalendar(bookingId: string): Promise<void> {
   try {
     const config = mailConfig()
     if (!config) return noteProblem(bookingId, NOT_CONFIGURED)
     const admin = createAdminClient()
     const l = await loadBooking(admin, bookingId)
     if (!l || !l.cancelled) return
-    // Een afspraak die er nog staat, gaat altijd weg; de mail alleen als de boeking nog liep of kwam.
     await syncCalendar(admin, config, l, 'delete', [])
-    if (!shouldConfirm(l.mail.end, todayInBrussels())) return
-    const content = cancellationMail(l.mail)
-    for (const r of await bookingRecipients(admin, l)) {
-      await sendOnce(admin, config, l.mail.id, 'annulering', 'annulering', r, content)
-    }
   } catch (e) {
-    await noteProblem(bookingId, 'Annuleringsmail mislukt', e)
+    await noteProblem(bookingId, 'Afspraak weghalen mislukt', e)
   }
 }
 
 /**
- * Herinneringen van vandaag: elke niet-geannuleerde boeking die vandaag
- * eindigt, naar de persoon en de maker. Twee keer aanroepen verstuurt niets
- * twee keer (logboek).
+ * Na samenvoegen: één afspraak houden. Had de boeking die blijft er geen,
+ * dan neemt ze die van een opgenomen boeking over; de andere verdwijnen
+ * stil. Daarna de afspraak bijwerken met al het materiaal. Geen mail.
+ */
+export async function calendarAfterMerge(targetId: string, absorbedIds: string[]): Promise<void> {
+  try {
+    const config = mailConfig()
+    if (!config) return noteProblem(targetId, NOT_CONFIGURED)
+    const admin = createAdminClient()
+    const { data } = await admin.from('gear_bookings').select('id, calendar_event_id').in('id', absorbedIds)
+    const withEvent = (data ?? []).filter(r => r.calendar_event_id) as { id: string; calendar_event_id: string }[]
+    const target = await loadBooking(admin, targetId)
+    if (!target || target.cancelled) return
+    let reuse: { id: string; calendar_event_id: string } | undefined
+    if (!target.calendarEventId && withEvent.length) {
+      reuse = withEvent[0]
+      await admin.from('gear_bookings').update({ calendar_event_id: reuse.calendar_event_id }).eq('id', targetId)
+      await admin.from('gear_bookings').update({ calendar_event_id: null }).eq('id', reuse.id)
+      target.calendarEventId = reuse.calendar_event_id
+    }
+    for (const r of withEvent) {
+      if (r === reuse) continue
+      const l = await loadBooking(admin, r.id)
+      if (l) await syncCalendar(admin, config, l, 'delete', [])
+    }
+    await syncCalendar(admin, config, target, 'upsert', await bookedForEmails(admin, target))
+  } catch (e) {
+    await noteProblem(targetId, 'Agenda na samenvoegen mislukt', e)
+  }
+}
+
+/** Na ongedaan maken van samenvoegen: elke boeking weer haar eigen afspraak. Geen mail. */
+export async function calendarAfterUnmerge(targetId: string, restoredIds: string[]): Promise<void> {
+  for (const id of [targetId, ...restoredIds]) await syncBookingCalendar(id)
+}
+
+/**
+ * Wijzigingsmail na één actie die één of meer boekingen veranderde (data,
+ * uren of materiaal): per ontvanger één mail met al zijn gewijzigde
+ * boekingen. Naar de persoon, de maker en de contactpersonen. Geen mail voor
+ * een boeking die al voorbij is, en dezelfde toestand nooit twee keer
+ * (logboek, sleutel = data + uren + materiaal). Werkt ook de afspraken bij.
+ * Gooit nooit.
+ */
+export async function sendBookingChanges(bookingIds: string[]): Promise<void> {
+  const ids = [...new Set(bookingIds)]
+  if (!ids.length) return
+  const config = mailConfig()
+  if (!config) { for (const id of ids) await noteProblem(id, NOT_CONFIGURED); return }
+  const admin = createAdminClient()
+  const today = todayInBrussels()
+  const entries: { item: Loaded; to: string[] }[] = []
+  for (const id of ids) {
+    try {
+      const l = await loadBooking(admin, id)
+      if (!l || l.cancelled) continue
+      await syncCalendar(admin, config, l, 'upsert', await bookedForEmails(admin, l))
+      if (shouldMail(l.mail.end, today)) entries.push({ item: l, to: await bookingRecipients(admin, l) })
+    } catch (e) {
+      await noteProblem(id, 'Wijzigingsmail mislukt', e)
+    }
+  }
+  for (const { to, items } of groupByRecipient(entries)) {
+    try {
+      await sendOnceCombined(admin, config, 'wijziging', to,
+        items.map(l => ({ bookingId: l.mail.id, key: changeKey({ ...l.mail, itemIds: l.itemIds }), mail: l.mail })), changeMail)
+    } catch (e) {
+      console.error('Materiaal: wijzigingsmail mislukt:', mailErrorText(e, config.secret))
+    }
+  }
+}
+
+/**
+ * Herinneringen van vandaag: per ontvanger één mail met alles wat die vandaag
+ * terugbrengt (elke niet-geannuleerde boeking die vandaag eindigt; naar de
+ * persoon en de maker), met de gegevens van dit moment. Twee keer aanroepen
+ * verstuurt niets twee keer (logboek, per boeking).
  */
 export async function sendDueReminders(today: string): Promise<{ verstuurd: number; al_verstuurd: number; mislukt: number; geen_adres: number }> {
   const out = { verstuurd: 0, al_verstuurd: 0, mislukt: 0, geen_adres: 0 }
@@ -283,22 +357,28 @@ export async function sendDueReminders(today: string): Promise<{ verstuurd: numb
   const admin = createAdminClient()
   const { data, error } = await admin.from('gear_bookings').select('id').eq('end_date', today).is('cancelled_at', null)
   if (error) throw new Error(error.message)
+  const entries: { item: Loaded; to: string[] }[] = []
   for (const { id } of data ?? []) {
     const l = await loadBooking(admin, id)
     if (!l || l.cancelled) continue
     const to = await holderEmails(admin, l)
     if (!to.length) { out.geen_adres++; continue }
-    const content = reminderMail(l.mail)
-    for (const r of to) out[await sendOnce(admin, config, id, 'herinnering', today, r, content)]++
+    entries.push({ item: l, to })
+  }
+  for (const { to, items } of groupByRecipient(entries)) {
+    out[await sendOnceCombined(admin, config, 'herinnering', to, items.map(l => ({ bookingId: l.mail.id, key: today, mail: l.mail })), reminderMail)]++
   }
   return out
 }
 
-/** Bij wijzigen: alleen een nieuwe bevestiging als de data of de uren veranderden. */
-export function datesChanged(
-  before: { start_date: string; end_date: string; start_time?: string | null; end_time?: string | null } | null,
-  after: { p_start_date: string; p_end_date: string; p_start_time?: string | null; p_end_time?: string | null },
+/** Een wijziging die een mail waard is: andere data, uren of ander materiaal. */
+export function bookingChanged(
+  before: { start_date: string; end_date: string; start_time?: string | null; end_time?: string | null; item_ids: string[] } | null,
+  after: { start_date: string; end_date: string; start_time?: string | null; end_time?: string | null; item_ids: string[] } | null,
 ): boolean {
-  return !!before && (before.start_date !== after.p_start_date || before.end_date !== after.p_end_date
-    || normalizeTime(before.start_time) !== (after.p_start_time ?? null) || normalizeTime(before.end_time) !== (after.p_end_time ?? null))
+  if (!before || !after) return false
+  const items = (x: string[]) => [...x].sort().join(',')
+  return before.start_date !== after.start_date || before.end_date !== after.end_date
+    || normalizeTime(before.start_time) !== normalizeTime(after.start_time) || normalizeTime(before.end_time) !== normalizeTime(after.end_time)
+    || items(before.item_ids) !== items(after.item_ids)
 }

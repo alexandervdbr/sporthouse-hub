@@ -2,10 +2,13 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Calendar, ChevronDown, ChevronRight, Package, Search, UserRound, X } from 'lucide-react'
+import { KeepChoice } from '@/components/materiaal/MergeParts'
 import { Button, ErrorLine, Field, IconButton, Segmented, Select, formGap, inputCls, labelCls, send } from '@/components/materiaal/ui'
 import { canChangeBooking, type GearAccess } from '@/lib/gear/access'
 import { eachDay, enteredAfterwards } from '@/lib/gear/dates'
 import { HOLDER_ERROR_TEXT, validateHolder } from '@/lib/gear/holder'
+import { combinedNote, keepOptions, saveRequest, type MergeBooking, type SaveChoice } from '@/lib/gear/merge'
+import { bookingWhat } from '@/lib/gear/my-bookings'
 import { bookedLines, bookingSelection, checkKitParts, kitByItem, partsToKits, selectionFromBooking, selectionResponsibles, type PartCheck } from '@/lib/gear/kits'
 import { conflictDays, findConflicts, rangeLength, rangeSlot, validateRange, type Conflict, type DateRange } from '@/lib/gear/ranges'
 import { TIME_OPTIONS, isEmptySlot, normalizeTime, slotLabel } from '@/lib/gear/times'
@@ -37,9 +40,31 @@ interface Props {
   initial?: { kitIds: string[]; itemIds: string[]; start: string; end: string; startTime?: string | null; endTime?: string | null }
   /** Bestaande boeking openen. */
   booking?: GearBooking
+  /** Bestaande boeking meteen in wijzigmodus openen ("Wijzigen" in Mijn boekingen). */
+  startEditing?: boolean
   onClose: () => void
-  onSaved: () => void
+  /** Met `merged`: de nieuwe boeking werd toegevoegd aan een bestaande (voor ongedaan maken). */
+  onSaved: (merged?: SavedMerge) => void
 }
+
+/** Toegevoegd aan een bestaande boeking: genoeg om het ongedaan te maken en opnieuw te doen. */
+export interface SavedMerge {
+  mergeId: string
+  targetId: string
+  createdId: string
+  keepFrom: string
+}
+
+/** "Toevoegen aan die boeking?": de bestaande boekingen, welke gekozen, welke klant/project blijven. */
+interface Suggestion {
+  matches: GearBooking[]
+  pick: string
+  keep: string
+  /** Voor welke periode en persoon het gevraagd werd; verandert dat, dan vervalt de vraag. */
+  sig: string
+}
+
+const NEW_ID = 'nieuw'
 
 function fmt(iso: string) {
   return new Date(`${iso}T12:00:00`).toLocaleDateString('nl-BE', { weekday: 'short', day: 'numeric', month: 'short' })
@@ -59,9 +84,10 @@ const PART_REASON: Record<PartCheck['state'], string> = {
   ok: '', beperkt: 'Beperkt bruikbaar', defect: 'Defect', uit_dienst: 'Uit dienst', elders: '',
 }
 
-export default function BookingForm({ catalog, options, bookings, loadedWindow, today, userId, access, initial, booking, onClose, onSaved }: Props) {
+export default function BookingForm({ catalog, options, bookings, loadedWindow, today, userId, access, initial, booking, startEditing, onClose, onSaved }: Props) {
   const editable = booking ? canChangeBooking(booking, userId, access, today) : access.book
-  const [editing, setEditing] = useState(!booking)
+  const [editing, setEditing] = useState(!booking || (!!startEditing && editable))
+  const [suggestion, setSuggestion] = useState<Suggestion | null>(null)
 
   const items = useMemo(() => new Map(catalog.items.map(i => [i.id, i])), [catalog.items])
   const kits = useMemo(() => new Map(catalog.kits.map(k => [k.id, k])), [catalog.kits])
@@ -200,21 +226,64 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
   const canSave = editing && editable && !saving && includedCount > 0 && !rangeError && !holderError
     && unresolved.length === 0 && looseProblems.length === 0 && !inPast && allDiscussed
 
-  async function save() {
-    setSaving(true); setError('')
-    const body: GearBookingInput = {
+  function requestBody(): GearBookingInput {
+    return {
       start_date: start, end_date: end, start_time: startTime || null, end_time: endTime || null,
       ...bookingSelection(looseIds, kitIds, excluded, kits),
       user_id: holderInput.userId, freelancer_id: holderInput.freelancerId, external_name: holderInput.externalName,
       client_id: clientId || null, project_id: projectId || null, note,
       responsible_ack: responsibles.length > 0 && allDiscussed,
     }
+  }
+
+  /**
+   * Opslaan. Bij een NIEUWE boeking eerst kijken of dezelfde persoon al een
+   * boeking heeft met exact deze periode; dan eerst vragen (één keer per
+   * opslaan). Wijzigen vraagt nooit.
+   */
+  async function save() {
+    setSaving(true); setError('')
+    const body = requestBody()
+    if (!booking) {
+      try {
+        const q = new URLSearchParams(Object.entries({
+          start_date: body.start_date, end_date: body.end_date, start_time: body.start_time ?? '', end_time: body.end_time ?? '',
+          user_id: body.user_id ?? '', freelancer_id: body.freelancer_id ?? '', external_name: body.external_name ?? '', client_id: body.client_id ?? '',
+        }))
+        const matches = await send<GearBooking[]>(`/api/materiaal/bookings/same-period?${q}`, 'GET')
+        if (matches.length) {
+          setSuggestion({ matches, pick: matches[0].id, keep: matches[0].id, sig: probeSig })
+          setSaving(false)
+          return
+        }
+      } catch { /* niet kunnen kijken: gewoon boeken zoals altijd */ }
+    }
+    await commit({ kind: 'separate' })
+  }
+
+  async function commit(choice: SaveChoice) {
+    setSaving(true); setError('')
     try {
-      await send(booking ? `/api/materiaal/bookings/${booking.id}` : '/api/materiaal/bookings', booking ? 'PATCH' : 'POST', body)
-      onSaved()
-    } catch (e) { setError(e instanceof Error ? e.message : 'Opslaan mislukt.') }
+      const res = await send<{ id: string; merge_id?: string; created_id?: string }>(
+        booking ? `/api/materiaal/bookings/${booking.id}` : '/api/materiaal/bookings', booking ? 'PATCH' : 'POST', saveRequest(requestBody(), choice))
+      if (choice.kind === 'into' && res?.merge_id && res.created_id) {
+        onSaved({ mergeId: res.merge_id, targetId: res.id, createdId: res.created_id, keepFrom: choice.keep === 'new' ? res.created_id : res.id })
+      } else onSaved()
+    } catch (e) { setError(e instanceof Error ? e.message : 'Opslaan mislukt.'); setSuggestion(null) }
     setSaving(false)
   }
+
+  // De nieuwe boeking zoals ze zou worden, om klant/project en notitie te vergelijken.
+  const draft: MergeBooking = {
+    id: NEW_ID, start_date: start, end_date: end, start_time: startTime || null, end_time: endTime || null,
+    booked_for_user_id: holderInput.userId, freelancer_id: holderInput.freelancerId, external_name: holderInput.externalName, person_name: null,
+    client: clientId ? [...(options?.clients ?? []), ...catalog.clients].find(c => c.id === clientId) ?? { id: clientId, name: 'Klant', color: null } : null,
+    project: projectId ? (options?.projects ?? []).find(p => p.id === projectId) ?? { id: projectId, name: 'Project' } : null,
+    note: note.trim() || null,
+  }
+  const probeSig = [start, end, startTime, endTime, holderInput.userId, holderInput.freelancerId, holderInput.externalName, clientId].join('|')
+  const target = (suggestion?.sig === probeSig && suggestion.matches.find(m => m.id === suggestion.pick)) || null
+  const keepOpts = target ? keepOptions([target, draft]) : []
 
   async function cancelBooking() {
     if (!booking) return
@@ -485,7 +554,39 @@ export default function BookingForm({ catalog, options, bookings, loadedWindow, 
           {error && <ErrorLine>{error}</ErrorLine>}
         </div>
 
-        <div className="px-4 sm:px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-3 border-t border-zinc-800 flex flex-wrap items-center gap-2">
+        {suggestion && target && editing && (
+          <div role="group" aria-label="Toevoegen aan een bestaande boeking" className="px-4 sm:px-5 py-3 border-t border-zinc-800 bg-zinc-950/40 space-y-2.5">
+            <p className="text-sm text-zinc-200">
+              {suggestion.matches.length === 1
+                ? <>Je hebt al een boeking voor exact deze periode ({bookingWhat(target, catalog).join(', ') || 'materiaal'}). Toevoegen aan die boeking?</>
+                : <>Er zijn al {suggestion.matches.length} boekingen voor exact deze periode. Toevoegen aan een ervan?</>}
+            </p>
+            {suggestion.matches.length > 1 && (
+              <fieldset className="space-y-1">
+                <legend className="sr-only">Welke boeking</legend>
+                {suggestion.matches.map(m => (
+                  <label key={m.id} className="flex items-center gap-2 text-sm text-zinc-200 cursor-pointer min-h-9 sm:min-h-0">
+                    <input type="radio" name="into" checked={suggestion.pick === m.id} className="accent-emerald-500"
+                      onChange={() => setSuggestion({ ...suggestion, pick: m.id, keep: m.id })} />
+                    <span className="truncate">{bookingWhat(m, catalog).join(', ') || 'materiaal'}{m.client ? ` · ${m.client.name}` : ''}{m.project ? ` · ${m.project.name}` : ''}</span>
+                  </label>
+                ))}
+              </fieldset>
+            )}
+            <KeepChoice options={keepOpts} value={keepOpts.some(o => o.bookingId === suggestion.keep) ? suggestion.keep : keepOpts[0]?.bookingId ?? target.id}
+              onChange={keep => setSuggestion({ ...suggestion, keep })} note={combinedNote([target, draft])} />
+            <div className="flex flex-wrap gap-2 justify-end">
+              <Button variant="text" onClick={() => { setSuggestion(null); void commit({ kind: 'separate' }) }} disabled={saving}>Nee, aparte boeking</Button>
+              <Button variant="primary" busy={saving} className="h-11 sm:h-9"
+                onClick={() => {
+                  const keepId = keepOpts.some(o => o.bookingId === suggestion.keep) ? suggestion.keep : keepOpts[0]?.bookingId ?? target.id
+                  void commit({ kind: 'into', bookingId: target.id, keep: keepId === NEW_ID ? 'new' : 'existing' })
+                }}>Ja, toevoegen</Button>
+            </div>
+          </div>
+        )}
+
+        <div className={`px-4 sm:px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-3 border-t border-zinc-800 flex flex-wrap items-center gap-2 ${target ? 'hidden' : ''}`}>
           {booking && editable && !confirmCancel && (
             <Button variant="danger" onClick={() => setConfirmCancel(true)} disabled={saving}>Boeking annuleren</Button>
           )}
