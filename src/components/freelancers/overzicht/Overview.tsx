@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, Mail, Phone, Plus, Search, SlidersHorizontal, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Download, Mail, MoreHorizontal, Phone, Plus, Search, SlidersHorizontal, Upload, X } from 'lucide-react'
 import { Button, ErrorLine, inputCls, send } from '@/components/materiaal/ui'
 import type { Discipline, Freelancer } from './types'
 import {
@@ -12,6 +12,8 @@ import { useUrlState } from './useUrlState'
 import { Chip, MultiSelect, Sheet, Toggle, useToast } from './ui'
 import { ContactIcons, PortfolioIcon } from './Contact'
 import Panel from './Panel'
+import Import from './Import'
+import { exportCsv } from '@/features/freelancers/lib/spreadsheet'
 
 // /freelancers: één pagina, zoals de spreadsheet maar beter.
 // Eén verzoek voor de lijst en één voor de disciplines; zoeken, filteren en
@@ -25,6 +27,9 @@ export default function Overview({ canManage, clients }: { canManage: boolean; c
   const [disciplines, setDisciplines] = useState<Discipline[]>([])
   const [loadError, setLoadError] = useState('')
   const [sheet, setSheet] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [more, setMore] = useState(false)
+  const [reload, setReload] = useState(0)
   const toast = useToast()
 
   // Gearchiveerden komen alleen mee als de filter aan staat.
@@ -34,10 +39,10 @@ export default function Overview({ canManage, clients }: { canManage: boolean; c
       .then(d => { if (live) { setList(d); setLoadError('') } })
       .catch(e => { if (live) setLoadError(e instanceof Error ? e.message : 'Kon de freelancers niet ophalen.') })
     return () => { live = false }
-  }, [fl.archief])
+  }, [fl.archief, reload])
   useEffect(() => {
     send<Discipline[]>('/api/freelancers/disciplines', 'GET').then(setDisciplines).catch(() => {})
-  }, [])
+  }, [reload])
 
   const labels = useMemo(() => Object.fromEntries(disciplines.map(d => [d.key, d.label])), [disciplines])
   const rows = useMemo(() => sortFreelancers(applyFilters(list ?? [], fl, labels), fl.sort, fl.dir, labels), [list, fl, labels])
@@ -54,6 +59,19 @@ export default function Overview({ canManage, clients }: { canManage: boolean; c
 
   const watOptions = disciplines.map(d => ({ key: d.key, label: d.label, count: (list ?? []).filter(f => f.disciplines.includes(d.key) && !f.archived_at).length }))
   const statusOptions = STATUSES.map(s => ({ key: s, label: STATUS_LABEL[s], count: (list ?? []).filter(f => f.status === s && !f.archived_at).length }))
+  // Exporteren: precies wat je nu ziet (gefilterd en gesorteerd), in de kolommen van de spreadsheet.
+  function download() {
+    setMore(false)
+    const blob = new Blob([exportCsv(rows, labels)], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `freelancers-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.say(`${rows.length} ${rows.length === 1 ? 'freelancer' : 'freelancers'} geëxporteerd`)
+  }
+
   const current = openId && openId !== 'nieuw' ? list?.find(f => f.id === openId) ?? null : null
 
   return (
@@ -61,11 +79,27 @@ export default function Overview({ canManage, clients }: { canManage: boolean; c
       <div className="mx-auto max-w-[1400px] space-y-3 px-4 pt-4 pb-24 md:px-6 md:pt-6 md:pb-8">
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-lg font-semibold text-white">Freelancers</h1>
-          {canManage && (
-            <Button variant="primary" className="max-md:!h-11 max-md:!w-11 max-md:!px-0" onClick={() => open('nieuw')} aria-label="Freelancer toevoegen">
-              <Plus size={16} /><span className="max-md:sr-only">Freelancer</span>
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            <div className="hidden items-center gap-2 md:flex">
+              {canManage && <Button onClick={() => setImporting(true)}><Upload size={14} /> Importeren</Button>}
+              <Button onClick={download} disabled={!list}><Download size={14} /> Exporteren</Button>
+            </div>
+            <div className="relative md:hidden">
+              <button type="button" onClick={() => setMore(m => !m)} aria-label="Meer" aria-expanded={more}
+                className="flex h-11 w-11 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-300"><MoreHorizontal size={18} /></button>
+              {more && (
+                <div role="menu" className="absolute right-0 z-30 mt-1 w-48 rounded-xl border border-zinc-700 bg-zinc-900 p-1 shadow-2xl">
+                  {canManage && <button type="button" role="menuitem" onClick={() => { setMore(false); setImporting(true) }} className="flex min-h-[44px] w-full items-center gap-2 rounded-lg px-3 text-left text-sm text-zinc-200 hover:bg-zinc-800"><Upload size={15} /> Importeren</button>}
+                  <button type="button" role="menuitem" onClick={download} disabled={!list} className="flex min-h-[44px] w-full items-center gap-2 rounded-lg px-3 text-left text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"><Download size={15} /> Exporteren</button>
+                </div>
+              )}
+            </div>
+            {canManage && (
+              <Button variant="primary" className="max-md:!h-11 max-md:!w-11 max-md:!px-0" onClick={() => open('nieuw')} aria-label="Freelancer toevoegen">
+                <Plus size={16} /><span className="max-md:sr-only">Freelancer</span>
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -127,6 +161,9 @@ export default function Overview({ canManage, clients }: { canManage: boolean; c
         <Panel key={openId} freelancer={current} canManage={canManage} disciplines={disciplines} clients={clients}
           onClose={() => open(null)} onSaved={f => { upsert(f); if (openId === 'nieuw') set({ id: f.id }, 'replace') }}
           onDeleted={id => { removeRow(id); open(null) }} say={toast.say} />
+      )}
+      {importing && canManage && (
+        <Import disciplines={disciplines} onClose={() => setImporting(false)} onDone={() => { setImporting(false); setReload(n => n + 1) }} />
       )}
       {toast.node}
     </div>

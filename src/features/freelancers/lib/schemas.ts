@@ -98,3 +98,16 @@ export const projectUpdateSchema = z.strictObject({
 export const disciplineCreateSchema = z.strictObject({
   label: requiredText(60),
 })
+
+/**
+ * Importeren: wat de browser na het voorbeeld en de bevestiging opstuurt.
+ * Elke rij wordt opnieuw gevalideerd met dezelfde whitelists als het
+ * formulier; een nieuwe discipline heeft de sleutel die uit zijn label volgt.
+ */
+const line = z.number().int().min(1).max(100_000)
+export const IMPORT_MAX_ROWS = 2000
+export const importSchema = z.strictObject({
+  new_disciplines: z.array(z.strictObject({ key: disciplineKey, label: requiredText(60) })).max(100),
+  create: z.array(z.strictObject({ line, data: freelancerCreateSchema })).max(IMPORT_MAX_ROWS),
+  update: z.array(z.strictObject({ line, id: z.uuid(), data: freelancerUpdateSchema })).max(IMPORT_MAX_ROWS),
+}).refine(o => o.create.length + o.update.length + o.new_disciplines.length > 0, 'Niets om te importeren')

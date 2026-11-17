@@ -18,13 +18,17 @@ const state: {
   user: FakeUser
   calls: string[]
   writes: { table: string; op: string; payload: unknown }[]
-  tables: Record<string, Result>
+  /** Antwoord per tabel; een lijst = één antwoord per oproep, in volgorde. */
+  tables: Record<string, Result | Result[]>
   createUser: number
   claude: number
 } = { user: null, calls: [], writes: [], tables: {}, createUser: 0, claude: 0 }
 
 function builder(table: string) {
-  const result = () => state.tables[table] ?? { data: null, error: null }
+  const result = (): Result => {
+    const t = state.tables[table]
+    return (Array.isArray(t) ? t.shift() : t) ?? { data: null, error: null }
+  }
   const q: Record<string, unknown> = {}
   for (const m of ['select', 'neq', 'is', 'not', 'in', 'lt', 'gt', 'gte', 'order', 'range', 'limit', 'ilike']) {
     q[m] = () => { state.calls.push(`${table}.${m}`); return q }
@@ -98,6 +102,7 @@ const thumb = fixed(await import('@/app/api/freelancers/[id]/assignments/[assign
 const match = fixed(await import('@/app/api/freelancers/match/route'))
 const archive = fixed(await import('@/app/api/freelancers/[id]/archive/route'))
 const disciplines = fixed(await import('@/app/api/freelancers/disciplines/route'))
+const importer = fixed(await import('@/app/api/freelancers/import/route'))
 
 const F = '11111111-1111-4111-8111-111111111111'
 const A = '22222222-2222-4222-8222-222222222222'
@@ -133,6 +138,7 @@ const ROUTES: { name: string; level: 'bekijken' | 'beheren'; call: () => Promise
   { name: 'DELETE archive',                level: 'beheren',  call: () => archive.DELETE(json('DELETE'), p1()) },
   { name: 'GET disciplines',               level: 'bekijken', call: () => disciplines.GET() },
   { name: 'POST disciplines',              level: 'beheren',  call: () => disciplines.POST(json('POST', { label: 'Drone' })) },
+  { name: 'POST import',                   level: 'beheren',  call: () => importer.POST(json('POST', { new_disciplines: [], create: [{ line: 2, data: { name: 'Jan', disciplines: ['video'] } }], update: [] })) },
   { name: 'PATCH project',                 level: 'beheren',  call: () => project.PATCH(json('PATCH', { project_name: 'X' }), pp()) },
   { name: 'PATCH /freelancers/[id]',       level: 'beheren',  call: () => one.PATCH(json('PATCH', { name: 'Jan' }), p1()) },
   { name: 'DELETE /freelancers/[id]',      level: 'beheren',  call: () => one.DELETE(json('DELETE'), p1()) },
@@ -403,5 +409,58 @@ describe('freelancer-API — eigenaarschap', () => {
     expect(res.status).toBe(200)
     expect(state.calls).toContain('freelancers.in')
     expect(state.claude).toBe(0) // niets gevonden in de database → geen prompt
+  })
+})
+
+describe('freelancer-API — importeren', () => {
+  beforeEach(() => { state.user = user(MANAGE) })
+  const body = (o: Record<string, unknown>) => json('POST', { new_disciplines: [], create: [], update: [], ...o })
+  const row = (line: number, data: Record<string, unknown>) => ({ line, data })
+
+  it('valideert elke rij opnieuw met de whitelist van het formulier', async () => {
+    for (const bad of [
+      body({ create: [row(2, { name: 'Jan' })] }),                                          // geen discipline
+      body({ create: [row(2, { name: 'Jan', disciplines: ['video'], email: 'nee' })] }),   // ongeldig e-mailadres
+      body({ create: [row(2, { name: 'Jan', disciplines: ['video'], rating: 4 })] }),      // oud veld
+      body({ create: [row(2, { name: 'Jan', disciplines: ['video'], overall_rating: 7 })] }),
+      body({ update: [{ line: 2, id: 'geen-uuid', data: { name: 'Jan' } }] }),
+      body({ new_disciplines: [{ key: 'iets-anders', label: 'Drone' }] }),                 // sleutel volgt niet uit het label
+      body({ extra: 1 }),
+      body({}),                                                                              // niets te doen
+    ]) expect((await importer.POST(bad)).status).toBe(400)
+    expect(state.writes).toEqual([])
+  })
+
+  it('voegt nieuwe disciplines toe die nog niet bestaan, en de freelancers in één keer', async () => {
+    state.tables.freelancer_disciplines = { data: [{ key: 'video', label: 'Video', sort: 10 }], error: null }
+    state.tables.freelancers = { data: [{ id: 'a' }, { id: 'b' }], error: null }
+    const res = await importer.POST(body({
+      new_disciplines: [{ key: 'drone', label: 'Drone' }, { key: 'video', label: 'Video' }],
+      create: [row(2, { name: 'Jan', disciplines: ['drone'] }), row(3, { name: 'An', disciplines: ['video'], email: 'AN@x.be' })],
+    }))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ toegevoegd: 2, bijgewerkt: 0, disciplines: 1, fouten: [] })
+    expect(state.writes).toEqual([
+      { table: 'freelancer_disciplines', op: 'insert', payload: [{ key: 'drone', label: 'Drone', sort: 20 }] },
+      { table: 'freelancers', op: 'insert', payload: [{ name: 'Jan', disciplines: ['drone'] }, { name: 'An', disciplines: ['video'], email: 'an@x.be' }] },
+    ])
+  })
+
+  it('faalt de groep, dan rij per rij: alleen de foute rij valt weg, met haar rijnummer', async () => {
+    state.tables.freelancers = [
+      { data: null, error: { code: '23505' } },          // de groep
+      { data: { id: 'a' }, error: null },                // rij 2
+      { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint' } }, // rij 3
+    ]
+    const res = await importer.POST(body({ create: [row(2, { name: 'Jan', disciplines: ['video'] }), row(3, { name: 'An', disciplines: ['video'], email: 'an@x.be' })] }))
+    expect(await res.json()).toEqual({ toegevoegd: 1, bijgewerkt: 0, disciplines: 0, fouten: [{ line: 3, message: 'Er bestaat al een freelancer met dit e-mailadres.' }] })
+  })
+
+  it('bijwerken schrijft alleen de opgestuurde velden, per freelancer uit de lijst', async () => {
+    state.tables.freelancers = [{ data: { id: F }, error: null }, { data: null, error: null }]
+    const res = await importer.POST(body({ update: [{ line: 4, id: F, data: { phone: '0470' } }, { line: 5, id: A, data: { notes: 'x' } }] }))
+    expect(await res.json()).toEqual({ toegevoegd: 0, bijgewerkt: 1, disciplines: 0, fouten: [{ line: 5, message: 'Deze freelancer bestaat niet meer.' }] })
+    expect(state.writes.map(w => w.payload)).toEqual([{ phone: '0470' }, { notes: 'x' }])
+    expect(state.calls).toContain(`freelancers.eq:id=${F}`)
   })
 })
