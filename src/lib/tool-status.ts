@@ -22,6 +22,7 @@
 // test in __tests__/tool-status.test.ts bewaakt dat.
 //
 // Geen server-only imports: de zijbalk en het beheerscherm lezen dit ook.
+import { PROJECTEN_ENABLED } from '@/lib/features'
 
 export interface DevTool {
   key: string
@@ -41,7 +42,8 @@ export const DEV_TOOLS: DevTool[] = [
   // Poolwagens: blijft in ontwikkeling tot de vrijgave; tot dan zien alleen
   // admins het.
   { key: 'poolwagens',   label: 'Poolwagens',    path: '/poolwagens' },
-  { key: 'projecten',    label: 'Projecten',     path: '/projects' },
+  // Projecten: in de koelkast (src/lib/features.ts).
+  ...(PROJECTEN_ENABLED ? [{ key: 'projecten', label: 'Projecten', path: '/projects' }] : []),
   { key: 'team',         label: 'Team',          path: '/team' },
   { key: 'freelancers',  label: 'Freelancers',   path: '/freelancers' },
   { key: 'preassist',    label: 'Pré-assist',    path: '/preassist' },

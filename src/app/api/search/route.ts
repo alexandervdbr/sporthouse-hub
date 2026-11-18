@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
+import { PROJECTEN_ENABLED } from '@/lib/features'
 
 // Two separate .ilike() queries merged in JS, instead of building a single
 // .or(`col1.ilike.${like},col2.ilike.${like}`) string — PostgREST's filter
@@ -45,7 +46,9 @@ export async function GET(request: Request) {
     searchColumns(supabase, 'files', 'id, filename, description, client_id', ['filename', 'description'], like, 5),
     supabase.from('meetings').select('id, title, client_id, created_at').ilike('title', like).limit(5),
     supabase.from('expert_documents').select('id, title, client_id').ilike('title', like).limit(5),
-    searchColumns(supabase, 'projects', 'id, name, description, status', ['name', 'description'], like, 5),
+    PROJECTEN_ENABLED
+      ? searchColumns(supabase, 'projects', 'id, name, description, status', ['name', 'description'], like, 5)
+      : Promise.resolve([]),
   ])
 
   return NextResponse.json({

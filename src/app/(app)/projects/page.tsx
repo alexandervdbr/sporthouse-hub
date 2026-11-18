@@ -1,7 +1,10 @@
+import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { PROJECTEN_ENABLED } from '@/lib/features'
 import ProjectsBoard from '@/components/projects/ProjectsBoard'
 
 export default async function ProjectsPage() {
+  if (!PROJECTEN_ENABLED) redirect('/dashboard')
   const supabase = await createClient()
 
   const [{ data: projects }, { data: clients }, { data: contacts }, { data: { user } }] = await Promise.all([

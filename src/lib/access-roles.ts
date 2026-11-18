@@ -30,7 +30,7 @@
 // (een sleutel die de code controleert maar die niemand kan krijgen), of als
 // een sleutel in de catalogus nergens meer gecontroleerd wordt.
 
-import { PROJECTKALENDER_ENABLED, CHAT_ENABLED } from '@/lib/features'
+import { PROJECTKALENDER_ENABLED, CHAT_ENABLED, PROJECTEN_ENABLED } from '@/lib/features'
 import { withImpliedSections } from '@/lib/auth-permissions'
 
 export interface AccessLevel {
@@ -201,6 +201,7 @@ const ALL_MODULES: AccessModule[] = [
 const FROZEN_MODULES = new Set([
   ...(PROJECTKALENDER_ENABLED ? [] : ['projectkalender']),
   ...(CHAT_ENABLED ? [] : ['chat']),
+  ...(PROJECTEN_ENABLED ? [] : ['projecten']),
 ])
 export const ACCESS_MODULES: AccessModule[] = ALL_MODULES.filter(m => !FROZEN_MODULES.has(m.key))
 export const FROZEN_SECTION_KEYS = ALL_MODULES
