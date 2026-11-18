@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/server'
 import { requireAdmin, loadRoles, buildAppMetadata } from '@/lib/access-roles-server'
 import { pickTeamClient } from '@/lib/team-client'
+import { employmentPatchForAccount } from '@/lib/employment'
 
 // GET — list all users
 export async function GET() {
@@ -73,7 +74,7 @@ export async function POST(req: Request) {
   const { data: existing } = internIds.length > 0
     ? await admin
         .from('contacts')
-        .select('id, name, phone, role, email')
+        .select('id, name, phone, role, email, employment_type, active_until')
         .in('client_id', internIds)
         .not('email', 'is', null)
     : { data: [] }
@@ -105,10 +106,14 @@ export async function POST(req: Request) {
   })
   if (error) return new Response(error.message, { status: 500 })
 
+  // Een stagiair komt in Team meteen onder "Tijdelijk", met zijn einddatum.
+  const employment = (contact: { employment_type?: string | null; active_until?: string | null } | null) =>
+    employmentPatchForAccount(contact, { requiresEndDate: !!chosenRole.requires_end_date, expiresAt: expires_at })
+
   if (match) {
     // Aanvullen, niet overschrijven: wat al ingevuld staat is vaker juist
     // dan wat er toevallig in dit uitnodigingsformulier stond.
-    const patch: Record<string, string> = {}
+    const patch: Record<string, string> = { ...employment(match) }
     if (full_name?.trim() && !match.name?.trim()) patch.name = full_name.trim()
     if (phone?.trim() && !match.phone?.trim()) patch.phone = phone.trim()
     if (role?.trim() && !match.role?.trim()) patch.role = role.trim()
@@ -122,6 +127,7 @@ export async function POST(req: Request) {
       email:     email.trim(),
       phone:     phone?.trim() || null,
       role:      role?.trim() || null,
+      ...employment(null),
     })
   }
 

@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/server'
 import { requireAdmin, loadRoles, buildAppMetadata, locksOutCaller } from '@/lib/access-roles-server'
+import { employmentPatchForAccount } from '@/lib/employment'
 
 // PATCH — gegevens (naam, e-mail, telefoon, functie) en rol, afwijkingen,
 // klanten, planningkolom, wachtwoorden, vervaldatum.
@@ -58,21 +59,34 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   // (en de planning) kwijt. Freelancers hebben geen account meer
   // (docs/freelancers-overzicht.md): hun e-mailadres verandert hier niet mee.
   // In JS vergelijken en niet met ilike — zie de uitleg bij het uitnodigen.
+  //
+  // Bij een rol met einddatum (stagiair) gaan contractvorm en einddatum mee,
+  // zodat hij in Team onder "Tijdelijk" staat — zie employmentPatchForAccount.
   const profileTouched = emailChanged || full_name !== undefined || phone !== undefined || job_role !== undefined
-  if (profileTouched && oldEmail) {
+  const employmentTouched = !!finalRole?.requires_end_date
+  if ((profileTouched || employmentTouched) && oldEmail) {
     const { data: internClients } = await admin.from('clients').select('id').eq('category', 'intern')
     const internIds = (internClients ?? []).map((c: { id: string }) => c.id)
     const { data: contacts } = internIds.length > 0
-      ? await admin.from('contacts').select('id, email').in('client_id', internIds).not('email', 'is', null)
+      ? await admin.from('contacts').select('id, email, employment_type, active_until').in('client_id', internIds).not('email', 'is', null)
       : { data: [] }
-    const contact = (contacts ?? []).find((c: { email: string | null }) => c.email?.trim().toLowerCase() === oldEmail)
+    type TeamRow = { id: string; email: string | null; employment_type: string | null; active_until: string | null }
+    const contact = ((contacts ?? []) as TeamRow[]).find(c => c.email?.trim().toLowerCase() === oldEmail)
     if (contact) {
-      const patch: Record<string, string | null> = {}
+      const patch: Record<string, string | null> = {
+        ...employmentPatchForAccount(contact, {
+          requiresEndDate: employmentTouched,
+          expiresAt: updated.expires_at as string | null | undefined,
+          previousExpiresAt: (existing.app_metadata?.expires_at as string | null | undefined) ?? null,
+        }),
+      }
       if (emailChanged) patch.email = newEmail!
       if (full_name?.trim()) patch.name = full_name.trim()
       if (phone !== undefined) patch.phone = phone?.trim() || null
       if (job_role !== undefined) patch.role = job_role?.trim() || null
-      const { error: cErr } = await admin.from('contacts').update(patch).eq('id', contact.id)
+      const { error: cErr } = Object.keys(patch).length > 0
+        ? await admin.from('contacts').update(patch).eq('id', contact.id)
+        : { error: null }
       if (cErr) return new Response(`Account aangepast, maar Team niet: ${cErr.message}`, { status: 500 })
     }
   }
