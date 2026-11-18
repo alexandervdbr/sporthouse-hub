@@ -12,3 +12,8 @@ export const PROJECTKALENDER_ENABLED = false
 // dit moment niet in gebruik. Tabellen en /api/chat/* blijven staan. Uit staan
 // scheelt ook een verzoek en een live-verbinding bij elke paginalading.
 export const CHAT_ENABLED = false
+
+// Projecten (/projects, het projectbord). Uitgezet op 2026-11-18: niet in
+// gebruik. De tabellen projects en project_members blijven staan — Materiaal
+// kan een reservering nog aan een bestaand project hangen.
+export const PROJECTEN_ENABLED = false

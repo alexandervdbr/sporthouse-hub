@@ -6,7 +6,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { Client } from '@/types/database'
-import { PROJECTKALENDER_ENABLED, CHAT_ENABLED } from '@/lib/features'
+import { PROJECTKALENDER_ENABLED, CHAT_ENABLED, PROJECTEN_ENABLED } from '@/lib/features'
 import { LayoutDashboard, KanbanSquare, CalendarDays, CalendarRange, Users, LogOut, Camera, UserCheck, MessageSquare, ShieldCheck, Lock, Layers, X, Star, Bookmark, Wrench, Car } from 'lucide-react'
 import { useSidebar } from '@/contexts/SidebarContext'
 import { useFavorites } from '@/contexts/FavoritesContext'
@@ -290,7 +290,7 @@ export default function Sidebar({ clients }: SidebarProps) {
         <div data-tour="nav-items" className="mb-5 space-y-0.5">
           {([
             { href: '/dashboard',   icon: LayoutDashboard, label: 'Dashboard',      section: 'dashboard',      external: false },
-            { href: '/projects',    icon: KanbanSquare,    label: 'Projecten',      section: 'projecten',      external: false },
+            ...(PROJECTEN_ENABLED ? [{ href: '/projects', icon: KanbanSquare, label: 'Projecten', section: 'projecten', external: false }] : []),
             { href: '/planning',    icon: CalendarDays,    label: 'Planning',       section: 'planning',       external: false },
             ...(PROJECTKALENDER_ENABLED ? [{ href: '/events', icon: CalendarRange, label: 'Projectkalender', section: 'projectkalender', external: false }] : []),
             { href: '/materiaal',   icon: Camera,          label: 'Materiaal',      section: 'materiaal',      external: false },
