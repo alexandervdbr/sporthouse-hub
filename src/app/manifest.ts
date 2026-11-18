@@ -5,7 +5,9 @@ export default function manifest(): MetadataRoute.Manifest {
     name: 'Sporthouse Hub',
     short_name: 'Sporthouse',
     description: 'Sporthouse intern platform',
-    start_url: '/dashboard',
+    // No start_url on purpose: without one, "Add to Home Screen" opens the
+    // page it was saved from, so a shortcut to one specific page stays one.
+    // With start_url set, iOS opened every shortcut on that URL instead.
     display: 'standalone',
     background_color: '#09090b',
     theme_color: '#09090b',

@@ -77,8 +77,15 @@ export async function updateSession(request: NextRequest) {
         headers: { 'Content-Type': 'application/json' },
       })
     }
+    // Remember where they were headed, so signing in lands them back there —
+    // a home-screen shortcut on iPhone has its own cookies, separate from
+    // Safari, so its first open always comes through here. /login and
+    // /auth/callback already carry `next` through Google; the callback's
+    // safeNext() rejects anything that isn't a plain same-site path.
     const url = request.nextUrl.clone()
     url.pathname = '/login'
+    url.search = ''
+    url.searchParams.set('next', pathname + request.nextUrl.search)
     return NextResponse.redirect(url)
   }
 
