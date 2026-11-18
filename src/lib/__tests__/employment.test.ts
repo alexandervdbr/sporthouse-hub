@@ -54,3 +54,48 @@ describe('contractvormen', () => {
     expect([...EMPLOYMENT_TYPES]).toEqual(['vast', 'stagiair', 'student'])
   })
 })
+
+import { employmentPatchForAccount } from '@/lib/employment'
+
+// Een stagiair die via "Toegang verlenen" binnenkwam, stond in Team onder
+// "Vast team": het contact kreeg de default 'vast' en geen einddatum.
+describe('employmentPatchForAccount', () => {
+  const stagiair = { requiresEndDate: true, expiresAt: '2027-06-04' }
+
+  it('een nieuw contact wordt stagiair met de vervaldatum als einddatum', () => {
+    expect(employmentPatchForAccount(null, stagiair)).toEqual({ employment_type: 'stagiair', active_until: '2027-06-04' })
+  })
+
+  it('een bestaand contact op vast zonder einddatum wordt aangevuld', () => {
+    expect(employmentPatchForAccount({ employment_type: 'vast', active_until: null }, stagiair))
+      .toEqual({ employment_type: 'stagiair', active_until: '2027-06-04' })
+  })
+
+  it('een student blijft student', () => {
+    expect(employmentPatchForAccount({ employment_type: 'student', active_until: '2027-06-04' }, stagiair)).toEqual({})
+  })
+
+  it('een vervaldatum als tijdstip wordt een datum', () => {
+    expect(employmentPatchForAccount(null, { requiresEndDate: true, expiresAt: '2027-06-04T00:00:00.000Z' }).active_until)
+      .toBe('2027-06-04')
+  })
+
+  it('een einddatum die gelijk liep met het account schuift mee bij verlengen', () => {
+    expect(employmentPatchForAccount(
+      { employment_type: 'stagiair', active_until: '2027-06-04' },
+      { requiresEndDate: true, expiresAt: '2027-07-01', previousExpiresAt: '2027-06-04' },
+    )).toEqual({ active_until: '2027-07-01' })
+  })
+
+  it('een einddatum die in Team bewust anders staat, blijft staan', () => {
+    expect(employmentPatchForAccount(
+      { employment_type: 'stagiair', active_until: '2027-05-15' },
+      { requiresEndDate: true, expiresAt: '2027-07-01', previousExpiresAt: '2027-06-04' },
+    )).toEqual({})
+  })
+
+  it('een rol zonder einddatum raakt niets aan', () => {
+    expect(employmentPatchForAccount(null, { requiresEndDate: false, expiresAt: '2027-06-04' })).toEqual({})
+    expect(employmentPatchForAccount(null, { requiresEndDate: true, expiresAt: null })).toEqual({})
+  })
+})

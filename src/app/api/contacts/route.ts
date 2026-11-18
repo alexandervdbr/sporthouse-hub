@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { hasClientAccess, isAdminUser } from '@/lib/auth-permissions'
 import { EMPLOYMENT_TYPES, type EmploymentType } from '@/lib/employment'
+import { readTeamContacts } from '@/lib/team-contacts-server'
 
 // Onbekende waarden stil negeren in plaats van opslaan: de check-constraint op
 // de tabel zou het toch weigeren, en een 500 uit de database is een slechter
@@ -27,14 +28,16 @@ export async function GET(request: NextRequest) {
 
   const clientId = request.nextUrl.searchParams.get('clientId')
 
-  let query = supabase.from('contacts').select('*').order('name')
-
   if (clientId) {
-    query = query.eq('client_id', clientId)
+    const { data, error } = await supabase.from('contacts').select('*').eq('client_id', clientId).order('name')
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json(data)
   }
 
-  const { data, error } = await query
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  // Zonder klant: de Team-pagina. Het team, los van welke klanten iemand
+  // ziet — zie src/lib/team-contacts-server.ts.
+  const { data, error } = await readTeamContacts(supabase, user, '*')
+  if (error) return NextResponse.json({ error }, { status: 500 })
   return NextResponse.json(data)
 }
 
