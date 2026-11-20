@@ -18,7 +18,7 @@ import { buildPoolGrid } from '@/lib/poolwagens/grid'
 import { carsNow, isMine } from '@/lib/poolwagens/status'
 import { canSeePin } from '@/lib/poolwagens/fuel-card'
 import { formatPeriod, mondayOf, nextHourLocal, shortDayLabel } from '@/lib/poolwagens/time'
-import { endangeredReservations, tripState } from '@/lib/poolwagens/trips'
+import { endangeredReservations, hasStarted, tripState } from '@/lib/poolwagens/trips'
 import {
   DEFAULT_VIEW, VIEWS, columnIsPast, loadView, nowPercent, saveView, selectionToPeriod, shiftAnchor, viewWindow,
   type PoolView,
@@ -185,7 +185,10 @@ export default function PoolwagenPlanner({ userId, access }: { userId: string; a
                           <span className="text-xs text-zinc-400">{formatPeriod(r.start_at, r.end_at)}</span>
                         </span>
                         <span className="hidden sm:inline text-xs flex-shrink-0" style={{ color: STATE_COLOR[state] }}>
-                          {state === 'gepland' ? 'Vertrek registreren' : state === 'teruggebracht' ? STATE_LABEL[state] : 'Aankomst registreren'}
+                          {/* Geen vertrek registreren meer (0096): gepland tot het uur, daarna de aankomst. */}
+                          {state === 'teruggebracht' ? STATE_LABEL[state]
+                            : state === 'gepland' && !hasStarted(r, now) ? 'Start vanzelf'
+                            : 'Aankomst registreren'}
                         </span>
                         <ChevronRight size={14} className="text-zinc-500 flex-shrink-0" />
                       </button>
@@ -261,7 +264,7 @@ export default function PoolwagenPlanner({ userId, access }: { userId: string; a
       {planning && dialog?.kind === 'form' && (
         <ReservationDialog mode={dialog.mode} planning={planning} options={options} userId={userId} manage={access.manage}
           onClose={() => setDialog(null)}
-          onSaved={() => { say(dialog.mode.kind === 'now' ? 'Goede rit! Het vertrek is geregistreerd.' : 'Opgeslagen.'); refresh() }} />
+          onSaved={() => { say(dialog.mode.kind === 'now' ? 'Goede rit!' : 'Opgeslagen.'); refresh() }} />
       )}
       {planning && open && dialog?.kind === 'detail' && (
         <ReservationDetail
