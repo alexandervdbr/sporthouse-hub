@@ -49,11 +49,16 @@ describe('fuelCardChanged', () => {
 })
 
 describe('canSeePin (zoals pool_fuel_card_pin)', () => {
-  const trip = { user_id: 'u1', departed_at: '2026-11-10T08:00:00Z', arrived_at: null }
+  const trip = { user_id: 'u1' as string | null, created_by: 'u2', departed_at: '2026-11-10T08:00:00Z', arrived_at: null }
   it('tijdens de eigen rit, of voor beheer', () => {
     expect(canSeePin(trip, 'u1', false)).toBe(true)
     expect(canSeePin(trip, 'u2', false)).toBe(false)
     expect(canSeePin(trip, 'u2', true)).toBe(true)
+  })
+  it('wie voor een stagiair zonder account reserveerde, niet wie voor een collega reserveerde', () => {
+    expect(canSeePin({ ...trip, user_id: null }, 'u2', false)).toBe(true)
+    expect(canSeePin({ ...trip, user_id: null }, 'u3', false)).toBe(false)
+    expect(canSeePin(trip, 'u2', false)).toBe(false)
   })
   it('niet vóór het vertrek en niet na de aankomst', () => {
     expect(canSeePin({ ...trip, departed_at: null }, 'u1', false)).toBe(false)

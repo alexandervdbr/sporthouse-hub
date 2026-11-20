@@ -52,10 +52,16 @@ export function fuelCardChanged(saved: { card_number: string | null }, form: { c
 
 /**
  * Staat de knop "Toon pincode" bij deze rit? Tijdens de rit (vertrokken, nog
- * niet aangekomen), voor wie rijdt of voor beheer — zoals pool_fuel_card_pin.
+ * niet aangekomen), voor wie rijdt, voor wie reserveerde voor een stagiair
+ * zonder account (0097), of voor beheer — zoals pool_fuel_card_pin.
  */
-export function canSeePin(r: Pick<PoolReservation, 'user_id' | 'departed_at' | 'arrived_at'>, userId: string, manage: boolean): boolean {
-  return !!r.departed_at && !r.arrived_at && (r.user_id === userId || manage)
+export function canSeePin(
+  r: Pick<PoolReservation, 'user_id' | 'created_by' | 'departed_at' | 'arrived_at'>,
+  userId: string,
+  manage: boolean,
+): boolean {
+  const driver = r.user_id === userId || (r.user_id === null && r.created_by === userId)
+  return !!r.departed_at && !r.arrived_at && (driver || manage)
 }
 
 /**
