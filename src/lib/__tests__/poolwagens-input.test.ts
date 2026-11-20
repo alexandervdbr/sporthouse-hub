@@ -11,7 +11,7 @@ describe('parseReservationInput', () => {
   const times = { p_car_id: CAR, p_start_at: '2026-11-05T07:00:00.000Z', p_end_at: '2026-11-05T16:30:00.000Z' }
 
   it('zet Brusselse kloktijden om naar tijdstippen; klant en notitie mogen leeg', () => {
-    expect(parseReservationInput(base)).toEqual({ args: { ...times, p_client_id: null, p_client_name: null, p_note: null, p_user_id: null } })
+    expect(parseReservationInput(base)).toEqual({ args: { ...times, p_client_id: null, p_client_name: null, p_note: null, p_user_id: null, p_guest_name: null, p_guest_email: null } })
     expect(parseReservationInput({ ...base, note: ' x ' })).toMatchObject({ args: { p_note: 'x' } })
   })
   it('een bestaande klant: het id telt, een getypte naam ernaast niet', () => {
@@ -32,6 +32,16 @@ describe('parseReservationInput', () => {
     expect(parseReservationInput({ ...base, client_id: 'geen-uuid' })).toEqual({ error: 'Ongeldige klant.' })
     expect(parseReservationInput({ ...base, client_name: 'x'.repeat(201) })).toEqual({ error: 'De klantnaam is hoogstens 200 tekens.' })
   })
+  it('een stagiair zonder account: naam en e-mail', () => {
+    expect(parseReservationInput({ ...base, guest: { name: ' Lisa Peeters ', email: ' Lisa@Voorbeeld.be ' } }))
+      .toMatchObject({ args: { p_user_id: null, p_guest_name: 'Lisa Peeters', p_guest_email: 'lisa@voorbeeld.be' } })
+    expect(parseReservationInput({ ...base, guest: { name: '', email: 'lisa@voorbeeld.be' } })).toEqual({ error: 'Vul de naam van de stagiair in.' })
+    expect(parseReservationInput({ ...base, guest: { name: 'Lisa', email: 'lisa' } })).toEqual({ error: 'Vul een geldig e-mailadres van de stagiair in.' })
+    expect(parseReservationInput({ ...base, guest: { name: 'x'.repeat(101), email: 'a@b.be' } })).toEqual({ error: 'De naam van de stagiair is hoogstens 100 tekens.' })
+    expect(parseReservationInput({ ...base, user_id: CLIENT, guest: { name: 'Lisa', email: 'a@b.be' } })).toEqual({ error: 'Kies een collega of een stagiair, niet allebei.' })
+    expect(parseDepartNowInput({ car_id: CAR, end: '2099-01-01T10:00', guest: { name: 'Lisa', email: 'a@b.be' } }))
+      .toMatchObject({ args: { p_guest_name: 'Lisa', p_guest_email: 'a@b.be' } })
+  })
   it('kent geen project meer', () => {
     const r = parseReservationInput({ ...base, project_id: CLIENT })
     expect(r).not.toHaveProperty('error')
@@ -43,7 +53,7 @@ describe('parseDepartNowInput', () => {
   const now = new Date('2026-11-05T07:00:00Z')
   it('terugkomst in de toekomst, km optioneel', () => {
     expect(parseDepartNowInput({ car_id: CAR, end: '2026-11-05T12:00', km: '' }, now))
-      .toEqual({ args: { p_car_id: CAR, p_end_at: '2026-11-05T11:00:00.000Z', p_client_id: null, p_client_name: null, p_note: null, p_km: null, p_user_id: null } })
+      .toEqual({ args: { p_car_id: CAR, p_end_at: '2026-11-05T11:00:00.000Z', p_client_id: null, p_client_name: null, p_note: null, p_km: null, p_user_id: null, p_guest_name: null, p_guest_email: null } })
     expect(parseDepartNowInput({ car_id: CAR, end: '2026-11-05T12:00', client_name: 'Croky', km: '45.120' }, now))
       .toMatchObject({ args: { p_client_name: 'Croky', p_km: 45120 } })
   })

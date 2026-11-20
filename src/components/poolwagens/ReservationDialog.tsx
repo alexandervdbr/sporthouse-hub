@@ -7,6 +7,7 @@ import { ACCENT, ErrorLine, Modal, inputCls, labelCls, secondaryCls, buttonCls, 
 import { blockFor } from '@/lib/poolwagens/status'
 import { NO_FREE_CAR_TEXT, carChoices, pickFreeCar, reservationFormProblem } from '@/lib/poolwagens/reservation-form'
 import { brusselsLocalToISO, isoToBrusselsLocal as toLocal } from '@/lib/poolwagens/time'
+import { isEmail } from '@/lib/poolwagens/email'
 import type { PoolOptions, PoolPlanning, PoolReservation } from '@/lib/poolwagens/types'
 
 // Reserveren, een reservatie wijzigen, of "Nu vertrekken" (reservatie vanaf
@@ -20,6 +21,13 @@ import type { PoolOptions, PoolPlanning, PoolReservation } from '@/lib/poolwagen
 // springt de keuze naar de eerste vrije. Een wagen die je meebracht (klik in
 // het raster, Nu vertrekken) blijft bij het openen gewoon gekozen; zonder
 // wagen (carId '') begint het formulier op de eerste vrije.
+//
+// Voor wie: jezelf, een collega, of een stagiair zonder account (naam +
+// e-mail). De bevestiging gaat dan alleen naar dat adres; het wordt nergens
+// bewaard (0095).
+
+/** De keuze "Stagiair (zonder account)" in de lijst Voor wie. */
+const GUEST = 'stagiair'
 
 export type ReservationDialogMode =
   | { kind: 'new'; carId: string; start: string; end: string }
@@ -50,6 +58,8 @@ export default function ReservationDialog({ mode, planning, options, userId, man
   })
   const [switchNote, setSwitchNote] = useState('')
   const [personId, setPersonId] = useState(userId)
+  const [guestName, setGuestName] = useState('')
+  const [guestEmail, setGuestEmail] = useState('')
   const [clientText, setClientText] = useState(editing?.client_name ?? '')
   const [note, setNote] = useState(editing?.note ?? '')
   const [kmValue, setKmValue] = useState('')
@@ -106,18 +116,24 @@ export default function ReservationDialog({ mode, planning, options, userId, man
     const list = options?.colleagues ?? []
     return list.some(p => p.id === userId) ? list : [{ id: userId, name: 'Mezelf' }, ...list]
   }, [options, userId])
-  const user_id = personId === userId ? null : personId
+  const isGuest = !editing && personId === GUEST
+  const user_id = isGuest || personId === userId ? null : personId
+  const guest = isGuest ? { name: guestName.trim(), email: guestEmail.trim() } : undefined
+  const guestProblem = !isGuest ? null
+    : !guest!.name ? 'Vul de naam van de stagiair in.'
+    : !isEmail(guest!.email) ? 'Vul een geldig e-mailadres van de stagiair in.'
+    : null
 
   async function save() {
     setBusy(true)
     setError('')
     try {
       if (mode.kind === 'now') {
-        await send('/api/poolwagens/reservations/now', 'POST', { car_id: carId, end, ...client, note, km: kmValue, user_id })
+        await send('/api/poolwagens/reservations/now', 'POST', { car_id: carId, end, ...client, note, km: kmValue, user_id, guest })
       } else if (editing) {
         await send(`/api/poolwagens/reservations/${editing.id}`, 'PATCH', { car_id: carId, start, end, ...client, note })
       } else {
-        await send('/api/poolwagens/reservations', 'POST', { car_id: carId, start, end, ...client, note, user_id })
+        await send('/api/poolwagens/reservations', 'POST', { car_id: carId, start, end, ...client, note, user_id, guest })
       }
       onSaved()
     } catch (e) {
@@ -127,13 +143,15 @@ export default function ReservationDialog({ mode, planning, options, userId, man
   }
 
   const title = mode.kind === 'now' ? 'Nu vertrekken' : editing ? 'Reservatie wijzigen' : 'Poolwagen reserveren'
-  const message = error || (noneFree ? NO_FREE_CAR_TEXT : problem)
+  // De melding over de stagiair pas zodra er iets getypt is; de knop staat wel meteen uit.
+  const typedGuest = !!(guestName.trim() || guestEmail.trim())
+  const message = error || (noneFree ? NO_FREE_CAR_TEXT : problem) || (typedGuest ? guestProblem : null)
 
   return (
     <Modal title={title} onClose={onClose} footer={
       <>
         <button onClick={onClose} className={secondaryCls}>Annuleren</button>
-        <button data-primary onClick={save} disabled={busy || !carId || !end || (mode.kind !== 'now' && !start) || !!problem}
+        <button data-primary onClick={save} disabled={busy || !carId || !end || (mode.kind !== 'now' && !start) || !!problem || !!guestProblem}
           className={`${buttonCls} text-white`} style={{ backgroundColor: ACCENT }}>
           {busy ? <Loader2 size={14} className="animate-spin" /> : mode.kind === 'now' ? <Car size={14} /> : <Check size={14} />}
           {mode.kind === 'now' ? 'Vertrekken' : editing ? 'Opslaan' : 'Reserveren'}
@@ -165,7 +183,25 @@ export default function ReservationDialog({ mode, planning, options, userId, man
           <label className={labelCls}>Voor wie</label>
           <select className={inputCls} value={personId} onChange={e => edit(setPersonId)(e.target.value)}>
             {people.map(p => <option key={p.id} value={p.id}>{p.id === userId && p.name !== 'Mezelf' ? `${p.name} (ik)` : p.name}</option>)}
+            <option value={GUEST}>Stagiair (zonder account)…</option>
           </select>
+          {isGuest && (
+            <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Naam stagiair</label>
+                <input className={inputCls} value={guestName} maxLength={100} autoComplete="off"
+                  onChange={e => edit(setGuestName)(e.target.value)} placeholder="Voornaam Achternaam" />
+              </div>
+              <div>
+                <label className={labelCls}>E-mailadres stagiair</label>
+                <input type="email" className={inputCls} value={guestEmail} autoComplete="off"
+                  onChange={e => edit(setGuestEmail)(e.target.value)} placeholder="naam@voorbeeld.be" />
+              </div>
+              <p className="sm:col-span-2 text-xs text-zinc-500">
+                De bevestiging met de afspraken gaat alleen naar de stagiair. Jij registreert vertrek, aankomst en schade.
+              </p>
+            </div>
+          )}
         </div>
       )}
 
