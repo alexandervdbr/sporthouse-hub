@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseArrivalInput, parseDepartNowInput, parseDepartureInput, parseReservationInput } from '@/lib/poolwagens/reservation-input'
+import { parseArrivalInput, parseDepartNowInput, parseReservationInput } from '@/lib/poolwagens/reservation-input'
 import { parseDamageInput, parseRecipients } from '@/lib/poolwagens/damage-input'
 import { clientSearch, parseHistoryFilters } from '@/lib/poolwagens/history'
 
@@ -63,12 +63,7 @@ describe('parseDepartNowInput', () => {
   })
 })
 
-describe('vertrek en aankomst', () => {
-  it('vertrek: alles mag ontbreken', () => {
-    expect(parseDepartureInput({})).toEqual({ args: { p_departed_at: null, p_km: null } })
-    expect(parseDepartureInput({ at: '2026-11-05T08:15', km: '1000' })).toEqual({ args: { p_departed_at: '2026-11-05T07:15:00.000Z', p_km: 1000 } })
-    expect(parseDepartureInput({ at: 'gisteren' })).toEqual({ error: 'Ongeldig tijdstip van vertrek.' })
-  })
+describe('aankomst', () => {
   it('aankomst: km verplicht', () => {
     expect(parseArrivalInput({ at: '' })).toEqual({ error: 'Vul de kilometerstand bij aankomst in.' })
     expect(parseArrivalInput({ km: 'veel' })).toEqual({ error: 'De kilometerstand is een geheel getal vanaf 0.' })

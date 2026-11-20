@@ -123,19 +123,6 @@ export function parseDepartNowInput(body: unknown, now: Date = new Date()): { ar
   return { args: { p_car_id: car, p_end_at: end, ...c, p_note: text(b.note), p_km: km.km, ...who } }
 }
 
-/** Vertrek: tijdstip en km-stand mogen ontbreken (nu, laatst bekende stand). */
-export function parseDepartureInput(body: unknown): { args: { p_departed_at: string | null; p_km: number | null } } | { error: string } {
-  const b = (body ?? {}) as Body
-  let at: string | null = null
-  if (b.at !== undefined && b.at !== null && b.at !== '') {
-    at = time(b.at)
-    if (!at) return { error: 'Ongeldig tijdstip van vertrek.' }
-  }
-  const km = optionalKm(b.km)
-  if ('error' in km) return km
-  return { args: { p_departed_at: at, p_km: km.km } }
-}
-
 /** Aankomst: de km-stand is verplicht, het tijdstip standaard nu. */
 export function parseArrivalInput(body: unknown): { args: { p_arrived_at: string | null; p_km: number } } | { error: string } {
   const b = (body ?? {}) as Body

@@ -25,6 +25,11 @@ export async function GET(req: Request) {
   if ('error' in range) return new Response(range.error, { status: 400 })
   const { start, end } = range
 
+  // Begonnen reservaties worden vanzelf een rit (0096; er is geen knop
+  // "vertrek" meer). Mislukt dat, dan toont de planning gewoon wat er is.
+  const auto = await supabase.rpc('pool_auto_depart')
+  if (auto.error) console.error('Poolwagens: automatisch vertrek mislukt:', auto.error.message)
+
   // Te laat terug? Dan eerst de push naar wie erna reserveerde (één keer).
   await notifyLateReturns(supabase)
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { canChangeReservation, canRegisterTrip, endangeredReservations, isOpenTrip, tripState } from '@/lib/poolwagens/trips'
+import { canCancelReservation, canChangeReservation, canRegisterTrip, endangeredReservations, hasStarted, isOpenTrip, tripState } from '@/lib/poolwagens/trips'
 
 const NOW = new Date('2026-11-04T12:00:00Z')
 const h = (hours: number) => new Date(NOW.getTime() + hours * 3600_000).toISOString()
@@ -53,6 +53,18 @@ describe('rechten op een reservatie (zoals de database)', () => {
   })
   it('beheer altijd', () => {
     expect(canChangeReservation({ ...mine, departed_at: h(-1) }, 'u2', true)).toBe(true)
+  })
+  it('annuleren: eigen of beheer, ook een begonnen rit (niet gereden), niet na aankomst', () => {
+    const r = { user_id: 'u1', created_by: 'u1', arrived_at: null }
+    expect(canCancelReservation(r, 'u1', false)).toBe(true)
+    expect(canCancelReservation(r, 'u2', false)).toBe(false)
+    expect(canCancelReservation(r, 'u2', true)).toBe(true)
+    expect(canCancelReservation({ ...r, arrived_at: h(-1) }, 'u1', true)).toBe(false)
+  })
+  it('begonnen: vertrokken, of het gereserveerde uur is voorbij', () => {
+    expect(hasStarted({ departed_at: null, start_at: h(1) }, NOW)).toBe(false)
+    expect(hasStarted({ departed_at: null, start_at: h(-1) }, NOW)).toBe(true)
+    expect(hasStarted({ departed_at: h(-1), start_at: h(-1) }, NOW)).toBe(true)
   })
   it('vertrek/aankomst: eigen rit of beheer', () => {
     expect(canRegisterTrip(mine, 'u1', false)).toBe(true)
