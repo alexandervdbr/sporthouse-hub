@@ -198,7 +198,7 @@ export default function ReservationDialog({ mode, planning, options, userId, man
                   onChange={e => edit(setGuestEmail)(e.target.value)} placeholder="naam@voorbeeld.be" />
               </div>
               <p className="sm:col-span-2 text-xs text-zinc-500">
-                De bevestiging met de afspraken gaat alleen naar de stagiair. Jij registreert vertrek, aankomst en schade.
+                De bevestiging met de afspraken gaat alleen naar de stagiair. De rit start vanzelf; de stagiair geeft jou de km-stand door, en jij registreert de aankomst.
               </p>
             </div>
           )}

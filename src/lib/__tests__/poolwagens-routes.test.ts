@@ -157,6 +157,9 @@ describe('unieke wagennaam en het planningsvenster', () => {
   it('planning: from–to werkt, een te groot venster is een 400 zonder databaseverzoek', async () => {
     state.user = user(USER)
     expect(await statusOf(planning.GET(json('GET', undefined, 'http://hub.test/api/poolwagens/planning?from=2026-11-02&to=2026-11-08')))).toBe(200)
+    // Eerst het automatische vertrek, dan pas de te-laat-meldingen.
+    expect(state.calls.indexOf('rpc:pool_auto_depart')).toBeGreaterThanOrEqual(0)
+    expect(state.calls.indexOf('rpc:pool_auto_depart')).toBeLessThan(state.calls.indexOf('rpc:pool_claim_late_notifications'))
     state.calls = []
     expect(await statusOf(planning.GET(json('GET', undefined, 'http://hub.test/api/poolwagens/planning?from=2026-01-01&to=2026-12-31')))).toBe(400)
     expect(state.calls).toEqual([])
@@ -213,6 +216,14 @@ describe('reserveren', () => {
     expect(state.rpcArgs.pool_create_reservation).toMatchObject({ p_guest_name: 'Lisa', p_guest_email: 'lisa@voorbeeld.be' })
     expect(state.rpcArgs.pool_create_reservation).not.toHaveProperty('p_user_id')
     expect(await statusOf(reservations.POST(json('POST', { ...booking, guest: { name: 'Lisa', email: 'fout' } })))).toBe(400)
+  })
+
+  it('wijzigen stuurt geen "voor wie"-velden naar pool_update_reservation', async () => {
+    state.user = user(USER)
+    expect(await statusOf(reservation.PATCH(json('PATCH', booking), params('r1')))).toBe(204)
+    const args = state.rpcArgs.pool_update_reservation as Record<string, unknown>
+    expect(args).toMatchObject({ p_id: 'r1', p_car_id: CAR })
+    for (const k of ['p_user_id', 'p_guest_name', 'p_guest_email']) expect(args).not.toHaveProperty(k)
   })
 
   it('met een bestaande of een getypte klant', async () => {

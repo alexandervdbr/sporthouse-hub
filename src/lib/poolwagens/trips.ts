@@ -58,6 +58,27 @@ export function canChangeReservation(
   return !r.departed_at && (r.user_id === userId || r.created_by === userId)
 }
 
+/**
+ * Is de rit begonnen? Vertrokken, of het gereserveerde uur is voorbij: de
+ * database zet het vertrek dan vanzelf (0096), de app kan dat even voor zijn.
+ */
+export function hasStarted(r: Pick<PoolReservation, 'departed_at' | 'start_at'>, now: Date): boolean {
+  return !!r.departed_at || Date.parse(r.start_at) <= now.getTime()
+}
+
+/**
+ * Mag deze gebruiker de reservatie annuleren? Zoals pool_cancel_reservation
+ * (0096): eigen reservatie of beheer, zolang de wagen niet teruggebracht is.
+ * Een begonnen rit annuleren betekent: niet gereden.
+ */
+export function canCancelReservation(
+  r: Pick<PoolReservation, 'user_id' | 'created_by' | 'arrived_at'>,
+  userId: string,
+  manage: boolean,
+): boolean {
+  return !r.arrived_at && (manage || r.user_id === userId || r.created_by === userId)
+}
+
 /** Mag deze gebruiker vertrek of aankomst registreren? Eigen rit of beheer. */
 export function canRegisterTrip(r: Pick<PoolReservation, 'user_id' | 'created_by'>, userId: string, manage: boolean): boolean {
   return manage || r.user_id === userId || r.created_by === userId

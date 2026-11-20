@@ -37,7 +37,7 @@ import type { PoolOptions, PoolPlanning } from '@/lib/poolwagens/types'
 
 type Dialog =
   | { kind: 'form'; mode: ReservationDialogMode }
-  | { kind: 'detail'; id: string; initialForm?: 'vertrek' | 'aankomst' }
+  | { kind: 'detail'; id: string; initialForm?: 'aankomst' }
   | { kind: 'damage'; carId: string; reservationId: string | null }
 
 const VIEW_LABEL: Record<PoolView, string> = { dag: 'Dag', week: 'Week', maand: 'Maand' }

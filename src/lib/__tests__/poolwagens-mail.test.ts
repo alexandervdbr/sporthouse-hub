@@ -117,6 +117,8 @@ describe('reservationMail', () => {
     expect(m.text).toContain('Shell, Total, Esso, Dats24 of Q8')
     expect(m.html).toContain('Bekijk je reservatie of meld schade op de hub')
     expect(m.text).toContain('kiezelparking')
+    expect(m.text).toContain('Terugbrengen: Je rit start vanzelf op het gereserveerde uur. Registreer bij terugkomst je aankomst op de hub, met de kilometerstand.')
+    expect(m.text).not.toContain('vertrek')
     expect(m.text).not.toContain('Notitie')
   })
 
@@ -133,6 +135,7 @@ describe('reservationMail', () => {
     const m = reservationMail({ ...base, person: 'Lisa', bookedBy: 'Alexander', contact: { name: 'Alexander', email: 'alex@sporthouse.be' } })
     expect(m.text).toContain('Alexander reserveerde Poolwagen 1 (1-ABC-234) voor jou.')
     expect(m.text).toContain('Schade: Meteen melden aan Alexander (alex@sporthouse.be).')
+    expect(m.text).toContain('Geef bij terugkomst de kilometerstand door aan Alexander (alex@sporthouse.be).')
     expect(m.text).not.toContain('op de hub')
     expect(m.html).not.toContain('op de hub')
     expect(m.html).not.toContain('hub.example')

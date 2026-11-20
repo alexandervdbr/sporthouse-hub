@@ -3,8 +3,10 @@ import { parseReservationInput } from '@/lib/poolwagens/reservation-input'
 
 // PATCH — een reservatie wijzigen (wagen, periode, klant, notitie).
 // DELETE — annuleren; blijft bewaard maar houdt niets meer bezet.
-// Eigen reservatie zolang de rit niet gestart is, of beheer: dat beslist de
-// database (pool_update_reservation, pool_cancel_reservation).
+// Wijzigen: eigen reservatie zolang de rit niet gestart is, of beheer.
+// Annuleren: eigen reservatie of beheer, zolang de wagen niet terug is (een
+// begonnen rit annuleren = niet gereden, 0096). Dat beslist de database
+// (pool_update_reservation, pool_cancel_reservation).
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requirePoolwagens('use')
@@ -15,7 +17,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const parsed = parseReservationInput(await readJson(req))
   if ('error' in parsed) return new Response(parsed.error, { status: 400 })
 
-  const { error } = await supabase.rpc('pool_update_reservation', { p_id: id, ...parsed.args })
+  // Voor wie verandert niet bij een wijziging: pool_update_reservation kent
+  // die parameters niet, en PostgREST zoekt de functie op de namen.
+  const { p_user_id: _u, p_guest_name: _n, p_guest_email: _e, ...args } = parsed.args
+  void _u; void _n; void _e
+  const { error } = await supabase.rpc('pool_update_reservation', { p_id: id, ...args })
   if (error) return dbErrorResponse(error)
   return new Response(null, { status: 204 })
 }

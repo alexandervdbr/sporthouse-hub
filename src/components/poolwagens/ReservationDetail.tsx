@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, type ReactNode } from 'react'
-import { AlertTriangle, ChevronDown, Flag, Loader2, LogIn, LogOut, Pencil, RotateCcw, Trash2 } from 'lucide-react'
+import { AlertTriangle, ChevronDown, Flag, Loader2, LogIn, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { ACCENT, ErrorLine, Modal, buttonCls, dangerCls, iconLabelCls, inputCls, km, labelCls, secondaryCls, send } from './ui'
 import { STATE_LABEL } from './PoolwagenGrid'
 import { DamageFields, EMPTY_DAMAGE, damageReady, submitDamage, type DamageDraft } from './damage-form'
@@ -11,25 +11,29 @@ import { runArrival } from '@/lib/poolwagens/arrival-flow'
 import { arrivalKmError } from '@/lib/poolwagens/km'
 import { parseKm } from '@/lib/poolwagens/car-input'
 import { formatPeriod, formatShort, nowLocal, tripTimeError } from '@/lib/poolwagens/time'
-import { canChangeReservation, canRegisterTrip, tripState } from '@/lib/poolwagens/trips'
+import { canCancelReservation, canChangeReservation, canRegisterTrip, hasStarted, tripState } from '@/lib/poolwagens/trips'
 import type { CarBlock } from '@/lib/poolwagens/blocking'
 import type { PoolCar, PoolReservation } from '@/lib/poolwagens/types'
 
 // Eén reservatie of rit: details, en wat je ermee kan doen — wijzigen,
-// annuleren, vertrek of aankomst registreren, schade melden. De knoppen staan
-// onderaan in het venster, zodat ze ook op een gsm altijd zichtbaar zijn.
+// annuleren, aankomst registreren, schade melden. De knoppen staan onderaan
+// in het venster, zodat ze ook op een gsm altijd zichtbaar zijn.
 //
-// Vertrek en aankomst: het tijdstip staat op "nu" (Brusselse kloktijd). Pas
-// je het niet aan, dan gaat er geen tijdstip mee en neemt de database zijn
-// eigen "nu" — dan kan een klok die afwijkt niets mislopen. Pas je het wel
-// aan, dan controleert het formulier meteen of het niet in de toekomst ligt
-// (en een aankomst niet vóór het vertrek), net als de kilometerstand.
+// Een vertrek registreer je niet meer: de rit start vanzelf op het
+// gereserveerde uur (0096). Niet gereden? Dan kan je de rit annuleren zolang
+// de aankomst niet geregistreerd is.
+//
+// Aankomst: het tijdstip staat op "nu" (Brusselse kloktijd). Pas je het niet
+// aan, dan gaat er geen tijdstip mee en neemt de database zijn eigen "nu" —
+// dan kan een klok die afwijkt niets mislopen. Pas je het wel aan, dan
+// controleert het formulier meteen of het niet in de toekomst ligt (en niet
+// vóór het vertrek), net als de kilometerstand.
 //
 // Bij de aankomst kan je meteen schade melden ("Schade opgemerkt?"). Eerst
 // wordt de aankomst opgeslagen, daarna de schade; mislukt die, dan blijft de
 // aankomst staan en kan je de schade opnieuw proberen zonder iets te verliezen.
 
-type TripForm = 'vertrek' | 'aankomst'
+type TripForm = 'aankomst'
 
 export default function ReservationDetail({ reservation: r, car, block, endangered, userId, manage, now, initialForm = null, onClose, onEdit, onReportDamage, onChanged }: {
   reservation: PoolReservation
@@ -50,12 +54,17 @@ export default function ReservationDetail({ reservation: r, car, block, endanger
   const state = tripState(r, now)
   const canChange = canChangeReservation(r, userId, manage)
   const canTrip = canRegisterTrip(r, userId, manage)
-  const startForm = initialForm === 'vertrek' ? (canTrip && !r.departed_at ? 'vertrek' : null)
-    : initialForm === 'aankomst' ? (canTrip && r.departed_at && !r.arrived_at ? 'aankomst' : null) : null
+  const canCancel = canCancelReservation(r, userId, manage)
+  // Begonnen maar nog niet terug: de aankomst kan, ook als de database het
+  // vertrek nog niet zette (dat doet ze dan bij de aankomst).
+  const canArrive = canTrip && hasStarted(r, now) && !r.arrived_at
+  const startForm = initialForm === 'aankomst' && canArrive ? 'aankomst' : null
+  // De stand bij vertrek: geregistreerd, of anders de laatst bekende van de wagen.
+  const departureKm = r.departure_km ?? car?.current_km ?? null
   const [form, setForm] = useState<TripForm | null>(startForm)
   const [at, setAt] = useState(() => nowLocal())
   const [atTouched, setAtTouched] = useState(false)
-  const [kmValue, setKmValue] = useState(startForm === 'vertrek' && car ? String(car.current_km) : '')
+  const [kmValue, setKmValue] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [damageOpen, setDamageOpen] = useState(false)
@@ -81,26 +90,25 @@ export default function ReservationDetail({ reservation: r, car, block, endanger
     setForm(kind)
     setAt(nowLocal())
     setAtTouched(false)
-    setKmValue(kind === 'vertrek' && car ? String(car.current_km) : '')
+    setKmValue('')
     setError('')
   }
 
-  const kmProblem = form === 'aankomst' && r.departure_km !== null && kmValue !== ''
-    ? arrivalKmError(r.departure_km, parseKm(kmValue))
+  const kmProblem = form === 'aankomst' && departureKm !== null && kmValue !== ''
+    ? arrivalKmError(departureKm, parseKm(kmValue))
     : null
   // Alleen een zelf gekozen tijdstip kan fout zijn; "nu" is altijd goed.
-  const timeProblem = form && atTouched ? tripTimeError(form, at, { now: new Date(), departedAt: r.departed_at }) : null
+  const timeProblem = form && atTouched ? tripTimeError(form, at, { now: new Date(), departedAt: r.departed_at ?? r.start_at }) : null
   const withDamage = form === 'aankomst' && damageOpen
-  const blocked = busy || (!arrivalDone && (!!timeProblem || (form === 'aankomst' && (!kmValue || !!kmProblem))))
+  const blocked = busy || (!arrivalDone && (!!timeProblem || !kmValue || !!kmProblem))
     || (withDamage && !damageReady(damage))
 
   const tripCall = () => send(
-    `/api/poolwagens/reservations/${r.id}/${form === 'vertrek' ? 'departure' : 'arrival'}`, 'POST',
+    `/api/poolwagens/reservations/${r.id}/arrival`, 'POST',
     { at: atTouched ? at : null, km: kmValue },
   )
 
   async function submit() {
-    if (form !== 'aankomst') { run(tripCall); return }
     setBusy(true)
     setError('')
     setDamageError('')
@@ -124,31 +132,29 @@ export default function ReservationDetail({ reservation: r, car, block, endanger
       {progress && <span className="mr-auto text-xs text-zinc-500">{progress}</span>}
       {!arrivalDone && <button onClick={() => { setForm(null); setError('') }} disabled={busy} className={secondaryCls}>Annuleren</button>}
       <button data-primary disabled={blocked} onClick={submit} className={`${buttonCls} text-white`} style={{ backgroundColor: ACCENT }}>
-        {busy ? <Loader2 size={14} className="animate-spin" /> : form === 'vertrek' ? <LogOut size={14} /> : <LogIn size={14} />}
-        {form === 'vertrek' ? 'Vertrek registreren' : arrivalDone ? 'Schade melden' : withDamage ? 'Aankomst en schade registreren' : 'Aankomst registreren'}
+        {busy ? <Loader2 size={14} className="animate-spin" /> : <LogIn size={14} />}
+        {arrivalDone ? 'Schade melden' : withDamage ? 'Aankomst en schade registreren' : 'Aankomst registreren'}
       </button>
     </>
   ) : (
     <>
-      {r.departed_at && (
+      {hasStarted(r, now) && (
         <button data-icon onClick={onReportDamage} title="Schade melden" className={secondaryCls}><Flag size={14} /><span className={iconLabelCls}>Schade melden</span></button>
       )}
-      {canChange && !r.departed_at && (
+      {canCancel && (
         <button disabled={busy}
-          onClick={() => { if (confirm('Deze reservatie annuleren?')) run(() => send(`/api/poolwagens/reservations/${r.id}`, 'DELETE')) }}
-          data-icon title="Reservatie annuleren" className={dangerCls}>
-          <Trash2 size={14} /><span className={iconLabelCls}>Annuleren</span>
+          onClick={() => {
+            const ask = hasStarted(r, now) ? 'Niet met deze wagen gereden? Dan wordt deze rit geannuleerd.' : 'Deze reservatie annuleren?'
+            if (confirm(ask)) run(() => send(`/api/poolwagens/reservations/${r.id}`, 'DELETE'))
+          }}
+          data-icon title={hasStarted(r, now) ? 'Niet gereden: annuleren' : 'Reservatie annuleren'} className={dangerCls}>
+          <Trash2 size={14} /><span className={iconLabelCls}>{hasStarted(r, now) ? 'Niet gereden' : 'Annuleren'}</span>
         </button>
       )}
       {canChange && (!r.departed_at || manage) && (
         <button onClick={onEdit} className={secondaryCls}><Pencil size={14} /> Wijzigen</button>
       )}
-      {canTrip && !r.departed_at && (
-        <button data-primary onClick={() => openForm('vertrek')} className={`${buttonCls} text-white`} style={{ backgroundColor: ACCENT }}>
-          <LogOut size={14} /> Vertrek registreren
-        </button>
-      )}
-      {canTrip && r.departed_at && !r.arrived_at && (
+      {canArrive && (
         <button data-primary onClick={() => openForm('aankomst')} className={`${buttonCls} text-white`} style={{ backgroundColor: ACCENT }}>
           <LogIn size={14} /> Aankomst registreren
         </button>
@@ -190,35 +196,33 @@ export default function ReservationDetail({ reservation: r, car, block, endanger
         <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-3 space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className={labelCls}>{form === 'vertrek' ? 'Vertrokken om' : 'Aangekomen om'}</label>
+              <label className={labelCls}>Aangekomen om</label>
               <input type="datetime-local" className={inputCls} value={at} aria-invalid={!!timeProblem} disabled={arrivalDone}
                 onChange={e => { setAt(e.target.value); setAtTouched(true); setError('') }} />
               {!atTouched && <p className="mt-1 text-[11px] text-zinc-500">Nu</p>}
             </div>
             <div>
-              <label className={labelCls}>Kilometerstand bij {form}</label>
+              <label className={labelCls}>Kilometerstand bij aankomst</label>
               <input className={inputCls} inputMode="numeric" value={kmValue} onChange={e => { setKmValue(e.target.value); setError('') }} autoFocus disabled={arrivalDone}
-                placeholder={form === 'aankomst' && r.departure_km !== null ? `minstens ${r.departure_km}` : ''} />
+                placeholder={departureKm !== null ? `minstens ${departureKm}` : ''} />
             </div>
           </div>
           {!arrivalDone && timeProblem && <ErrorLine>{timeProblem}</ErrorLine>}
           {!arrivalDone && kmProblem && <ErrorLine>{kmProblem}</ErrorLine>}
 
-          {form === 'aankomst' && (
-            <div className="border-t border-zinc-800 pt-3 space-y-3">
-              <button type="button" onClick={() => setDamageOpen(o => !o)} disabled={busy || arrivalDone} aria-expanded={damageOpen}
-                className="w-full min-h-11 md:min-h-0 flex items-center justify-between gap-2 text-sm text-zinc-300 hover:text-zinc-100">
-                <span className="inline-flex items-center gap-2"><Flag size={14} className="text-red-400" /> Schade opgemerkt?</span>
-                <ChevronDown size={15} className={`transition-transform ${damageOpen ? 'rotate-180' : ''}`} />
-              </button>
-              {damageOpen && (
-                <>
-                  <p className="text-xs text-zinc-500">Wordt gemeld voor {car?.name ?? 'deze wagen'}, bij deze rit.</p>
-                  <DamageFields draft={damage} onChange={d => { setDamage(d); setDamageError('') }} onError={setDamageError} disabled={busy} />
-                </>
-              )}
-            </div>
-          )}
+          <div className="border-t border-zinc-800 pt-3 space-y-3">
+            <button type="button" onClick={() => setDamageOpen(o => !o)} disabled={busy || arrivalDone} aria-expanded={damageOpen}
+              className="w-full min-h-11 md:min-h-0 flex items-center justify-between gap-2 text-sm text-zinc-300 hover:text-zinc-100">
+              <span className="inline-flex items-center gap-2"><Flag size={14} className="text-red-400" /> Schade opgemerkt?</span>
+              <ChevronDown size={15} className={`transition-transform ${damageOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {damageOpen && (
+              <>
+                <p className="text-xs text-zinc-500">Wordt gemeld voor {car?.name ?? 'deze wagen'}, bij deze rit.</p>
+                <DamageFields draft={damage} onChange={d => { setDamage(d); setDamageError('') }} onError={setDamageError} disabled={busy} />
+              </>
+            )}
+          </div>
 
           {arrivalDone && damageError && (
             <div role="alert" className="flex flex-col sm:flex-row sm:items-center gap-2 px-3 py-2 rounded-lg bg-red-950/40 border border-red-900/40 text-sm text-red-300">
