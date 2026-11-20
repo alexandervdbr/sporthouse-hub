@@ -151,6 +151,7 @@ ${block ? `<p style="color:#b91c1c">${escapeHtml(block)}</p>` : ''}
 
 /** De afspraken in elke bevestiging: een kort kopje en één regel. Hier aanpassen als ze veranderen. */
 export const POOL_RULES: { title: string; detail: string }[] = [
+  { title: 'Terugbrengen', detail: 'Je rit start vanzelf op het gereserveerde uur. Registreer bij terugkomst je aankomst op de hub, met de kilometerstand.' },
   { title: 'Voltanken', detail: 'Tank de wagen vol voor je hem terugbrengt. Dat kan bij Shell, Total, Esso, Dats24 of Q8.' },
   { title: 'Schade', detail: 'Meteen melden op de hub.' },
   { title: 'Bandendruk of onderhoud', detail: 'Geeft de wagen een melding? Meteen melden op de hub.' },
@@ -183,7 +184,9 @@ export interface ReservationMailInput {
 export function rulesFor(contact: ReservationMailInput['contact']): { title: string; detail: string }[] {
   if (!contact) return POOL_RULES
   const who = contact.email ? `${contact.name} (${contact.email})` : contact.name
-  return POOL_RULES.map(rule => ({ ...rule, detail: rule.detail.replace('Meteen melden op de hub.', `Meteen melden aan ${who}.`) }))
+  return POOL_RULES.map(rule => rule.title === 'Terugbrengen'
+    ? { ...rule, detail: `Je rit start vanzelf op het gereserveerde uur. Geef bij terugkomst de kilometerstand door aan ${who}.` }
+    : { ...rule, detail: rule.detail.replace('Meteen melden op de hub.', `Meteen melden aan ${who}.`) })
 }
 
 export function reservationMail(r: ReservationMailInput): Omit<MailMessage, 'to'> {
