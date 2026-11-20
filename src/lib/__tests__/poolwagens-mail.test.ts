@@ -127,4 +127,15 @@ describe('reservationMail', () => {
     expect(m.html).toContain('&lt;b&gt;x&lt;/b&gt;')
     expect(m.html).not.toContain('<b>x</b>')
   })
+
+  it('voor een stagiair zonder account: "voor jou", melden aan de planner, geen link naar de hub', async () => {
+    const { reservationMail } = await import('@/lib/poolwagens/mail')
+    const m = reservationMail({ ...base, person: 'Lisa', bookedBy: 'Alexander', contact: { name: 'Alexander', email: 'alex@sporthouse.be' } })
+    expect(m.text).toContain('Alexander reserveerde Poolwagen 1 (1-ABC-234) voor jou.')
+    expect(m.text).toContain('Schade: Meteen melden aan Alexander (alex@sporthouse.be).')
+    expect(m.text).not.toContain('op de hub')
+    expect(m.html).not.toContain('op de hub')
+    expect(m.html).not.toContain('hub.example')
+    expect(m.text).toContain('Voltanken')
+  })
 })

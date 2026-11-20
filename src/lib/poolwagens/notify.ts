@@ -48,10 +48,17 @@ export async function notifyLateReturns(supabase: UserClient): Promise<void> {
  * is. Met de afspraken over tanken, schade en parkeren. Een reservatie die al
  * voorbij is (achteraf ingevoerd door beheer) krijgt geen mail.
  *
+ * Voor een stagiair zonder account (guestEmail, 0095) gaat de mail alleen
+ * naar de stagiair, niet naar de planner. Dat adres staat niet in de
+ * database; de route geeft het mee.
+ *
  * Loopt na het antwoord aan de gebruiker (after()); gooit nooit. Een
  * mislukte mail houdt de reservatie niet tegen en staat alleen in de log.
  */
-export async function sendReservationConfirmation(reservationId: string): Promise<void> {
+export async function sendReservationConfirmation(
+  reservationId: string,
+  opts: { guestEmail?: string | null } = {},
+): Promise<void> {
   try {
     const admin = createAdminClient()
     const { data: r, error } = await admin.from('pool_car_reservations')
@@ -62,8 +69,9 @@ export async function sendReservationConfirmation(reservationId: string): Promis
 
     const emailOf = async (id: string | null) =>
       id ? (await admin.auth.admin.getUserById(id)).data.user?.email ?? null : null
+    const guest = opts.guestEmail && !r.user_id ? opts.guestEmail : null
     const other = r.created_by && r.created_by !== r.user_id
-    const recipients = [...new Set(
+    const recipients = guest ? [guest] : [...new Set(
       [await emailOf(r.user_id), other ? await emailOf(r.created_by) : null]
         .filter((a): a is string => !!a).map(a => a.trim().toLowerCase()),
     )]
@@ -75,6 +83,7 @@ export async function sendReservationConfirmation(reservationId: string): Promis
       period: formatPeriod(r.start_at, r.end_at),
       person: r.person_name,
       bookedBy: other ? r.created_by_name : null,
+      contact: guest ? { name: r.created_by_name ?? 'wie reserveerde', email: await emailOf(r.created_by) } : null,
       client: r.client_name,
       note: r.note,
       link: `${SITE_URL}/poolwagens`,

@@ -1,4 +1,5 @@
 import { parseKm } from './car-input'
+import { isEmail } from './email'
 import { brusselsLocalToISO } from './time'
 
 // Wat de formulieren insturen omzetten naar de argumenten van de functies in
@@ -30,14 +31,35 @@ function client(b: Body): { p_client_id: string | null; p_client_name: string | 
   return { p_client_id: null, p_client_name: name }
 }
 
+export const MAX_GUEST_NAME = 100
+
+export interface PersonArgs {
+  p_user_id: string | null
+  p_guest_name: string | null
+  p_guest_email: string | null
+}
+
 /**
- * Voor wie (optioneel): een collega. Leeg is de ingelogde gebruiker. Of die
- * collega mag (bestaand account, geen freelancer), controleert de database.
+ * Voor wie (optioneel): een collega (user_id), of een stagiair zonder account
+ * (guest: naam + e-mail). Leeg is de ingelogde gebruiker. Of die collega mag
+ * (bestaand account, geen freelancer) en of het e-mailadres niet bij een
+ * account hoort, controleert de database.
  */
-function person(b: Body): { p_user_id: string | null } | { error: string } {
-  if (b.user_id === undefined || b.user_id === null || b.user_id === '') return { p_user_id: null }
+function person(b: Body): PersonArgs | { error: string } {
+  const none = { p_user_id: null, p_guest_name: null, p_guest_email: null }
+  if (b.guest !== undefined && b.guest !== null) {
+    const g = b.guest as Body
+    const name = text(g.name)
+    const email = text(g.email)?.toLowerCase() ?? null
+    if (!name) return { error: 'Vul de naam van de stagiair in.' }
+    if (name.length > MAX_GUEST_NAME) return { error: `De naam van de stagiair is hoogstens ${MAX_GUEST_NAME} tekens.` }
+    if (!email || !isEmail(email)) return { error: 'Vul een geldig e-mailadres van de stagiair in.' }
+    if (b.user_id) return { error: 'Kies een collega of een stagiair, niet allebei.' }
+    return { ...none, p_guest_name: name, p_guest_email: email }
+  }
+  if (b.user_id === undefined || b.user_id === null || b.user_id === '') return none
   const id = uuid(b.user_id)
-  return id ? { p_user_id: id } : { error: 'Ongeldige collega.' }
+  return id ? { ...none, p_user_id: id } : { error: 'Ongeldige collega.' }
 }
 
 function time(v: unknown): string | null {
@@ -51,14 +73,13 @@ function optionalKm(v: unknown): { km: number | null } | { error: string } {
   return km === null ? { error: 'De kilometerstand is een geheel getal vanaf 0.' } : { km }
 }
 
-export interface ReservationArgs {
+export interface ReservationArgs extends PersonArgs {
   p_car_id: string
   p_start_at: string
   p_end_at: string
   p_client_id: string | null
   p_client_name: string | null
   p_note: string | null
-  p_user_id: string | null
 }
 
 export function parseReservationInput(body: unknown): { args: ReservationArgs } | { error: string } {
@@ -76,14 +97,13 @@ export function parseReservationInput(body: unknown): { args: ReservationArgs } 
   return { args: { p_car_id: car, p_start_at: start, p_end_at: end, ...c, p_note: text(b.note), ...who } }
 }
 
-export interface DepartNowArgs {
+export interface DepartNowArgs extends PersonArgs {
   p_car_id: string
   p_end_at: string
   p_client_id: string | null
   p_client_name: string | null
   p_note: string | null
   p_km: number | null
-  p_user_id: string | null
 }
 
 /** "Nu vertrekken": geen vertrektijd (dat is nu), wel een verwachte terugkomst. */
@@ -132,14 +152,16 @@ export function parseArrivalInput(body: unknown): { args: { p_arrived_at: string
 
 export { uuid as parseUuid }
 
+const PERSON_KEYS = ['p_user_id', 'p_guest_name', 'p_guest_email'] as const
+
 /**
- * De argumenten voor de database, zonder p_user_id als dat leeg is (dan
- * reserveer je voor jezelf). Zo blijft gewoon reserveren werken zolang
- * migratie 0080 nog niet gedraaid is; alleen "voor een collega" heeft ze nodig.
+ * De argumenten voor de database, zonder de lege "voor wie"-velden (dan
+ * reserveer je voor jezelf). Zo blijft gewoon reserveren werken zolang een
+ * nieuwere migratie nog niet gedraaid is: "voor een collega" heeft 0080
+ * nodig, "voor een stagiair" 0095.
  */
-export function rpcArgs<T extends { p_user_id: string | null }>(args: T): T | Omit<T, 'p_user_id'> {
-  if (args.p_user_id) return args
-  const { p_user_id: _skip, ...rest } = args
-  void _skip
-  return rest
+export function rpcArgs<T extends PersonArgs>(args: T): Partial<T> {
+  const out: Partial<T> = { ...args }
+  for (const k of PERSON_KEYS) if (out[k] === null) delete out[k]
+  return out
 }

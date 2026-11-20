@@ -207,6 +207,14 @@ describe('reserveren', () => {
     })
   })
 
+  it('voor een stagiair: naam en e-mail naar de database, lege velden niet', async () => {
+    state.user = user(USER)
+    expect(await statusOf(reservations.POST(json('POST', { ...booking, guest: { name: 'Lisa', email: 'lisa@voorbeeld.be' } })))).toBe(201)
+    expect(state.rpcArgs.pool_create_reservation).toMatchObject({ p_guest_name: 'Lisa', p_guest_email: 'lisa@voorbeeld.be' })
+    expect(state.rpcArgs.pool_create_reservation).not.toHaveProperty('p_user_id')
+    expect(await statusOf(reservations.POST(json('POST', { ...booking, guest: { name: 'Lisa', email: 'fout' } })))).toBe(400)
+  })
+
   it('met een bestaande of een getypte klant', async () => {
     state.user = user(USER)
     expect(await statusOf(reservations.POST(json('POST', { ...booking, client_id: CLIENT })))).toBe(201)
