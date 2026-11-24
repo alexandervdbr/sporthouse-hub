@@ -6,7 +6,8 @@ import ClientPicker from './ClientPicker'
 import { ACCENT, ErrorLine, Modal, inputCls, labelCls, secondaryCls, buttonCls, send } from './ui'
 import { blockFor } from '@/lib/poolwagens/status'
 import { NO_FREE_CAR_TEXT, carChoices, pickFreeCar, reservationFormProblem } from '@/lib/poolwagens/reservation-form'
-import { brusselsLocalToISO, isoToBrusselsLocal as toLocal } from '@/lib/poolwagens/time'
+import { brusselsDay, brusselsLocalToISO, formatWhen, isoToBrusselsLocal as toLocal } from '@/lib/poolwagens/time'
+import { restartsLater } from '@/lib/poolwagens/trips'
 import { isEmail } from '@/lib/poolwagens/email'
 import type { PoolOptions, PoolPlanning, PoolReservation } from '@/lib/poolwagens/types'
 
@@ -25,6 +26,10 @@ import type { PoolOptions, PoolPlanning, PoolReservation } from '@/lib/poolwagen
 // Voor wie: jezelf, een collega, of een stagiair zonder account (naam +
 // e-mail). De bevestiging gaat dan alleen naar dat adres; het wordt nergens
 // bewaard (0095).
+//
+// Een lopende rit wijzigen (0099): de wagen ligt vast, de rest niet. Schuift
+// het vertrek naar later dan nu, dan wordt de rit weer een reservatie en
+// start hij vanzelf opnieuw; dat zegt het formulier er meteen bij.
 
 /** De keuze "Stagiair (zonder account)" in de lijst Voor wie. */
 const GUEST = 'stagiair'
@@ -142,7 +147,9 @@ export default function ReservationDialog({ mode, planning, options, userId, man
     }
   }
 
-  const title = mode.kind === 'now' ? 'Nu vertrekken' : editing ? 'Reservatie wijzigen' : 'Poolwagen reserveren'
+  const title = mode.kind === 'now' ? 'Nu vertrekken' : started ? 'Rit wijzigen' : editing ? 'Reservatie wijzigen' : 'Poolwagen reserveren'
+  const startISO = brusselsLocalToISO(start)
+  const restart = !!editing && !problem && restartsLater(editing, startISO, now)
   // De melding over de stagiair pas zodra er iets getypt is; de knop staat wel meteen uit.
   const typedGuest = !!(guestName.trim() || guestEmail.trim())
   const message = error || (noneFree ? NO_FREE_CAR_TEXT : problem) || (typedGuest ? guestProblem : null)
@@ -172,6 +179,7 @@ export default function ReservationDialog({ mode, planning, options, userId, man
           ))}
         </select>
         {switchNote && <p role="status" className="mt-1 text-xs text-amber-300">{switchNote}</p>}
+        {started && <p className="mt-1 text-xs text-zinc-500">De rit is gestart: de wagen ligt vast, de rest kan je nog aanpassen.</p>}
       </div>
 
       {editing ? (
@@ -216,6 +224,11 @@ export default function ReservationDialog({ mode, planning, options, userId, man
           <label className={labelCls}>Verwachte terugkomst</label>
           <input type="datetime-local" className={inputCls} value={end} onChange={e => changePeriod(start, e.target.value)} />
         </div>
+        {restart && startISO && (
+          <p role="status" className="sm:col-span-2 text-xs text-amber-300">
+            Nieuw vertrek {formatWhen(startISO, brusselsDay(now))}: de rit start dan opnieuw, tot dan is de wagen vrij voor anderen.
+          </p>
+        )}
       </div>
 
       <div>

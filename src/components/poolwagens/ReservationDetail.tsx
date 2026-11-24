@@ -21,7 +21,8 @@ import type { PoolCar, PoolReservation } from '@/lib/poolwagens/types'
 //
 // Een vertrek registreer je niet meer: de rit start vanzelf op het
 // gereserveerde uur (0096). Niet gereden? Dan kan je de rit annuleren zolang
-// de aankomst niet geregistreerd is.
+// de aankomst niet geregistreerd is. Wijzigen kan ook tot de aankomst (0099):
+// vertrek, terugkomst, klant en notitie, niet de wagen.
 //
 // Aankomst: het tijdstip staat op "nu" (Brusselse kloktijd). Pas je het niet
 // aan, dan gaat er geen tijdstip mee en neemt de database zijn eigen "nu" —
@@ -151,7 +152,7 @@ export default function ReservationDetail({ reservation: r, car, block, endanger
           <Trash2 size={14} /><span className={iconLabelCls}>{hasStarted(r, now) ? 'Niet gereden' : 'Annuleren'}</span>
         </button>
       )}
-      {canChange && (!r.departed_at || manage) && (
+      {canChange && (
         <button onClick={onEdit} className={secondaryCls}><Pencil size={14} /> Wijzigen</button>
       )}
       {canArrive && (

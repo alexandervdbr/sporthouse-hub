@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { canCancelReservation, canChangeReservation, canRegisterTrip, endangeredReservations, hasStarted, isOpenTrip, tripState } from '@/lib/poolwagens/trips'
+import { canCancelReservation, canChangeReservation, canRegisterTrip, endangeredReservations, hasStarted, isOpenTrip, restartsLater, tripState } from '@/lib/poolwagens/trips'
 
 const NOW = new Date('2026-11-04T12:00:00Z')
 const h = (hours: number) => new Date(NOW.getTime() + hours * 3600_000).toISOString()
@@ -45,14 +45,24 @@ describe('endangeredReservations (te laat terug)', () => {
 })
 
 describe('rechten op een reservatie (zoals de database)', () => {
-  const mine = { user_id: 'u1', created_by: 'u1', departed_at: null }
-  it('eigen reservatie zolang de rit niet gestart is', () => {
+  const mine = { user_id: 'u1', created_by: 'u1', arrived_at: null }
+  it('eigen reservatie of lopende rit, tot de aankomst (0099)', () => {
     expect(canChangeReservation(mine, 'u1', false)).toBe(true)
-    expect(canChangeReservation({ ...mine, departed_at: h(-1) }, 'u1', false)).toBe(false)
+    expect(canChangeReservation({ ...mine, arrived_at: h(-1) }, 'u1', false)).toBe(false)
     expect(canChangeReservation(mine, 'u2', false)).toBe(false)
+    expect(canChangeReservation({ user_id: 'u3', created_by: 'u1', arrived_at: null }, 'u1', false)).toBe(true)
   })
   it('beheer altijd', () => {
-    expect(canChangeReservation({ ...mine, departed_at: h(-1) }, 'u2', true)).toBe(true)
+    expect(canChangeReservation({ ...mine, arrived_at: h(-1) }, 'u2', true)).toBe(true)
+  })
+  it('vertrek van een lopende rit naar later: weer een reservatie (0099)', () => {
+    const trip = { start_at: h(-1), departed_at: h(-1), arrived_at: null }
+    expect(restartsLater(trip, h(1), NOW)).toBe(true)
+    expect(restartsLater(trip, h(-0.5), NOW)).toBe(false) // verschoven, maar al voorbij: blijft onderweg
+    expect(restartsLater(trip, h(-1), NOW)).toBe(false) // niet verschoven
+    expect(restartsLater({ ...trip, departed_at: null }, h(1), NOW)).toBe(false) // nog geen rit
+    expect(restartsLater({ ...trip, arrived_at: h(-0.2) }, h(1), NOW)).toBe(false) // al terug
+    expect(restartsLater(trip, null, NOW)).toBe(false)
   })
   it('annuleren: eigen of beheer, ook een begonnen rit (niet gereden), niet na aankomst', () => {
     const r = { user_id: 'u1', created_by: 'u1', arrived_at: null }
