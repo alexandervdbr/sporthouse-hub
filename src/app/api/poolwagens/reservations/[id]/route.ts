@@ -3,7 +3,8 @@ import { parseReservationInput } from '@/lib/poolwagens/reservation-input'
 
 // PATCH — een reservatie wijzigen (wagen, periode, klant, notitie).
 // DELETE — annuleren; blijft bewaard maar houdt niets meer bezet.
-// Wijzigen: eigen reservatie zolang de rit niet gestart is, of beheer.
+// Wijzigen: eigen reservatie of rit zolang de wagen niet terug is, of beheer
+// (een lopende rit niet naar een andere wagen; 0099).
 // Annuleren: eigen reservatie of beheer, zolang de wagen niet terug is (een
 // begonnen rit annuleren = niet gereden, 0096). Dat beslist de database
 // (pool_update_reservation, pool_cancel_reservation).

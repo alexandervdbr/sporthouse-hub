@@ -48,14 +48,34 @@ export function endangeredReservations(
   return out
 }
 
-/** Mag deze gebruiker de reservatie wijzigen of annuleren? Zoals de database. */
+/**
+ * Mag deze gebruiker de reservatie wijzigen? Zoals pool_update_reservation
+ * (0099): eigen reservatie of rit zolang de wagen niet teruggebracht is, of
+ * beheer altijd. Een lopende rit kan niet naar een andere wagen (ook niet
+ * voor beheer); dat regelt het formulier.
+ */
 export function canChangeReservation(
-  r: Pick<PoolReservation, 'user_id' | 'created_by' | 'departed_at'>,
+  r: Pick<PoolReservation, 'user_id' | 'created_by' | 'arrived_at'>,
   userId: string,
   manage: boolean,
 ): boolean {
   if (manage) return true
-  return !r.departed_at && (r.user_id === userId || r.created_by === userId)
+  return !r.arrived_at && (r.user_id === userId || r.created_by === userId)
+}
+
+/**
+ * Wordt deze lopende rit weer een gewone reservatie als het vertrek naar
+ * startISO verschuift? Ja als het nieuwe vertrek in de toekomst ligt: de
+ * database wist dan het vertrek en de rit start vanzelf opnieuw (0099).
+ */
+export function restartsLater(
+  r: Pick<PoolReservation, 'start_at' | 'departed_at' | 'arrived_at'>,
+  startISO: string | null,
+  now: Date,
+): boolean {
+  if (!r.departed_at || r.arrived_at || !startISO) return false
+  const start = Date.parse(startISO)
+  return start !== Date.parse(r.start_at) && start > now.getTime()
 }
 
 /**
