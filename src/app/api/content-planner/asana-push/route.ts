@@ -1,15 +1,6 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { hasClientAccess } from '@/lib/auth-permissions'
-
-const ASANA_API = 'https://app.asana.com/api/1.0'
-
-function asanaHeaders() {
-  return {
-    Authorization: `Bearer ${process.env.ASANA_PAT}`,
-    'Content-Type': 'application/json',
-    Accept: 'application/json',
-  }
-}
+import { ASANA_API, asanaHeaders, asanaResolver } from '@/lib/asana'
 
 function fmtDate(dateStr: string) {
   const [y, m, d] = dateStr.split('-')
@@ -68,34 +59,23 @@ export async function POST(req: Request) {
     return Response.json({ error: 'Geen (actieve) PM geconfigureerd.' }, { status: 400 })
   }
 
-  const workspaceGid = process.env.ASANA_WORKSPACE_GID
   const extraGids: string[] = (cfg.asana_extra_project_gids ?? []).map((p: { gid: string }) => p.gid).filter(Boolean)
   const allProjectGids = [cfg.asana_project_gid, ...extraGids]
   const clientPrefix = (client?.name ?? 'CONTENT').split(' ')[0].toUpperCase()
 
   try {
-    // Resolve all emails to Asana GIDs in one call
-    const usersRes = await fetch(
-      `${ASANA_API}/workspaces/${workspaceGid}/users?opt_fields=email,gid`,
-      { headers: asanaHeaders() }
-    )
-
-    if (!usersRes.ok) {
+    // Afwijkende Asana-adressen gaan voor, zie src/lib/asana.ts
+    const toGid = await asanaResolver((members ?? []).map(m => m.contact_email))
+    if (!toGid) {
       return Response.json({ error: 'Kon gebruikers niet ophalen uit Asana.' }, { status: 502 })
-    }
-
-    const usersData = await usersRes.json()
-    const emailToGid: Record<string, string> = {}
-    for (const u of usersData.data ?? []) {
-      if (u.email) emailToGid[u.email.toLowerCase()] = u.gid
     }
 
     const results = []
 
     for (const row of rows) {
       const designer = members?.find(m => m.roles.includes('designer') && m.contact_name === row.designer)
-      const pmGid = emailToGid[pm.contact_email.toLowerCase()]
-      const designerGid = designer ? emailToGid[designer.contact_email.toLowerCase()] : undefined
+      const pmGid = toGid(pm.contact_email)
+      const designerGid = designer ? toGid(designer.contact_email) : undefined
       const description = buildDescription(row.date, row.notes)
 
       // POSTEN task — assigned to PM

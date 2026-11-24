@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Fragment } from 'react'
 import { Plus, Trash2, Send, Copy, Check, Loader2, UserPlus, X, AlertCircle, ChevronDown, ChevronRight, Link } from 'lucide-react'
+import { AsanaEmailLine, useAsanaStatus } from './AsanaEmailLine'
 
 interface Asset {
   label: string
@@ -120,6 +121,8 @@ export default function BriefingBuilder({
   const [activeTab, setActiveTab] = useState<'taken' | 'briefings' | 'config'>('taken')
   const [rows, setRows] = useState<Row[]>([])
   const [members, setMembers] = useState<Member[]>([])
+  // Welk adres elk lid in Asana heeft en of het gevonden wordt — alleen in de config-tab
+  const asana = useAsanaStatus(members.map(m => m.contact_email), activeTab === 'config' && isAdmin)
   const [config, setConfig] = useState<{ asana_project_gid: string; asana_extra_project_gids: { gid: string; label: string }[] } | null>(null)
   const [loadingData, setLoadingData] = useState(true)
 
@@ -755,6 +758,7 @@ export default function BriefingBuilder({
                           <div className="min-w-0">
                             <p className="text-sm text-zinc-200 truncate">{m.contact_name}</p>
                             <p className="text-xs text-zinc-500 truncate">{m.contact_email}</p>
+                            <AsanaEmailLine email={m.contact_email} status={asana.status[m.contact_email]} onSaved={asana.reload} />
                           </div>
                         </div>
                         <button
